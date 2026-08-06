@@ -213,6 +213,11 @@
     });
   }
 
+  // place field: real dropdown of POIs (restaurants, museums, beaches…) biased to the chosen destination
+  GEO.attachPlaceAutocomplete(document.getElementById('i-place'), {
+    getBias: () => ({ lat: destinations[0]?.lat, lon: destinations[0]?.lon }),
+  });
+
   let idSeq = 1;
   document.getElementById('add-item').onclick = () => {
     const err = document.getElementById('err-2');

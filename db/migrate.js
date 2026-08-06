@@ -44,6 +44,16 @@ async function main() {
     WHERE destinations = '[]' AND destination IS NOT NULL AND destination <> ''
   `);
 
+  console.log('Migration 3: edit codes + likes...');
+  await pool.query(`ALTER TABLE trips ADD COLUMN IF NOT EXISTS edit_code CHAR(6)`);
+  await pool.query(`ALTER TABLE trips ADD COLUMN IF NOT EXISTS likes INT NOT NULL DEFAULT 0`);
+  const noCode = await pool.query(`SELECT id FROM trips WHERE edit_code IS NULL`);
+  for (const r of noCode.rows) {
+    await pool.query(`UPDATE trips SET edit_code = $1 WHERE id = $2`,
+      [String(Math.floor(100000 + Math.random() * 900000)), r.id]);
+  }
+  if (noCode.rows.length) console.log(`  + edit codes generated for ${noCode.rows.length} trips`);
+
   console.log('Done.');
   await pool.end();
 }

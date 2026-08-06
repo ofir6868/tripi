@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS trips (
   is_public BOOLEAN DEFAULT false,
   emoji TEXT,
   destinations JSONB NOT NULL DEFAULT '[]',
+  edit_code CHAR(6),
+  likes INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 

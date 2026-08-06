@@ -64,7 +64,23 @@ function authOptional(req, _res, next) {
 }
 
 const tripFields = `id, owner_id, title, destination, country, description, cover_image,
-  start_date, end_date, days, share_code, is_public, emoji, destinations, created_at`;
+  start_date, end_date, days, share_code, is_public, emoji, destinations, likes, created_at`;
+
+// resolve a trip by share code and check edit rights: owner JWT or x-edit-code header
+async function tripWithEditAuth(req, res) {
+  const { rows } = await pool.query(
+    `SELECT ${tripFields}, edit_code FROM trips WHERE share_code = $1`, [req.params.code]
+  );
+  const trip = rows[0];
+  if (!trip) { res.status(404).json({ error: 'הטיול לא נמצא' }); return null; }
+  const isOwner = req.user && req.user.id === trip.owner_id;
+  const editCode = req.headers['x-edit-code'];
+  if (!isOwner && (!editCode || editCode !== trip.edit_code)) {
+    res.status(403).json({ error: 'אין הרשאת עריכה לטיול הזה' });
+    return null;
+  }
+  return trip;
+}
 
 // sanitize a client-supplied destinations array → [{name, country, lat, lon}]
 function cleanDestinations(input) {
@@ -121,7 +137,7 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/trips/suggested', async (_req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${tripFields} FROM trips WHERE is_public = true ORDER BY id LIMIT 12`
+      `SELECT ${tripFields} FROM trips WHERE is_public = true ORDER BY likes DESC, id LIMIT 16`
     );
     res.json(rows);
   } catch (err) {
@@ -151,16 +167,121 @@ app.get('/api/trips/search', async (req, res) => {
   }
 });
 
-app.get('/api/trips/code/:code', async (req, res) => {
+app.get('/api/trips/code/:code', authOptional, async (req, res) => {
   try {
-    const { rows } = await pool.query(`SELECT ${tripFields} FROM trips WHERE share_code = $1`, [req.params.code]);
+    const { rows } = await pool.query(
+      `SELECT ${tripFields}, edit_code FROM trips WHERE share_code = $1`, [req.params.code]
+    );
     if (!rows[0]) return res.status(404).json({ error: 'לא נמצא טיול עם הקוד הזה' });
     const trip = rows[0];
+    const isOwner = !!(req.user && req.user.id === trip.owner_id);
+    if (!isOwner) delete trip.edit_code; // edit code is only revealed to the owner
     const items = await pool.query(
       'SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id',
       [trip.id]
     );
-    res.json({ trip, items: items.rows });
+    res.json({ trip, items: items.rows, isOwner });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// ---- collaborative editing (owner or x-edit-code header) ----
+
+app.post('/api/trips/code/:code/items', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const it = req.body || {};
+    if (!it.title || !String(it.title).trim()) return res.status(400).json({ error: 'חסרה כותרת לתחנה' });
+    const { rows } = await pool.query(
+      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
+       RETURNING *`,
+      [trip.id, Math.min(Math.max(parseInt(it.day_number, 10) || 1, 1), trip.days),
+       it.time_label || null, String(it.title).slice(0, 200).trim(), it.note || null,
+       it.place_query || null, it.category || null]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+app.delete('/api/trips/code/:code/items/:itemId', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    await pool.query('DELETE FROM trip_items WHERE id = $1 AND trip_id = $2', [req.params.itemId, trip.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// ---- clone a trip into my account ----
+
+app.post('/api/trips/code/:code/clone', authRequired, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { rows } = await pool.query(`SELECT * FROM trips WHERE share_code = $1`, [req.params.code]);
+    const src = rows[0];
+    if (!src) return res.status(404).json({ error: 'הטיול לא נמצא' });
+    await client.query('BEGIN');
+    const code = await uniqueShareCode(client);
+    const editCode = String(Math.floor(100000 + Math.random() * 900000));
+    const t = await client.query(
+      `INSERT INTO trips (owner_id, title, destination, country, description, cover_image, start_date, end_date, days, share_code, emoji, destinations, edit_code)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING ${tripFields}`,
+      [req.user.id, src.title, src.destination, src.country, src.description, src.cover_image,
+       src.start_date, src.end_date, src.days, code, src.emoji, JSON.stringify(src.destinations || []), editCode]
+    );
+    await client.query(
+      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, sort_order)
+       SELECT $1, day_number, time_label, title, note, place_query, category, sort_order
+       FROM trip_items WHERE trip_id = $2`,
+      [t.rows[0].id, src.id]
+    );
+    await client.query('COMMIT');
+    res.json(t.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  } finally {
+    client.release();
+  }
+});
+
+// ---- likes + publish ----
+
+app.post('/api/trips/:id/like', async (req, res) => {
+  try {
+    const delta = req.body && req.body.undo ? -1 : 1;
+    const { rows } = await pool.query(
+      'UPDATE trips SET likes = GREATEST(likes + $2, 0) WHERE id = $1 RETURNING likes',
+      [req.params.id, delta]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'הטיול לא נמצא' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+app.patch('/api/trips/:id', authRequired, async (req, res) => {
+  try {
+    const { is_public } = req.body || {};
+    const { rows } = await pool.query(
+      `UPDATE trips SET is_public = $1 WHERE id = $2 AND owner_id = $3 RETURNING ${tripFields}`,
+      [!!is_public, req.params.id, req.user.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'הטיול לא נמצא' });
+    res.json(rows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
@@ -191,13 +312,14 @@ app.post('/api/trips', authRequired, async (req, res) => {
     const countryText = country || [...new Set(dests.map((d) => d.country).filter(Boolean))].join(', ') || null;
     await client.query('BEGIN');
     const code = await uniqueShareCode(client);
+    const editCode = String(Math.floor(100000 + Math.random() * 900000));
     const nDays = Math.min(Math.max(parseInt(days, 10) || 1, 1), 60);
     const { rows } = await client.query(
-      `INSERT INTO trips (owner_id, title, destination, country, description, cover_image, start_date, end_date, days, share_code, emoji, destinations)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING ${tripFields}`,
+      `INSERT INTO trips (owner_id, title, destination, country, description, cover_image, start_date, end_date, days, share_code, emoji, destinations, edit_code)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING ${tripFields}, edit_code`,
       [req.user.id, title.trim(), destText.slice(0, 160), countryText, description || null,
        cover_image || null, start_date || null, end_date || null, nDays, code, emoji || null,
-       JSON.stringify(dests)]
+       JSON.stringify(dests), editCode]
     );
     const trip = rows[0];
     if (Array.isArray(items)) {
@@ -305,8 +427,42 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
-// pretty routes
-app.get('/trip/:code', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'trip.html')));
+// pretty routes — /trip/:code gets Open Graph tags injected so WhatsApp/social previews
+// show the trip cover, title and code
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[c]));
+let tripHtmlCache = null;
+app.get('/trip/:code', async (req, res) => {
+  if (!tripHtmlCache) {
+    tripHtmlCache = require('fs').readFileSync(path.join(__dirname, 'public', 'trip.html'), 'utf8');
+  }
+  let html = tripHtmlCache;
+  try {
+    const { rows } = await pool.query(
+      'SELECT title, destination, description, cover_image, days, share_code, emoji FROM trips WHERE share_code = $1',
+      [req.params.code]
+    );
+    const t = rows[0];
+    if (t) {
+      const title = `${t.emoji || '🧭'} ${t.title} · TRIPI`;
+      const desc = `${t.destination} · ${t.days} ימים · קוד טיול ${t.share_code}` +
+        (t.description ? ` — ${t.description.slice(0, 120)}` : '');
+      const og = `
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="TRIPI">
+  <meta property="og:title" content="${escapeHtml(title)}">
+  <meta property="og:description" content="${escapeHtml(desc)}">
+  ${t.cover_image ? `<meta property="og:image" content="${escapeHtml(t.cover_image)}">` : ''}
+  <meta property="og:url" content="https://tripi-caw3.onrender.com/trip/${escapeHtml(t.share_code)}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="description" content="${escapeHtml(desc)}">`;
+      html = html
+        .replace('<title>טיול · TRIPI</title>', `<title>${escapeHtml(title)}</title>${og}`);
+    }
+  } catch { /* serve the plain page on any error */ }
+  res.type('html').send(html);
+});
 app.get('/plan', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'plan.html')));
 app.get('/my', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'my.html')));
 

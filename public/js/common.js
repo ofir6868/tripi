@@ -145,4 +145,5 @@ document.addEventListener('DOMContentLoaded', () => {
   document.body.prepend(atm);
   renderHeader();
   renderAuthModal();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 });

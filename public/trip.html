@@ -8,6 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Suez+One&family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0a1512">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -28,14 +30,31 @@
       <div id="days-container"></div>
     </main>
     <aside class="trip-side">
+      <div class="action-row" id="action-row">
+        <button class="btn btn-ghost action-btn" id="like-btn">🤍 <span id="like-count">0</span></button>
+        <button class="btn btn-ghost action-btn" id="clone-btn" title="העתקה לטיולים שלי">📥 שמירה אצלי</button>
+        <button class="btn btn-ghost action-btn" id="print-btn" title="הדפסה או שמירה כ-PDF">🖨️ PDF</button>
+        <button class="btn btn-ghost action-btn" id="edit-btn">✏️ עריכה</button>
+      </div>
       <div class="ticket glass">
         <div class="ticket-label">✈ TRIPI PASS ✈</div>
         <div class="code" id="ticket-code"></div>
         <div class="ticket-sub">משתפים את הקוד — וכולם רואים את המסלול</div>
         <hr class="divider">
-        <button class="btn btn-amber" id="copy-code" style="width:100%;justify-content:center">📋 העתקת קוד</button>
+        <button class="btn btn-amber" id="wa-share" style="width:100%;justify-content:center">💬 שיתוף בוואטסאפ</button>
+        <button class="btn btn-ghost" id="copy-code" style="width:100%;justify-content:center;margin-top:8px">📋 העתקת קוד</button>
         <button class="btn btn-ghost" id="copy-link" style="width:100%;justify-content:center;margin-top:8px">🔗 העתקת קישור</button>
         <div class="copy-feedback" id="copy-feedback"></div>
+        <div class="owner-box" id="owner-box" style="display:none">
+          <hr class="divider">
+          <div class="ticket-label" style="color:var(--amber)">🔑 קוד עריכה</div>
+          <div class="code" id="edit-code" style="font-size:1.6rem"></div>
+          <div class="ticket-sub">מי שמקבל אותו יכול לערוך את המסלול איתכם</div>
+          <label class="publish-toggle" id="publish-toggle-wrap">
+            <input type="checkbox" id="publish-toggle">
+            <span>🌍 פרסום בגלריית הטיולים</span>
+          </label>
+        </div>
       </div>
       <div class="dest-switcher" id="dest-switcher" style="display:none"></div>
       <div class="side-card glass" id="weather-card" style="display:none">

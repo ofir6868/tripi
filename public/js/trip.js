@@ -4,6 +4,11 @@
 
   const heDate = (d) => d ? new Date(d).toLocaleDateString('he-IL', { day: 'numeric', month: 'long' }) : null;
 
+  // edit rights: owner (JWT) or a previously entered edit code kept per-trip
+  const savedEditCodes = JSON.parse(localStorage.getItem('tripi_edit_codes') || '{}');
+  let editMode = false;
+  let canEditHeaders = null; // extra headers for item API calls
+
   async function load() {
     let data;
     try {
@@ -13,7 +18,7 @@
       document.getElementById('not-found').style.display = '';
       return;
     }
-    const { trip, items } = data;
+    const { trip, items, isOwner } = data;
 
     document.title = `${trip.title} · TRIPI`;
     if (trip.cover_image) {
@@ -36,19 +41,40 @@
       ? TRIPI.esc(trip.description)
       : 'עוד אין תיאור לטיול הזה — אבל המסלול מדבר בעד עצמו 🙂';
 
-    // itinerary grouped by day
-    const byDay = new Map();
-    for (const it of items) {
-      if (!byDay.has(it.day_number)) byDay.set(it.day_number, []);
-      byDay.get(it.day_number).push(it);
-    }
+    // itinerary grouped by day (weatherByDate is filled by loadWeather when dates align)
+    let tripItems = items.slice();
+    let weatherByDate = {};
     const container = document.getElementById('days-container');
-    if (!items.length) {
-      container.innerHTML = '<div class="empty-day glass" style="margin-top:20px;border-radius:var(--radius)">המסלול עדיין ריק — בעל הטיול עוד לא הוסיף תחנות</div>';
-    } else {
-      container.innerHTML = [...byDay.keys()].sort((a, b) => a - b).map((day) => `
+
+    const dayDate = (day) => {
+      if (!trip.start_date) return null;
+      const d = new Date(trip.start_date);
+      d.setDate(d.getDate() + day - 1);
+      return d;
+    };
+
+    function renderItinerary() {
+      const byDay = new Map();
+      for (let d = 1; d <= (editMode ? trip.days : 0); d++) byDay.set(d, []); // edit mode shows all days
+      for (const it of tripItems) {
+        if (!byDay.has(it.day_number)) byDay.set(it.day_number, []);
+        byDay.get(it.day_number).push(it);
+      }
+      if (!byDay.size) {
+        container.innerHTML = '<div class="empty-day glass" style="margin-top:20px;border-radius:var(--radius)">המסלול עדיין ריק — בעל הטיול עוד לא הוסיף תחנות</div>';
+        return;
+      }
+      container.innerHTML = [...byDay.keys()].sort((a, b) => a - b).map((day) => {
+        const date = dayDate(day);
+        const iso = date ? date.toISOString().slice(0, 10) : null;
+        const w = iso && weatherByDate[iso];
+        return `
         <div class="day-block">
-          <div class="day-title"><span class="day-badge">יום ${day}</span></div>
+          <div class="day-title">
+            <span class="day-badge">יום ${day}</span>
+            ${date ? `<span class="day-date">${date.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}</span>` : ''}
+            ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}">${GEO.weatherIcon(w.code)} ${w.max}°</span>` : ''}
+          </div>
           <div class="timeline">
             ${byDay.get(day).map((it) => `
               <div class="item-card glass">
@@ -56,13 +82,158 @@
                   ${it.time_label ? `<span class="item-time">${TRIPI.esc(it.time_label)}</span>` : ''}
                   <span class="item-title">${TRIPI.esc(it.title)}</span>
                   ${it.category ? `<span class="item-cat">${TRIPI.esc(it.category)}</span>` : ''}
+                  ${editMode ? `<button class="item-del" data-id="${it.id}" title="מחיקת תחנה">✕</button>` : ''}
                 </div>
                 ${it.note ? `<div class="item-note">${TRIPI.esc(it.note)}</div>` : ''}
                 ${it.place_query ? `<a class="item-map-link" target="_blank" rel="noopener" href="${TRIPI.mapsSearchUrl(it.place_query)}">📍 פתיחה בגוגל מפות</a>` : ''}
               </div>`).join('')}
+            ${byDay.get(day).length === 0 && editMode ? '<div class="empty-day">יום פנוי — מוסיפים תחנה למטה ↓</div>' : ''}
+            ${editMode ? `<button class="add-item-inline" data-day="${day}">+ הוספת תחנה ליום ${day}</button>` : ''}
           </div>
-        </div>`).join('');
+        </div>`;
+      }).join('');
+
+      if (editMode) {
+        container.querySelectorAll('.item-del').forEach((b) => {
+          b.onclick = async () => {
+            if (!confirm('למחוק את התחנה?')) return;
+            try {
+              await TRIPI.api(`/api/trips/code/${trip.share_code}/items/${b.dataset.id}`, { method: 'DELETE', headers: canEditHeaders });
+              tripItems = tripItems.filter((it) => it.id !== +b.dataset.id);
+              renderItinerary();
+            } catch (e) { alert(e.message); }
+          };
+        });
+        container.querySelectorAll('.add-item-inline').forEach((b) => {
+          b.onclick = () => openAddItemForm(+b.dataset.day, b);
+        });
+      }
     }
+
+    function openAddItemForm(day, anchorBtn) {
+      document.querySelector('.inline-item-form')?.remove();
+      const form = document.createElement('div');
+      form.className = 'inline-item-form glass';
+      form.innerHTML = `
+        <div class="form-grid">
+          <div class="field"><label>שעה</label><input type="time" class="iif-time"></div>
+          <div class="field"><label>קטגוריה</label><select class="iif-cat">
+            <option>אטרקציה</option><option>אוכל</option><option>טבע</option><option>ים</option>
+            <option>תרבות</option><option>קניות</option><option>לינה</option><option>נוף</option>
+            <option>חיי לילה</option><option>תחבורה</option></select></div>
+          <div class="field span-2"><label>מה עושים? *</label><input type="text" class="iif-title" maxlength="120" placeholder="למשל: ארוחת ערב על הגג"></div>
+          <div class="field span-2"><label>מיקום (חיפוש מקומות)</label><input type="text" class="iif-place" maxlength="120" placeholder="הקלידו ותבחרו מהרשימה…" autocomplete="off"></div>
+        </div>
+        <div class="form-error iif-err"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-amber iif-save" style="flex:1;justify-content:center">הוספה</button>
+          <button class="btn btn-ghost iif-cancel">ביטול</button>
+        </div>`;
+      anchorBtn.parentNode.insertBefore(form, anchorBtn);
+      const placeInput = form.querySelector('.iif-place');
+      const picker = GEO.attachPlaceAutocomplete(placeInput, {
+        getBias: () => ({ lat: dests[0]?.lat, lon: dests[0]?.lon }),
+      });
+      form.querySelector('.iif-cancel').onclick = () => form.remove();
+      form.querySelector('.iif-save').onclick = async () => {
+        const title = form.querySelector('.iif-title').value.trim();
+        if (!title) { form.querySelector('.iif-err').textContent = 'צריך לכתוב מה עושים'; return; }
+        try {
+          const item = await TRIPI.api(`/api/trips/code/${trip.share_code}/items`, {
+            method: 'POST', headers: canEditHeaders,
+            body: JSON.stringify({
+              day_number: day,
+              time_label: form.querySelector('.iif-time').value || null,
+              title,
+              category: form.querySelector('.iif-cat').value,
+              place_query: placeInput.value.trim() || null,
+            }),
+          });
+          tripItems.push(item);
+          tripItems.sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')));
+          renderItinerary();
+        } catch (e) { form.querySelector('.iif-err').textContent = e.message; }
+      };
+    }
+
+    renderItinerary();
+
+    // ---- edit mode entry ----
+    const editBtn = document.getElementById('edit-btn');
+    function enterEditMode() {
+      editMode = true;
+      editBtn.textContent = '✅ סיום עריכה';
+      editBtn.classList.add('editing');
+      renderItinerary();
+    }
+    editBtn.onclick = () => {
+      if (editMode) {
+        editMode = false;
+        editBtn.textContent = '✏️ עריכה';
+        editBtn.classList.remove('editing');
+        document.querySelector('.inline-item-form')?.remove();
+        renderItinerary();
+        return;
+      }
+      if (isOwner) { canEditHeaders = {}; enterEditMode(); return; }
+      const saved = savedEditCodes[trip.share_code];
+      if (saved) { canEditHeaders = { 'X-Edit-Code': saved }; enterEditMode(); return; }
+      const entered = prompt('להזנת מצב עריכה צריך קוד עריכה בן 6 ספרות (מקבלים מבעל הטיול):');
+      if (!entered) return;
+      canEditHeaders = { 'X-Edit-Code': entered.trim() };
+      // verify by trying a harmless call: add+nothing — instead verify by attempting entry; server checks on first mutation
+      savedEditCodes[trip.share_code] = entered.trim();
+      localStorage.setItem('tripi_edit_codes', JSON.stringify(savedEditCodes));
+      enterEditMode();
+    };
+
+    // ---- owner box: edit code + publish toggle ----
+    if (isOwner && trip.edit_code) {
+      document.getElementById('owner-box').style.display = '';
+      document.getElementById('edit-code').textContent = trip.edit_code;
+      const toggle = document.getElementById('publish-toggle');
+      toggle.checked = !!trip.is_public;
+      toggle.onchange = async () => {
+        try { await TRIPI.api('/api/trips/' + trip.id, { method: 'PATCH', body: JSON.stringify({ is_public: toggle.checked }) }); }
+        catch (e) { toggle.checked = !toggle.checked; alert(e.message); }
+      };
+    }
+
+    // ---- like button ----
+    const likedTrips = JSON.parse(localStorage.getItem('tripi_likes') || '{}');
+    const likeBtn = document.getElementById('like-btn');
+    const likeCount = document.getElementById('like-count');
+    likeCount.textContent = trip.likes || 0;
+    if (likedTrips[trip.id]) likeBtn.firstChild.textContent = '❤️ ';
+    likeBtn.onclick = async () => {
+      const undo = !!likedTrips[trip.id];
+      try {
+        const r = await TRIPI.api(`/api/trips/${trip.id}/like`, { method: 'POST', body: JSON.stringify({ undo }) });
+        likeCount.textContent = r.likes;
+        if (undo) delete likedTrips[trip.id]; else likedTrips[trip.id] = 1;
+        localStorage.setItem('tripi_likes', JSON.stringify(likedTrips));
+        likeBtn.firstChild.textContent = likedTrips[trip.id] ? '❤️ ' : '🤍 ';
+      } catch { /* ignore */ }
+    };
+
+    // ---- clone ----
+    document.getElementById('clone-btn').onclick = async () => {
+      const doClone = async () => {
+        try {
+          const t = await TRIPI.api(`/api/trips/code/${trip.share_code}/clone`, { method: 'POST' });
+          location.href = '/trip/' + t.share_code;
+        } catch (e) { alert(e.message); }
+      };
+      if (!TRIPI.user) openAuthModal(doClone, 'register');
+      else doClone();
+    };
+
+    // ---- print / WhatsApp ----
+    document.getElementById('print-btn').onclick = () => window.print();
+    document.getElementById('wa-share').onclick = () => {
+      const text = `${trip.emoji || '🧭'} ${trip.title}\n${trip.destination} · ${trip.days} ימים\nקוד טיול: ${trip.share_code}\n${location.href}`;
+      window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
+    };
 
     // ---- destinations: map, weather, hotels (with a switcher for multi-city trips) ----
     let dests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
@@ -99,8 +270,15 @@
       const card = document.getElementById('weather-card');
       if (d.lat == null) { card.style.display = 'none'; return; }
       try {
-        const days = await GEO.forecast(d.lat, d.lon);
-        document.getElementById('weather-row').innerHTML = days.map((w) => `
+        // when the trip has dates in the next 16 days, fetch far enough to align per itinerary day
+        const wantDates = !!trip.start_date;
+        const days = await GEO.forecast(d.lat, d.lon, wantDates ? 16 : 7);
+        weatherByDate = {};
+        if (wantDates) {
+          for (const w of days) weatherByDate[w.date] = w;
+          renderItinerary(); // stamp each day header with its own forecast
+        }
+        document.getElementById('weather-row').innerHTML = days.slice(0, 7).map((w) => `
           <div class="weather-day" title="${GEO.weatherLabel(w.code)}">
             <div class="wd-name">${new Date(w.date + 'T00:00').toLocaleDateString('he-IL', { weekday: 'short' })}</div>
             <div class="wd-icon">${GEO.weatherIcon(w.code)}</div>
