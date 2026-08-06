@@ -646,6 +646,38 @@ body::after {
 .empty-state { text-align: center; padding: 70px 20px; color: var(--paper-dim); font-weight: 300; }
 .empty-state .big { font-size: 3rem; margin-bottom: 14px; }
 
+/* ---------- AI builder panel + areas ---------- */
+
+.ai-panel {
+  border: 1px solid rgba(255, 180, 95, .35); border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, rgba(255, 180, 95, .07), rgba(143, 216, 196, .05));
+  padding: 16px 18px; margin-bottom: 20px;
+}
+.ai-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; }
+.ai-title { font-weight: 800; font-size: 1.02rem; }
+.ai-sub { color: var(--paper-dim); font-size: .86rem; font-weight: 300; }
+.ai-modes { display: flex; gap: 8px; flex-wrap: wrap; }
+.ai-modes .btn { flex: 1; justify-content: center; min-width: 150px; }
+.ai-area-form { margin-top: 14px; padding-top: 14px; border-top: 1px dashed rgba(255, 255, 255, .14); }
+.range-row { display: flex; align-items: center; gap: 8px; color: var(--paper-dim); font-size: .92rem; }
+.range-row input {
+  width: 64px; text-align: center; background: rgba(6, 13, 11, .55);
+  border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
+  color: var(--paper); font-family: var(--font-body); font-size: 1rem; font-weight: 700;
+  padding: 10px 6px; outline: none;
+}
+.ai-status { min-height: 1.4em; margin-top: 10px; font-size: .92rem; font-weight: 600; }
+.ai-status.working { color: var(--amber); animation: pulse 1.6s ease-in-out infinite; }
+.ai-status.done { color: var(--mint); }
+.ai-status.error { color: var(--danger); }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+
+.added-item .ai-area { color: var(--mint); font-weight: 600; font-size: .82rem; }
+.item-area {
+  font-size: .76rem; font-weight: 700; padding: 4px 10px; border-radius: 999px;
+  background: rgba(255, 180, 95, .1); color: var(--amber); border: 1px solid rgba(255, 180, 95, .3);
+}
+
 /* ---------- trip actions, edit mode, owner box ---------- */
 
 .action-row { display: flex; gap: 8px; flex-wrap: wrap; }

@@ -196,12 +196,12 @@ app.post('/api/trips/code/:code/items', authOptional, async (req, res) => {
     const it = req.body || {};
     if (!it.title || !String(it.title).trim()) return res.status(400).json({ error: 'חסרה כותרת לתחנה' });
     const { rows } = await pool.query(
-      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
+      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
        RETURNING *`,
       [trip.id, Math.min(Math.max(parseInt(it.day_number, 10) || 1, 1), trip.days),
        it.time_label || null, String(it.title).slice(0, 200).trim(), it.note || null,
-       it.place_query || null, it.category || null]
+       it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null]
     );
     res.json(rows[0]);
   } catch (err) {
@@ -327,11 +327,11 @@ app.post('/api/trips', authRequired, async (req, res) => {
         const it = items[i];
         if (!it || !it.title) continue;
         await client.query(
-          `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [trip.id, Math.min(Math.max(parseInt(it.day_number, 10) || 1, 1), nDays),
            it.time_label || null, String(it.title).slice(0, 200), it.note || null,
-           it.place_query || null, it.category || null, i]
+           it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null, i]
         );
       }
     }
@@ -357,6 +357,122 @@ app.delete('/api/trips/:id', authRequired, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// ---------- AI itinerary builder (OpenAI, server-side — the key never reaches the client) ----------
+
+const AI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const AI_CATEGORIES = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבות', 'קניות', 'לינה', 'נוף', 'חיי לילה', 'תחבורה', 'היסטוריה', 'אמנות', 'עיר'];
+const aiUsage = new Map(); // userId → {date, count}
+const AI_DAILY_LIMIT = 20;
+
+app.post('/api/ai/itinerary', authRequired, async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'בניית AI לא זמינה כרגע' });
+
+    const today = new Date().toISOString().slice(0, 10);
+    const usage = aiUsage.get(req.user.id);
+    const used = usage && usage.date === today ? usage.count : 0;
+    if (used >= AI_DAILY_LIMIT) return res.status(429).json({ error: 'הגעתם למכסת בניות ה-AI היומית — נסו שוב מחר' });
+
+    const { destinations, area, day_from, day_to } = req.body || {};
+    const dests = cleanDestinations(destinations);
+    if (!dests.length) return res.status(400).json({ error: 'חסרים יעדים' });
+    const from = Math.min(Math.max(parseInt(day_from, 10) || 1, 1), 60);
+    const to = Math.min(Math.max(parseInt(day_to, 10) || from, from), 60);
+    if (to - from + 1 > 30) return res.status(400).json({ error: 'אפשר לבנות עד 30 ימים בבקשה אחת' });
+    const areaNames = dests.map((d) => d.name);
+    if (area && !areaNames.includes(area)) return res.status(400).json({ error: 'אזור לא מוכר' });
+
+    const destDesc = dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ');
+    const userMsg = area
+      ? `בנה מסלול טיול מפורט לימים ${from} עד ${to} (כולל) באזור "${area}" בלבד, מתוך טיול שכולל את: ${destDesc}. שדה area של כל תחנה חייב להיות "${area}".`
+      : `בנה מסלול טיול מלא לימים ${from} עד ${to} (כולל) לטיול שמכסה את האזורים: ${destDesc}. חלק את הימים בין האזורים בסדר גיאוגרפי הגיוני (בלי לקפוץ הלוך ושוב), ושדה area של כל תחנה חייב להיות בדיוק אחד מ: ${areaNames.join(' / ')}.`;
+
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 90000);
+    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        model: AI_MODEL,
+        max_completion_tokens: 10000,
+        messages: [
+          {
+            role: 'system',
+            content: 'אתה מתכנן טיולים ישראלי מנוסה שבונה מסלולים ריאליים ומהנים. לכל יום תכנן 3-4 תחנות בסדר כרונולוגי: בוקר, צהריים, אחר צהריים, ולפעמים ערב. ' +
+              'title קצר וקולע בעברית; note טיפ פרקטי קצר בעברית (הזמנות מראש, מתי להגיע, מה לא לפספס); ' +
+              'place_query הוא שם המקום באנגלית כפי שמחפשים בגוגל מפות (למשל "Sensoji Temple Tokyo"); ' +
+              'time_label בפורמט HH:MM. גוון בין קטגוריות והימנע מתחנות גנריות.',
+          },
+          { role: 'user', content: userMsg },
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'itinerary',
+            strict: true,
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['items'],
+              properties: {
+                items: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area'],
+                    properties: {
+                      day_number: { type: 'integer' },
+                      time_label: { type: 'string' },
+                      title: { type: 'string' },
+                      note: { type: 'string' },
+                      place_query: { type: 'string' },
+                      category: { type: 'string', enum: AI_CATEGORIES },
+                      area: { type: 'string' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    });
+    clearTimeout(timer);
+
+    if (!aiRes.ok) {
+      const errBody = await aiRes.text().catch(() => '');
+      console.error('OpenAI error', aiRes.status, errBody.slice(0, 300));
+      return res.status(502).json({ error: 'ה-AI לא הצליח לבנות את המסלול — נסו שוב עוד רגע' });
+    }
+    const data = await aiRes.json();
+    let items = [];
+    try { items = JSON.parse(data.choices[0].message.content).items || []; } catch { /* fall through */ }
+
+    // clamp + sanitize whatever came back
+    items = items
+      .filter((it) => it && it.title && it.day_number >= from && it.day_number <= to)
+      .slice(0, 150)
+      .map((it) => ({
+        day_number: it.day_number,
+        time_label: /^\d{1,2}:\d{2}$/.test(it.time_label || '') ? it.time_label : null,
+        title: String(it.title).slice(0, 200),
+        note: it.note ? String(it.note).slice(0, 300) : null,
+        place_query: it.place_query ? String(it.place_query).slice(0, 120) : null,
+        category: AI_CATEGORIES.includes(it.category) ? it.category : 'אטרקציה',
+        area: areaNames.includes(it.area) ? it.area : (area || areaNames[0]),
+      }));
+    if (!items.length) return res.status(502).json({ error: 'ה-AI החזיר מסלול ריק — נסו שוב' });
+
+    aiUsage.set(req.user.id, { date: today, count: used + 1 });
+    res.json({ items });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.name === 'AbortError' ? 'ה-AI התעכב יותר מדי — נסו שוב' : 'שגיאת שרת' });
   }
 });
 

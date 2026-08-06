@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS trip_items (
   note TEXT,
   place_query TEXT,
   category TEXT,
+  area TEXT,
   sort_order INT DEFAULT 0
 );
 

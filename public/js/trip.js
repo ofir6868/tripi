@@ -45,6 +45,19 @@
     let tripItems = items.slice();
     let weatherByDate = {};
     const container = document.getElementById('days-container');
+    const tripDests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
+    const multiDest = () => tripDests.length > 1;
+
+    // same default rule as the wizard: last stop of the day, else the closest previous day's last stop
+    function defaultAreaForDay(day) {
+      const same = tripItems.filter((it) => it.day_number === day);
+      if (same.length) return same[same.length - 1].area || tripDests[0]?.name;
+      for (let d = day - 1; d >= 1; d--) {
+        const prev = tripItems.filter((it) => it.day_number === d);
+        if (prev.length) return prev[prev.length - 1].area || tripDests[0]?.name;
+      }
+      return tripDests[0]?.name;
+    }
 
     const dayDate = (day) => {
       if (!trip.start_date) return null;
@@ -81,6 +94,7 @@
                 <div class="item-top">
                   ${it.time_label ? `<span class="item-time">${TRIPI.esc(it.time_label)}</span>` : ''}
                   <span class="item-title">${TRIPI.esc(it.title)}</span>
+                  ${multiDest() && it.area ? `<span class="item-area">📍 ${TRIPI.esc(it.area)}</span>` : ''}
                   ${it.category ? `<span class="item-cat">${TRIPI.esc(it.category)}</span>` : ''}
                   ${editMode ? `<button class="item-del" data-id="${it.id}" title="מחיקת תחנה">✕</button>` : ''}
                 </div>
@@ -122,6 +136,9 @@
             <option>תרבות</option><option>קניות</option><option>לינה</option><option>נוף</option>
             <option>חיי לילה</option><option>תחבורה</option></select></div>
           <div class="field span-2"><label>מה עושים? *</label><input type="text" class="iif-title" maxlength="120" placeholder="למשל: ארוחת ערב על הגג"></div>
+          ${multiDest() ? `<div class="field span-2"><label>באיזה אזור?</label><select class="iif-area">
+            ${tripDests.map((d) => `<option${d.name === defaultAreaForDay(day) ? ' selected' : ''}>${TRIPI.esc(d.name)}</option>`).join('')}
+          </select></div>` : ''}
           <div class="field span-2"><label>מיקום (חיפוש מקומות)</label><input type="text" class="iif-place" maxlength="120" placeholder="הקלידו ותבחרו מהרשימה…" autocomplete="off"></div>
         </div>
         <div class="form-error iif-err"></div>
@@ -147,6 +164,7 @@
               title,
               category: form.querySelector('.iif-cat').value,
               place_query: placeInput.value.trim() || null,
+              area: form.querySelector('.iif-area')?.value || tripDests[0]?.name || null,
             }),
           });
           tripItems.push(item);

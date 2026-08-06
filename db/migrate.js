@@ -54,6 +54,9 @@ async function main() {
   }
   if (noCode.rows.length) console.log(`  + edit codes generated for ${noCode.rows.length} trips`);
 
+  console.log('Migration 4: per-item area...');
+  await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS area TEXT`);
+
   console.log('Done.');
   await pool.end();
 }

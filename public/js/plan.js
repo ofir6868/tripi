@@ -168,6 +168,29 @@
   };
   document.getElementById('back-to-1').onclick = () => goStep(1);
 
+  // ---- area helpers (multi-destination trips only) ----
+  const areaField = document.getElementById('i-area-field');
+  const areaSel = document.getElementById('i-area');
+  const multiArea = () => destinations.length > 1;
+
+  // default area = last stop of this day; if the day is empty — the last stop of the closest previous day
+  function defaultArea(day) {
+    const sameDay = items.filter((it) => it.day_number === day);
+    if (sameDay.length) return sameDay[sameDay.length - 1].area || destinations[0]?.name;
+    for (let d = day - 1; d >= 1; d--) {
+      const prev = items.filter((it) => it.day_number === d);
+      if (prev.length) return prev[prev.length - 1].area || destinations[0]?.name;
+    }
+    return destinations[0]?.name;
+  }
+
+  function refreshAreaField() {
+    if (!multiArea()) { areaField.style.display = 'none'; return; }
+    areaField.style.display = '';
+    areaSel.innerHTML = destinations.map((d) => `<option>${TRIPI.esc(d.name)}</option>`).join('');
+    areaSel.value = defaultArea(currentDay);
+  }
+
   // ---- step 2: itinerary builder ----
   function buildDayTabs() {
     const n = +daysSel.value;
@@ -185,6 +208,8 @@
     }
     refreshTabCounts();
     renderItems();
+    refreshAreaField();
+    setupAiPanel();
   }
 
   function refreshTabCounts() {
@@ -205,11 +230,11 @@
     wrap.innerHTML = dayItems.map((it) => `
       <div class="added-item">
         ${it.time_label ? `<span class="ai-time">${TRIPI.esc(it.time_label)}</span>` : ''}
-        <span class="ai-title">${TRIPI.esc(it.title)}</span>
+        <span class="ai-title">${TRIPI.esc(it.title)}${multiArea() && it.area ? ` <small class="ai-area">· ${TRIPI.esc(it.area)}</small>` : ''}</span>
         <button class="ai-del" data-id="${it._id}" title="הסרה">✕</button>
       </div>`).join('');
     wrap.querySelectorAll('.ai-del').forEach((b) => {
-      b.onclick = () => { items = items.filter((it) => it._id !== +b.dataset.id); refreshTabCounts(); renderItems(); };
+      b.onclick = () => { items = items.filter((it) => it._id !== +b.dataset.id); refreshTabCounts(); renderItems(); refreshAreaField(); };
     });
   }
 
@@ -232,10 +257,75 @@
       note: document.getElementById('i-note').value.trim() || null,
       place_query: document.getElementById('i-place').value.trim() || null,
       category: document.getElementById('i-cat').value,
+      area: multiArea() ? areaSel.value : (destinations[0]?.name || null),
     });
     ['i-title', 'i-place', 'i-note'].forEach((id) => { document.getElementById(id).value = ''; });
     refreshTabCounts();
     renderItems();
+    // the freshly used area becomes the default for the next stop
+    if (multiArea()) areaSel.value = defaultArea(currentDay);
+  };
+
+  // ---- AI builder ----
+  const aiStatus = document.getElementById('ai-status');
+  let aiBusy = false;
+
+  function setupAiPanel() {
+    const byAreaBtn = document.getElementById('ai-by-area');
+    byAreaBtn.style.display = multiArea() ? '' : 'none';
+    if (!multiArea()) document.getElementById('ai-area-form').style.display = 'none';
+    const sel = document.getElementById('ai-area-sel');
+    sel.innerHTML = destinations.map((d) => `<option>${TRIPI.esc(d.name)}</option>`).join('');
+    const to = document.getElementById('ai-day-to');
+    const from = document.getElementById('ai-day-from');
+    from.max = to.max = +daysSel.value;
+    if (+to.value > +daysSel.value) to.value = daysSel.value;
+  }
+
+  async function runAi(payload, label) {
+    if (aiBusy) return;
+    const go = async () => {
+      aiBusy = true;
+      aiStatus.className = 'ai-status working';
+      aiStatus.textContent = `✨ ה-AI מתכנן ${label}… זה לוקח בערך חצי דקה`;
+      try {
+        const res = await TRIPI.api('/api/ai/itinerary', {
+          method: 'POST',
+          body: JSON.stringify({ destinations, ...payload }),
+        });
+        res.items.forEach((it) => items.push({ _id: idSeq++, ...it }));
+        items.sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')));
+        aiStatus.className = 'ai-status done';
+        aiStatus.textContent = `✅ נוספו ${res.items.length} תחנות — עברו על הימים ותתאימו לטעמכם`;
+        refreshTabCounts();
+        renderItems();
+        refreshAreaField();
+      } catch (e) {
+        aiStatus.className = 'ai-status error';
+        aiStatus.textContent = '⚠️ ' + e.message;
+      } finally {
+        aiBusy = false;
+      }
+    };
+    if (!TRIPI.user) openAuthModal(go, 'register');
+    else go();
+  }
+
+  document.getElementById('ai-full').onclick = () => {
+    const existing = items.length;
+    if (existing && !confirm('יש כבר תחנות במסלול. ה-AI יוסיף תחנות חדשות לצידן — להמשיך?')) return;
+    runAi({ day_from: 1, day_to: +daysSel.value }, 'את כל הטיול');
+  };
+  document.getElementById('ai-by-area').onclick = () => {
+    const f = document.getElementById('ai-area-form');
+    f.style.display = f.style.display === 'none' ? '' : 'none';
+  };
+  document.getElementById('ai-area-go').onclick = () => {
+    const area = document.getElementById('ai-area-sel').value;
+    const from = +document.getElementById('ai-day-from').value || 1;
+    const to = +document.getElementById('ai-day-to').value || from;
+    if (to < from) { aiStatus.className = 'ai-status error'; aiStatus.textContent = '⚠️ טווח הימים הפוך'; return; }
+    runAi({ area, day_from: from, day_to: Math.min(to, +daysSel.value) }, `את ${area}`);
   };
 
   // ---- create ----

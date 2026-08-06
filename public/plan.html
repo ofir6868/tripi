@@ -79,6 +79,31 @@
     <!-- step 2 -->
     <div class="wizard-panel glass" id="panel-2" style="display:none">
       <h2>בונים את המסלול, יום אחרי יום</h2>
+
+      <div class="ai-panel" id="ai-panel">
+        <div class="ai-head">
+          <span class="ai-title">✨ רוצים שנבנה לכם את המסלול?</span>
+          <span class="ai-sub">ה-AI ימלא תחנות מומלצות — ותמיד אפשר לערוך ולמחוק אחר כך</span>
+        </div>
+        <div class="ai-modes" id="ai-modes">
+          <button type="button" class="btn btn-amber" id="ai-full">🚀 כל הטיול בבת אחת</button>
+          <button type="button" class="btn btn-ghost" id="ai-by-area" style="display:none">🗺️ אזור מסוים</button>
+        </div>
+        <div class="ai-area-form" id="ai-area-form" style="display:none">
+          <div class="form-grid">
+            <div class="field"><label for="ai-area-sel">איזה אזור?</label><select id="ai-area-sel"></select></div>
+            <div class="field"><label>אילו ימים?</label>
+              <div class="range-row">
+                <input id="ai-day-from" type="number" min="1" value="1" inputmode="numeric"> עד
+                <input id="ai-day-to" type="number" min="1" value="2" inputmode="numeric">
+              </div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-amber" id="ai-area-go" style="width:100%;justify-content:center">✨ בנייה לאזור הזה</button>
+        </div>
+        <div class="ai-status" id="ai-status"></div>
+      </div>
+
       <div class="day-tabs" id="day-tabs"></div>
       <div class="form-grid">
         <div class="field">
@@ -92,6 +117,10 @@
             <option>תרבות</option><option>קניות</option><option>לינה</option><option>נוף</option>
             <option>חיי לילה</option><option>תחבורה</option>
           </select>
+        </div>
+        <div class="field span-2" id="i-area-field" style="display:none">
+          <label for="i-area">באיזה אזור?</label>
+          <select id="i-area"></select>
         </div>
         <div class="field span-2">
           <label for="i-title">מה עושים?</label>
