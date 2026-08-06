@@ -13,6 +13,11 @@
 
 - Node.js + Express, PostgreSQL (Render)
 - Frontend: HTML/CSS/JS ללא פריימוורק, RTL מלא, עיצוב זכוכית
+- APIs חינמיים ללא מפתח: Open-Meteo (חיזוי מזג אוויר + Geocoding לאוטוקומפליט יעדים בעברית), OSM Overpass (מלונות באזור, עם קאש בצד השרת), Google Maps Embed
+
+## הרצת מיגרציות
+
+`node db/migrate.js` — עמודת destinations (ריבוי יעדים + קואורדינטות), אידמפוטנטי.
 
 ## הרצה מקומית
 
