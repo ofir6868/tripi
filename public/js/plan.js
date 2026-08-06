@@ -270,6 +270,23 @@
   const aiStatus = document.getElementById('ai-status');
   let aiBusy = false;
 
+  const INTERESTS = ['🍜 אוכל ומסעדות', '🥾 טבע והליכות', '🏛️ היסטוריה ותרבות', '🖼️ אמנות ומוזיאונים',
+    '🏖️ חופים וים', '🌃 חיי לילה', '🛍️ קניות', '👨‍👩‍👧 מתאים לילדים', '💰 תקציב נמוך',
+    '💎 יוקרתי ומפנק', '📸 נקודות צילום', '🧗 אקסטרים וספורט', '☕ בתי קפה', '🎶 מוזיקה והופעות'];
+  const selectedInterests = new Set();
+  const interestRow = document.getElementById('interest-row');
+  INTERESTS.forEach((label) => {
+    const clean = label.replace(/^[^ ]+ /, ''); // interest text without the emoji
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'interest-chip'; b.textContent = label;
+    b.onclick = () => {
+      b.classList.toggle('selected');
+      if (selectedInterests.has(clean)) selectedInterests.delete(clean);
+      else selectedInterests.add(clean);
+    };
+    interestRow.appendChild(b);
+  });
+
   function setupAiPanel() {
     const byAreaBtn = document.getElementById('ai-by-area');
     byAreaBtn.style.display = multiArea() ? '' : 'none';
@@ -291,7 +308,12 @@
       try {
         const res = await TRIPI.api('/api/ai/itinerary', {
           method: 'POST',
-          body: JSON.stringify({ destinations, ...payload }),
+          body: JSON.stringify({
+            destinations,
+            interests: [...selectedInterests],
+            notes: document.getElementById('ai-notes').value.trim() || null,
+            ...payload,
+          }),
         });
         res.items.forEach((it) => items.push({ _id: idSeq++, ...it }));
         items.sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')));

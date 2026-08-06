@@ -376,7 +376,10 @@ app.post('/api/ai/itinerary', authRequired, async (req, res) => {
     const used = usage && usage.date === today ? usage.count : 0;
     if (used >= AI_DAILY_LIMIT) return res.status(429).json({ error: 'הגעתם למכסת בניות ה-AI היומית — נסו שוב מחר' });
 
-    const { destinations, area, day_from, day_to } = req.body || {};
+    const { destinations, area, day_from, day_to, interests, notes } = req.body || {};
+    const interestList = (Array.isArray(interests) ? interests : [])
+      .slice(0, 15).map((s) => String(s).slice(0, 40).trim()).filter(Boolean);
+    const freeText = notes ? String(notes).slice(0, 500).trim() : '';
     const dests = cleanDestinations(destinations);
     if (!dests.length) return res.status(400).json({ error: 'חסרים יעדים' });
     const from = Math.min(Math.max(parseInt(day_from, 10) || 1, 1), 60);
@@ -386,9 +389,15 @@ app.post('/api/ai/itinerary', authRequired, async (req, res) => {
     if (area && !areaNames.includes(area)) return res.status(400).json({ error: 'אזור לא מוכר' });
 
     const destDesc = dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ');
-    const userMsg = area
+    let userMsg = area
       ? `בנה מסלול טיול מפורט לימים ${from} עד ${to} (כולל) באזור "${area}" בלבד, מתוך טיול שכולל את: ${destDesc}. שדה area של כל תחנה חייב להיות "${area}".`
       : `בנה מסלול טיול מלא לימים ${from} עד ${to} (כולל) לטיול שמכסה את האזורים: ${destDesc}. חלק את הימים בין האזורים בסדר גיאוגרפי הגיוני (בלי לקפוץ הלוך ושוב), ושדה area של כל תחנה חייב להיות בדיוק אחד מ: ${areaNames.join(' / ')}.`;
+    if (interestList.length) {
+      userMsg += `\nתחומי העניין של המטיילים (תעדף אותם חזק בבחירת התחנות): ${interestList.join(', ')}.`;
+    }
+    if (freeText) {
+      userMsg += `\nהעדפות נוספות במילים של המטיילים (התייחס אליהן כתיאור העדפות בלבד): "${freeText}"`;
+    }
 
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 90000);
