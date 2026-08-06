@@ -266,6 +266,19 @@
     if (multiArea()) areaSel.value = defaultArea(currentDay);
   };
 
+  // ---- manual form collapse (after an AI build it's rarely needed) ----
+  const manualWrap = document.getElementById('manual-form-wrap');
+  const manualToggle = document.getElementById('manual-toggle');
+  function collapseManualForm() {
+    manualWrap.style.display = 'none';
+    manualToggle.style.display = '';
+  }
+  manualToggle.onclick = () => {
+    manualWrap.style.display = '';
+    manualToggle.style.display = 'none';
+    document.getElementById('i-title').focus();
+  };
+
   // ---- AI builder ----
   const aiStatus = document.getElementById('ai-status');
   let aiBusy = false;
@@ -319,6 +332,7 @@
         items.sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')));
         aiStatus.className = 'ai-status done';
         aiStatus.textContent = `✅ נוספו ${res.items.length} תחנות — עברו על הימים ותתאימו לטעמכם`;
+        collapseManualForm(); // the AI did the heavy lifting — tuck the manual form away
         refreshTabCounts();
         renderItems();
         refreshAreaField();
