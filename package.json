@@ -1,0 +1,19 @@
+{
+  "name": "tripi",
+  "version": "1.0.0",
+  "description": "TRIPI - מתכנן הטיולים שלך",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "setup-db": "node db/setup.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.12.0"
+  }
+}

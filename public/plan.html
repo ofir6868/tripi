@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>תכנון טיול חדש · TRIPI</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧭</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Suez+One&family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+  <div class="page-shell">
+    <h1>מתכננים <span style="color:var(--amber)">טיול חדש</span> 🧭</h1>
+    <p class="page-sub">שלושה צעדים קטנים — וטיול אחד גדול. בסוף מקבלים קוד לשיתוף.</p>
+
+    <div class="wizard-progress">
+      <div class="wp-step active" data-step="1"><span class="wp-n">1</span> פרטי הטיול</div>
+      <div class="wp-step" data-step="2"><span class="wp-n">2</span> בניית המסלול</div>
+      <div class="wp-step" data-step="3"><span class="wp-n">3</span> קוד השיתוף</div>
+    </div>
+
+    <!-- step 1 -->
+    <div class="wizard-panel glass" id="panel-1">
+      <h2>לאן נוסעים?</h2>
+      <div class="form-grid">
+        <div class="field span-2">
+          <label for="f-title">שם הטיול</label>
+          <input id="f-title" type="text" maxlength="80" placeholder="למשל: החופשה הגדולה ביוון">
+        </div>
+        <div class="field">
+          <label for="f-dest">יעד</label>
+          <input id="f-dest" type="text" maxlength="60" placeholder="סנטוריני">
+        </div>
+        <div class="field">
+          <label for="f-country">מדינה</label>
+          <input id="f-country" type="text" maxlength="40" placeholder="יוון">
+        </div>
+        <div class="field">
+          <label for="f-days">כמה ימים?</label>
+          <select id="f-days"></select>
+        </div>
+        <div class="field">
+          <label for="f-start">תאריך התחלה (לא חובה)</label>
+          <input id="f-start" type="date">
+        </div>
+        <div class="field span-2">
+          <label>אימוג׳י לטיול</label>
+          <div class="emoji-row" id="emoji-row"></div>
+        </div>
+        <div class="field span-2">
+          <label>תמונת נושא</label>
+          <div class="cover-grid" id="cover-grid"></div>
+        </div>
+        <div class="field span-2">
+          <label for="f-desc">כמה מילים על הטיול (לא חובה)</label>
+          <textarea id="f-desc" maxlength="500" placeholder="מה הולך להיות שם? מי נוסע? מה החלום?"></textarea>
+        </div>
+      </div>
+      <div class="form-error" id="err-1"></div>
+      <div class="wizard-nav">
+        <span></span>
+        <button class="btn btn-amber btn-lg" id="to-step-2">ממשיכים למסלול ‹</button>
+      </div>
+    </div>
+
+    <!-- step 2 -->
+    <div class="wizard-panel glass" id="panel-2" style="display:none">
+      <h2>בונים את המסלול, יום אחרי יום</h2>
+      <div class="day-tabs" id="day-tabs"></div>
+      <div class="form-grid">
+        <div class="field">
+          <label for="i-time">שעה (לא חובה)</label>
+          <input id="i-time" type="time">
+        </div>
+        <div class="field">
+          <label for="i-cat">קטגוריה</label>
+          <select id="i-cat">
+            <option>אטרקציה</option><option>אוכל</option><option>טבע</option><option>ים</option>
+            <option>תרבות</option><option>קניות</option><option>לינה</option><option>נוף</option>
+            <option>חיי לילה</option><option>תחבורה</option>
+          </select>
+        </div>
+        <div class="field span-2">
+          <label for="i-title">מה עושים?</label>
+          <input id="i-title" type="text" maxlength="120" placeholder="למשל: שקיעה בנקודת התצפית">
+        </div>
+        <div class="field span-2">
+          <label for="i-place">מיקום לגוגל מפות (לא חובה)</label>
+          <input id="i-place" type="text" maxlength="120" placeholder="למשל: Oia Santorini">
+        </div>
+        <div class="field span-2">
+          <label for="i-note">הערה (לא חובה)</label>
+          <input id="i-note" type="text" maxlength="200" placeholder="טיפ קטן לעצמכם">
+        </div>
+      </div>
+      <button class="btn btn-ghost" id="add-item" style="width:100%;justify-content:center">+ הוספה ליום הנבחר</button>
+      <div class="added-items" id="added-items"></div>
+      <div class="form-error" id="err-2"></div>
+      <div class="wizard-nav">
+        <button class="btn btn-ghost" id="back-to-1">› חזרה</button>
+        <button class="btn btn-amber btn-lg" id="create-trip">יוצרים את הטיול ✨</button>
+      </div>
+    </div>
+
+    <!-- step 3 -->
+    <div class="wizard-panel glass" id="panel-3" style="display:none">
+      <div class="success-wrap">
+        <div class="big-emoji">🎉</div>
+        <h2 style="font-family:var(--font-display);font-size:1.7rem">הטיול נוצר!</h2>
+        <p class="success-sub">שולחים את הקוד לחברים — וכולם רואים את המסלול</p>
+        <div class="ticket glass" style="max-width:340px;margin:0 auto">
+          <div class="ticket-label">✈ TRIPI PASS ✈</div>
+          <div class="code" id="new-code"></div>
+          <div class="ticket-sub" id="new-title"></div>
+          <hr class="divider">
+          <button class="btn btn-amber" id="copy-new-code" style="width:100%;justify-content:center">📋 העתקת קוד</button>
+          <div class="copy-feedback" id="new-feedback"></div>
+        </div>
+        <div class="success-actions">
+          <a class="btn btn-amber btn-lg" id="view-trip" href="#">צפייה בטיול</a>
+          <a class="btn btn-ghost btn-lg" href="/my">לכל הטיולים שלי</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <span class="logo-mark">TRIPI</span> · נבנה באהבה לטיולים · <span dir="ltr">© 2026</span>
+  </footer>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/plan.js"></script>
+</body>
+</html>

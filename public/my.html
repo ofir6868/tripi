@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>הטיולים שלי · TRIPI</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧭</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Suez+One&family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+  <div class="page-shell" style="width:min(1120px,calc(100% - 32px))">
+    <h1>הטיולים <span style="color:var(--amber)">שלי</span> 🧳</h1>
+    <p class="page-sub">כל המסלולים שיצרתם, במקום אחד</p>
+    <div class="my-grid" id="my-grid"></div>
+    <div class="empty-state glass" id="empty" style="display:none;border-radius:var(--radius)">
+      <div class="big">🗺️</div>
+      <h2 style="font-family:var(--font-display);margin-bottom:8px">עוד אין כאן טיולים</h2>
+      <p>הטיול הראשון שלכם במרחק שלושה צעדים קטנים.</p>
+      <a class="btn btn-amber btn-lg" href="/plan" style="margin-top:18px">+ מתכננים טיול ראשון</a>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <span class="logo-mark">TRIPI</span> · נבנה באהבה לטיולים · <span dir="ltr">© 2026</span>
+  </footer>
+
+  <script src="/js/common.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      if (!TRIPI.user) { openAuthModal(() => location.reload()); return; }
+      const grid = document.getElementById('my-grid');
+      try {
+        const trips = await TRIPI.api('/api/my-trips');
+        if (!trips.length) { document.getElementById('empty').style.display = ''; return; }
+        grid.innerHTML = trips.map((t) => `
+          <a class="trip-card" href="/trip/${t.share_code}">
+            <div class="tc-media">
+              <img class="tc-img" src="${TRIPI.esc(t.cover_image || '')}" alt="" loading="lazy" onerror="this.removeAttribute('src')">
+              <span class="tc-emoji">${t.emoji || '🧭'}</span>
+              <span class="tc-days">${t.days} ימים</span>
+              <button class="tc-delete" data-id="${t.id}" title="מחיקת הטיול">🗑</button>
+              <span class="tc-code-chip">#${t.share_code}</span>
+              <div class="tc-body">
+                <div class="tc-country">${TRIPI.esc(t.country || '')}</div>
+                <div class="tc-title">${TRIPI.esc(t.title)}</div>
+                <div class="tc-dest">${TRIPI.esc(t.destination)}</div>
+              </div>
+            </div>
+          </a>`).join('');
+        grid.querySelectorAll('.tc-delete').forEach((b) => {
+          b.addEventListener('click', async (e) => {
+            e.preventDefault(); e.stopPropagation();
+            if (!confirm('למחוק את הטיול לצמיתות?')) return;
+            await TRIPI.api('/api/trips/' + b.dataset.id, { method: 'DELETE' });
+            location.reload();
+          });
+        });
+      } catch (err) {
+        grid.innerHTML = '<div class="empty-day">' + TRIPI.esc(err.message) + '</div>';
+      }
+    });
+  </script>
+</body>
+</html>

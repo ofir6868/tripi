@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TRIPI · טריפי — מתכנן הטיולים שלך</title>
+  <meta name="description" content="טריפי — מתכננים טיול, משתפים בקוד בן 6 ספרות, ויוצאים לדרך. השראה מטיולים מומלצים בכל העולם.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧭</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Suez+One&family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+  <section class="hero">
+    <div class="hero-bg" style="background-image:url('https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=2000&q=80')"></div>
+    <div class="hero-veil"></div>
+
+    <div class="hero-kicker">· מתכננים · משתפים · נוסעים ·</div>
+    <h1>כל טיול מתחיל<br>ב<span class="accent">רעיון אחד קטן</span></h1>
+    <p class="hero-sub">בונים מסלול יום-אחר-יום, מקבלים קוד בן 6 ספרות, ושולחים לחברים. זהו. כולם באותו עמוד — תרתי משמע.</p>
+
+    <div class="search-box glass">
+      <div class="search-tabs">
+        <button class="search-tab active" data-mode="dest">🔍 חיפוש יעד</button>
+        <button class="search-tab" data-mode="code">🎫 יש לי קוד טיול</button>
+      </div>
+      <div class="search-row">
+        <input class="search-input" id="search-input" type="text" placeholder="לאן חולמים לנסוע? נסו: רומא, טוקיו, גולן…" autocomplete="off">
+        <button class="btn btn-amber btn-lg" id="search-btn">יאללה</button>
+      </div>
+      <div class="search-hint" id="search-hint"></div>
+      <div class="search-results glass" id="search-results"></div>
+    </div>
+
+    <div class="scroll-cue"><span>טיולים מומלצים</span><span>↓</span></div>
+  </section>
+
+  <section class="section" id="suggested">
+    <div class="section-head">
+      <div>
+        <h2>צריכים <span class="accent">השראה?</span></h2>
+        <p>מסלולים מוכנים שאפשר לפתוח, להעתיק ולצאת לדרך</p>
+      </div>
+      <div class="strip-nav">
+        <button id="strip-next" aria-label="הבא">‹</button>
+        <button id="strip-prev" aria-label="הקודם">›</button>
+      </div>
+    </div>
+    <div class="strip-wrap">
+      <div class="strip" id="trip-strip"></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <div>
+        <h2>איך זה <span class="accent">עובד?</span></h2>
+      </div>
+    </div>
+    <div class="steps-grid">
+      <div class="step-card glass">
+        <div class="step-num">1</div>
+        <div class="step-icon">🗺️</div>
+        <h3>מתכננים</h3>
+        <p>בוחרים יעד, מספר ימים, ומוסיפים אטרקציות, מסעדות ומלונות למסלול — יום אחרי יום, בלי אקסלים.</p>
+      </div>
+      <div class="step-card glass">
+        <div class="step-num">2</div>
+        <div class="step-icon">🎫</div>
+        <h3>משתפים בקוד</h3>
+        <p>כל טיול מקבל קוד בן 6 ספרות. שולחים בוואטסאפ — וכל מי שמקליד אותו רואה את המסלול המלא.</p>
+      </div>
+      <div class="step-card glass">
+        <div class="step-num">3</div>
+        <div class="step-icon">🧭</div>
+        <h3>נוסעים</h3>
+        <p>כל תחנה במסלול מחוברת לגוגל מפות בלחיצה. פותחים, מנווטים, ונהנים מהטיול.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <span class="logo-mark">TRIPI</span> · נבנה באהבה לטיולים · <span dir="ltr">© 2026</span>
+  </footer>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/home.js"></script>
+</body>
+</html>
