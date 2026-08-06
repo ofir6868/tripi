@@ -257,12 +257,13 @@ app.get('/api/hotels', async (req, res) => {
   const cached = hotelsCache.get(key);
   if (cached && Date.now() - cached.at < HOTELS_TTL) return res.json(cached.data);
 
-  const query = `[out:json][timeout:12];(node["tourism"="hotel"]["name"](around:7000,${lat},${lon});way["tourism"="hotel"]["name"](around:7000,${lat},${lon}););out center 30;`;
+  // node-only: way/relation geometry resolution regularly 504s on the public servers
+  const query = `[out:json][timeout:25];node["tourism"="hotel"]["name"](around:7000,${lat},${lon});out 30;`;
   let elements = null;
   for (const endpoint of OVERPASS_ENDPOINTS) {
     try {
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 14000);
+      const timer = setTimeout(() => ctrl.abort(), 28000); // public Overpass servers regularly need 15-20s
       const r = await fetch(endpoint, {
         method: 'POST',
         body: 'data=' + encodeURIComponent(query),
