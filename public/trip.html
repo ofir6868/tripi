@@ -37,9 +37,19 @@
         <button class="btn btn-ghost" id="copy-link" style="width:100%;justify-content:center;margin-top:8px">🔗 העתקת קישור</button>
         <div class="copy-feedback" id="copy-feedback"></div>
       </div>
+      <div class="dest-switcher" id="dest-switcher" style="display:none"></div>
+      <div class="side-card glass" id="weather-card" style="display:none">
+        <div class="side-card-title">🌤️ מזג האוויר בשבוע הקרוב</div>
+        <div class="weather-row" id="weather-row"></div>
+      </div>
       <div class="map-card glass">
         <iframe id="trip-map" title="מפת היעד" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
         <div class="map-caption" id="map-caption"></div>
+      </div>
+      <div class="side-card glass" id="hotels-card" style="display:none">
+        <div class="side-card-title">🏨 מלונות באזור</div>
+        <div id="hotels-list"></div>
+        <div class="side-card-foot" id="hotels-foot"></div>
       </div>
     </aside>
   </div>
@@ -58,6 +68,7 @@
   </footer>
 
   <script src="/js/common.js"></script>
+  <script src="/js/geo.js"></script>
   <script src="/js/trip.js"></script>
 </body>
 </html>

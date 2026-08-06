@@ -27,24 +27,32 @@
       <h2>לאן נוסעים?</h2>
       <div class="form-grid">
         <div class="field span-2">
+          <label for="f-dest-search">יעדים — עיר או מדינה, אפשר כמה שרוצים</label>
+          <div class="dest-picker">
+            <div class="dest-chips" id="dest-chips"></div>
+            <div class="autocomplete-wrap">
+              <input id="f-dest-search" type="text" maxlength="60" placeholder="הקלידו יעד… למשל: טוקיו, יפן, רומא" autocomplete="off">
+              <div class="autocomplete-list glass" id="dest-suggestions"></div>
+            </div>
+            <div class="dest-hint">בטיול של כמה ערים — פשוט מוסיפים אחת אחרי השנייה 🇯🇵</div>
+          </div>
+        </div>
+        <div class="field span-2">
           <label for="f-title">שם הטיול</label>
-          <input id="f-title" type="text" maxlength="80" placeholder="למשל: החופשה הגדולה ביוון">
+          <input id="f-title" type="text" maxlength="80" placeholder="נמלא לבד לפי היעד — או תנו שם משלכם">
         </div>
         <div class="field">
-          <label for="f-dest">יעד</label>
-          <input id="f-dest" type="text" maxlength="60" placeholder="סנטוריני">
-        </div>
-        <div class="field">
-          <label for="f-country">מדינה</label>
-          <input id="f-country" type="text" maxlength="40" placeholder="יוון">
-        </div>
-        <div class="field">
-          <label for="f-days">כמה ימים?</label>
-          <select id="f-days"></select>
+          <label for="f-days">כמה ימים? (עד 60)</label>
+          <div class="stepper">
+            <button type="button" class="step-btn" id="days-minus">−</button>
+            <input id="f-days" type="number" min="1" max="60" value="4" inputmode="numeric">
+            <button type="button" class="step-btn" id="days-plus">+</button>
+          </div>
         </div>
         <div class="field">
           <label for="f-start">תאריך התחלה (לא חובה)</label>
           <input id="f-start" type="date">
+          <div class="dest-hint" id="end-date-hint"></div>
         </div>
         <div class="field span-2">
           <label>אימוג׳י לטיול</label>
@@ -132,6 +140,7 @@
   </footer>
 
   <script src="/js/common.js"></script>
+  <script src="/js/geo.js"></script>
   <script src="/js/plan.js"></script>
 </body>
 </html>

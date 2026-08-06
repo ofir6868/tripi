@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS trips (
   share_code CHAR(6) UNIQUE NOT NULL,
   is_public BOOLEAN DEFAULT false,
   emoji TEXT,
+  destinations JSONB NOT NULL DEFAULT '[]',
   created_at TIMESTAMPTZ DEFAULT now()
 );
 

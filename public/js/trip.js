@@ -64,10 +64,79 @@
         </div>`).join('');
     }
 
-    // map + ticket
-    const mapQuery = `${trip.destination}${trip.country ? ', ' + trip.country : ''}`;
-    document.getElementById('trip-map').src = TRIPI.mapsEmbedUrl(mapQuery);
-    document.getElementById('map-caption').textContent = `📍 ${mapQuery}`;
+    // ---- destinations: map, weather, hotels (with a switcher for multi-city trips) ----
+    let dests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
+    if (!dests.length) dests = [{ name: trip.destination, country: trip.country, lat: null, lon: null }];
+
+    const switcher = document.getElementById('dest-switcher');
+    if (dests.length > 1) {
+      switcher.style.display = '';
+      switcher.innerHTML = '<div class="side-card-title" style="margin-bottom:8px">🧳 תחנות בטיול</div>' +
+        dests.map((d, i) => `<button class="day-tab${i === 0 ? ' active' : ''}" data-i="${i}">${TRIPI.esc(d.name)}</button>`).join('');
+      switcher.querySelectorAll('.day-tab').forEach((b) => {
+        b.onclick = () => {
+          switcher.querySelectorAll('.day-tab').forEach((x) => x.classList.remove('active'));
+          b.classList.add('active');
+          showDestination(dests[+b.dataset.i]);
+        };
+      });
+    }
+
+    async function showDestination(d) {
+      // resolve coordinates once if this destination has none (old or free-text trips)
+      if (d.lat == null) {
+        const found = await GEO.searchPlaces(d.name).catch(() => []);
+        if (found[0]) { d.lat = found[0].lat; d.lon = found[0].lon; if (!d.country) d.country = found[0].country; }
+      }
+      const mapQuery = `${d.name}${d.country && d.country !== d.name ? ', ' + d.country : ''}`;
+      document.getElementById('trip-map').src = TRIPI.mapsEmbedUrl(mapQuery);
+      document.getElementById('map-caption').textContent = `📍 ${mapQuery}`;
+      loadWeather(d);
+      loadHotels(d, mapQuery);
+    }
+
+    async function loadWeather(d) {
+      const card = document.getElementById('weather-card');
+      if (d.lat == null) { card.style.display = 'none'; return; }
+      try {
+        const days = await GEO.forecast(d.lat, d.lon);
+        document.getElementById('weather-row').innerHTML = days.map((w) => `
+          <div class="weather-day" title="${GEO.weatherLabel(w.code)}">
+            <div class="wd-name">${new Date(w.date + 'T00:00').toLocaleDateString('he-IL', { weekday: 'short' })}</div>
+            <div class="wd-icon">${GEO.weatherIcon(w.code)}</div>
+            <div class="wd-temp">${w.max}°<span>${w.min}°</span></div>
+          </div>`).join('');
+        card.style.display = '';
+      } catch { card.style.display = 'none'; }
+    }
+
+    async function loadHotels(d, mapQuery) {
+      const card = document.getElementById('hotels-card');
+      const list = document.getElementById('hotels-list');
+      if (d.lat == null) { card.style.display = 'none'; return; }
+      card.style.display = '';
+      list.innerHTML = '<div class="empty-day" style="padding:10px">מאתרים מלונות…</div>';
+      try {
+        const hotels = await GEO.hotelsNear(d.lat, d.lon);
+        if (!hotels.length) throw new Error('none');
+        list.innerHTML = hotels.map((h) => `
+          <div class="hotel-row">
+            <span class="hotel-name">${TRIPI.esc(h.name)}${h.stars ? ` <span class="hotel-stars">${'★'.repeat(Math.min(+h.stars || 0, 5))}</span>` : ''}</span>
+            <span class="hotel-links">
+              <a target="_blank" rel="noopener" title="גוגל מפות" href="${TRIPI.mapsSearchUrl(h.name + ' ' + d.name)}">📍</a>
+              <a target="_blank" rel="noopener" title="חיפוש בבוקינג" href="https://www.booking.com/searchresults.he.html?ss=${encodeURIComponent(h.name + ' ' + d.name)}">🛏️</a>
+            </span>
+          </div>`).join('');
+        document.getElementById('hotels-foot').innerHTML =
+          `<a target="_blank" rel="noopener" href="https://www.booking.com/searchresults.he.html?ss=${encodeURIComponent(mapQuery)}">לכל המלונות ב${TRIPI.esc(d.name)} ›</a>`;
+      } catch {
+        list.innerHTML = '';
+        document.getElementById('hotels-foot').innerHTML =
+          `<a target="_blank" rel="noopener" href="https://www.booking.com/searchresults.he.html?ss=${encodeURIComponent(mapQuery)}">חיפוש מלונות ב${TRIPI.esc(d.name)} ›</a>`;
+      }
+    }
+
+    showDestination(dests[0]);
     document.getElementById('ticket-code').textContent = trip.share_code;
 
     const feedback = document.getElementById('copy-feedback');

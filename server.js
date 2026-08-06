@@ -64,7 +64,18 @@ function authOptional(req, _res, next) {
 }
 
 const tripFields = `id, owner_id, title, destination, country, description, cover_image,
-  start_date, end_date, days, share_code, is_public, emoji, created_at`;
+  start_date, end_date, days, share_code, is_public, emoji, destinations, created_at`;
+
+// sanitize a client-supplied destinations array → [{name, country, lat, lon}]
+function cleanDestinations(input) {
+  if (!Array.isArray(input)) return [];
+  return input.slice(0, 10).map((d) => ({
+    name: String(d?.name || '').slice(0, 80).trim(),
+    country: d?.country ? String(d.country).slice(0, 60).trim() : null,
+    lat: Number.isFinite(+d?.lat) ? +d.lat : null,
+    lon: Number.isFinite(+d?.lon) ? +d.lon : null,
+  })).filter((d) => d.name);
+}
 
 // ---------- auth ----------
 
@@ -172,16 +183,21 @@ app.get('/api/my-trips', authRequired, async (req, res) => {
 app.post('/api/trips', authRequired, async (req, res) => {
   const client = await pool.connect();
   try {
-    const { title, destination, country, description, cover_image, start_date, end_date, days, emoji, items } = req.body || {};
-    if (!title || !destination) return res.status(400).json({ error: 'נא למלא שם טיול ויעד' });
+    const { title, destination, country, description, cover_image, start_date, end_date, days, emoji, items, destinations } = req.body || {};
+    const dests = cleanDestinations(destinations);
+    // destination display text: explicit field, or derived from the destinations list
+    const destText = (destination || dests.map((d) => d.name).join(' · ')).trim();
+    if (!title || !destText) return res.status(400).json({ error: 'נא למלא שם טיול ויעד' });
+    const countryText = country || [...new Set(dests.map((d) => d.country).filter(Boolean))].join(', ') || null;
     await client.query('BEGIN');
     const code = await uniqueShareCode(client);
-    const nDays = Math.min(Math.max(parseInt(days, 10) || 1, 1), 30);
+    const nDays = Math.min(Math.max(parseInt(days, 10) || 1, 1), 60);
     const { rows } = await client.query(
-      `INSERT INTO trips (owner_id, title, destination, country, description, cover_image, start_date, end_date, days, share_code, emoji)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING ${tripFields}`,
-      [req.user.id, title.trim(), destination.trim(), country || null, description || null,
-       cover_image || null, start_date || null, end_date || null, nDays, code, emoji || null]
+      `INSERT INTO trips (owner_id, title, destination, country, description, cover_image, start_date, end_date, days, share_code, emoji, destinations)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING ${tripFields}`,
+      [req.user.id, title.trim(), destText.slice(0, 160), countryText, description || null,
+       cover_image || null, start_date || null, end_date || null, nDays, code, emoji || null,
+       JSON.stringify(dests)]
     );
     const trip = rows[0];
     if (Array.isArray(items)) {
@@ -220,6 +236,63 @@ app.delete('/api/trips/:id', authRequired, async (req, res) => {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
   }
+});
+
+// ---------- hotels (OSM Overpass, server-side with cache) ----------
+
+const hotelsCache = new Map(); // "lat,lon" → {at, data}
+const HOTELS_TTL = 24 * 60 * 60 * 1000;
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
+
+app.get('/api/hotels', async (req, res) => {
+  const lat = Math.round(parseFloat(req.query.lat) * 100) / 100;
+  const lon = Math.round(parseFloat(req.query.lon) * 100) / 100;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ error: 'bad coords' });
+
+  const key = `${lat},${lon}`;
+  const cached = hotelsCache.get(key);
+  if (cached && Date.now() - cached.at < HOTELS_TTL) return res.json(cached.data);
+
+  const query = `[out:json][timeout:12];(node["tourism"="hotel"]["name"](around:7000,${lat},${lon});way["tourism"="hotel"]["name"](around:7000,${lat},${lon}););out center 30;`;
+  let elements = null;
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 14000);
+      const r = await fetch(endpoint, {
+        method: 'POST',
+        body: 'data=' + encodeURIComponent(query),
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'TRIPI trip planner/1.0 (github.com/ofir6868/tripi)',
+          'Accept': 'application/json',
+        },
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      if (!r.ok) continue;
+      elements = (await r.json()).elements || [];
+      break;
+    } catch { /* try next mirror */ }
+  }
+  if (elements === null) return res.json([]); // all mirrors down — client shows Booking fallback
+
+  const seen = new Set();
+  const hotels = elements
+    .map((el) => ({
+      name: el.tags?.['name:he'] || el.tags?.name,
+      stars: el.tags?.stars || null,
+      lat: el.lat ?? el.center?.lat,
+      lon: el.lon ?? el.center?.lon,
+    }))
+    .filter((h) => h.name && !seen.has(h.name) && seen.add(h.name))
+    .slice(0, 8);
+  hotelsCache.set(key, { at: Date.now(), data: hotels });
+  res.json(hotels);
 });
 
 app.get('/api/health', async (_req, res) => {

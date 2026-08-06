@@ -16,15 +16,108 @@
   let selectedCover = COVERS[0];
   let currentDay = 1;
   let items = []; // {day_number, time_label, title, note, place_query, category}
+  let destinations = []; // [{name, country, lat, lon}]
 
-  // ---- step 1 widgets ----
-  const daysSel = document.getElementById('f-days');
-  for (let d = 1; d <= 21; d++) {
-    const opt = document.createElement('option');
-    opt.value = d; opt.textContent = d === 1 ? 'יום אחד' : `${d} ימים`;
-    if (d === 4) opt.selected = true;
-    daysSel.appendChild(opt);
+  // ---- destination autocomplete (multi-city chips) ----
+  const destInput = document.getElementById('f-dest-search');
+  const suggBox = document.getElementById('dest-suggestions');
+  const chipsBox = document.getElementById('dest-chips');
+  const titleInput = document.getElementById('f-title');
+  let debounceTimer = null;
+  let titleWasAutofilled = false;
+
+  function renderChips() {
+    chipsBox.innerHTML = destinations.map((d, i) => `
+      <span class="dest-chip">
+        ${TRIPI.esc(d.name)}${d.country && d.country !== d.name ? `<small>${TRIPI.esc(d.country)}</small>` : ''}
+        <button type="button" data-i="${i}" aria-label="הסרת יעד">✕</button>
+      </span>`).join('');
+    chipsBox.querySelectorAll('button').forEach((b) => {
+      b.onclick = () => { destinations.splice(+b.dataset.i, 1); renderChips(); autoTitle(); };
+    });
   }
+
+  function autoTitle() {
+    if (titleInput.value && !titleWasAutofilled) return; // never overwrite the user's own title
+    if (!destinations.length) { if (titleWasAutofilled) { titleInput.value = ''; titleWasAutofilled = false; } return; }
+    const names = destinations.map((d) => d.name);
+    titleInput.value = names.length === 1 ? `טיול ל${names[0]}` : `${names.slice(0, 3).join(' · ')} — הטיול הגדול`;
+    titleWasAutofilled = true;
+  }
+  titleInput.addEventListener('input', () => { titleWasAutofilled = false; });
+
+  function addDestination(d) {
+    if (destinations.some((x) => x.name === d.name && x.country === d.country)) return;
+    destinations.push(d);
+    renderChips();
+    autoTitle();
+    destInput.value = '';
+    suggBox.classList.remove('open');
+    destInput.focus();
+  }
+
+  destInput.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    const q = destInput.value.trim();
+    if (q.length < 2) { suggBox.classList.remove('open'); return; }
+    debounceTimer = setTimeout(async () => {
+      const places = await GEO.searchPlaces(q).catch(() => []);
+      const options = places.map((p, i) => `
+        <button type="button" class="autocomplete-item" data-i="${i}">
+          <span class="ac-icon">${p.isCountry ? '🌍' : '📍'}</span>
+          <span class="ac-name">${TRIPI.esc(p.name)}</span>
+          <span class="ac-meta">${p.isCountry ? 'מדינה' : TRIPI.esc([p.admin, p.country].filter(Boolean).join(', '))}</span>
+        </button>`).join('');
+      // always offer free-text as a fallback so nobody gets stuck
+      suggBox.innerHTML = options + `
+        <button type="button" class="autocomplete-item free-text" data-free="1">
+          <span class="ac-icon">✏️</span>
+          <span class="ac-name">להוסיף "${TRIPI.esc(q)}" כמו שהוא</span>
+        </button>`;
+      suggBox.classList.add('open');
+      suggBox.querySelectorAll('.autocomplete-item').forEach((btn) => {
+        btn.onclick = () => {
+          if (btn.dataset.free) addDestination({ name: q, country: null, lat: null, lon: null });
+          else {
+            const p = places[+btn.dataset.i];
+            addDestination({ name: p.name, country: p.isCountry ? p.name : p.country, lat: p.lat, lon: p.lon });
+          }
+        };
+      });
+    }, 280);
+  });
+
+  destInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const first = suggBox.querySelector('.autocomplete-item');
+      if (suggBox.classList.contains('open') && first) first.click();
+      else if (destInput.value.trim()) addDestination({ name: destInput.value.trim(), country: null, lat: null, lon: null });
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.autocomplete-wrap')) suggBox.classList.remove('open');
+  });
+
+  // ---- days stepper + auto end date ----
+  const daysSel = document.getElementById('f-days');
+  const startInput = document.getElementById('f-start');
+  const endHint = document.getElementById('end-date-hint');
+
+  function clampDays() {
+    daysSel.value = Math.min(Math.max(parseInt(daysSel.value, 10) || 1, 1), 60);
+    updateEndHint();
+  }
+  function updateEndHint() {
+    if (!startInput.value) { endHint.textContent = ''; return; }
+    const end = new Date(startInput.value);
+    end.setDate(end.getDate() + (+daysSel.value) - 1);
+    endHint.textContent = 'חוזרים ב-' + end.toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' });
+  }
+  document.getElementById('days-minus').onclick = () => { daysSel.value = +daysSel.value - 1; clampDays(); };
+  document.getElementById('days-plus').onclick = () => { daysSel.value = +daysSel.value + 1; clampDays(); };
+  daysSel.addEventListener('change', clampDays);
+  startInput.addEventListener('change', updateEndHint);
 
   const emojiRow = document.getElementById('emoji-row');
   EMOJIS.forEach((em, i) => {
@@ -64,10 +157,12 @@
   document.getElementById('to-step-2').onclick = () => {
     const err = document.getElementById('err-1');
     err.textContent = '';
-    if (!document.getElementById('f-title').value.trim() || !document.getElementById('f-dest').value.trim()) {
-      err.textContent = 'צריך לפחות שם טיול ויעד כדי להמשיך';
-      return;
+    if (!destinations.length && destInput.value.trim()) {
+      // user typed but didn't pick — add it for them instead of nagging
+      addDestination({ name: destInput.value.trim(), country: null, lat: null, lon: null });
     }
+    if (!destinations.length) { err.textContent = 'לאן נוסעים? הוסיפו לפחות יעד אחד'; return; }
+    if (!titleInput.value.trim()) autoTitle();
     buildDayTabs();
     goStep(2);
   };
@@ -152,8 +247,7 @@
     }
     const payload = {
       title: document.getElementById('f-title').value.trim(),
-      destination: document.getElementById('f-dest').value.trim(),
-      country: document.getElementById('f-country').value.trim() || null,
+      destinations,
       description: document.getElementById('f-desc').value.trim() || null,
       cover_image: selectedCover,
       start_date: start, end_date: end, days,
