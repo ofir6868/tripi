@@ -258,12 +258,12 @@ body::after {
 
 .strip {
   display: flex; gap: 20px; overflow-x: auto; padding: 12px max(calc((100% - 1120px) / 2 + 20px), 20px) 34px;
-  scroll-snap-type: x proximity; scrollbar-width: none;
+  scrollbar-width: none; /* no scroll-snap: it fights the infinite-loop teleports */
 }
 .strip::-webkit-scrollbar { display: none; }
 
 .trip-card {
-  flex: 0 0 292px; scroll-snap-align: start;
+  flex: 0 0 292px;
   border-radius: var(--radius); overflow: hidden; position: relative;
   text-decoration: none; color: var(--paper);
   background: var(--ink-2); border: 1px solid var(--glass-border);

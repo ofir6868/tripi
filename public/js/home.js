@@ -99,31 +99,65 @@
       </a>`;
   }
 
+  // infinite loop: the card set is rendered twice; crossing a copy boundary
+  // teleports the scroll position by one set-width — identical content, invisible jump
+  let loopEnabled = false;
+  let sign = -1; // RTL Chrome scrolls into negative scrollLeft; some engines use positive
+
+  const setW = () => strip.scrollWidth / 2;
+  const getPos = () => Math.abs(strip.scrollLeft);
+  const setPos = (p) => { strip.scrollLeft = sign * p; };
+
+  function setupLoop() {
+    strip.scrollLeft = -1;
+    sign = strip.scrollLeft < 0 ? -1 : 1;
+    strip.scrollLeft = 0;
+    loopEnabled = true;
+    strip.addEventListener('scroll', () => {
+      const W = setW();
+      const pos = getPos();
+      // hysteresis: wrap only a full card into the second copy, so a jump landing
+      // exactly at W (the backward-guard) isn't immediately undone mid-animation
+      if (pos >= W + CARD) setPos(pos - W);
+    }, { passive: true });
+  }
+
   async function loadSuggested() {
     try {
       const trips = await TRIPI.api('/api/trips/suggested');
-      strip.innerHTML = trips.map(cardHtml).join('');
-      // staggered reveal
+      const cardsHtml = trips.map(cardHtml).join('');
+      const loop = trips.length > 3;
+      strip.innerHTML = loop ? cardsHtml + cardsHtml : cardsHtml;
+      const all = [...strip.querySelectorAll('.trip-card')];
+      // clones are pre-revealed and hidden from a11y; originals get the staggered reveal
+      all.slice(trips.length).forEach((c) => { c.classList.add('revealed'); c.setAttribute('aria-hidden', 'true'); c.tabIndex = -1; });
+      const originals = all.slice(0, trips.length);
       const observer = new IntersectionObserver((entries) => {
         entries.forEach((en) => {
           if (en.isIntersecting) {
-            const idx = [...strip.children].indexOf(en.target);
+            const idx = originals.indexOf(en.target);
             setTimeout(() => en.target.classList.add('revealed'), (idx % 6) * 90);
             observer.unobserve(en.target);
           }
         });
       }, { threshold: 0.15 });
-      strip.querySelectorAll('.trip-card').forEach((c) => observer.observe(c));
+      originals.forEach((c) => observer.observe(c));
+      if (loop) setupLoop();
       startDrift();
     } catch {
       strip.innerHTML = '<div class="empty-day" style="width:100%">הטיולים המומלצים יופיעו כאן ממש בקרוב 🌍</div>';
     }
   }
 
-  // arrows (RTL: scrollLeft goes negative)
+  // arrows — with the loop active they never hit a dead end
   const CARD = 312;
-  document.getElementById('strip-next').addEventListener('click', () => strip.scrollBy({ left: CARD, behavior: 'smooth' }));
-  document.getElementById('strip-prev').addEventListener('click', () => strip.scrollBy({ left: -CARD, behavior: 'smooth' }));
+  document.getElementById('strip-next').addEventListener('click', () => {
+    if (loopEnabled && getPos() < CARD + 4) setPos(getPos() + setW()); // wrap before leaving the start
+    strip.scrollBy({ left: CARD, behavior: 'smooth' });
+  });
+  document.getElementById('strip-prev').addEventListener('click', () => {
+    strip.scrollBy({ left: -CARD, behavior: 'smooth' }); // far-end wrap handled by the scroll listener
+  });
 
   // gentle auto-drift, pauses on interaction
   let paused = false, resumeTimer = null;
@@ -138,18 +172,25 @@
 
   function startDrift() {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    let dir = -1; // RTL: content extends toward negative scrollLeft
+    let dir = -1; // only used in non-loop fallback: bounce between the ends
     let acc = 0;
     function frame() {
       if (!paused && !document.hidden) {
         const max = strip.scrollWidth - strip.clientWidth;
         if (max > 0) {
-          // in RTL scrollLeft ranges 0 → -max (chrome) — normalize
-          const pos = Math.abs(strip.scrollLeft);
-          if (pos >= max - 4) dir = 1;
-          if (pos <= 4) dir = -1;
           acc += 0.5;
-          if (acc >= 1) { strip.scrollLeft += dir * Math.floor(acc); acc -= Math.floor(acc); }
+          if (acc >= 1) {
+            const step = Math.floor(acc);
+            acc -= step;
+            if (loopEnabled) {
+              setPos(getPos() + step); // always forward — the wrap listener makes it endless
+            } else {
+              const pos = getPos();
+              if (pos >= max - 4) dir = 1;
+              if (pos <= 4) dir = -1;
+              strip.scrollLeft += dir * step;
+            }
+          }
         }
       }
       requestAnimationFrame(frame);
