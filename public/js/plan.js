@@ -437,7 +437,7 @@
     if (+to.value > +daysSel.value) to.value = daysSel.value;
   }
 
-  async function runAi(payload, label) {
+  async function runAi(payload, label, replaceRange) {
     if (aiBusy) return;
     const go = async () => {
       aiBusy = true;
@@ -454,6 +454,10 @@
             ...payload,
           }),
         });
+        // replace only after a SUCCESSFUL generation — a failed run never wipes anything
+        if (replaceRange) {
+          items = items.filter((it) => it.day_number < replaceRange.from || it.day_number > replaceRange.to);
+        }
         res.items.forEach((it) => items.push({ _id: idSeq++, ...it }));
         items.sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')));
         aiStatus.className = 'ai-status done';
@@ -475,9 +479,9 @@
   }
 
   document.getElementById('ai-full').onclick = () => {
-    const existing = items.length;
-    if (existing && !confirm('יש כבר תחנות במסלול. ה-AI יוסיף תחנות חדשות לצידן — להמשיך?')) return;
-    runAi({ day_from: 1, day_to: +daysSel.value }, 'את כל הטיול');
+    const days = +daysSel.value;
+    if (items.length && !confirm(`הבנייה מחדש תחליף את כל ${items.length} התחנות הקיימות במסלול. להמשיך?`)) return;
+    runAi({ day_from: 1, day_to: days }, 'את כל הטיול', { from: 1, to: days });
   };
   document.getElementById('ai-by-area').onclick = () => {
     const f = document.getElementById('ai-area-form');
@@ -486,9 +490,11 @@
   document.getElementById('ai-area-go').onclick = () => {
     const area = document.getElementById('ai-area-sel').value;
     const from = +document.getElementById('ai-day-from').value || 1;
-    const to = +document.getElementById('ai-day-to').value || from;
+    const to = Math.min(+document.getElementById('ai-day-to').value || from, +daysSel.value);
     if (to < from) { aiStatus.className = 'ai-status error'; aiStatus.textContent = '⚠️ טווח הימים הפוך'; return; }
-    runAi({ area, day_from: from, day_to: Math.min(to, +daysSel.value) }, `את ${area}`);
+    const inRange = items.filter((it) => it.day_number >= from && it.day_number <= to).length;
+    if (inRange && !confirm(`הבנייה תחליף את ${inRange} התחנות הקיימות בימים ${from}–${to}. להמשיך?`)) return;
+    runAi({ area, day_from: from, day_to: to }, `את ${area}`, { from, to });
   };
 
   // ---- create ----
