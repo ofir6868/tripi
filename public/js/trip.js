@@ -100,12 +100,15 @@
                   <span class="item-title">${TRIPI.esc(it.title)}</span>
                   ${multiDest() && it.area ? `<span class="item-area">📍 ${TRIPI.esc(it.area)}</span>` : ''}
                   ${it.category ? `<span class="item-cat">${TRIPI.esc(it.category)}</span>` : ''}
-                  ${expandable ? '<span class="item-chevron" title="הרחבה">▾</span>' : ''}
                   ${editMode ? `<button class="item-del" data-id="${it.id}" title="מחיקת תחנה">✕</button>` : ''}
                 </div>
                 ${it.note ? `<div class="item-note">${TRIPI.esc(it.note)}</div>` : ''}
-                ${it.place_query ? `<a class="item-map-link" target="_blank" rel="noopener" href="${TRIPI.mapsSearchUrl(it.place_query)}">📍 פתיחה בגוגל מפות</a>` : ''}
-                ${expandable ? '<div class="item-more" hidden></div>' : ''}
+                ${expandable ? `
+                  <button type="button" class="item-expand-btn" aria-expanded="false">
+                    <span class="ieb-text">${editMode ? 'פרטים ועריכת מיקום' : 'מפה ותמונות'}</span>
+                    <span class="ieb-caret" aria-hidden="true">▾</span>
+                  </button>
+                  <div class="item-more-wrap"><div class="item-more"></div></div>` : ''}
               </div>`;
             }).join('')}
             ${byDay.get(day).length === 0 && editMode ? '<div class="empty-day">יום פנוי — מוסיפים תחנה למטה ↓</div>' : ''}
@@ -116,16 +119,21 @@
 
       // click to expand: lazy-load an exact-location mini map inside the card
       container.querySelectorAll('.item-card.expandable').forEach((card) => {
-        card.querySelector('.item-top').addEventListener('click', (e) => {
+        const toggle = (e) => {
           if (e.target.closest('.item-del') || e.target.closest('a')) return;
           const it = tripItems.find((x) => x.id === +card.dataset.itemId);
           const more = card.querySelector('.item-more');
-          const open = !more.hidden;
-          if (open) { more.hidden = true; card.classList.remove('expanded'); return; }
+          const btn = card.querySelector('.item-expand-btn');
+          if (card.classList.contains('expanded')) {
+            card.classList.remove('expanded');
+            btn.setAttribute('aria-expanded', 'false');
+            btn.querySelector('.ieb-text').textContent = editMode ? 'פרטים ועריכת מיקום' : 'מפה ותמונות';
+            return;
+          }
           if (!more.dataset.loaded) {
             const hasMap = !!(it.place_query || (it.lat != null && it.lon != null));
             more.innerHTML = `
-              ${it.place_query ? `<div class="item-more-place">📌 ${TRIPI.esc(it.place_query)}</div>` : ''}
+              ${it.place_query ? `<div class="item-more-place"><span class="imp-pin">📍</span><span class="imp-text">${TRIPI.esc(it.place_query)}</span></div>` : ''}
               ${hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPI.mapsEmbedUrlExact(it)}"></iframe>` : ''}
               ${it.place_query ? '<div class="stop-gallery"></div>' : ''}
               ${editMode ? `
@@ -175,9 +183,12 @@
               };
             }
           }
-          more.hidden = false;
           card.classList.add('expanded');
-        });
+          btn.setAttribute('aria-expanded', 'true');
+          btn.querySelector('.ieb-text').textContent = 'סגירה';
+        };
+        card.querySelector('.item-top').addEventListener('click', toggle);
+        card.querySelector('.item-expand-btn').addEventListener('click', toggle);
       });
 
       if (editMode) {
