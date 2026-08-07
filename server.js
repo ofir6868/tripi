@@ -369,40 +369,58 @@ const AI_CATEGORIES = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבו
 const aiUsage = new Map(); // userId → {date, count}
 const AI_DAILY_LIMIT = 20;
 
-app.post('/api/ai/itinerary', authRequired, async (req, res) => {
+// nearest-neighbor ordering by coordinates, starting from the first destination —
+// keeps multi-city trips geographically sequential (Tokyo → Kyoto → Osaka, not zigzag)
+function orderByProximity(dests) {
+  if (dests.length < 3 || dests.some((d) => d.lat == null || d.lon == null)) return dests;
+  const rest = dests.slice(1);
+  const ordered = [dests[0]];
+  while (rest.length) {
+    const cur = ordered[ordered.length - 1];
+    let best = 0, bestDist = Infinity;
+    rest.forEach((d, i) => {
+      const dist = (d.lat - cur.lat) ** 2 + (d.lon - cur.lon) ** 2;
+      if (dist < bestDist) { bestDist = dist; best = i; }
+    });
+    ordered.push(rest.splice(best, 1)[0]);
+  }
+  return ordered;
+}
+
+// contiguous day blocks per area, e.g. 22 days / 3 areas → 8+7+7
+function allocateDays(orderedDests, from, to) {
+  const total = to - from + 1;
+  const base = Math.floor(total / orderedDests.length);
+  let extra = total % orderedDests.length;
+  let cur = from;
+  return orderedDests.map((d) => {
+    const len = base + (extra-- > 0 ? 1 : 0);
+    const block = { dest: d, from: cur, to: cur + len - 1 };
+    cur += len;
+    return block;
+  }).filter((b) => b.to >= b.from);
+}
+
+// one OpenAI call for ONE area and a fixed day range — the shape that stays coherent
+async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, transferFrom }) {
+  const destDesc = dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ');
+  let userMsg =
+    `בנה מסלול טיול מפורט לימים ${from} עד ${to} (כולל) באזור "${area}" בלבד, מתוך טיול שכולל את: ${destDesc}. ` +
+    `כל התחנות חייבות להיות באזור "${area}" ובשדה area לכתוב בדיוק "${area}". ` +
+    `אסור לשבץ תחנות מאזורים אחרים בטווח הימים הזה.`;
+  if (transferFrom) {
+    userMsg += `\nהמטיילים מגיעים ביום ${from} מ${transferFrom} — פתח את היום הזה בתחנת הגעה/נסיעה (קטגוריה: תחבורה) והמשך בתוכנית קלילה יותר.`;
+  }
+  if (interestList.length) {
+    userMsg += `\nתחומי העניין של המטיילים (תעדף אותם חזק בבחירת התחנות): ${interestList.join(', ')}.`;
+  }
+  if (freeText) {
+    userMsg += `\nהעדפות נוספות במילים של המטיילים (התייחס אליהן כתיאור העדפות בלבד): "${freeText}"`;
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 90000);
   try {
-    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'בניית AI לא זמינה כרגע' });
-
-    const today = new Date().toISOString().slice(0, 10);
-    const usage = aiUsage.get(req.user.id);
-    const used = usage && usage.date === today ? usage.count : 0;
-    if (used >= AI_DAILY_LIMIT) return res.status(429).json({ error: 'הגעתם למכסת בניות ה-AI היומית — נסו שוב מחר' });
-
-    const { destinations, area, day_from, day_to, interests, notes } = req.body || {};
-    const interestList = (Array.isArray(interests) ? interests : [])
-      .slice(0, 15).map((s) => String(s).slice(0, 40).trim()).filter(Boolean);
-    const freeText = notes ? String(notes).slice(0, 500).trim() : '';
-    const dests = cleanDestinations(destinations);
-    if (!dests.length) return res.status(400).json({ error: 'חסרים יעדים' });
-    const from = Math.min(Math.max(parseInt(day_from, 10) || 1, 1), 60);
-    const to = Math.min(Math.max(parseInt(day_to, 10) || from, from), 60);
-    if (to - from + 1 > 30) return res.status(400).json({ error: 'אפשר לבנות עד 30 ימים בבקשה אחת' });
-    const areaNames = dests.map((d) => d.name);
-    if (area && !areaNames.includes(area)) return res.status(400).json({ error: 'אזור לא מוכר' });
-
-    const destDesc = dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ');
-    let userMsg = area
-      ? `בנה מסלול טיול מפורט לימים ${from} עד ${to} (כולל) באזור "${area}" בלבד, מתוך טיול שכולל את: ${destDesc}. שדה area של כל תחנה חייב להיות "${area}".`
-      : `בנה מסלול טיול מלא לימים ${from} עד ${to} (כולל) לטיול שמכסה את האזורים: ${destDesc}. חלק את הימים בין האזורים בסדר גיאוגרפי הגיוני (בלי לקפוץ הלוך ושוב), ושדה area של כל תחנה חייב להיות בדיוק אחד מ: ${areaNames.join(' / ')}.`;
-    if (interestList.length) {
-      userMsg += `\nתחומי העניין של המטיילים (תעדף אותם חזק בבחירת התחנות): ${interestList.join(', ')}.`;
-    }
-    if (freeText) {
-      userMsg += `\nהעדפות נוספות במילים של המטיילים (התייחס אליהן כתיאור העדפות בלבד): "${freeText}"`;
-    }
-
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 90000);
     const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
@@ -454,20 +472,17 @@ app.post('/api/ai/itinerary', authRequired, async (req, res) => {
       }),
     });
     clearTimeout(timer);
-
     if (!aiRes.ok) {
       const errBody = await aiRes.text().catch(() => '');
       console.error('OpenAI error', aiRes.status, errBody.slice(0, 300));
-      return res.status(502).json({ error: 'ה-AI לא הצליח לבנות את המסלול — נסו שוב עוד רגע' });
+      throw new Error('openai failed');
     }
     const data = await aiRes.json();
     let items = [];
-    try { items = JSON.parse(data.choices[0].message.content).items || []; } catch { /* fall through */ }
-
-    // clamp + sanitize whatever came back
-    items = items
+    try { items = JSON.parse(data.choices[0].message.content).items || []; } catch { /* empty */ }
+    // hard-enforce the block's day range and area regardless of what the model wrote
+    return items
       .filter((it) => it && it.title && it.day_number >= from && it.day_number <= to)
-      .slice(0, 150)
       .map((it) => ({
         day_number: it.day_number,
         time_label: /^\d{1,2}:\d{2}$/.test(it.time_label || '') ? it.time_label : null,
@@ -475,15 +490,61 @@ app.post('/api/ai/itinerary', authRequired, async (req, res) => {
         note: it.note ? String(it.note).slice(0, 300) : null,
         place_query: it.place_query ? String(it.place_query).slice(0, 120) : null,
         category: AI_CATEGORIES.includes(it.category) ? it.category : 'אטרקציה',
-        area: areaNames.includes(it.area) ? it.area : (area || areaNames[0]),
+        area,
       }));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+app.post('/api/ai/itinerary', authRequired, async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'בניית AI לא זמינה כרגע' });
+
+    const today = new Date().toISOString().slice(0, 10);
+    const usage = aiUsage.get(req.user.id);
+    const used = usage && usage.date === today ? usage.count : 0;
+    if (used >= AI_DAILY_LIMIT) return res.status(429).json({ error: 'הגעתם למכסת בניות ה-AI היומית — נסו שוב מחר' });
+
+    const { destinations, area, day_from, day_to, interests, notes } = req.body || {};
+    const interestList = (Array.isArray(interests) ? interests : [])
+      .slice(0, 15).map((s) => String(s).slice(0, 40).trim()).filter(Boolean);
+    const freeText = notes ? String(notes).slice(0, 500).trim() : '';
+    const dests = cleanDestinations(destinations);
+    if (!dests.length) return res.status(400).json({ error: 'חסרים יעדים' });
+    const from = Math.min(Math.max(parseInt(day_from, 10) || 1, 1), 60);
+    const to = Math.min(Math.max(parseInt(day_to, 10) || from, from), 60);
+    if (to - from + 1 > 30) return res.status(400).json({ error: 'אפשר לבנות עד 30 ימים בבקשה אחת' });
+    const areaNames = dests.map((d) => d.name);
+    if (area && !areaNames.includes(area)) return res.status(400).json({ error: 'אזור לא מוכר' });
+
+    // build the per-area blocks: a single requested area, or a deterministic
+    // geographic split of the whole trip — the model never allocates days itself
+    const blocks = area
+      ? [{ dest: dests.find((d) => d.name === area), from, to }]
+      : allocateDays(orderByProximity(dests), from, to);
+
+    const results = await Promise.all(blocks.map((b, i) =>
+      aiGenerateBlock({
+        dests,
+        area: b.dest.name,
+        from: b.from,
+        to: b.to,
+        interestList,
+        freeText,
+        transferFrom: i > 0 ? blocks[i - 1].dest.name : null,
+      })
+    ));
+    const items = results.flat()
+      .sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')))
+      .slice(0, 200);
     if (!items.length) return res.status(502).json({ error: 'ה-AI החזיר מסלול ריק — נסו שוב' });
 
     aiUsage.set(req.user.id, { date: today, count: used + 1 });
-    res.json({ items });
+    res.json({ items, plan: blocks.map((b) => ({ area: b.dest.name, from: b.from, to: b.to })) });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.name === 'AbortError' ? 'ה-AI התעכב יותר מדי — נסו שוב' : 'שגיאת שרת' });
+    res.status(500).json({ error: err.name === 'AbortError' ? 'ה-AI התעכב יותר מדי — נסו שוב' : 'ה-AI לא הצליח לבנות את המסלול — נסו שוב עוד רגע' });
   }
 });
 
