@@ -144,4 +144,37 @@ const GEO = {
     });
     return { getPicked: () => lastPicked, clear: () => { lastPicked = null; } };
   },
+
+  // place photos from Wikimedia Commons (keyless, CORS-enabled); [] when nothing relevant
+  photoCache: new Map(),
+  async placePhotos(query, limit = 8) {
+    if (!query) return [];
+    if (this.photoCache.has(query)) return this.photoCache.get(query);
+    const url = 'https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*' +
+      `&generator=search&gsrnamespace=6&gsrlimit=${limit}` +
+      '&gsrsearch=' + encodeURIComponent('filetype:bitmap ' + query) +
+      '&prop=imageinfo&iiprop=url|mime&iiurlwidth=480';
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      const pages = Object.values(data.query?.pages || {}).sort((a, b) => (a.index || 0) - (b.index || 0));
+      const photos = pages
+        .map((p) => p.imageinfo?.[0])
+        .filter((ii) => ii && /image\/(jpeg|png)/.test(ii.mime || ''))
+        .map((ii) => ({ thumb: ii.thumburl || ii.url, full: ii.url }));
+      this.photoCache.set(query, photos);
+      return photos;
+    } catch { return []; }
+  },
+
+  // fill a container with a horizontal photo strip; removes it when nothing found
+  async renderGallery(container, query) {
+    const photos = await this.placePhotos(query);
+    if (!photos.length) { container.remove(); return; }
+    container.innerHTML = photos.map((p, i) =>
+      `<img src="${p.thumb}" data-full="${p.full}" loading="lazy" alt="" onerror="this.remove()">`).join('');
+    container.querySelectorAll('img').forEach((img) => {
+      img.onclick = (e) => { e.stopPropagation(); TRIPI.openLightbox(img.dataset.full); };
+    });
+  },
 };

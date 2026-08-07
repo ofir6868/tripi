@@ -123,8 +123,11 @@
           if (!more.dataset.loaded) {
             more.innerHTML = `
               ${it.place_query ? `<div class="item-more-place">📌 ${TRIPI.esc(it.place_query)}</div>` : ''}
-              <iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPI.mapsEmbedUrlExact(it)}"></iframe>`;
+              <iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPI.mapsEmbedUrlExact(it)}"></iframe>
+              ${it.place_query ? '<div class="stop-gallery"></div>' : ''}`;
             more.dataset.loaded = '1';
+            const gal = more.querySelector('.stop-gallery');
+            if (gal) GEO.renderGallery(gal, it.place_query);
           }
           more.hidden = false;
           card.classList.add('expanded');
@@ -258,18 +261,6 @@
         localStorage.setItem('tripi_likes', JSON.stringify(likedTrips));
         likeBtn.firstChild.textContent = likedTrips[trip.id] ? '❤️ ' : '🤍 ';
       } catch { /* ignore */ }
-    };
-
-    // ---- clone ----
-    document.getElementById('clone-btn').onclick = async () => {
-      const doClone = async () => {
-        try {
-          const t = await TRIPI.api(`/api/trips/code/${trip.share_code}/clone`, { method: 'POST' });
-          location.href = '/trip/' + t.share_code;
-        } catch (e) { alert(e.message); }
-      };
-      if (!TRIPI.user) openAuthModal(doClone, 'register');
-      else doClone();
     };
 
     // ---- print / WhatsApp ----

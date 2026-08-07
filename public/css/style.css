@@ -734,6 +734,29 @@ body::after {
   width: 100%; height: 210px; border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
   display: block; filter: saturate(.85) contrast(1.05);
 }
+
+/* place photo gallery (Wikimedia Commons) */
+.stop-gallery {
+  display: flex; gap: 8px; overflow-x: auto; margin-top: 10px; padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.stop-gallery img {
+  height: 88px; width: auto; flex: 0 0 auto; border-radius: 10px; cursor: zoom-in;
+  border: 1px solid var(--glass-border); transition: transform .18s ease;
+}
+.stop-gallery img:hover { transform: scale(1.05); }
+
+.lightbox {
+  position: fixed; inset: 0; z-index: 400; cursor: zoom-out;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(4, 9, 7, .88);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  animation: pop .2s ease;
+}
+.lightbox img {
+  max-width: 92vw; max-height: 88vh; border-radius: 14px;
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, .8);
+}
 .item-area {
   font-size: .76rem; font-weight: 700; padding: 4px 10px; border-radius: 999px;
   background: rgba(255, 180, 95, .1); color: var(--amber); border: 1px solid rgba(255, 180, 95, .3);

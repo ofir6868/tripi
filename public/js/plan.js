@@ -302,8 +302,11 @@
             ${it.note ? `<div class="item-note">${TRIPI.esc(it.note)}</div>` : ''}
             ${it.place_query ? `<div class="item-more-place">📌 ${TRIPI.esc(it.place_query)}</div>` : ''}
             ${hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPI.mapsEmbedUrlExact(it)}"></iframe>`
-                     : '<div class="item-note">אין מיקום לתחנה הזו — אפשר להוסיף דרך שדה המיקום</div>'}`;
+                     : '<div class="item-note">אין מיקום לתחנה הזו — אפשר להוסיף דרך שדה המיקום</div>'}
+            ${it.place_query ? '<div class="stop-gallery"></div>' : ''}`;
           more.dataset.loaded = '1';
+          const gal = more.querySelector('.stop-gallery');
+          if (gal) GEO.renderGallery(gal, it.place_query);
         }
         more.hidden = false;
         row.classList.add('expanded');

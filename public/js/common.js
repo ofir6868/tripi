@@ -30,6 +30,16 @@ const TRIPI = {
   mapsSearchUrl(q) {
     return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
   },
+  openLightbox(url) {
+    const box = document.createElement('div');
+    box.className = 'lightbox';
+    box.innerHTML = `<img src="${String(url).replace(/"/g, '')}" alt="">`;
+    box.onclick = () => box.remove();
+    document.addEventListener('keydown', function esc(e) {
+      if (e.key === 'Escape') { box.remove(); document.removeEventListener('keydown', esc); }
+    });
+    document.body.appendChild(box);
+  },
   mapsEmbedUrl(q) {
     return 'https://maps.google.com/maps?q=' + encodeURIComponent(q) + '&hl=he&z=12&output=embed';
   },
