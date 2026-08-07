@@ -55,10 +55,15 @@
     try {
       const rows = await TRIPI.api('/api/trips/search?q=' + encodeURIComponent(q));
       hint.textContent = '';
-      if (!rows.length) {
-        hint.innerHTML = `לא מצאנו טיול ל"${TRIPI.esc(q)}" — אולי תהיו הראשונים? <a href="/plan" style="color:var(--amber);font-weight:700">מתכננים אחד ›</a>`;
-        return;
-      }
+      // every search ends with a "plan this destination" CTA — the wizard pre-fills it
+      const planCta = `
+        <a class="search-result plan-cta" href="/plan?dest=${encodeURIComponent(q)}">
+          <span class="pc-icon">✨</span>
+          <div>
+            <div class="sr-title">מתכננים טיול חדש ל"${TRIPI.esc(q)}"</div>
+            <div class="sr-meta">נמלא את היעד בשבילכם — נשאר רק לבחור ימים</div>
+          </div>
+        </a>`;
       results.innerHTML = rows.map((t) => `
         <a class="search-result" href="/trip/${t.share_code}">
           <img src="${TRIPI.esc(t.cover_image || '')}" alt="" loading="lazy" onerror="this.style.display='none'">
@@ -66,7 +71,8 @@
             <div class="sr-title">${t.emoji || '🧭'} ${TRIPI.esc(t.title)}</div>
             <div class="sr-meta">${TRIPI.esc(t.destination)}${t.country ? ' · ' + TRIPI.esc(t.country) : ''} · ${t.days} ימים</div>
           </div>
-        </a>`).join('');
+        </a>`).join('') + planCta;
+      if (!rows.length) hint.textContent = `לא מצאנו טיול קיים ל"${q}" — אבל אפשר להיות הראשונים:`;
       results.classList.add('open');
     } catch (err) {
       hint.innerHTML = `<span class="err">${TRIPI.esc(err.message)}</span>`;

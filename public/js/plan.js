@@ -54,6 +54,7 @@
     destInput.value = '';
     suggBox.classList.remove('open');
     destInput.focus();
+    scheduleSave(); // also covers programmatic adds (?dest= pre-fill)
   }
 
   destInput.addEventListener('input', () => {
@@ -535,5 +536,23 @@
       goStep(2);
     }
     document.getElementById('draft-banner').hidden = false;
+  })();
+
+  // ---- ?dest= from the homepage search: geocode it and pre-fill the destination chip ----
+  (function applyDestParam() {
+    const q = (new URLSearchParams(location.search).get('dest') || '').trim().slice(0, 60);
+    if (!q) return;
+    history.replaceState(null, '', '/plan'); // one-shot: a reload shouldn't re-add it
+    if (destinations.some((d) => d.name === q)) return;
+    GEO.searchPlaces(q)
+      .then((places) => {
+        const p = places[0];
+        if (p && !destinations.some((d) => d.name === p.name)) {
+          addDestination({ name: p.name, country: p.isCountry ? p.name : p.country, lat: p.lat, lon: p.lon });
+        } else if (!p) {
+          addDestination({ name: q, country: null, lat: null, lon: null });
+        }
+      })
+      .catch(() => addDestination({ name: q, country: null, lat: null, lon: null }));
   })();
 })();
