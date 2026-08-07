@@ -420,6 +420,30 @@ function allocateDays(orderedDests, from, to) {
   }).filter((b) => b.to >= b.from);
 }
 
+// destinations as "עיר (מדינה)" — the country ALWAYS travels with the city name
+function destDescFull(dests) {
+  return dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ');
+}
+
+// rough air distances between destinations, so the AI reasons about real travel
+function haversineKm(a, b) {
+  const R = 6371, rad = (x) => (x * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function distancesText(dests) {
+  const withCoords = dests.filter((d) => d.lat != null && d.lon != null);
+  if (withCoords.length < 2) return '';
+  const pairs = [];
+  for (let i = 0; i < withCoords.length; i++) {
+    for (let j = i + 1; j < withCoords.length; j++) {
+      pairs.push(`${withCoords[i].name}–${withCoords[j].name}: ~${Math.round(haversineKm(withCoords[i], withCoords[j]) / 10) * 10} ק"מ`);
+    }
+  }
+  return pairs.length ? `\nמרחקים אוויריים משוערים בין היעדים: ${pairs.join(' | ')}.` : '';
+}
+
 // shared trip-context suffix for AI prompts
 function tripPrefsText({ interestList, freeText, answers }) {
   let s = '';
@@ -435,12 +459,13 @@ function tripPrefsText({ interestList, freeText, answers }) {
 // materially change the trip STRUCTURE (e.g. landing city on a multi-city trip).
 // Strongly encouraged to ask nothing; max 2 questions, fixed component types.
 async function aiClarify({ dests, from, to, interestList, freeText }) {
-  const destDesc = dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ');
   const userMsg =
-    `מתכננים טיול לימים ${from} עד ${to} (${to - from + 1} ימים) שמכסה את האזורים: ${destDesc}.` +
+    `מתכננים טיול לימים ${from} עד ${to} (${to - from + 1} ימים) שמכסה את האזורים: ${destDescFull(dests)}.` +
+    distancesText(dests) +
     tripPrefsText({ interestList, freeText }) +
-    `\nלפני חלוקת הימים בין האזורים: האם חסר לך פרט שבאמת ישנה את מבנה הטיול (סדר האזורים או חלוקת הימים)? ` +
-    `דוגמה לפרט קריטי: באיזו עיר נוחתים וממריאים בטיול מרובה ערים במדינה גדולה. ` +
+    `\nלפני חלוקת הימים בין האזורים: האם חסר לך פרט שבאמת ישנה את מבנה הטיול (סדר האזורים, חלוקת הימים או ימי המעבר)? ` +
+    `דוגמאות לפרט קריטי: באיזו עיר נוחתים וממריאים בטיול מרובה ערים במדינה גדולה; ` +
+    `וכשהיעדים רחוקים מאוד זה מזה (מאות ק"מ או מדינות שונות) — איך מעדיפים לעבור ביניהם (למשל options: טיסה פנימית / רכבת או אוטובוס / שיט / רכב שכור עם עצירות בדרך). ` +
     `דוגמה נגדית: במדינה קטנה שבה נקודת הנחיתה כמעט לא משנה — אל תשאל. ` +
     `ברירת המחדל החזקה היא לא לשאול כלום ולהחזיר רשימה ריקה. שאל רק אם התשובה תשנה את התוכנית מהותית, ולכל היותר 2 שאלות קצרות בעברית. ` +
     `סוג שאלה: "choice" עם options קצרות (העדף את זה), או "text" לתשובה חופשית (options ריק).`;
@@ -540,7 +565,7 @@ function validateCoverChoice(chosenName, dests) {
 }
 
 async function aiTripMeta({ dests, from, to, interestList, freeText, answers }) {
-  const destDesc = dests.map((d) => d.name).join(', ');
+  const destDesc = destDescFull(dests);
   const coverNames = COVER_OPTIONS.map((c) => c.name);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 30000);
@@ -599,10 +624,11 @@ async function aiTripMeta({ dests, from, to, interestList, freeText, answers }) 
 // a small, cheap call whose output is easy to validate structurally
 async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers }) {
   const areaNames = dests.map((d) => d.name);
-  const destDesc = dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ');
   let userMsg =
-    `טיול לימים ${from} עד ${to} (כולל, סה"כ ${to - from + 1} ימים) שמכסה את האזורים: ${destDesc}. ` +
-    `חלק את הימים בין האזורים: קבע סדר ביקור גיאוגרפי הגיוני, והקצה לכל אזור כמות ימים לפי כמה שיש בו לראות ולעשות עבור המטיילים האלה — לא בהכרח שווה בשווה. ` +
+    `טיול לימים ${from} עד ${to} (כולל, סה"כ ${to - from + 1} ימים) שמכסה את האזורים: ${destDescFull(dests)}. ` +
+    distancesText(dests) +
+    `\nחלק את הימים בין האזורים: קבע סדר ביקור גיאוגרפי הגיוני, והקצה לכל אזור כמות ימים לפי כמה שיש בו לראות ולעשות עבור המטיילים האלה — לא בהכרח שווה בשווה. ` +
+    `קח בחשבון זמני נסיעה: מעבר בין אזורים רחוקים (מאות ק"מ, טיסה או נסיעה ארוכה) גוזל חצי יום עד יום — שקלל את זה בהקצאת הימים של האזור שאליו מגיעים. ` +
     `כל אזור מופיע פעם אחת בדיוק, הבלוקים רצופים ומכסים את כל טווח הימים בלי חורים ובלי חפיפות.` +
     tripPrefsText({ interestList, freeText, answers });
 
@@ -673,13 +699,20 @@ async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers }
 
 // one OpenAI call for ONE area and a fixed day range — the shape that stays coherent
 async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, answers, transferFrom }) {
-  const destDesc = dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ');
   let userMsg =
-    `בנה מסלול טיול מפורט לימים ${from} עד ${to} (כולל) באזור "${area}" בלבד, מתוך טיול שכולל את: ${destDesc}. ` +
+    `בנה מסלול טיול מפורט לימים ${from} עד ${to} (כולל) באזור "${area}" בלבד, מתוך טיול שכולל את: ${destDescFull(dests)}. ` +
     `כל התחנות חייבות להיות באזור "${area}" ובשדה area לכתוב בדיוק "${area}". ` +
     `אסור לשבץ תחנות מאזורים אחרים בטווח הימים הזה.`;
   if (transferFrom) {
-    userMsg += `\nהמטיילים מגיעים ביום ${from} מ${transferFrom} — פתח את היום הזה בתחנת הגעה/נסיעה (קטגוריה: תחבורה) והמשך בתוכנית קלילה יותר.`;
+    const fromDest = dests.find((d) => d.name === transferFrom);
+    const toDest = dests.find((d) => d.name === area);
+    const km = fromDest && toDest && fromDest.lat != null && toDest.lat != null
+      ? Math.round(haversineKm(fromDest, toDest) / 10) * 10 : null;
+    userMsg += `\nהמטיילים מגיעים ביום ${from} מ${destDescFull([fromDest || { name: transferFrom }])}` +
+      (km ? ` (מרחק אווירי ~${km} ק"מ)` : '') +
+      ` — פתח את היום הזה בתחנת מעבר (קטגוריה: תחבורה) שמפרטת את אמצעי התחבורה וזמן נסיעה משוער בהערה. ` +
+      `אם המטיילים ציינו העדפת תחבורה בתשובות ההבהרה — השתמש בה; אם בחרו לעצור במקומות בדרך, אפשר להוסיף עצירת ביניים שווה כתחנה נוספת באותו יום. ` +
+      `אחרי המעבר תכנן יום קליל יותר.`;
   }
   if (interestList.length) {
     userMsg += `\nתחומי העניין של המטיילים (תעדף אותם חזק בבחירת התחנות): ${interestList.join(', ')}.`;
