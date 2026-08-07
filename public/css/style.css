@@ -779,6 +779,52 @@ body::after {
   background: rgba(255, 180, 95, .1); color: var(--amber); border: 1px solid rgba(255, 180, 95, .3);
 }
 
+/* ---------- full-screen AI planning overlay ---------- */
+
+.ai-overlay {
+  position: fixed; inset: 0; z-index: 500; display: none;
+  align-items: center; justify-content: center; text-align: center;
+  background: rgba(5, 11, 9, .55);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  backdrop-filter: blur(16px) saturate(130%);
+}
+.ai-overlay.open { display: flex; animation: overlay-in .4s ease; }
+@keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* two stacked edge-glows crossfading = breathing, animating opacity only (GPU-cheap) */
+.ai-glow { position: absolute; inset: 0; pointer-events: none; }
+.ai-glow.g1 {
+  box-shadow: inset 0 0 110px 24px rgba(232, 133, 58, .38);
+  animation: breathe-a 3s ease-in-out infinite alternate;
+}
+.ai-glow.g2 {
+  box-shadow: inset 0 0 230px 70px rgba(255, 180, 95, .45);
+  opacity: 0;
+  animation: breathe-b 3s ease-in-out infinite alternate;
+}
+@keyframes breathe-a { from { opacity: 1; } to { opacity: .25; } }
+@keyframes breathe-b { from { opacity: 0; } to { opacity: 1; } }
+
+.ai-overlay-content { position: relative; padding: 20px; max-width: 90vw; }
+.ai-orb {
+  font-size: 3.2rem; line-height: 1; margin-bottom: 18px;
+  animation: orb-float 3s ease-in-out infinite alternate;
+  filter: drop-shadow(0 0 24px rgba(255, 180, 95, .8));
+}
+@keyframes orb-float {
+  from { transform: translateY(0) scale(1); }
+  to { transform: translateY(-10px) scale(1.12); }
+}
+.ai-overlay-title {
+  font-family: var(--font-display); font-size: clamp(1.5rem, 5vw, 2.3rem);
+  color: var(--paper); text-shadow: 0 0 40px rgba(255, 180, 95, .35);
+}
+.ai-overlay-sub {
+  margin-top: 12px; color: var(--amber); font-weight: 600; font-size: 1.02rem;
+  min-height: 1.6em; transition: opacity .4s ease;
+}
+.ai-overlay-sub.swap { opacity: 0; }
+
 /* ---------- trip actions, edit mode, owner box ---------- */
 
 .action-row { display: flex; gap: 8px; flex-wrap: wrap; }

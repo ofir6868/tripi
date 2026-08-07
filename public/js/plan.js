@@ -373,6 +373,37 @@
     document.getElementById('i-title').focus();
   };
 
+  // ---- full-screen AI overlay ----
+  const aiOverlay = document.getElementById('ai-overlay');
+  const AI_QUIPS = [
+    'מדפדף במדריכי טיולים…', 'בוחר את המסעדות הכי שוות…', 'מסדר את הימים בסדר הגיוני…',
+    'מוסיף נקודות תצפית…', 'מצייר את המסלול על המפה…', 'שוקל בין שוק למוזיאון…',
+    'מתייעץ עם מקומיים דמיוניים…', 'עוד רגע קטן — מלטש פרטים…',
+  ];
+  let quipTimer = null;
+  function showAiOverlay(label) {
+    document.getElementById('ai-overlay-title').textContent = `ה-AI מתכנן ${label}`;
+    const sub = document.getElementById('ai-overlay-sub');
+    let i = 0;
+    sub.textContent = AI_QUIPS[0];
+    clearInterval(quipTimer);
+    quipTimer = setInterval(() => {
+      sub.classList.add('swap');
+      setTimeout(() => {
+        i = (i + 1) % AI_QUIPS.length;
+        sub.textContent = AI_QUIPS[i];
+        sub.classList.remove('swap');
+      }, 400);
+    }, 2400);
+    aiOverlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function hideAiOverlay() {
+    clearInterval(quipTimer);
+    aiOverlay.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
   // ---- AI builder ----
   const aiStatus = document.getElementById('ai-status');
   let aiBusy = false;
@@ -410,8 +441,9 @@
     if (aiBusy) return;
     const go = async () => {
       aiBusy = true;
-      aiStatus.className = 'ai-status working';
-      aiStatus.textContent = `✨ ה-AI מתכנן ${label}… זה לוקח בערך חצי דקה`;
+      aiStatus.className = 'ai-status';
+      aiStatus.textContent = '';
+      showAiOverlay(label);
       try {
         const res = await TRIPI.api('/api/ai/itinerary', {
           method: 'POST',
@@ -434,6 +466,7 @@
         aiStatus.className = 'ai-status error';
         aiStatus.textContent = '⚠️ ' + e.message;
       } finally {
+        hideAiOverlay();
         aiBusy = false;
       }
     };
