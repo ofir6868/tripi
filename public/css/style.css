@@ -674,13 +674,15 @@ body::after {
 .ai-title { font-weight: 800; font-size: 1.02rem; }
 .ai-sub { color: var(--paper-dim); font-size: .86rem; font-weight: 300; }
 .draft-banner {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 10px 16px; margin-bottom: 18px; border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 12px 16px; margin-bottom: 18px; border-radius: var(--radius-sm);
   background: rgba(143, 216, 196, .08); border: 1px solid rgba(143, 216, 196, .3);
   color: var(--mint); font-weight: 600; font-size: .93rem;
   animation: pop .3s cubic-bezier(.2, .9, .3, 1.1);
 }
-.draft-banner .btn { padding: 6px 14px; font-size: .85rem; flex-shrink: 0; }
+.draft-banner[hidden] { display: none; }
+.draft-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.draft-banner .btn { padding: 7px 14px; font-size: .85rem; }
 
 .manual-link {
   display: block; width: 100%; margin-top: 16px; padding: 8px;

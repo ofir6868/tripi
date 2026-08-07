@@ -130,6 +130,7 @@
 
   function saveDraft() {
     if (curStep === 5) return; // trip already created — nothing to keep
+    if (!userTouched) return;  // programmatic changes alone never create a draft
     // no destinations = no draft, period. Anything else (orphan items, auto-title)
     // restores nothing visible and causes the phantom "continued from draft" banner.
     if (!destinations.length) { localStorage.removeItem(DRAFT_KEY); return; }
@@ -154,18 +155,20 @@
   function scheduleSave() { clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 600); }
   function clearDraft() { clearTimeout(draftTimer); localStorage.removeItem(DRAFT_KEY); }
 
-  // any interaction inside the wizard panels schedules a save
+  // drafts exist only after REAL user interaction — programmatic pre-fills
+  // (?dest= from the homepage search) must not silently create one
+  let userTouched = false;
+  const draftBanner = document.getElementById('draft-banner');
   ['panel-1', 'panel-2', 'panel-3', 'panel-4'].forEach((id) => {
     const p = document.getElementById(id);
-    p.addEventListener('input', scheduleSave);
-    p.addEventListener('click', scheduleSave);
+    const onInteract = () => {
+      userTouched = true;
+      draftBanner.hidden = true; // started working → stop nagging about the old draft
+      scheduleSave();
+    };
+    p.addEventListener('input', onInteract);
+    p.addEventListener('click', onInteract);
   });
-
-  document.getElementById('draft-reset').onclick = () => {
-    if (!confirm('למחוק את הטיוטה ולהתחיל מחדש?')) return;
-    clearDraft();
-    location.reload();
-  };
 
   // ---- wizard navigation (1 יעדים · 2 תאריכים · 3 סגנון · 4 מסלול · 5 שיתוף) ----
   const panels = {};
@@ -625,19 +628,9 @@
     renderHeader();
   }
 
-  // ---- restore a saved draft (runs last, after all widgets exist) ----
-  (function restoreDraft() {
-    let draft = null;
-    try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { /* corrupt */ }
-    if (!draft || ![1, 2].includes(draft.v)) return;
-    if (Date.now() - (draft.savedAt || 0) > 14 * 24 * 60 * 60 * 1000) { clearDraft(); return; }
-    // a draft is only real if it has destinations — orphan drafts (leftover items or
-    // an auto-title with no destination chips) restore nothing visible and must die,
-    // otherwise the "continued from draft" banner haunts an empty form forever
-    const draftDests = (Array.isArray(draft.destinations) ? draft.destinations : []).filter((d) => d && d.name);
-    if (!draftDests.length) { clearDraft(); return; }
-
-    destinations = draftDests;
+  // ---- saved draft: OFFER to continue (never auto-restore, never auto-nag) ----
+  function applyDraft(draft) {
+    destinations = (Array.isArray(draft.destinations) ? draft.destinations : []).filter((d) => d && d.name);
     renderChips();
     items = (Array.isArray(draft.items) ? draft.items : [])
       .filter((it) => it && it.title)
@@ -649,7 +642,6 @@
     updateEndHint();
     document.getElementById('f-desc').value = draft.desc || '';
     document.getElementById('ai-notes').value = draft.aiNotes || '';
-
     if (draft.aiMeta && typeof draft.aiMeta === 'object') {
       aiMeta = { emoji: draft.aiMeta.emoji || null, cover_image: draft.aiMeta.cover_image || null };
     }
@@ -657,15 +649,31 @@
     interestRow.querySelectorAll('.interest-chip').forEach((b) => {
       b.classList.toggle('selected', selectedInterests.has(b.textContent.replace(/^[^ ]+ /, '')));
     });
-
     currentDay = Math.max(parseInt(draft.currentDay, 10) || 1, 1);
-    if (destinations.length) {
-      // items exist → jump straight to the itinerary review; otherwise resume the step
-      const step = (draft.items || []).length ? 4 : Math.min(Math.max(parseInt(draft.step, 10) || 1, 1), 4);
-      if (step >= 4) buildDayTabs();
-      if (step > 1) goStep(step);
-    }
-    document.getElementById('draft-banner').hidden = false;
+    const step = (draft.items || []).length ? 4 : Math.min(Math.max(parseInt(draft.step, 10) || 1, 1), 4);
+    if (step >= 4) buildDayTabs();
+    if (step > 1) goStep(step);
+    userTouched = true; // continuing a draft counts as an active session
+  }
+
+  (function offerDraft() {
+    let draft = null;
+    try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { /* corrupt */ }
+    if (!draft || ![1, 2].includes(draft.v)) { if (draft) clearDraft(); return; }
+    if (Date.now() - (draft.savedAt || 0) > 14 * 24 * 60 * 60 * 1000) { clearDraft(); return; }
+    const draftDests = (Array.isArray(draft.destinations) ? draft.destinations : []).filter((d) => d && d.name);
+    if (!draftDests.length) { clearDraft(); return; } // orphan draft — purge silently
+    const dTitle = (draft.title || '').trim() || draftDests.map((d) => d.name).join(' · ');
+    document.getElementById('draft-banner-text').textContent = `✍️ יש טיוטה שמורה (${dTitle}) — להמשיך ממנה?`;
+    draftBanner.hidden = false;
+    document.getElementById('draft-continue').onclick = () => {
+      draftBanner.hidden = true;
+      applyDraft(draft);
+    };
+    document.getElementById('draft-reset').onclick = () => {
+      clearDraft();
+      draftBanner.hidden = true;
+    };
   })();
 
   // ---- ?dest= from the homepage search: geocode it and pre-fill the destination chip ----
