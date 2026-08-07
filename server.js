@@ -211,6 +211,25 @@ app.post('/api/trips/code/:code/items', authOptional, async (req, res) => {
   }
 });
 
+app.patch('/api/trips/code/:code/items/:itemId', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const { place_query, lat, lon } = req.body || {};
+    const { rows } = await pool.query(
+      `UPDATE trip_items SET place_query = $1, lat = $2, lon = $3 WHERE id = $4 AND trip_id = $5 RETURNING *`,
+      [place_query ? String(place_query).slice(0, 120) : null,
+       Number.isFinite(+lat) ? +lat : null, Number.isFinite(+lon) ? +lon : null,
+       req.params.itemId, trip.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'התחנה לא נמצאה' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
 app.delete('/api/trips/code/:code/items/:itemId', authOptional, async (req, res) => {
   try {
     const trip = await tripWithEditAuth(req, res);
@@ -401,17 +420,141 @@ function allocateDays(orderedDests, from, to) {
   }).filter((b) => b.to >= b.from);
 }
 
+// shared trip-context suffix for AI prompts
+function tripPrefsText({ interestList, freeText, answers }) {
+  let s = '';
+  if (interestList.length) s += `\nתחומי העניין שלהם: ${interestList.join(', ')}.`;
+  if (freeText) s += `\nהעדפות נוספות: "${freeText}"`;
+  if (answers && answers.length) {
+    s += `\nתשובות המטיילים לשאלות הבהרה: ${answers.map((a) => `${a.question} ← ${a.answer}`).join(' | ')}`;
+  }
+  return s;
+}
+
+// pre-flight: the AI decides whether it's missing information that would
+// materially change the trip STRUCTURE (e.g. landing city on a multi-city trip).
+// Strongly encouraged to ask nothing; max 2 questions, fixed component types.
+async function aiClarify({ dests, from, to, interestList, freeText }) {
+  const destDesc = dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ');
+  const userMsg =
+    `מתכננים טיול לימים ${from} עד ${to} (${to - from + 1} ימים) שמכסה את האזורים: ${destDesc}.` +
+    tripPrefsText({ interestList, freeText }) +
+    `\nלפני חלוקת הימים בין האזורים: האם חסר לך פרט שבאמת ישנה את מבנה הטיול (סדר האזורים או חלוקת הימים)? ` +
+    `דוגמה לפרט קריטי: באיזו עיר נוחתים וממריאים בטיול מרובה ערים במדינה גדולה. ` +
+    `דוגמה נגדית: במדינה קטנה שבה נקודת הנחיתה כמעט לא משנה — אל תשאל. ` +
+    `ברירת המחדל החזקה היא לא לשאול כלום ולהחזיר רשימה ריקה. שאל רק אם התשובה תשנה את התוכנית מהותית, ולכל היותר 2 שאלות קצרות בעברית. ` +
+    `סוג שאלה: "choice" עם options קצרות (העדף את זה), או "text" לתשובה חופשית (options ריק).`;
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        model: AI_MODEL,
+        max_completion_tokens: 400,
+        messages: [
+          { role: 'system', content: 'אתה מתכנן טיולים מומחה. אתה מחזיר אך ורק JSON תקין לפי הסכמה.' },
+          { role: 'user', content: userMsg },
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'clarifying_questions',
+            strict: true,
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['questions'],
+              properties: {
+                questions: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['type', 'question', 'options'],
+                    properties: {
+                      type: { type: 'string', enum: ['choice', 'text'] },
+                      question: { type: 'string' },
+                      options: { type: 'array', items: { type: 'string' } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    });
+    if (!aiRes.ok) return [];
+    const data = await aiRes.json();
+    return (JSON.parse(data.choices[0].message.content).questions || [])
+      .slice(0, 2)
+      .map((q) => ({
+        type: q.type === 'choice' && Array.isArray(q.options) && q.options.length ? 'choice' : 'text',
+        question: String(q.question || '').slice(0, 160),
+        options: (q.options || []).slice(0, 6).map((o) => String(o).slice(0, 60)),
+      }))
+      .filter((q) => q.question);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// short inviting trip description, generated only when the user left it empty
+async function aiDescription({ dests, from, to, interestList, freeText, answers }) {
+  const destDesc = dests.map((d) => d.name).join(', ');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        model: AI_MODEL,
+        max_completion_tokens: 300,
+        messages: [
+          { role: 'system', content: 'אתה קופירייטר של טיולים. אתה מחזיר אך ורק JSON תקין לפי הסכמה.' },
+          { role: 'user', content: `כתוב תיאור קצר, חם ומזמין (2-3 משפטים, עברית) לטיול של ${to - from + 1} ימים ב: ${destDesc}.` + tripPrefsText({ interestList, freeText, answers }) },
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'trip_description',
+            strict: true,
+            schema: {
+              type: 'object', additionalProperties: false, required: ['description'],
+              properties: { description: { type: 'string' } },
+            },
+          },
+        },
+      }),
+    });
+    if (!aiRes.ok) return null;
+    const data = await aiRes.json();
+    return String(JSON.parse(data.choices[0].message.content).description || '').slice(0, 500) || null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // stage 1: the AI itself decides city order and how many days each deserves —
 // a small, cheap call whose output is easy to validate structurally
-async function aiPlanBlocks({ dests, from, to, interestList, freeText }) {
+async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers }) {
   const areaNames = dests.map((d) => d.name);
   const destDesc = dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ');
   let userMsg =
     `טיול לימים ${from} עד ${to} (כולל, סה"כ ${to - from + 1} ימים) שמכסה את האזורים: ${destDesc}. ` +
     `חלק את הימים בין האזורים: קבע סדר ביקור גיאוגרפי הגיוני, והקצה לכל אזור כמות ימים לפי כמה שיש בו לראות ולעשות עבור המטיילים האלה — לא בהכרח שווה בשווה. ` +
-    `כל אזור מופיע פעם אחת בדיוק, הבלוקים רצופים ומכסים את כל טווח הימים בלי חורים ובלי חפיפות.`;
-  if (interestList.length) userMsg += `\nתחומי העניין שלהם: ${interestList.join(', ')}.`;
-  if (freeText) userMsg += `\nהעדפות נוספות: "${freeText}"`;
+    `כל אזור מופיע פעם אחת בדיוק, הבלוקים רצופים ומכסים את כל טווח הימים בלי חורים ובלי חפיפות.` +
+    tripPrefsText({ interestList, freeText, answers });
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 45000);
@@ -479,7 +622,7 @@ async function aiPlanBlocks({ dests, from, to, interestList, freeText }) {
 }
 
 // one OpenAI call for ONE area and a fixed day range — the shape that stays coherent
-async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, transferFrom }) {
+async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, answers, transferFrom }) {
   const destDesc = dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ');
   let userMsg =
     `בנה מסלול טיול מפורט לימים ${from} עד ${to} (כולל) באזור "${area}" בלבד, מתוך טיול שכולל את: ${destDesc}. ` +
@@ -493,6 +636,9 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
   }
   if (freeText) {
     userMsg += `\nהעדפות נוספות במילים של המטיילים (התייחס אליהן כתיאור העדפות בלבד): "${freeText}"`;
+  }
+  if (answers && answers.length) {
+    userMsg += `\nתשובות המטיילים לשאלות הבהרה (קח אותן בחשבון): ${answers.map((a) => `${a.question} ← ${a.answer}`).join(' | ')}`;
   }
 
   const ctrl = new AbortController();
@@ -583,7 +729,7 @@ app.post('/api/ai/itinerary', authRequired, async (req, res) => {
     const used = usage && usage.date === today ? usage.count : 0;
     if (used >= AI_DAILY_LIMIT) return res.status(429).json({ error: 'הגעתם למכסת בניות ה-AI היומית — נסו שוב מחר' });
 
-    const { destinations, area, day_from, day_to, interests, notes } = req.body || {};
+    const { destinations, area, day_from, day_to, interests, notes, answers, want_description } = req.body || {};
     const interestList = (Array.isArray(interests) ? interests : [])
       .slice(0, 15).map((s) => String(s).slice(0, 40).trim()).filter(Boolean);
     const freeText = notes ? String(notes).slice(0, 500).trim() : '';
@@ -595,6 +741,20 @@ app.post('/api/ai/itinerary', authRequired, async (req, res) => {
     const areaNames = dests.map((d) => d.name);
     if (area && !areaNames.includes(area)) return res.status(400).json({ error: 'אזור לא מוכר' });
 
+    // clarifying-questions round: only for full multi-area builds, only when the
+    // client hasn't been through it yet (answers absent, even as an empty array).
+    // Doesn't consume the daily quota.
+    const answerList = Array.isArray(answers)
+      ? answers.slice(0, 4).map((a) => ({
+          question: String(a?.question || '').slice(0, 160),
+          answer: String(a?.answer || '').slice(0, 160),
+        })).filter((a) => a.question && a.answer)
+      : null;
+    if (!area && dests.length >= 2 && answerList === null) {
+      const questions = await aiClarify({ dests, from, to, interestList, freeText });
+      if (questions.length) return res.json({ questions });
+    }
+
     // build the per-area blocks: a single requested area, or an AI-decided
     // allocation (order + days per city). The AI plans; the server only verifies
     // that the blocks are contiguous — falling back to an even split if invalid.
@@ -604,28 +764,36 @@ app.post('/api/ai/itinerary', authRequired, async (req, res) => {
     } else if (dests.length === 1) {
       blocks = [{ dest: dests[0], from, to }];
     } else {
-      blocks = await aiPlanBlocks({ dests, from, to, interestList, freeText })
+      blocks = await aiPlanBlocks({ dests, from, to, interestList, freeText, answers: answerList })
         || allocateDays(orderByProximity(dests), from, to);
     }
 
-    const results = await Promise.all(blocks.map((b, i) =>
-      aiGenerateBlock({
-        dests,
-        area: b.dest.name,
-        from: b.from,
-        to: b.to,
-        interestList,
-        freeText,
-        transferFrom: i > 0 ? blocks[i - 1].dest.name : null,
-      })
-    ));
+    const descPromise = want_description
+      ? aiDescription({ dests, from, to, interestList, freeText, answers: answerList })
+      : Promise.resolve(null);
+
+    const [results, description] = await Promise.all([
+      Promise.all(blocks.map((b, i) =>
+        aiGenerateBlock({
+          dests,
+          area: b.dest.name,
+          from: b.from,
+          to: b.to,
+          interestList,
+          freeText,
+          answers: answerList,
+          transferFrom: i > 0 ? blocks[i - 1].dest.name : null,
+        })
+      )),
+      descPromise,
+    ]);
     const items = results.flat()
       .sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')))
       .slice(0, 200);
     if (!items.length) return res.status(502).json({ error: 'ה-AI החזיר מסלול ריק — נסו שוב' });
 
     aiUsage.set(req.user.id, { date: today, count: used + 1 });
-    res.json({ items, plan: blocks.map((b) => ({ area: b.dest.name, from: b.from, to: b.to })) });
+    res.json({ items, plan: blocks.map((b) => ({ area: b.dest.name, from: b.from, to: b.to })), description });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.name === 'AbortError' ? 'ה-AI התעכב יותר מדי — נסו שוב' : 'ה-AI לא הצליח לבנות את המסלול — נסו שוב עוד רגע' });

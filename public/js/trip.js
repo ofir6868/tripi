@@ -15,6 +15,7 @@
       data = await TRIPI.api('/api/trips/code/' + encodeURIComponent(code));
     } catch {
       document.querySelector('.trip-hero').style.display = 'none';
+      document.getElementById('trip-layout').style.display = 'none';
       document.getElementById('not-found').style.display = '';
       return;
     }
@@ -91,19 +92,20 @@
           <div class="timeline">
             ${byDay.get(day).map((it) => {
               const hasMap = !!(it.place_query || (it.lat != null && it.lon != null));
+              const expandable = hasMap || editMode; // edit mode: every stop opens, to edit its location
               return `
-              <div class="item-card glass${hasMap ? ' expandable' : ''}" data-item-id="${it.id}">
+              <div class="item-card glass${expandable ? ' expandable' : ''}" data-item-id="${it.id}">
                 <div class="item-top">
                   ${it.time_label ? `<span class="item-time">${TRIPI.esc(it.time_label)}</span>` : ''}
                   <span class="item-title">${TRIPI.esc(it.title)}</span>
                   ${multiDest() && it.area ? `<span class="item-area">📍 ${TRIPI.esc(it.area)}</span>` : ''}
                   ${it.category ? `<span class="item-cat">${TRIPI.esc(it.category)}</span>` : ''}
-                  ${hasMap ? '<span class="item-chevron" title="הרחבה">▾</span>' : ''}
+                  ${expandable ? '<span class="item-chevron" title="הרחבה">▾</span>' : ''}
                   ${editMode ? `<button class="item-del" data-id="${it.id}" title="מחיקת תחנה">✕</button>` : ''}
                 </div>
                 ${it.note ? `<div class="item-note">${TRIPI.esc(it.note)}</div>` : ''}
                 ${it.place_query ? `<a class="item-map-link" target="_blank" rel="noopener" href="${TRIPI.mapsSearchUrl(it.place_query)}">📍 פתיחה בגוגל מפות</a>` : ''}
-                ${hasMap ? '<div class="item-more" hidden></div>' : ''}
+                ${expandable ? '<div class="item-more" hidden></div>' : ''}
               </div>`;
             }).join('')}
             ${byDay.get(day).length === 0 && editMode ? '<div class="empty-day">יום פנוי — מוסיפים תחנה למטה ↓</div>' : ''}
@@ -121,13 +123,53 @@
           const open = !more.hidden;
           if (open) { more.hidden = true; card.classList.remove('expanded'); return; }
           if (!more.dataset.loaded) {
+            const hasMap = !!(it.place_query || (it.lat != null && it.lon != null));
             more.innerHTML = `
               ${it.place_query ? `<div class="item-more-place">📌 ${TRIPI.esc(it.place_query)}</div>` : ''}
-              <iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPI.mapsEmbedUrlExact(it)}"></iframe>
-              ${it.place_query ? '<div class="stop-gallery"></div>' : ''}`;
+              ${hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPI.mapsEmbedUrlExact(it)}"></iframe>` : ''}
+              ${it.place_query ? '<div class="stop-gallery"></div>' : ''}
+              ${editMode ? `
+                <button type="button" class="edit-loc-btn">📍 ${it.place_query ? 'שינוי מיקום' : 'הוספת מיקום'}</button>
+                <div class="edit-loc-form" hidden>
+                  <input type="text" class="edit-loc-input" maxlength="120" placeholder="הקלידו ובחרו מהרשימה…" autocomplete="off" value="${TRIPI.esc(it.place_query || '')}">
+                  <div style="display:flex;gap:8px;margin-top:8px">
+                    <button type="button" class="btn btn-amber edit-loc-save" style="flex:1;justify-content:center">שמירה</button>
+                    <button type="button" class="btn btn-ghost edit-loc-cancel">ביטול</button>
+                  </div>
+                  <div class="form-error edit-loc-err"></div>
+                </div>` : ''}`;
             more.dataset.loaded = '1';
             const gal = more.querySelector('.stop-gallery');
             if (gal) GEO.renderGallery(gal, it.place_query);
+
+            const locBtn = more.querySelector('.edit-loc-btn');
+            if (locBtn) {
+              const locForm = more.querySelector('.edit-loc-form');
+              const locInput = more.querySelector('.edit-loc-input');
+              const locPicker = GEO.attachPlaceAutocomplete(locInput, {
+                getBias: () => ({ lat: it.lat ?? dests[0]?.lat, lon: it.lon ?? dests[0]?.lon }),
+              });
+              locBtn.onclick = (e) => { e.stopPropagation(); locForm.hidden = false; locBtn.hidden = true; locInput.focus(); };
+              more.querySelector('.edit-loc-cancel').onclick = (e) => { e.stopPropagation(); locForm.hidden = true; locBtn.hidden = false; };
+              more.querySelector('.edit-loc-save').onclick = async (e) => {
+                e.stopPropagation();
+                const picked = locPicker.getPicked();
+                try {
+                  const updated = await TRIPI.api(`/api/trips/code/${trip.share_code}/items/${it.id}`, {
+                    method: 'PATCH', headers: canEditHeaders,
+                    body: JSON.stringify({
+                      place_query: locInput.value.trim() || null,
+                      lat: picked ? picked.lat : null,
+                      lon: picked ? picked.lon : null,
+                    }),
+                  });
+                  Object.assign(it, { place_query: updated.place_query, lat: updated.lat, lon: updated.lon });
+                  renderItinerary();
+                } catch (err) {
+                  more.querySelector('.edit-loc-err').textContent = err.message;
+                }
+              };
+            }
           }
           more.hidden = false;
           card.classList.add('expanded');

@@ -164,6 +164,11 @@
 
   function saveDraft() {
     if (curStep === 3) return; // trip already created — nothing to keep
+    // an effectively-empty form must not leave a draft behind (phantom-banner bug)
+    const meaningful = destinations.length || items.length ||
+      (titleInput.value.trim() && !titleWasAutofilled) ||
+      document.getElementById('f-desc').value.trim();
+    if (!meaningful) { localStorage.removeItem(DRAFT_KEY); return; }
     const draft = {
       v: 1,
       savedAt: Date.now(),
@@ -317,11 +322,41 @@
             ${it.note ? `<div class="item-note">${TRIPI.esc(it.note)}</div>` : ''}
             ${it.place_query ? `<div class="item-more-place">📌 ${TRIPI.esc(it.place_query)}</div>` : ''}
             ${hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPI.mapsEmbedUrlExact(it)}"></iframe>`
-                     : '<div class="item-note">אין מיקום לתחנה הזו — אפשר להוסיף דרך שדה המיקום</div>'}
-            ${it.place_query ? '<div class="stop-gallery"></div>' : ''}`;
+                     : '<div class="item-note">אין מיקום לתחנה הזו — אפשר להוסיף כאן למטה ↓</div>'}
+            ${it.place_query ? '<div class="stop-gallery"></div>' : ''}
+            <button type="button" class="edit-loc-btn">📍 ${it.place_query ? 'שינוי מיקום' : 'הוספת מיקום'}</button>
+            <div class="edit-loc-form" hidden>
+              <input type="text" class="edit-loc-input" maxlength="120" placeholder="הקלידו ובחרו מהרשימה…" autocomplete="off" value="${TRIPI.esc(it.place_query || '')}">
+              <div style="display:flex;gap:8px;margin-top:8px">
+                <button type="button" class="btn btn-amber edit-loc-save" style="flex:1;justify-content:center">שמירה</button>
+                <button type="button" class="btn btn-ghost edit-loc-cancel">ביטול</button>
+              </div>
+            </div>`;
           more.dataset.loaded = '1';
           const gal = more.querySelector('.stop-gallery');
           if (gal) GEO.renderGallery(gal, it.place_query);
+
+          const locForm = more.querySelector('.edit-loc-form');
+          const locInput = more.querySelector('.edit-loc-input');
+          const locPicker = GEO.attachPlaceAutocomplete(locInput, {
+            getBias: () => ({ lat: it.lat ?? destinations[0]?.lat, lon: it.lon ?? destinations[0]?.lon }),
+          });
+          more.querySelector('.edit-loc-btn').onclick = (e) => {
+            e.stopPropagation();
+            locForm.hidden = false;
+            e.target.hidden = true;
+            locInput.focus();
+          };
+          more.querySelector('.edit-loc-cancel').onclick = (e) => { e.stopPropagation(); locForm.hidden = true; more.querySelector('.edit-loc-btn').hidden = false; };
+          more.querySelector('.edit-loc-save').onclick = (e) => {
+            e.stopPropagation();
+            const picked = locPicker.getPicked();
+            it.place_query = locInput.value.trim() || null;
+            it.lat = picked ? picked.lat : null; // typed-only text gets no stale coords
+            it.lon = picked ? picked.lon : null;
+            scheduleSave();
+            renderItems(); // rebuilds the row; reopening shows the updated map
+          };
         }
         more.hidden = false;
         row.classList.add('expanded');
@@ -437,6 +472,50 @@
     if (+to.value > +daysSel.value) to.value = daysSel.value;
   }
 
+  // clarifying-questions dialog: fixed components (choice chips / free text),
+  // shown only when the AI decided it truly needs the answer
+  function askAiQuestions(questions, payload, label, replaceRange) {
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-backdrop open';
+    wrap.innerHTML = `
+      <div class="modal glass">
+        <h2>שאלה קטנה לפני שבונים 🧭</h2>
+        <p class="modal-sub">התשובה תעזור ל-AI לסדר את הטיול נכון — ואפשר גם לדלג</p>
+        ${questions.map((q, i) => `
+          <div class="field aiq" data-i="${i}" data-q="${TRIPI.esc(q.question)}">
+            <label>${TRIPI.esc(q.question)}</label>
+            ${q.type === 'choice'
+              ? `<div class="aiq-opts">${q.options.map((o) => `<button type="button" class="day-tab aiq-opt">${TRIPI.esc(o)}</button>`).join('')}</div>`
+              : `<input type="text" class="aiq-text" maxlength="120" placeholder="התשובה שלכם…">`}
+          </div>`).join('')}
+        <div style="display:flex;gap:8px;margin-top:18px">
+          <button class="btn btn-amber btn-lg" id="aiq-go" style="flex:1;justify-content:center">בונים את הטיול ✨</button>
+          <button class="btn btn-ghost" id="aiq-skip">דילוג</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    wrap.querySelectorAll('.aiq-opts').forEach((opts) => {
+      opts.querySelectorAll('.aiq-opt').forEach((b) => {
+        b.onclick = () => {
+          opts.querySelectorAll('.aiq-opt').forEach((x) => x.classList.remove('active'));
+          b.classList.add('active');
+        };
+      });
+    });
+    const finish = (collect) => {
+      const answers = collect
+        ? [...wrap.querySelectorAll('.aiq')].map((f) => ({
+            question: f.dataset.q,
+            answer: f.querySelector('.aiq-opt.active')?.textContent || f.querySelector('.aiq-text')?.value.trim() || '',
+          })).filter((a) => a.answer)
+        : [];
+      wrap.remove();
+      runAi({ ...payload, answers }, label, replaceRange); // answers present (even []) skips the question round
+    };
+    wrap.querySelector('#aiq-go').onclick = () => finish(true);
+    wrap.querySelector('#aiq-skip').onclick = () => finish(false);
+  }
+
   async function runAi(payload, label, replaceRange) {
     if (aiBusy) return;
     const go = async () => {
@@ -445,15 +524,25 @@
       aiStatus.textContent = '';
       showAiOverlay(label);
       try {
+        const descField = document.getElementById('f-desc');
         const res = await TRIPI.api('/api/ai/itinerary', {
           method: 'POST',
           body: JSON.stringify({
             destinations,
             interests: [...selectedInterests],
             notes: document.getElementById('ai-notes').value.trim() || null,
+            want_description: !descField.value.trim(),
             ...payload,
           }),
         });
+        // the AI may ask for a critical detail first (e.g. landing city)
+        if (res.questions) {
+          hideAiOverlay();
+          aiBusy = false;
+          askAiQuestions(res.questions, payload, label, replaceRange);
+          return;
+        }
+        if (res.description && !descField.value.trim()) descField.value = res.description;
         // replace only after a SUCCESSFUL generation — a failed run never wipes anything
         if (replaceRange) {
           items = items.filter((it) => it.day_number < replaceRange.from || it.day_number > replaceRange.to);
@@ -554,8 +643,11 @@
     try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { /* corrupt */ }
     if (!draft || draft.v !== 1) return;
     if (Date.now() - (draft.savedAt || 0) > 14 * 24 * 60 * 60 * 1000) { clearDraft(); return; }
-    const hasContent = (draft.destinations || []).length || (draft.items || []).length || (draft.title || '').trim();
-    if (!hasContent) return;
+    // restore (and show the banner) only for drafts with real content —
+    // an auto-filled title alone doesn't count
+    const hasContent = (draft.destinations || []).length || (draft.items || []).length ||
+      ((draft.title || '').trim() && !draft.titleWasAutofilled) || (draft.desc || '').trim();
+    if (!hasContent) { clearDraft(); return; }
 
     destinations = (Array.isArray(draft.destinations) ? draft.destinations : []).filter((d) => d && d.name);
     renderChips();

@@ -19,15 +19,19 @@
     <div class="hero-veil"></div>
     <div class="trip-hero-inner">
       <a class="crumb" href="/">‹ חזרה לכל הטיולים</a>
-      <h1 id="trip-title">טוען את הטיול…</h1>
-      <div class="trip-meta" id="trip-meta"></div>
+      <h1 id="trip-title"><span class="skl skl-title"></span></h1>
+      <div class="trip-meta" id="trip-meta"><span class="skl skl-chip"></span><span class="skl skl-chip"></span><span class="skl skl-chip short"></span></div>
     </div>
   </section>
 
-  <div class="trip-layout" id="trip-layout" style="display:none">
+  <div class="trip-layout" id="trip-layout">
     <main>
-      <div class="trip-desc glass" id="trip-desc"></div>
-      <div id="days-container"></div>
+      <div class="trip-desc glass" id="trip-desc">
+        <span class="skl skl-line"></span><span class="skl skl-line"></span><span class="skl skl-line short"></span>
+      </div>
+      <div id="days-container">
+        <span class="skl skl-card"></span><span class="skl skl-card"></span><span class="skl skl-card short"></span>
+      </div>
     </main>
     <aside class="trip-side">
       <div class="action-row" id="action-row">
@@ -37,7 +41,7 @@
       </div>
       <div class="ticket glass">
         <div class="ticket-label">✈ TRIPI PASS ✈</div>
-        <div class="code" id="ticket-code"></div>
+        <div class="code" id="ticket-code"><span class="skl skl-code"></span></div>
         <div class="ticket-sub">משתפים את הקוד — וכולם רואים את המסלול</div>
         <hr class="divider">
         <button class="btn btn-amber" id="wa-share" style="width:100%;justify-content:center">💬 שיתוף בוואטסאפ</button>
