@@ -82,8 +82,9 @@ body::after {
 /* ---------- header ---------- */
 
 .site-header {
-  position: fixed; top: 14px; right: 50%; transform: translateX(50%);
-  width: min(1120px, calc(100% - 28px));
+  /* inset-based centering — immune to scrollbar-width and RTL transform quirks */
+  position: fixed; top: 14px; right: 14px; left: 14px;
+  max-width: 1120px; margin: 0 auto;
   z-index: 100;
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 18px;
@@ -394,7 +395,8 @@ body::after {
 
 .day-block { margin-top: 26px; }
 .day-title {
-  font-family: var(--font-display); font-size: 1.4rem; display: flex; align-items: center; gap: 12px;
+  font-family: var(--font-display); font-size: 1.4rem;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
 }
 .day-title .day-badge {
   font-family: var(--font-body); background: linear-gradient(135deg, var(--amber), var(--amber-deep));
@@ -834,7 +836,16 @@ body::after {
 }
 
 @media (max-width: 640px) {
-  .site-header { top: 10px; padding: 8px 12px; }
+  .site-header { top: 10px; right: 10px; left: 10px; padding: 8px 12px; }
+  .trip-hero { min-height: 48vh; padding: 100px 16px 28px; }
+  .trip-layout { width: calc(100% - 24px); margin-top: 24px; }
+  .trip-meta .chip { font-size: .82rem; padding: 7px 12px; }
+  .day-weather { margin-inline-start: 0; }
+  .item-card { padding: 14px 15px; }
+  .timeline { padding-right: 20px; }
+  .item-card::before { right: -18px; }
+  .item-mini-map { height: 180px; }
+  .stop-gallery img { height: 76px; }
   .logo .logo-he { display: none; }
   .btn { padding: 8px 14px; font-size: .88rem; }
   .hero { min-height: 88vh; padding-top: 100px; }
