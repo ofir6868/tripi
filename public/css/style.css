@@ -29,12 +29,14 @@
 
 html { scroll-behavior: smooth; }
 
+html { overflow-x: clip; }
+
 body {
   font-family: var(--font-body);
   background: var(--ink);
   color: var(--paper);
   min-height: 100vh;
-  overflow-x: hidden;
+  overflow-x: clip; /* clip (not hidden): the page can never be scrolled sideways, even in RTL */
   -webkit-font-smoothing: antialiased;
 }
 
@@ -388,8 +390,9 @@ body::after {
 
 .trip-layout {
   width: min(1120px, calc(100% - 40px)); margin: 34px auto 0;
-  display: grid; grid-template-columns: 1fr 380px; gap: 26px; align-items: start;
+  display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 26px; align-items: start;
 }
+.trip-layout > * { min-width: 0; }
 .trip-desc { padding: 26px; color: var(--paper-dim); line-height: 1.8; font-size: 1.02rem; font-weight: 300; }
 .trip-desc strong { color: var(--paper); }
 
@@ -829,7 +832,7 @@ body::after {
 /* ---------- responsive ---------- */
 
 @media (max-width: 900px) {
-  .trip-layout { grid-template-columns: 1fr; }
+  .trip-layout { grid-template-columns: minmax(0, 1fr); }
   .trip-side { position: static; }
   .steps-grid { grid-template-columns: 1fr; }
   .cover-grid { grid-template-columns: repeat(2, 1fr); }
@@ -858,7 +861,24 @@ body::after {
   .wizard-progress { flex-direction: column; }
   .wp-step { padding: 10px 14px; }
   .strip-nav { display: none; }
-  .ticket .code { font-size: 2.2rem; }
+  .ticket .code { font-size: 2.2rem; letter-spacing: .14em; }
+  .weather-row { overflow-x: auto; }
+  .weather-day { min-width: 44px; }
+  .action-btn { min-width: 0; }
+}
+
+/* very narrow phones */
+@media (max-width: 420px) {
+  .nav-label { display: none; } /* the my-trips link collapses to just ✈️ */
+  .nav-actions { gap: 6px; }
+  .btn { padding: 8px 11px; font-size: .84rem; }
+  .logo .logo-mark { font-size: 1.2rem; }
+  .site-header { padding: 7px 10px; }
+  .ticket { padding: 20px 14px; }
+  .ticket .code { font-size: 1.85rem; letter-spacing: .1em; }
+  .ticket::before, .ticket::after { display: none; }
+  .trip-hero h1 { font-size: 1.75rem; }
+  .chip { font-size: .78rem; padding: 6px 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

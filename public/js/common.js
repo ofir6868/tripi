@@ -57,8 +57,8 @@ function renderHeader() {
   const el = document.createElement('header');
   el.className = 'site-header glass';
   const authPart = TRIPI.user
-    ? `<a class="btn btn-ghost" href="/my">✈️ הטיולים של ${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</a>
-       <button class="btn btn-ghost" id="nav-logout" title="התנתקות">יציאה</button>`
+    ? `<a class="btn btn-ghost" href="/my" title="הטיולים שלי">✈️<span class="nav-label"> הטיולים של ${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</span></a>
+       <button class="btn btn-ghost nav-logout" id="nav-logout" title="התנתקות">יציאה</button>`
     : `<button class="btn btn-ghost" id="nav-login">התחברות</button>`;
   el.innerHTML = `
     <a class="logo" href="/">
