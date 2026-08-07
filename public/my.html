@@ -46,7 +46,14 @@
               <img class="tc-img" src="${TRIPI.esc(t.cover_image || '')}" alt="" loading="lazy" onerror="this.removeAttribute('src')">
               <span class="tc-emoji">${t.emoji || '🧭'}</span>
               <span class="tc-days">${t.days} ימים</span>
-              <button class="tc-delete" data-id="${t.id}" title="מחיקת הטיול">🗑</button>
+              <button class="tc-delete" data-id="${t.id}" title="מחיקת הטיול" aria-label="מחיקת הטיול">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path class="td-lid" d="M3.5 6h17M9.5 6V4.4A1.4 1.4 0 0 1 10.9 3h2.2a1.4 1.4 0 0 1 1.4 1.4V6"/>
+                  <path d="M18.4 6l-.8 12.7A2 2 0 0 1 15.6 20.6H8.4a2 2 0 0 1-2-1.9L5.6 6"/>
+                  <path d="M10.3 10.4v5.9M13.7 10.4v5.9"/>
+                </svg>
+              </button>
               <span class="tc-code-chip">#${t.share_code}</span>
               <div class="tc-body">
                 <div class="tc-country">${TRIPI.esc(t.country || '')}</div>

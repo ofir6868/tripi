@@ -189,6 +189,18 @@ app.get('/api/trips/code/:code', authOptional, async (req, res) => {
 
 // ---- collaborative editing (owner or x-edit-code header) ----
 
+// check edit rights before the UI unlocks, so a wrong code can never look like it worked
+app.post('/api/trips/code/:code/verify-edit', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return; // tripWithEditAuth already answered 403/404
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
 app.post('/api/trips/code/:code/items', authOptional, async (req, res) => {
   try {
     const trip = await tripWithEditAuth(req, res);

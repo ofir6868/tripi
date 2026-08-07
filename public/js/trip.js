@@ -278,7 +278,22 @@
       editBtn.classList.add('editing');
       renderItinerary();
     }
-    editBtn.onclick = () => {
+    // the server is the only authority on edit rights — the UI must never unlock
+    // on an unverified code, or a wrong one looks like it worked
+    async function codeGrantsEdit(codeToTry) {
+      try {
+        await TRIPI.api(`/api/trips/code/${trip.share_code}/verify-edit`, {
+          method: 'POST', headers: { 'X-Edit-Code': codeToTry },
+        });
+        return true;
+      } catch { return false; }
+    }
+    function forgetSavedCode() {
+      delete savedEditCodes[trip.share_code];
+      localStorage.setItem('tripi_edit_codes', JSON.stringify(savedEditCodes));
+    }
+
+    editBtn.onclick = async () => {
       if (editMode) {
         editMode = false;
         editBtn.textContent = '✏️ עריכה';
@@ -288,13 +303,27 @@
         return;
       }
       if (isOwner) { canEditHeaders = {}; enterEditMode(); return; }
+      if (editBtn.disabled) return;
+
       const saved = savedEditCodes[trip.share_code];
-      if (saved) { canEditHeaders = { 'X-Edit-Code': saved }; enterEditMode(); return; }
-      const entered = prompt('להזנת מצב עריכה צריך קוד עריכה בן 6 ספרות (מקבלים מבעל הטיול):');
-      if (!entered) return;
-      canEditHeaders = { 'X-Edit-Code': entered.trim() };
-      // verify by trying a harmless call: add+nothing — instead verify by attempting entry; server checks on first mutation
-      savedEditCodes[trip.share_code] = entered.trim();
+      const entered = saved || prompt('קוד עריכה בן 6 ספרות (מקבלים מבעל הטיול — זה לא קוד הטיול שמופיע בכרטיס):');
+      if (!entered || !entered.trim()) return;
+      const codeToTry = entered.trim();
+
+      editBtn.disabled = true;
+      const prevLabel = editBtn.textContent;
+      editBtn.textContent = 'בודקים… ⏳';
+      const ok = await codeGrantsEdit(codeToTry);
+      editBtn.disabled = false;
+      editBtn.textContent = prevLabel;
+
+      if (!ok) {
+        if (saved) forgetSavedCode(); // a stored code that stopped working
+        alert('קוד העריכה שגוי. שימו לב: הקוד שמופיע בכרטיס הטיול הוא קוד צפייה ציבורי — קוד העריכה נפרד ומתקבל מבעל הטיול.');
+        return;
+      }
+      canEditHeaders = { 'X-Edit-Code': codeToTry };
+      savedEditCodes[trip.share_code] = codeToTry;
       localStorage.setItem('tripi_edit_codes', JSON.stringify(savedEditCodes));
       enterEditMode();
     };
