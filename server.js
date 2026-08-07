@@ -387,7 +387,7 @@ function orderByProximity(dests) {
   return ordered;
 }
 
-// contiguous day blocks per area, e.g. 22 days / 3 areas → 8+7+7
+// contiguous day blocks per area, e.g. 22 days / 3 areas → 8+7+7 (fallback only)
 function allocateDays(orderedDests, from, to) {
   const total = to - from + 1;
   const base = Math.floor(total / orderedDests.length);
@@ -399,6 +399,83 @@ function allocateDays(orderedDests, from, to) {
     cur += len;
     return block;
   }).filter((b) => b.to >= b.from);
+}
+
+// stage 1: the AI itself decides city order and how many days each deserves —
+// a small, cheap call whose output is easy to validate structurally
+async function aiPlanBlocks({ dests, from, to, interestList, freeText }) {
+  const areaNames = dests.map((d) => d.name);
+  const destDesc = dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ');
+  let userMsg =
+    `טיול לימים ${from} עד ${to} (כולל, סה"כ ${to - from + 1} ימים) שמכסה את האזורים: ${destDesc}. ` +
+    `חלק את הימים בין האזורים: קבע סדר ביקור גיאוגרפי הגיוני, והקצה לכל אזור כמות ימים לפי כמה שיש בו לראות ולעשות עבור המטיילים האלה — לא בהכרח שווה בשווה. ` +
+    `כל אזור מופיע פעם אחת בדיוק, הבלוקים רצופים ומכסים את כל טווח הימים בלי חורים ובלי חפיפות.`;
+  if (interestList.length) userMsg += `\nתחומי העניין שלהם: ${interestList.join(', ')}.`;
+  if (freeText) userMsg += `\nהעדפות נוספות: "${freeText}"`;
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 45000);
+  try {
+    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        model: AI_MODEL,
+        max_completion_tokens: 600,
+        messages: [
+          { role: 'system', content: 'אתה מתכנן טיולים מומחה. אתה מחזיר אך ורק JSON תקין לפי הסכמה.' },
+          { role: 'user', content: userMsg },
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'day_allocation',
+            strict: true,
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['blocks'],
+              properties: {
+                blocks: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['area', 'day_from', 'day_to'],
+                    properties: {
+                      area: { type: 'string', enum: areaNames },
+                      day_from: { type: 'integer' },
+                      day_to: { type: 'integer' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    });
+    if (!aiRes.ok) return null;
+    const data = await aiRes.json();
+    const blocks = (JSON.parse(data.choices[0].message.content).blocks || [])
+      .map((b) => ({ dest: dests.find((d) => d.name === b.area), from: b.day_from, to: b.day_to }))
+      .sort((a, b) => a.from - b.from);
+
+    // structural validation: every area once, contiguous, exact coverage — else reject
+    if (!blocks.length || blocks.some((b) => !b.dest || b.to < b.from)) return null;
+    if (new Set(blocks.map((b) => b.dest.name)).size !== blocks.length) return null;
+    if (blocks.length !== dests.length) return null;
+    if (blocks[0].from !== from || blocks[blocks.length - 1].to !== to) return null;
+    for (let i = 1; i < blocks.length; i++) {
+      if (blocks[i].from !== blocks[i - 1].to + 1) return null;
+    }
+    return blocks;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // one OpenAI call for ONE area and a fixed day range — the shape that stays coherent
@@ -518,11 +595,18 @@ app.post('/api/ai/itinerary', authRequired, async (req, res) => {
     const areaNames = dests.map((d) => d.name);
     if (area && !areaNames.includes(area)) return res.status(400).json({ error: 'אזור לא מוכר' });
 
-    // build the per-area blocks: a single requested area, or a deterministic
-    // geographic split of the whole trip — the model never allocates days itself
-    const blocks = area
-      ? [{ dest: dests.find((d) => d.name === area), from, to }]
-      : allocateDays(orderByProximity(dests), from, to);
+    // build the per-area blocks: a single requested area, or an AI-decided
+    // allocation (order + days per city). The AI plans; the server only verifies
+    // that the blocks are contiguous — falling back to an even split if invalid.
+    let blocks;
+    if (area) {
+      blocks = [{ dest: dests.find((d) => d.name === area), from, to }];
+    } else if (dests.length === 1) {
+      blocks = [{ dest: dests[0], from, to }];
+    } else {
+      blocks = await aiPlanBlocks({ dests, from, to, interestList, freeText })
+        || allocateDays(orderByProximity(dests), from, to);
+    }
 
     const results = await Promise.all(blocks.map((b, i) =>
       aiGenerateBlock({
