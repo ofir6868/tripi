@@ -138,6 +138,9 @@ function renderAuthModal() {
 
   wrap.querySelector('#auth-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const submitBtn = wrap.querySelector('#auth-submit');
+    if (submitBtn.disabled) return; // double-submit → one account, not two attempts
+    submitBtn.disabled = true;
     const errEl = wrap.querySelector('#auth-error');
     errEl.textContent = '';
     const email = wrap.querySelector('#auth-email').value;
@@ -153,6 +156,8 @@ function renderAuthModal() {
       else location.reload();
     } catch (err) {
       errEl.textContent = err.message;
+    } finally {
+      submitBtn.disabled = false;
     }
   });
 

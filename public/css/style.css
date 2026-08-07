@@ -114,6 +114,7 @@ body::after {
   display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
 }
 .btn:active { transform: scale(.97); }
+.btn:disabled { opacity: .55; cursor: wait; pointer-events: none; }
 
 .btn-ghost { background: transparent; color: var(--paper); border-color: var(--glass-border); }
 .btn-ghost:hover { background: var(--glass-strong); }

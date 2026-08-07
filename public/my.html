@@ -56,8 +56,11 @@
         grid.querySelectorAll('.tc-delete').forEach((b) => {
           b.addEventListener('click', async (e) => {
             e.preventDefault(); e.stopPropagation();
+            if (b.disabled) return;
             if (!confirm('למחוק את הטיול לצמיתות?')) return;
-            await TRIPI.api('/api/trips/' + b.dataset.id, { method: 'DELETE' });
+            b.disabled = true;
+            try { await TRIPI.api('/api/trips/' + b.dataset.id, { method: 'DELETE' }); }
+            catch { b.disabled = false; return; }
             location.reload();
           });
         });

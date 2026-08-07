@@ -153,6 +153,9 @@
               more.querySelector('.edit-loc-cancel').onclick = (e) => { e.stopPropagation(); locForm.hidden = true; locBtn.hidden = false; };
               more.querySelector('.edit-loc-save').onclick = async (e) => {
                 e.stopPropagation();
+                const saveBtn = e.currentTarget;
+                if (saveBtn.disabled) return;
+                saveBtn.disabled = true;
                 const picked = locPicker.getPicked();
                 try {
                   const updated = await TRIPI.api(`/api/trips/code/${trip.share_code}/items/${it.id}`, {
@@ -167,6 +170,7 @@
                   renderItinerary();
                 } catch (err) {
                   more.querySelector('.edit-loc-err').textContent = err.message;
+                  saveBtn.disabled = false;
                 }
               };
             }
@@ -179,12 +183,14 @@
       if (editMode) {
         container.querySelectorAll('.item-del').forEach((b) => {
           b.onclick = async () => {
+            if (b.disabled) return;
             if (!confirm('למחוק את התחנה?')) return;
+            b.disabled = true;
             try {
               await TRIPI.api(`/api/trips/code/${trip.share_code}/items/${b.dataset.id}`, { method: 'DELETE', headers: canEditHeaders });
               tripItems = tripItems.filter((it) => it.id !== +b.dataset.id);
               renderItinerary();
-            } catch (e) { alert(e.message); }
+            } catch (e) { alert(e.message); b.disabled = false; }
           };
         });
         container.querySelectorAll('.add-item-inline').forEach((b) => {
@@ -221,9 +227,12 @@
         getBias: () => ({ lat: dests[0]?.lat, lon: dests[0]?.lon }),
       });
       form.querySelector('.iif-cancel').onclick = () => form.remove();
-      form.querySelector('.iif-save').onclick = async () => {
+      form.querySelector('.iif-save').onclick = async (ev) => {
+        const saveBtn = ev.currentTarget;
+        if (saveBtn.disabled) return; // double-tap → one stop, not two
         const title = form.querySelector('.iif-title').value.trim();
         if (!title) { form.querySelector('.iif-err').textContent = 'צריך לכתוב מה עושים'; return; }
+        saveBtn.disabled = true;
         try {
           const item = await TRIPI.api(`/api/trips/code/${trip.share_code}/items`, {
             method: 'POST', headers: canEditHeaders,
@@ -241,7 +250,10 @@
           tripItems.push(item);
           tripItems.sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')));
           renderItinerary();
-        } catch (e) { form.querySelector('.iif-err').textContent = e.message; }
+        } catch (e) {
+          form.querySelector('.iif-err').textContent = e.message;
+          saveBtn.disabled = false;
+        }
       };
     }
 
@@ -294,7 +306,10 @@
     const likeCount = document.getElementById('like-count');
     likeCount.textContent = trip.likes || 0;
     if (likedTrips[trip.id]) likeBtn.firstChild.textContent = '❤️ ';
+    let likeBusy = false; // rapid double-tap must not double-count
     likeBtn.onclick = async () => {
+      if (likeBusy) return;
+      likeBusy = true;
       const undo = !!likedTrips[trip.id];
       try {
         const r = await TRIPI.api(`/api/trips/${trip.id}/like`, { method: 'POST', body: JSON.stringify({ undo }) });
@@ -302,7 +317,7 @@
         if (undo) delete likedTrips[trip.id]; else likedTrips[trip.id] = 1;
         localStorage.setItem('tripi_likes', JSON.stringify(likedTrips));
         likeBtn.firstChild.textContent = likedTrips[trip.id] ? '❤️ ' : '🤍 ';
-      } catch { /* ignore */ }
+      } catch { /* ignore */ } finally { likeBusy = false; }
     };
 
     // ---- print / WhatsApp ----

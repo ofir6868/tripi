@@ -577,7 +577,14 @@
   };
 
   // ---- create ----
+  let creatingTrip = false; // double-tap on the create button must not create two trips
   async function createTrip() {
+    if (creatingTrip) return;
+    creatingTrip = true;
+    const createBtn = document.getElementById('create-trip');
+    createBtn.disabled = true;
+    const prevLabel = createBtn.textContent;
+    createBtn.textContent = 'יוצרים… ⏳';
     const err = document.getElementById('err-2');
     err.textContent = '';
     const days = +daysSel.value;
@@ -612,6 +619,10 @@
       goStep(5);
     } catch (e) {
       err.textContent = e.message;
+    } finally {
+      creatingTrip = false;
+      createBtn.disabled = false;
+      createBtn.textContent = prevLabel;
     }
   }
 

@@ -520,6 +520,25 @@ const COVER_OPTIONS = [
   { name: 'קאנו על אגם בין הרים', url: COVER_U('photo-1476514525535-07fb3b4ae5f1') },
 ];
 
+// location-specific covers may only be used when the trip actually goes there
+const COVER_TAGS = {
+  'הקולוסיאום ורומא העתיקה': ['רומא', 'איטליה', 'rome', 'italy'],
+  'רחוב ניאון יפני בלילה': ['יפן', 'טוקיו', 'אוסקה', 'קיוטו', 'japan', 'tokyo'],
+  'מגדל אייפל ופריז': ['פריז', 'צרפת', 'paris', 'france'],
+  'סנטוריני — בתים לבנים וים': ['סנטוריני', 'יוון', 'santorini', 'greece'],
+};
+function validateCoverChoice(chosenName, dests) {
+  const hay = dests.map((d) => `${d.name} ${d.country || ''}`).join(' ').toLowerCase();
+  const tags = COVER_TAGS[chosenName];
+  if (!tags) return chosenName; // generic photo — always fine
+  if (tags.some((t) => hay.includes(t))) return chosenName;
+  // model picked a landmark from the wrong country — swap to a matching one, else generic
+  for (const [name, ts] of Object.entries(COVER_TAGS)) {
+    if (ts.some((t) => hay.includes(t))) return name;
+  }
+  return COVER_OPTIONS[0].name;
+}
+
 async function aiTripMeta({ dests, from, to, interestList, freeText, answers }) {
   const destDesc = dests.map((d) => d.name).join(', ');
   const coverNames = COVER_OPTIONS.map((c) => c.name);
@@ -539,7 +558,8 @@ async function aiTripMeta({ dests, from, to, interestList, freeText, answers }) 
             `טיול של ${to - from + 1} ימים ב: ${destDesc}.` + tripPrefsText({ interestList, freeText, answers }) +
             `\n1. כתוב תיאור קצר, חם ומזמין (2-3 משפטים, עברית).` +
             `\n2. בחר אימוג'י אחד שהכי מתאים לאופי הטיול.` +
-            `\n3. בחר את תמונת הנושא שהכי מתאימה מתוך הרשימה (לפי השם בלבד).` },
+            `\n3. בחר את תמונת הנושא שהכי מתאימה מתוך הרשימה (לפי השם בלבד). ` +
+            `חשוב: תמונה של עיר או אתר מסוים מותרת רק אם הטיול באמת מבקר שם — לטיול במקום אחר בחר תמונה כללית (נוף, חוף, הרים, כביש).` },
         ],
         response_format: {
           type: 'json_schema',
@@ -562,10 +582,11 @@ async function aiTripMeta({ dests, from, to, interestList, freeText, answers }) 
     if (!aiRes.ok) return null;
     const data = await aiRes.json();
     const meta = JSON.parse(data.choices[0].message.content);
+    const coverName = validateCoverChoice(meta.cover, dests);
     return {
       description: String(meta.description || '').slice(0, 500) || null,
       emoji: TRIP_EMOJIS.includes(meta.emoji) ? meta.emoji : '🧭',
-      cover_image: (COVER_OPTIONS.find((c) => c.name === meta.cover) || COVER_OPTIONS[0]).url,
+      cover_image: (COVER_OPTIONS.find((c) => c.name === coverName) || COVER_OPTIONS[0]).url,
     };
   } catch {
     return null;
