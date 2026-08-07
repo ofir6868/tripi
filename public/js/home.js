@@ -52,6 +52,8 @@
     }
 
     hint.textContent = 'מחפשים…';
+    results.innerHTML = '<span class="skl skl-result"></span>'.repeat(3);
+    results.classList.add('open');
     try {
       const rows = await TRIPI.api('/api/trips/search?q=' + encodeURIComponent(q));
       hint.textContent = '';
@@ -61,7 +63,7 @@
           <span class="pc-icon">✨</span>
           <div>
             <div class="sr-title">מתכננים טיול חדש ל"${TRIPI.esc(q)}"</div>
-            <div class="sr-meta">נמלא את היעד בשבילכם — נשאר רק לבחור ימים</div>
+            <div class="sr-meta">בוחרים יעד, כמה ימים — וה-AI בונה את המסלול</div>
           </div>
         </a>`;
       results.innerHTML = rows.map((t) => `

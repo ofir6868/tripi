@@ -177,6 +177,7 @@ const GEO = {
 
   // fill a container with a horizontal photo strip; removes it when nothing found
   async renderGallery(container, query) {
+    container.innerHTML = '<span class="skl skl-photo"></span>'.repeat(4);
     const photos = await this.placePhotos(query);
     if (!photos.length) { container.remove(); return; }
     container.innerHTML = photos.map((p, i) =>

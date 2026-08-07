@@ -739,7 +739,7 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
             role: 'system',
             content: 'אתה מתכנן טיולים ישראלי מנוסה שבונה מסלולים ריאליים ומהנים. לכל יום תכנן 3-4 תחנות בסדר כרונולוגי: בוקר, צהריים, אחר צהריים, ולפעמים ערב. ' +
               'title קצר וקולע בעברית; note טיפ פרקטי קצר בעברית (הזמנות מראש, מתי להגיע, מה לא לפספס); ' +
-              'place_query הוא שם המקום באנגלית כפי שמחפשים בגוגל מפות (למשל "Sensoji Temple Tokyo"); ' +
+              'place_query הוא שם המקום באנגלית כפי שמחפשים בגוגל מפות, ותמיד חייב לכלול גם את שם העיר וגם את שם המדינה (למשל "Sensoji Temple, Asakusa, Tokyo, Japan" ולא סתם "Sensoji Temple") — כדי שגוגל מפות לא יטעה למקום דומה במדינה אחרת; ' +
               'time_label בפורמט HH:MM. גוון בין קטגוריות והימנע מתחנות גנריות.',
           },
           { role: 'user', content: userMsg },
@@ -786,6 +786,13 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
     const data = await aiRes.json();
     let items = [];
     try { items = JSON.parse(data.choices[0].message.content).items || []; } catch { /* empty */ }
+    // city/country context guaranteed on every map query — Google Maps sometimes resolves
+    // an unqualified place name to the wrong country. The prompt asks for "Name, City, Country";
+    // a comma-less query means the model skipped that, so we append the context ourselves.
+    const areaDest = dests.find((d) => d.name === area);
+    const contextSuffix = areaDest && areaDest.country && areaDest.country !== areaDest.name
+      ? `${area}, ${areaDest.country}` : area;
+    const withContext = (q) => (q.includes(',') ? q : `${q}, ${contextSuffix}`.slice(0, 120));
     // hard-enforce the block's day range and area regardless of what the model wrote
     return items
       .filter((it) => it && it.title && it.day_number >= from && it.day_number <= to)
@@ -794,7 +801,7 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
         time_label: /^\d{1,2}:\d{2}$/.test(it.time_label || '') ? it.time_label : null,
         title: String(it.title).slice(0, 200),
         note: it.note ? String(it.note).slice(0, 300) : null,
-        place_query: it.place_query ? String(it.place_query).slice(0, 120) : null,
+        place_query: it.place_query ? withContext(String(it.place_query).slice(0, 90)) : null,
         category: AI_CATEGORIES.includes(it.category) ? it.category : 'אטרקציה',
         area,
       }));

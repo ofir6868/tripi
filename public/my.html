@@ -17,7 +17,9 @@
   <div class="page-shell" style="width:min(1120px,calc(100% - 32px))">
     <h1>הטיולים <span style="color:var(--amber)">שלי</span> 🧳</h1>
     <p class="page-sub">כל המסלולים שיצרתם, במקום אחד</p>
-    <div class="my-grid" id="my-grid"></div>
+    <div class="my-grid" id="my-grid">
+      <span class="skl skl-tripcard"></span><span class="skl skl-tripcard"></span><span class="skl skl-tripcard"></span>
+    </div>
     <div class="empty-state glass" id="empty" style="display:none;border-radius:var(--radius)">
       <div class="big">🗺️</div>
       <h2 style="font-family:var(--font-display);margin-bottom:8px">עוד אין כאן טיולים</h2>
@@ -33,11 +35,11 @@
   <script src="/js/common.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', async () => {
-      if (!TRIPI.user) { openAuthModal(() => location.reload()); return; }
       const grid = document.getElementById('my-grid');
+      if (!TRIPI.user) { grid.innerHTML = ''; openAuthModal(() => location.reload()); return; }
       try {
         const trips = await TRIPI.api('/api/my-trips');
-        if (!trips.length) { document.getElementById('empty').style.display = ''; return; }
+        if (!trips.length) { grid.innerHTML = ''; document.getElementById('empty').style.display = ''; return; }
         grid.innerHTML = trips.map((t) => `
           <a class="trip-card" href="/trip/${t.share_code}">
             <div class="tc-media">

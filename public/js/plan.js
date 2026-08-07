@@ -24,6 +24,20 @@
     chipsBox.querySelectorAll('button').forEach((b) => {
       b.onclick = () => { destinations.splice(+b.dataset.i, 1); renderChips(); autoTitle(); };
     });
+    renderDestContext();
+  }
+
+  // step 2 reminder of what was chosen — matters most when we jumped here automatically
+  function renderDestContext() {
+    const box = document.getElementById('dest-context');
+    if (!box) return;
+    if (!destinations.length) { box.hidden = true; return; }
+    box.hidden = false;
+    box.innerHTML = `<span class="dc-label">הטיול שלכם ל־</span>` + destinations
+      .map((d) => `<span class="dc-dest">${TRIPI.esc(d.name)}${d.country && d.country !== d.name ? `<small>, ${TRIPI.esc(d.country)}</small>` : ''}</span>`)
+      .join('<span class="dc-sep">·</span>') +
+      ` <button type="button" class="dc-change" id="dc-change">שינוי</button>`;
+    box.querySelector('#dc-change').onclick = () => goStep(1);
   }
 
   function autoTitle() {
@@ -189,8 +203,10 @@
     const err = document.getElementById('err-1');
     err.textContent = '';
     if (!destinations.length && destInput.value.trim()) {
-      // user typed but didn't pick — add it for them instead of nagging
-      addDestination({ name: destInput.value.trim(), country: null, lat: null, lon: null });
+      // typed but never picked — a raw string isn't a real place, so ask for a pick
+      err.textContent = 'בחרו יעד מהרשימה שנפתחת כדי שנדע בדיוק לאן';
+      searchDestinations();
+      return;
     }
     if (!destinations.length) { err.textContent = 'לאן נוסעים? הוסיפו לפחות יעד אחד'; return; }
     goStep(2);
@@ -687,21 +703,26 @@
     };
   })();
 
-  // ---- ?dest= from the homepage search: geocode it and pre-fill the destination chip ----
+  // ---- ?dest= from the homepage search ----
+  // Only an EXACT cities/countries API match may auto-fill; then we jump straight to
+  // step 2 with the chosen destination shown. Anything else just pre-fills the search
+  // box and opens real suggestions — raw text is never added as a destination.
   (function applyDestParam() {
     const q = (new URLSearchParams(location.search).get('dest') || '').trim().slice(0, 60);
     if (!q) return;
     history.replaceState(null, '', '/plan'); // one-shot: a reload shouldn't re-add it
-    if (destinations.some((d) => d.name === q)) return;
+    if (destinations.length) return;
     GEO.searchPlaces(q)
       .then((places) => {
-        const p = places[0];
-        if (p && !destinations.some((d) => d.name === p.name)) {
-          addDestination({ name: p.name, country: p.isCountry ? p.name : p.country, lat: p.lat, lon: p.lon });
-        } else if (!p) {
-          addDestination({ name: q, country: null, lat: null, lon: null });
+        const exact = (places || []).find((p) => p.name.trim().toLowerCase() === q.toLowerCase());
+        if (exact) {
+          addDestination({ name: exact.name, country: exact.isCountry ? exact.name : exact.country, lat: exact.lat, lon: exact.lon });
+          goStep(2); // dest-context line in the panel shows what was picked
+        } else {
+          destInput.value = q;
+          searchDestinations();
         }
       })
-      .catch(() => addDestination({ name: q, country: null, lat: null, lon: null }));
+      .catch(() => { destInput.value = q; });
   })();
 })();

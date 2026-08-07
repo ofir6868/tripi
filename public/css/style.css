@@ -571,6 +571,23 @@ body::after {
 }
 .dest-chip button:hover { color: var(--danger); }
 
+/* step 2: quiet reminder of the destination, especially when we auto-advanced here */
+.dest-context {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: -6px 0 18px; padding: 10px 14px; border-radius: 14px;
+  background: rgba(255, 180, 95, .08); border: 1px solid rgba(255, 180, 95, .22);
+  font-size: .94rem;
+}
+.dest-context .dc-label { color: var(--paper-dim); font-weight: 300; }
+.dest-context .dc-dest { color: var(--amber); font-weight: 700; }
+.dest-context .dc-dest small { color: var(--paper-dim); font-weight: 400; }
+.dest-context .dc-sep { color: var(--paper-dim); opacity: .6; }
+.dest-context .dc-change {
+  margin-inline-start: auto; background: none; border: none; cursor: pointer;
+  color: var(--paper-dim); font-size: .85rem; text-decoration: underline; padding: 0;
+}
+.dest-context .dc-change:hover { color: var(--amber); }
+
 .autocomplete-wrap { position: relative; }
 .autocomplete-wrap input {
   width: 100%; background: rgba(6, 13, 11, .55);
@@ -807,6 +824,12 @@ body::after {
 .skl-card { display: block; height: 92px; width: 100%; border-radius: var(--radius); margin-bottom: 14px; }
 .skl-card.short { height: 70px; }
 .skl-code { width: 170px; height: .9em; }
+/* side-card + strip placeholders: shaped like the content they stand in for */
+.skl-wday { display: inline-block; width: 44px; height: 62px; border-radius: 12px; margin-inline-end: 6px; }
+.skl-row { display: block; height: 30px; width: 100%; border-radius: 8px; margin-bottom: 8px; }
+.skl-photo { display: inline-block; width: 96px; height: 72px; border-radius: 10px; margin-inline-end: 8px; }
+.skl-result { display: block; height: 62px; width: 100%; border-radius: 12px; margin-bottom: 8px; }
+.skl-tripcard { display: block; flex: 0 0 292px; height: 332px; border-radius: var(--radius); }
 
 /* ---------- edit location inline form ---------- */
 

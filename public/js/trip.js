@@ -361,6 +361,8 @@
     async function loadWeather(d) {
       const card = document.getElementById('weather-card');
       if (d.lat == null) { card.style.display = 'none'; return; }
+      card.style.display = '';
+      document.getElementById('weather-row').innerHTML = '<span class="skl skl-wday"></span>'.repeat(7);
       try {
         // when the trip has dates in the next 16 days, fetch far enough to align per itinerary day
         const wantDates = !!trip.start_date;
@@ -385,7 +387,7 @@
       const list = document.getElementById('hotels-list');
       if (d.lat == null) { card.style.display = 'none'; return; }
       card.style.display = '';
-      list.innerHTML = '<div class="empty-day" style="padding:10px">מאתרים מלונות…</div>';
+      list.innerHTML = '<span class="skl skl-row"></span>'.repeat(4);
       try {
         const hotels = await GEO.hotelsNear(d.lat, d.lon);
         if (!hotels.length) throw new Error('none');
