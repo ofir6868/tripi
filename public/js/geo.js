@@ -137,7 +137,15 @@ const GEO = {
       }, 300);
     });
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') list.classList.remove('open');
+      const open = list.classList.contains('open');
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (open) { e.preventDefault(); TRIPI.acMove(list, e.key === 'ArrowDown' ? 1 : -1); }
+      } else if (e.key === 'Enter' && open) {
+        const act = list.querySelector('.autocomplete-item.active') || list.querySelector('.autocomplete-item');
+        if (act) { e.preventDefault(); act.click(); }
+      } else if (e.key === 'Escape') {
+        list.classList.remove('open');
+      }
     });
     document.addEventListener('click', (e) => {
       if (!wrap.contains(e.target)) list.classList.remove('open');

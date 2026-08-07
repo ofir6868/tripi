@@ -57,43 +57,57 @@
     scheduleSave(); // also covers programmatic adds (?dest= pre-fill)
   }
 
+  async function searchDestinations() {
+    const q = destInput.value.trim();
+    if (q.length < 2) { suggBox.classList.remove('open'); return; }
+    const places = await GEO.searchPlaces(q).catch(() => []);
+    if (destInput.value.trim() !== q) return; // stale response — user kept typing
+    const options = places.map((p, i) => `
+      <button type="button" class="autocomplete-item" data-i="${i}">
+        <span class="ac-icon">${p.isCountry ? '🌍' : '📍'}</span>
+        <span class="ac-name">${TRIPI.esc(p.name)}</span>
+        <span class="ac-meta">${p.isCountry ? 'מדינה' : TRIPI.esc([p.admin, p.country].filter(Boolean).join(', '))}</span>
+      </button>`).join('');
+    // free-text fallback appears only AFTER results loaded, so it can't be picked blindly
+    suggBox.innerHTML = options + `
+      <button type="button" class="autocomplete-item free-text" data-free="1">
+        <span class="ac-icon">✏️</span>
+        <span class="ac-name">להוסיף "${TRIPI.esc(q)}" כמו שהוא</span>
+      </button>`;
+    suggBox.classList.add('open');
+    suggBox.querySelectorAll('.autocomplete-item').forEach((btn) => {
+      btn.onclick = () => {
+        if (btn.dataset.free) addDestination({ name: q, country: null, lat: null, lon: null });
+        else {
+          const p = places[+btn.dataset.i];
+          addDestination({ name: p.name, country: p.isCountry ? p.name : p.country, lat: p.lat, lon: p.lon });
+        }
+      };
+    });
+  }
+
   destInput.addEventListener('input', () => {
     clearTimeout(debounceTimer);
     const q = destInput.value.trim();
     if (q.length < 2) { suggBox.classList.remove('open'); return; }
-    debounceTimer = setTimeout(async () => {
-      const places = await GEO.searchPlaces(q).catch(() => []);
-      const options = places.map((p, i) => `
-        <button type="button" class="autocomplete-item" data-i="${i}">
-          <span class="ac-icon">${p.isCountry ? '🌍' : '📍'}</span>
-          <span class="ac-name">${TRIPI.esc(p.name)}</span>
-          <span class="ac-meta">${p.isCountry ? 'מדינה' : TRIPI.esc([p.admin, p.country].filter(Boolean).join(', '))}</span>
-        </button>`).join('');
-      // always offer free-text as a fallback so nobody gets stuck
-      suggBox.innerHTML = options + `
-        <button type="button" class="autocomplete-item free-text" data-free="1">
-          <span class="ac-icon">✏️</span>
-          <span class="ac-name">להוסיף "${TRIPI.esc(q)}" כמו שהוא</span>
-        </button>`;
-      suggBox.classList.add('open');
-      suggBox.querySelectorAll('.autocomplete-item').forEach((btn) => {
-        btn.onclick = () => {
-          if (btn.dataset.free) addDestination({ name: q, country: null, lat: null, lon: null });
-          else {
-            const p = places[+btn.dataset.i];
-            addDestination({ name: p.name, country: p.isCountry ? p.name : p.country, lat: p.lat, lon: p.lon });
-          }
-        };
-      });
-    }, 280);
+    debounceTimer = setTimeout(searchDestinations, 280);
   });
 
   destInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
+    const open = suggBox.classList.contains('open');
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (open) { e.preventDefault(); TRIPI.acMove(suggBox, e.key === 'ArrowDown' ? 1 : -1); }
+    } else if (e.key === 'Enter') {
       e.preventDefault();
-      const first = suggBox.querySelector('.autocomplete-item');
-      if (suggBox.classList.contains('open') && first) first.click();
-      else if (destInput.value.trim()) addDestination({ name: destInput.value.trim(), country: null, lat: null, lon: null });
+      if (open) {
+        (suggBox.querySelector('.autocomplete-item.active') || suggBox.querySelector('.autocomplete-item'))?.click();
+      } else {
+        // results not in yet — run the search now instead of adding raw text
+        clearTimeout(debounceTimer);
+        searchDestinations();
+      }
+    } else if (e.key === 'Escape') {
+      suggBox.classList.remove('open');
     }
   });
   document.addEventListener('click', (e) => {

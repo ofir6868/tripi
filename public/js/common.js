@@ -30,6 +30,16 @@ const TRIPI = {
   mapsSearchUrl(q) {
     return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
   },
+  // arrow-key highlight for autocomplete dropdowns
+  acMove(list, dir) {
+    const items = [...list.querySelectorAll('.autocomplete-item')];
+    if (!items.length) return;
+    let idx = items.findIndex((i) => i.classList.contains('active'));
+    idx = (idx + dir + items.length) % items.length;
+    items.forEach((i) => i.classList.remove('active'));
+    items[idx].classList.add('active');
+    items[idx].scrollIntoView({ block: 'nearest' });
+  },
   openLightbox(url) {
     const box = document.createElement('div');
     box.className = 'lightbox';
