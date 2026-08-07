@@ -142,9 +142,53 @@
     coverGrid.appendChild(d);
   });
 
+  // ---- draft autosave: leave mid-creation, come back, continue ----
+  const DRAFT_KEY = 'tripi_plan_draft';
+  let curStep = 1;
+  let draftTimer = null;
+
+  function saveDraft() {
+    if (curStep === 3) return; // trip already created — nothing to keep
+    const draft = {
+      v: 1,
+      savedAt: Date.now(),
+      step: curStep,
+      currentDay,
+      destinations,
+      items: items.map(({ _id, ...it }) => it),
+      title: titleInput.value,
+      titleWasAutofilled,
+      days: daysSel.value,
+      start: startInput.value,
+      desc: document.getElementById('f-desc').value,
+      emoji: selectedEmoji,
+      cover: selectedCover,
+      interests: [...selectedInterests],
+      aiNotes: document.getElementById('ai-notes').value,
+    };
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { /* storage full — skip */ }
+  }
+  function scheduleSave() { clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 600); }
+  function clearDraft() { clearTimeout(draftTimer); localStorage.removeItem(DRAFT_KEY); }
+
+  // any interaction inside the wizard panels schedules a save
+  ['panel-1', 'panel-2'].forEach((id) => {
+    const p = document.getElementById(id);
+    p.addEventListener('input', scheduleSave);
+    p.addEventListener('click', scheduleSave);
+  });
+
+  document.getElementById('draft-reset').onclick = () => {
+    if (!confirm('למחוק את הטיוטה ולהתחיל מחדש?')) return;
+    clearDraft();
+    location.reload();
+  };
+
   // ---- wizard navigation ----
   const panels = { 1: document.getElementById('panel-1'), 2: document.getElementById('panel-2'), 3: document.getElementById('panel-3') };
   function goStep(n) {
+    curStep = n;
+    if (n === 3) clearDraft(); else scheduleSave();
     Object.entries(panels).forEach(([k, p]) => { p.style.display = +k === n ? '' : 'none'; });
     document.querySelectorAll('.wp-step').forEach((s) => {
       const sn = +s.dataset.step;
@@ -446,4 +490,47 @@
     document.querySelector('.site-header')?.remove();
     renderHeader();
   }
+
+  // ---- restore a saved draft (runs last, after all widgets exist) ----
+  (function restoreDraft() {
+    let draft = null;
+    try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { /* corrupt */ }
+    if (!draft || draft.v !== 1) return;
+    if (Date.now() - (draft.savedAt || 0) > 14 * 24 * 60 * 60 * 1000) { clearDraft(); return; }
+    const hasContent = (draft.destinations || []).length || (draft.items || []).length || (draft.title || '').trim();
+    if (!hasContent) return;
+
+    destinations = (Array.isArray(draft.destinations) ? draft.destinations : []).filter((d) => d && d.name);
+    renderChips();
+    items = (Array.isArray(draft.items) ? draft.items : [])
+      .filter((it) => it && it.title)
+      .map((it) => ({ _id: idSeq++, ...it }));
+    titleInput.value = draft.title || '';
+    titleWasAutofilled = !!draft.titleWasAutofilled;
+    daysSel.value = Math.min(Math.max(parseInt(draft.days, 10) || 4, 1), 60);
+    startInput.value = draft.start || '';
+    updateEndHint();
+    document.getElementById('f-desc').value = draft.desc || '';
+    document.getElementById('ai-notes').value = draft.aiNotes || '';
+
+    if (draft.emoji && EMOJIS.includes(draft.emoji)) {
+      selectedEmoji = draft.emoji;
+      emojiRow.querySelectorAll('.emoji-opt').forEach((b) => b.classList.toggle('selected', b.textContent === draft.emoji));
+    }
+    if (draft.cover && COVERS.includes(draft.cover)) {
+      selectedCover = draft.cover;
+      coverGrid.querySelectorAll('.cover-opt').forEach((d) => d.classList.toggle('selected', d.querySelector('img').src === draft.cover));
+    }
+    (Array.isArray(draft.interests) ? draft.interests : []).forEach((name) => selectedInterests.add(name));
+    interestRow.querySelectorAll('.interest-chip').forEach((b) => {
+      b.classList.toggle('selected', selectedInterests.has(b.textContent.replace(/^[^ ]+ /, '')));
+    });
+
+    currentDay = Math.max(parseInt(draft.currentDay, 10) || 1, 1);
+    if (draft.step === 2 && destinations.length) {
+      buildDayTabs();
+      goStep(2);
+    }
+    document.getElementById('draft-banner').hidden = false;
+  })();
 })();

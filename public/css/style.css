@@ -656,6 +656,15 @@ body::after {
 .ai-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; }
 .ai-title { font-weight: 800; font-size: 1.02rem; }
 .ai-sub { color: var(--paper-dim); font-size: .86rem; font-weight: 300; }
+.draft-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 16px; margin-bottom: 18px; border-radius: var(--radius-sm);
+  background: rgba(143, 216, 196, .08); border: 1px solid rgba(143, 216, 196, .3);
+  color: var(--mint); font-weight: 600; font-size: .93rem;
+  animation: pop .3s cubic-bezier(.2, .9, .3, 1.1);
+}
+.draft-banner .btn { padding: 6px 14px; font-size: .85rem; flex-shrink: 0; }
+
 .manual-toggle {
   display: block; width: 100%; padding: 12px; margin-bottom: 14px;
   background: transparent; border: 1px dashed var(--glass-border); border-radius: var(--radius-sm);
