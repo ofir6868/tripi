@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS trip_items (
   place_query TEXT,
   category TEXT,
   area TEXT,
+  lat DOUBLE PRECISION,
+  lon DOUBLE PRECISION,
   sort_order INT DEFAULT 0
 );
 

@@ -228,18 +228,47 @@
       return;
     }
     wrap.innerHTML = dayItems.map((it) => `
-      <div class="added-item">
-        ${it.time_label ? `<span class="ai-time">${TRIPI.esc(it.time_label)}</span>` : ''}
-        <span class="ai-title">${TRIPI.esc(it.title)}${multiArea() && it.area ? ` <small class="ai-area">· ${TRIPI.esc(it.area)}</small>` : ''}</span>
-        <button class="ai-del" data-id="${it._id}" title="הסרה">✕</button>
+      <div class="added-item-wrap" data-id="${it._id}">
+        <div class="added-item">
+          ${it.time_label ? `<span class="ai-time">${TRIPI.esc(it.time_label)}</span>` : ''}
+          <span class="ai-title">${TRIPI.esc(it.title)}${multiArea() && it.area ? ` <small class="ai-area">· ${TRIPI.esc(it.area)}</small>` : ''}</span>
+          <span class="item-chevron" title="פרטים">▾</span>
+          <button class="ai-del" data-id="${it._id}" title="הסרה">✕</button>
+        </div>
+        <div class="item-more" hidden></div>
       </div>`).join('');
     wrap.querySelectorAll('.ai-del').forEach((b) => {
-      b.onclick = () => { items = items.filter((it) => it._id !== +b.dataset.id); refreshTabCounts(); renderItems(); refreshAreaField(); };
+      b.onclick = (e) => { e.stopPropagation(); items = items.filter((it) => it._id !== +b.dataset.id); refreshTabCounts(); renderItems(); refreshAreaField(); };
+    });
+    // expand a row → full details + exact-location mini map
+    wrap.querySelectorAll('.added-item-wrap').forEach((row) => {
+      row.querySelector('.added-item').addEventListener('click', (e) => {
+        if (e.target.closest('.ai-del')) return;
+        const it = items.find((x) => x._id === +row.dataset.id);
+        const more = row.querySelector('.item-more');
+        const open = !more.hidden;
+        if (open) { more.hidden = true; row.classList.remove('expanded'); return; }
+        if (!more.dataset.loaded) {
+          const hasMap = !!(it.place_query || (it.lat != null && it.lon != null));
+          more.innerHTML = `
+            <div class="item-more-details">
+              ${it.category ? `<span class="item-cat">${TRIPI.esc(it.category)}</span>` : ''}
+              ${it.area ? `<span class="item-area">📍 ${TRIPI.esc(it.area)}</span>` : ''}
+            </div>
+            ${it.note ? `<div class="item-note">${TRIPI.esc(it.note)}</div>` : ''}
+            ${it.place_query ? `<div class="item-more-place">📌 ${TRIPI.esc(it.place_query)}</div>` : ''}
+            ${hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPI.mapsEmbedUrlExact(it)}"></iframe>`
+                     : '<div class="item-note">אין מיקום לתחנה הזו — אפשר להוסיף דרך שדה המיקום</div>'}`;
+          more.dataset.loaded = '1';
+        }
+        more.hidden = false;
+        row.classList.add('expanded');
+      });
     });
   }
 
   // place field: real dropdown of POIs (restaurants, museums, beaches…) biased to the chosen destination
-  GEO.attachPlaceAutocomplete(document.getElementById('i-place'), {
+  const placePicker = GEO.attachPlaceAutocomplete(document.getElementById('i-place'), {
     getBias: () => ({ lat: destinations[0]?.lat, lon: destinations[0]?.lon }),
   });
 
@@ -258,8 +287,11 @@
       place_query: document.getElementById('i-place').value.trim() || null,
       category: document.getElementById('i-cat').value,
       area: multiArea() ? areaSel.value : (destinations[0]?.name || null),
+      lat: placePicker.getPicked()?.lat ?? null,
+      lon: placePicker.getPicked()?.lon ?? null,
     });
     ['i-title', 'i-place', 'i-note'].forEach((id) => { document.getElementById(id).value = ''; });
+    placePicker.clear(); // don't leak the previous pick's coordinates into the next stop
     refreshTabCounts();
     renderItems();
     // the freshly used area becomes the default for the next stop

@@ -57,6 +57,10 @@ async function main() {
   console.log('Migration 4: per-item area...');
   await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS area TEXT`);
 
+  console.log('Migration 5: per-item coordinates...');
+  await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION`);
+  await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS lon DOUBLE PRECISION`);
+
   console.log('Done.');
   await pool.end();
 }

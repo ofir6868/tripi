@@ -142,6 +142,6 @@ const GEO = {
     document.addEventListener('click', (e) => {
       if (!wrap.contains(e.target)) list.classList.remove('open');
     });
-    return { getPicked: () => lastPicked };
+    return { getPicked: () => lastPicked, clear: () => { lastPicked = null; } };
   },
 };

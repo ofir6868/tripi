@@ -33,6 +33,13 @@ const TRIPI = {
   mapsEmbedUrl(q) {
     return 'https://maps.google.com/maps?q=' + encodeURIComponent(q) + '&hl=he&z=12&output=embed';
   },
+  // exact pin: coordinates when we have them, otherwise a zoomed place search
+  mapsEmbedUrlExact(it) {
+    if (it.lat != null && it.lon != null) {
+      return `https://maps.google.com/maps?q=${it.lat},${it.lon}&hl=he&z=16&output=embed`;
+    }
+    return 'https://maps.google.com/maps?q=' + encodeURIComponent(it.place_query || '') + '&hl=he&z=15&output=embed';
+  },
 };
 
 // ---------- header ----------

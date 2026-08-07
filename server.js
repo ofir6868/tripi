@@ -196,12 +196,13 @@ app.post('/api/trips/code/:code/items', authOptional, async (req, res) => {
     const it = req.body || {};
     if (!it.title || !String(it.title).trim()) return res.status(400).json({ error: 'חסרה כותרת לתחנה' });
     const { rows } = await pool.query(
-      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
+      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
        RETURNING *`,
       [trip.id, Math.min(Math.max(parseInt(it.day_number, 10) || 1, 1), trip.days),
        it.time_label || null, String(it.title).slice(0, 200).trim(), it.note || null,
-       it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null]
+       it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null,
+       Number.isFinite(+it.lat) ? +it.lat : null, Number.isFinite(+it.lon) ? +it.lon : null]
     );
     res.json(rows[0]);
   } catch (err) {
@@ -327,11 +328,12 @@ app.post('/api/trips', authRequired, async (req, res) => {
         const it = items[i];
         if (!it || !it.title) continue;
         await client.query(
-          `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
           [trip.id, Math.min(Math.max(parseInt(it.day_number, 10) || 1, 1), nDays),
            it.time_label || null, String(it.title).slice(0, 200), it.note || null,
-           it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null, i]
+           it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null,
+           Number.isFinite(+it.lat) ? +it.lat : null, Number.isFinite(+it.lon) ? +it.lon : null, i]
         );
       }
     }
