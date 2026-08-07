@@ -682,6 +682,14 @@ body::after {
 }
 .draft-banner .btn { padding: 6px 14px; font-size: .85rem; flex-shrink: 0; }
 
+.manual-link {
+  display: block; width: 100%; margin-top: 16px; padding: 8px;
+  background: none; border: none; cursor: pointer; text-align: center;
+  color: rgba(245, 239, 227, .45); font-family: var(--font-body); font-size: .88rem;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.manual-link:hover { color: var(--paper-dim); }
+
 .manual-toggle {
   display: block; width: 100%; padding: 12px; margin-bottom: 14px;
   background: transparent; border: 1px dashed var(--glass-border); border-radius: var(--radius-sm);
@@ -960,8 +968,10 @@ body::after {
   .tc-media { height: 300px; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .span-2 { grid-column: span 1; }
-  .wizard-progress { flex-direction: column; }
-  .wp-step { padding: 10px 14px; }
+  /* 5-step progress on mobile: a compact row of numbered circles */
+  .wizard-progress { flex-direction: row; gap: 6px; }
+  .wp-step { padding: 8px 4px; font-size: 0; justify-content: center; }
+  .wp-step .wp-n { font-size: .85rem; }
   .strip-nav { display: none; }
   .ticket .code { font-size: 2.2rem; letter-spacing: .14em; }
   .weather-row { overflow-x: auto; }

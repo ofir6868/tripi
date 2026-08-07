@@ -1,19 +1,8 @@
-// Plan wizard: 3 steps → create trip → show share code ticket.
+// AI-first plan wizard: destinations → dates → style → AI builds → review → ticket.
 (() => {
-  const EMOJIS = ['🧭', '🏖️', '🏔️', '🏛️', '🌸', '🎡', '🍜', '🚐', '🤿', '🎿', '🐫', '🦁'];
-  const COVERS = [
-    'photo-1469854523086-cc02fe5d8800', // road trip
-    'photo-1507525428034-b723cf961d3e', // beach
-    'photo-1464822759023-fed622ff2c3b', // mountains
-    'photo-1552832230-c0197dd311b5',    // rome
-    'photo-1540959733332-eab4deabeeaf', // tokyo
-    'photo-1502602898657-3e91760cbb34', // paris
-    'photo-1613395877344-13d4a8e0d49e', // santorini
-    'photo-1476514525535-07fb3b4ae5f1', // canoe lake
-  ].map((id) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=900&q=80`);
+  const DEFAULT_COVER = 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1200&q=80';
 
-  let selectedEmoji = EMOJIS[0];
-  let selectedCover = COVERS[0];
+  let aiMeta = { emoji: null, cover_image: null }; // chosen automatically by the AI
   let currentDay = 1;
   let items = []; // {day_number, time_label, title, note, place_query, category}
   let destinations = []; // [{name, country, lat, lon}]
@@ -134,43 +123,18 @@
   daysSel.addEventListener('change', clampDays);
   startInput.addEventListener('change', updateEndHint);
 
-  const emojiRow = document.getElementById('emoji-row');
-  EMOJIS.forEach((em, i) => {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'emoji-opt' + (i === 0 ? ' selected' : ''); b.textContent = em;
-    b.onclick = () => {
-      emojiRow.querySelectorAll('.emoji-opt').forEach((x) => x.classList.remove('selected'));
-      b.classList.add('selected'); selectedEmoji = em;
-    };
-    emojiRow.appendChild(b);
-  });
-
-  const coverGrid = document.getElementById('cover-grid');
-  COVERS.forEach((url, i) => {
-    const d = document.createElement('div');
-    d.className = 'cover-opt' + (i === 0 ? ' selected' : '');
-    d.innerHTML = `<img src="${url}" alt="" loading="lazy">`;
-    d.onclick = () => {
-      coverGrid.querySelectorAll('.cover-opt').forEach((x) => x.classList.remove('selected'));
-      d.classList.add('selected'); selectedCover = url;
-    };
-    coverGrid.appendChild(d);
-  });
-
   // ---- draft autosave: leave mid-creation, come back, continue ----
   const DRAFT_KEY = 'tripi_plan_draft';
   let curStep = 1;
   let draftTimer = null;
 
   function saveDraft() {
-    if (curStep === 3) return; // trip already created — nothing to keep
-    // an effectively-empty form must not leave a draft behind (phantom-banner bug)
-    const meaningful = destinations.length || items.length ||
-      (titleInput.value.trim() && !titleWasAutofilled) ||
-      document.getElementById('f-desc').value.trim();
-    if (!meaningful) { localStorage.removeItem(DRAFT_KEY); return; }
+    if (curStep === 5) return; // trip already created — nothing to keep
+    // no destinations = no draft, period. Anything else (orphan items, auto-title)
+    // restores nothing visible and causes the phantom "continued from draft" banner.
+    if (!destinations.length) { localStorage.removeItem(DRAFT_KEY); return; }
     const draft = {
-      v: 1,
+      v: 2,
       savedAt: Date.now(),
       step: curStep,
       currentDay,
@@ -181,8 +145,7 @@
       days: daysSel.value,
       start: startInput.value,
       desc: document.getElementById('f-desc').value,
-      emoji: selectedEmoji,
-      cover: selectedCover,
+      aiMeta,
       interests: [...selectedInterests],
       aiNotes: document.getElementById('ai-notes').value,
     };
@@ -192,7 +155,7 @@
   function clearDraft() { clearTimeout(draftTimer); localStorage.removeItem(DRAFT_KEY); }
 
   // any interaction inside the wizard panels schedules a save
-  ['panel-1', 'panel-2'].forEach((id) => {
+  ['panel-1', 'panel-2', 'panel-3', 'panel-4'].forEach((id) => {
     const p = document.getElementById(id);
     p.addEventListener('input', scheduleSave);
     p.addEventListener('click', scheduleSave);
@@ -204,11 +167,12 @@
     location.reload();
   };
 
-  // ---- wizard navigation ----
-  const panels = { 1: document.getElementById('panel-1'), 2: document.getElementById('panel-2'), 3: document.getElementById('panel-3') };
+  // ---- wizard navigation (1 יעדים · 2 תאריכים · 3 סגנון · 4 מסלול · 5 שיתוף) ----
+  const panels = {};
+  for (let i = 1; i <= 5; i++) panels[i] = document.getElementById('panel-' + i);
   function goStep(n) {
     curStep = n;
-    if (n === 3) clearDraft(); else scheduleSave();
+    if (n === 5) clearDraft(); else scheduleSave();
     Object.entries(panels).forEach(([k, p]) => { p.style.display = +k === n ? '' : 'none'; });
     document.querySelectorAll('.wp-step').forEach((s) => {
       const sn = +s.dataset.step;
@@ -226,11 +190,20 @@
       addDestination({ name: destInput.value.trim(), country: null, lat: null, lon: null });
     }
     if (!destinations.length) { err.textContent = 'לאן נוסעים? הוסיפו לפחות יעד אחד'; return; }
-    if (!titleInput.value.trim()) autoTitle();
-    buildDayTabs();
     goStep(2);
   };
   document.getElementById('back-to-1').onclick = () => goStep(1);
+  document.getElementById('to-step-3').onclick = () => goStep(3);
+  document.getElementById('back-to-2').onclick = () => goStep(2);
+  document.getElementById('back-to-3').onclick = () => goStep(3);
+  document.getElementById('go-manual').onclick = () => {
+    if (!titleInput.value.trim()) autoTitle();
+    buildDayTabs();
+    goStep(4);
+    // manual path: open the form right away
+    document.getElementById('manual-form-wrap').style.display = '';
+    document.getElementById('manual-toggle').style.display = 'none';
+  };
 
   // ---- area helpers (multi-destination trips only) ----
   const areaField = document.getElementById('i-area-field');
@@ -531,7 +504,7 @@
             destinations,
             interests: [...selectedInterests],
             notes: document.getElementById('ai-notes').value.trim() || null,
-            want_description: !descField.value.trim(),
+            want_meta: !payload.area, // full builds refresh description/emoji/cover
             ...payload,
           }),
         });
@@ -542,22 +515,34 @@
           askAiQuestions(res.questions, payload, label, replaceRange);
           return;
         }
-        if (res.description && !descField.value.trim()) descField.value = res.description;
+        // AI-picked meta: description (if empty), emoji + cover always refreshed on full builds
+        if (res.meta) {
+          if (res.meta.description && !descField.value.trim()) descField.value = res.meta.description;
+          if (res.meta.emoji) aiMeta.emoji = res.meta.emoji;
+          if (res.meta.cover_image) aiMeta.cover_image = res.meta.cover_image;
+        }
         // replace only after a SUCCESSFUL generation — a failed run never wipes anything
         if (replaceRange) {
           items = items.filter((it) => it.day_number < replaceRange.from || it.day_number > replaceRange.to);
         }
         res.items.forEach((it) => items.push({ _id: idSeq++, ...it }));
         items.sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')));
+        if (!titleInput.value.trim()) autoTitle();
+        buildDayTabs();
+        if (curStep !== 4) goStep(4); // land on the itinerary review
         aiStatus.className = 'ai-status done';
-        aiStatus.textContent = `✅ נוספו ${res.items.length} תחנות — עברו על הימים ותתאימו לטעמכם`;
         collapseManualForm(); // the AI did the heavy lifting — tuck the manual form away
         refreshTabCounts();
         renderItems();
         refreshAreaField();
+        scheduleSave();
       } catch (e) {
-        aiStatus.className = 'ai-status error';
-        aiStatus.textContent = '⚠️ ' + e.message;
+        if (curStep >= 4) {
+          alert('⚠️ ' + e.message); // the status line lives on step 3 — surface errors here directly
+        } else {
+          aiStatus.className = 'ai-status error';
+          aiStatus.textContent = '⚠️ ' + e.message;
+        }
       } finally {
         hideAiOverlay();
         aiBusy = false;
@@ -567,11 +552,13 @@
     else go();
   }
 
-  document.getElementById('ai-full').onclick = () => {
+  function fullBuild() {
     const days = +daysSel.value;
     if (items.length && !confirm(`הבנייה מחדש תחליף את כל ${items.length} התחנות הקיימות במסלול. להמשיך?`)) return;
     runAi({ day_from: 1, day_to: days }, 'את כל הטיול', { from: 1, to: days });
-  };
+  }
+  document.getElementById('ai-full').onclick = fullBuild;    // step 3 primary CTA
+  document.getElementById('ai-rebuild').onclick = fullBuild; // step 4 rebuild
   document.getElementById('ai-by-area').onclick = () => {
     const f = document.getElementById('ai-area-form');
     f.style.display = f.style.display === 'none' ? '' : 'none';
@@ -598,13 +585,14 @@
       e.setDate(e.getDate() + days - 1);
       end = e.toISOString().slice(0, 10);
     }
+    if (!document.getElementById('f-title').value.trim()) autoTitle();
     const payload = {
       title: document.getElementById('f-title').value.trim(),
       destinations,
       description: document.getElementById('f-desc').value.trim() || null,
-      cover_image: selectedCover,
+      cover_image: aiMeta.cover_image || DEFAULT_COVER, // chosen by the AI
       start_date: start, end_date: end, days,
-      emoji: selectedEmoji,
+      emoji: aiMeta.emoji || '🧭',
       items: items.sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || ''))),
     };
     try {
@@ -618,7 +606,7 @@
         f.textContent = 'הקוד הועתק! ✓';
         setTimeout(() => { f.textContent = ''; }, 2200);
       };
-      goStep(3);
+      goStep(5);
     } catch (e) {
       err.textContent = e.message;
     }
@@ -641,15 +629,15 @@
   (function restoreDraft() {
     let draft = null;
     try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { /* corrupt */ }
-    if (!draft || draft.v !== 1) return;
+    if (!draft || ![1, 2].includes(draft.v)) return;
     if (Date.now() - (draft.savedAt || 0) > 14 * 24 * 60 * 60 * 1000) { clearDraft(); return; }
-    // restore (and show the banner) only for drafts with real content —
-    // an auto-filled title alone doesn't count
-    const hasContent = (draft.destinations || []).length || (draft.items || []).length ||
-      ((draft.title || '').trim() && !draft.titleWasAutofilled) || (draft.desc || '').trim();
-    if (!hasContent) { clearDraft(); return; }
+    // a draft is only real if it has destinations — orphan drafts (leftover items or
+    // an auto-title with no destination chips) restore nothing visible and must die,
+    // otherwise the "continued from draft" banner haunts an empty form forever
+    const draftDests = (Array.isArray(draft.destinations) ? draft.destinations : []).filter((d) => d && d.name);
+    if (!draftDests.length) { clearDraft(); return; }
 
-    destinations = (Array.isArray(draft.destinations) ? draft.destinations : []).filter((d) => d && d.name);
+    destinations = draftDests;
     renderChips();
     items = (Array.isArray(draft.items) ? draft.items : [])
       .filter((it) => it && it.title)
@@ -662,13 +650,8 @@
     document.getElementById('f-desc').value = draft.desc || '';
     document.getElementById('ai-notes').value = draft.aiNotes || '';
 
-    if (draft.emoji && EMOJIS.includes(draft.emoji)) {
-      selectedEmoji = draft.emoji;
-      emojiRow.querySelectorAll('.emoji-opt').forEach((b) => b.classList.toggle('selected', b.textContent === draft.emoji));
-    }
-    if (draft.cover && COVERS.includes(draft.cover)) {
-      selectedCover = draft.cover;
-      coverGrid.querySelectorAll('.cover-opt').forEach((d) => d.classList.toggle('selected', d.querySelector('img').src === draft.cover));
+    if (draft.aiMeta && typeof draft.aiMeta === 'object') {
+      aiMeta = { emoji: draft.aiMeta.emoji || null, cover_image: draft.aiMeta.cover_image || null };
     }
     (Array.isArray(draft.interests) ? draft.interests : []).forEach((name) => selectedInterests.add(name));
     interestRow.querySelectorAll('.interest-chip').forEach((b) => {
@@ -676,9 +659,11 @@
     });
 
     currentDay = Math.max(parseInt(draft.currentDay, 10) || 1, 1);
-    if (draft.step === 2 && destinations.length) {
-      buildDayTabs();
-      goStep(2);
+    if (destinations.length) {
+      // items exist → jump straight to the itinerary review; otherwise resume the step
+      const step = (draft.items || []).length ? 4 : Math.min(Math.max(parseInt(draft.step, 10) || 1, 1), 4);
+      if (step >= 4) buildDayTabs();
+      if (step > 1) goStep(step);
     }
     document.getElementById('draft-banner').hidden = false;
   })();

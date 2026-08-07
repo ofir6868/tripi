@@ -16,38 +16,46 @@
 
   <div class="page-shell">
     <h1>מתכננים <span style="color:var(--amber)">טיול חדש</span> 🧭</h1>
-    <p class="page-sub">שלושה צעדים קטנים — וטיול אחד גדול. בסוף מקבלים קוד לשיתוף.</p>
+    <p class="page-sub">כמה שאלות קצרות — וה-AI בונה לכם מסלול שלם. תמיד אפשר לערוך אחר כך.</p>
 
     <div class="draft-banner" id="draft-banner" hidden>
       <span>✍️ המשכנו מהטיוטה השמורה שלכם</span>
       <button type="button" class="btn btn-ghost" id="draft-reset">🗑 התחלה מחדש</button>
     </div>
 
-    <div class="wizard-progress">
-      <div class="wp-step active" data-step="1"><span class="wp-n">1</span> פרטי הטיול</div>
-      <div class="wp-step" data-step="2"><span class="wp-n">2</span> בניית המסלול</div>
-      <div class="wp-step" data-step="3"><span class="wp-n">3</span> קוד השיתוף</div>
+    <div class="wizard-progress compact">
+      <div class="wp-step active" data-step="1"><span class="wp-n">1</span> יעדים</div>
+      <div class="wp-step" data-step="2"><span class="wp-n">2</span> תאריכים</div>
+      <div class="wp-step" data-step="3"><span class="wp-n">3</span> סגנון</div>
+      <div class="wp-step" data-step="4"><span class="wp-n">4</span> מסלול</div>
+      <div class="wp-step" data-step="5"><span class="wp-n">5</span> שיתוף</div>
     </div>
 
-    <!-- step 1 -->
+    <!-- step 1: destinations -->
     <div class="wizard-panel glass" id="panel-1">
-      <h2>לאן נוסעים?</h2>
-      <div class="form-grid">
-        <div class="field span-2">
-          <label for="f-dest-search">יעדים — עיר או מדינה, אפשר כמה שרוצים</label>
-          <div class="dest-picker">
-            <div class="dest-chips" id="dest-chips"></div>
-            <div class="autocomplete-wrap">
-              <input id="f-dest-search" type="text" maxlength="60" placeholder="הקלידו יעד… למשל: טוקיו, יפן, רומא" autocomplete="off">
-              <div class="autocomplete-list glass" id="dest-suggestions"></div>
-            </div>
-            <div class="dest-hint">בטיול של כמה ערים — פשוט מוסיפים אחת אחרי השנייה 🇯🇵</div>
+      <h2>לאן נוסעים? 🌍</h2>
+      <div class="field">
+        <label for="f-dest-search">עיר או מדינה — אפשר כמה שרוצים</label>
+        <div class="dest-picker">
+          <div class="dest-chips" id="dest-chips"></div>
+          <div class="autocomplete-wrap">
+            <input id="f-dest-search" type="text" maxlength="60" placeholder="הקלידו יעד… למשל: טוקיו, יוון, רומא" autocomplete="off">
+            <div class="autocomplete-list glass" id="dest-suggestions"></div>
           </div>
+          <div class="dest-hint">בטיול של כמה ערים — מוסיפים אחת אחרי השנייה 🇯🇵</div>
         </div>
-        <div class="field span-2">
-          <label for="f-title">שם הטיול</label>
-          <input id="f-title" type="text" maxlength="80" placeholder="נמלא לבד לפי היעד — או תנו שם משלכם">
-        </div>
+      </div>
+      <div class="form-error" id="err-1"></div>
+      <div class="wizard-nav">
+        <span></span>
+        <button class="btn btn-amber btn-lg" id="to-step-2">ממשיכים ‹</button>
+      </div>
+    </div>
+
+    <!-- step 2: days + dates -->
+    <div class="wizard-panel glass" id="panel-2" style="display:none">
+      <h2>כמה זמן? 📅</h2>
+      <div class="form-grid">
         <div class="field">
           <label for="f-days">כמה ימים? (עד 60)</label>
           <div class="stepper">
@@ -61,44 +69,48 @@
           <input id="f-start" type="date">
           <div class="dest-hint" id="end-date-hint"></div>
         </div>
-        <div class="field span-2">
-          <label>אימוג׳י לטיול</label>
-          <div class="emoji-row" id="emoji-row"></div>
-        </div>
-        <div class="field span-2">
-          <label>תמונת נושא</label>
-          <div class="cover-grid" id="cover-grid"></div>
-        </div>
-        <div class="field span-2">
-          <label for="f-desc">כמה מילים על הטיול (לא חובה)</label>
-          <textarea id="f-desc" maxlength="500" placeholder="מה הולך להיות שם? מי נוסע? מה החלום?"></textarea>
-        </div>
       </div>
-      <div class="form-error" id="err-1"></div>
       <div class="wizard-nav">
-        <span></span>
-        <button class="btn btn-amber btn-lg" id="to-step-2">ממשיכים למסלול ‹</button>
+        <button class="btn btn-ghost" id="back-to-1">› חזרה</button>
+        <button class="btn btn-amber btn-lg" id="to-step-3">ממשיכים ‹</button>
       </div>
     </div>
 
-    <!-- step 2 -->
-    <div class="wizard-panel glass" id="panel-2" style="display:none">
-      <h2>בונים את המסלול, יום אחרי יום</h2>
+    <!-- step 3: style + the AI-first CTA -->
+    <div class="wizard-panel glass" id="panel-3" style="display:none">
+      <h2>מה הסגנון שלכם? ✨</h2>
+      <div class="ai-prefs">
+        <label class="ai-prefs-label">מה מעניין אתכם? <small>(לא חובה — כמה שרוצים)</small></label>
+        <div class="interest-row" id="interest-row"></div>
+        <label class="ai-prefs-label" for="ai-notes">משהו נוסף שכדאי לדעת?</label>
+        <textarea id="ai-notes" maxlength="500" rows="2" placeholder="למשל: טסים עם שני ילדים קטנים, אוהבים אוכל רחוב, קצב רגוע…"></textarea>
+      </div>
+      <div class="ai-status" id="ai-status"></div>
+      <div class="wizard-nav">
+        <button class="btn btn-ghost" id="back-to-2">› חזרה</button>
+        <button class="btn btn-amber btn-lg" id="ai-full">✨ תבנו לי את הטיול</button>
+      </div>
+      <button type="button" class="manual-link" id="go-manual">אני מעדיף לבנות את המסלול ידנית ›</button>
+    </div>
+
+    <!-- step 4: itinerary review / manual build -->
+    <div class="wizard-panel glass" id="panel-4" style="display:none">
+      <h2>המסלול שלכם 🗺️</h2>
+      <div class="form-grid">
+        <div class="field span-2">
+          <label for="f-title">שם הטיול</label>
+          <input id="f-title" type="text" maxlength="80" placeholder="נמלא לבד לפי היעד — או תנו שם משלכם">
+        </div>
+        <div class="field span-2">
+          <label for="f-desc">תיאור קצר <small>(ה-AI כתב — אפשר לערוך)</small></label>
+          <textarea id="f-desc" maxlength="500" rows="2" placeholder="כמה מילים על הטיול…"></textarea>
+        </div>
+      </div>
 
       <div class="ai-panel" id="ai-panel">
-        <div class="ai-head">
-          <span class="ai-title">✨ רוצים שנבנה לכם את המסלול?</span>
-          <span class="ai-sub">ה-AI ימלא תחנות מומלצות — ותמיד אפשר לערוך ולמחוק אחר כך</span>
-        </div>
-        <div class="ai-prefs">
-          <label class="ai-prefs-label">מה מעניין אתכם? <small>(לא חובה — כמה שרוצים)</small></label>
-          <div class="interest-row" id="interest-row"></div>
-          <label class="ai-prefs-label" for="ai-notes">משהו נוסף שכדאי לו לדעת?</label>
-          <textarea id="ai-notes" maxlength="500" rows="2" placeholder="למשל: טסים עם שני ילדים קטנים, אוהבים אוכל רחוב, קצב רגוע, בלי מוזיאונים בבקשה…"></textarea>
-        </div>
         <div class="ai-modes" id="ai-modes">
-          <button type="button" class="btn btn-amber" id="ai-full">🚀 כל הטיול בבת אחת</button>
-          <button type="button" class="btn btn-ghost" id="ai-by-area" style="display:none">🗺️ אזור מסוים</button>
+          <button type="button" class="btn btn-ghost" id="ai-rebuild">✨ בנייה מחדש עם AI</button>
+          <button type="button" class="btn btn-ghost" id="ai-by-area" style="display:none">🗺️ בנייה לאזור מסוים</button>
         </div>
         <div class="ai-area-form" id="ai-area-form" style="display:none">
           <div class="form-grid">
@@ -112,12 +124,11 @@
           </div>
           <button type="button" class="btn btn-amber" id="ai-area-go" style="width:100%;justify-content:center">✨ בנייה לאזור הזה</button>
         </div>
-        <div class="ai-status" id="ai-status"></div>
       </div>
 
       <div class="day-tabs" id="day-tabs"></div>
-      <button type="button" class="manual-toggle" id="manual-toggle" style="display:none">➕ הוספת תחנה ידנית</button>
-      <div id="manual-form-wrap">
+      <button type="button" class="manual-toggle" id="manual-toggle">➕ הוספת תחנה ידנית</button>
+      <div id="manual-form-wrap" style="display:none">
       <div class="form-grid">
         <div class="field">
           <label for="i-time">שעה (לא חובה)</label>
@@ -141,7 +152,7 @@
         </div>
         <div class="field span-2">
           <label for="i-place">מיקום (לא חובה) — הקלידו ובחרו מהרשימה</label>
-          <input id="i-place" type="text" maxlength="120" placeholder="מסעדה, מוזיאון, חוף… הרשימה תיפתח תוך כדי הקלדה" autocomplete="off">
+          <input id="i-place" type="text" maxlength="120" placeholder="מסעדה, מוזיאון, חוף…" autocomplete="off">
         </div>
         <div class="field span-2">
           <label for="i-note">הערה (לא חובה)</label>
@@ -153,13 +164,13 @@
       <div class="added-items" id="added-items"></div>
       <div class="form-error" id="err-2"></div>
       <div class="wizard-nav">
-        <button class="btn btn-ghost" id="back-to-1">› חזרה</button>
-        <button class="btn btn-amber btn-lg" id="create-trip">יוצרים את הטיול ✨</button>
+        <button class="btn btn-ghost" id="back-to-3">› חזרה</button>
+        <button class="btn btn-amber btn-lg" id="create-trip">יוצרים את הטיול 🎫</button>
       </div>
     </div>
 
-    <!-- step 3 -->
-    <div class="wizard-panel glass" id="panel-3" style="display:none">
+    <!-- step 5: share ticket -->
+    <div class="wizard-panel glass" id="panel-5" style="display:none">
       <div class="success-wrap">
         <div class="big-emoji">🎉</div>
         <h2 style="font-family:var(--font-display);font-size:1.7rem">הטיול נוצר!</h2>

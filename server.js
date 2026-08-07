@@ -505,9 +505,24 @@ async function aiClarify({ dests, from, to, interestList, freeText }) {
   }
 }
 
-// short inviting trip description, generated only when the user left it empty
-async function aiDescription({ dests, from, to, interestList, freeText, answers }) {
+// trip meta: description + emoji + cover image. The AI sees only the NAMES of
+// the cover photos (token-cheap) and picks one; the server maps name → URL.
+const TRIP_EMOJIS = ['🧭', '🏖️', '🏔️', '🏛️', '🌸', '🎡', '🍜', '🚐', '🤿', '🎿', '🐫', '🦁', '🗼', '🚋', '🥥', '🗽', '🥐', '⛰️'];
+const COVER_U = (id) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=1200&q=80`;
+const COVER_OPTIONS = [
+  { name: 'כביש מדברי בשקיעה', url: COVER_U('photo-1469854523086-cc02fe5d8800') },
+  { name: 'חוף טרופי עם מים צלולים', url: COVER_U('photo-1507525428034-b723cf961d3e') },
+  { name: 'פסגות הרים מושלגות', url: COVER_U('photo-1464822759023-fed622ff2c3b') },
+  { name: 'הקולוסיאום ורומא העתיקה', url: COVER_U('photo-1552832230-c0197dd311b5') },
+  { name: 'רחוב ניאון יפני בלילה', url: COVER_U('photo-1540959733332-eab4deabeeaf') },
+  { name: 'מגדל אייפל ופריז', url: COVER_U('photo-1502602898657-3e91760cbb34') },
+  { name: 'סנטוריני — בתים לבנים וים', url: COVER_U('photo-1613395877344-13d4a8e0d49e') },
+  { name: 'קאנו על אגם בין הרים', url: COVER_U('photo-1476514525535-07fb3b4ae5f1') },
+];
+
+async function aiTripMeta({ dests, from, to, interestList, freeText, answers }) {
   const destDesc = dests.map((d) => d.name).join(', ');
+  const coverNames = COVER_OPTIONS.map((c) => c.name);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 30000);
   try {
@@ -517,19 +532,28 @@ async function aiDescription({ dests, from, to, interestList, freeText, answers 
       signal: ctrl.signal,
       body: JSON.stringify({
         model: AI_MODEL,
-        max_completion_tokens: 300,
+        max_completion_tokens: 350,
         messages: [
           { role: 'system', content: 'אתה קופירייטר של טיולים. אתה מחזיר אך ורק JSON תקין לפי הסכמה.' },
-          { role: 'user', content: `כתוב תיאור קצר, חם ומזמין (2-3 משפטים, עברית) לטיול של ${to - from + 1} ימים ב: ${destDesc}.` + tripPrefsText({ interestList, freeText, answers }) },
+          { role: 'user', content:
+            `טיול של ${to - from + 1} ימים ב: ${destDesc}.` + tripPrefsText({ interestList, freeText, answers }) +
+            `\n1. כתוב תיאור קצר, חם ומזמין (2-3 משפטים, עברית).` +
+            `\n2. בחר אימוג'י אחד שהכי מתאים לאופי הטיול.` +
+            `\n3. בחר את תמונת הנושא שהכי מתאימה מתוך הרשימה (לפי השם בלבד).` },
         ],
         response_format: {
           type: 'json_schema',
           json_schema: {
-            name: 'trip_description',
+            name: 'trip_meta',
             strict: true,
             schema: {
-              type: 'object', additionalProperties: false, required: ['description'],
-              properties: { description: { type: 'string' } },
+              type: 'object', additionalProperties: false,
+              required: ['description', 'emoji', 'cover'],
+              properties: {
+                description: { type: 'string' },
+                emoji: { type: 'string', enum: TRIP_EMOJIS },
+                cover: { type: 'string', enum: COVER_OPTIONS.map((c) => c.name) },
+              },
             },
           },
         },
@@ -537,7 +561,12 @@ async function aiDescription({ dests, from, to, interestList, freeText, answers 
     });
     if (!aiRes.ok) return null;
     const data = await aiRes.json();
-    return String(JSON.parse(data.choices[0].message.content).description || '').slice(0, 500) || null;
+    const meta = JSON.parse(data.choices[0].message.content);
+    return {
+      description: String(meta.description || '').slice(0, 500) || null,
+      emoji: TRIP_EMOJIS.includes(meta.emoji) ? meta.emoji : '🧭',
+      cover_image: (COVER_OPTIONS.find((c) => c.name === meta.cover) || COVER_OPTIONS[0]).url,
+    };
   } catch {
     return null;
   } finally {
@@ -768,11 +797,12 @@ app.post('/api/ai/itinerary', authRequired, async (req, res) => {
         || allocateDays(orderByProximity(dests), from, to);
     }
 
-    const descPromise = want_description
-      ? aiDescription({ dests, from, to, interestList, freeText, answers: answerList })
+    const wantMeta = want_description || req.body.want_meta;
+    const descPromise = wantMeta
+      ? aiTripMeta({ dests, from, to, interestList, freeText, answers: answerList })
       : Promise.resolve(null);
 
-    const [results, description] = await Promise.all([
+    const [results, meta] = await Promise.all([
       Promise.all(blocks.map((b, i) =>
         aiGenerateBlock({
           dests,
@@ -793,7 +823,12 @@ app.post('/api/ai/itinerary', authRequired, async (req, res) => {
     if (!items.length) return res.status(502).json({ error: 'ה-AI החזיר מסלול ריק — נסו שוב' });
 
     aiUsage.set(req.user.id, { date: today, count: used + 1 });
-    res.json({ items, plan: blocks.map((b) => ({ area: b.dest.name, from: b.from, to: b.to })), description });
+    res.json({
+      items,
+      plan: blocks.map((b) => ({ area: b.dest.name, from: b.from, to: b.to })),
+      meta,
+      description: meta ? meta.description : null, // back-compat
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.name === 'AbortError' ? 'ה-AI התעכב יותר מדי — נסו שוב' : 'ה-AI לא הצליח לבנות את המסלול — נסו שוב עוד רגע' });
