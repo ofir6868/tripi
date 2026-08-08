@@ -16,7 +16,7 @@
 
   <div class="page-shell" style="width:min(1120px,calc(100% - 32px))">
     <h1>הטיולים <span style="color:var(--amber)">שלי</span> 🧳</h1>
-    <p class="page-sub">כל המסלולים שיצרתם, במקום אחד</p>
+    <p class="page-sub">המסלולים שיצרתם והטיולים שהצטרפתם אליהם, במקום אחד</p>
     <div class="my-grid" id="my-grid">
       <span class="skl skl-tripcard"></span><span class="skl skl-tripcard"></span><span class="skl skl-tripcard"></span>
     </div>
@@ -46,14 +46,15 @@
               <img class="tc-img" src="${TRIPI.esc(t.cover_image || '')}" alt="" loading="lazy" onerror="this.removeAttribute('src')">
               <span class="tc-emoji">${t.emoji || '🧭'}</span>
               <span class="tc-days">${t.days} ימים</span>
-              <button class="tc-delete" data-id="${t.id}" title="מחיקת הטיול" aria-label="מחיקת הטיול">
+              ${t.is_mine ? '' : '<span class="tc-role">משתתף</span>'}
+              ${!t.is_mine ? '' : `<button class="tc-delete" data-id="${t.id}" title="מחיקת הטיול" aria-label="מחיקת הטיול">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <path class="td-lid" d="M3.5 6h17M9.5 6V4.4A1.4 1.4 0 0 1 10.9 3h2.2a1.4 1.4 0 0 1 1.4 1.4V6"/>
                   <path d="M18.4 6l-.8 12.7A2 2 0 0 1 15.6 20.6H8.4a2 2 0 0 1-2-1.9L5.6 6"/>
                   <path d="M10.3 10.4v5.9M13.7 10.4v5.9"/>
                 </svg>
-              </button>
+              </button>`}
               <span class="tc-code-chip copyable" data-copy="${t.share_code}" title="לחיצה מעתיקה את קוד הטיול">#${t.share_code}</span>
               <div class="tc-body">
                 <div class="tc-country">${TRIPI.esc(t.country || '')}</div>

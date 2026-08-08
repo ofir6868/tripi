@@ -672,8 +672,7 @@
         scheduleSave();
         const changed = added + updated + removed > 0;
         planAiResult.classList.add(changed ? 'ok' : 'info');
-        planAiResult.textContent = r.summary +
-          (r.remaining > 0 ? ` · נותרו ${r.remaining} שינויי AI להיום` : ' · זה היה שינוי ה-AI האחרון להיום');
+        planAiResult.textContent = r.summary;
         if (changed) { planAiInput.value = ''; planAiCount.textContent = '0/100'; }
       } catch (err) {
         planAiResult.classList.add('err');

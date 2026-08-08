@@ -42,6 +42,36 @@ body {
 
 ::selection { background: var(--amber); color: var(--ink); }
 
+/* ---------- desktop scrollbar: slim amber glass rail (mouse pointers only) ----------
+   Touch devices keep their native overlay scrollbar; elements that opt out of a
+   scrollbar (.strip) still win, since their selector is more specific. */
+
+@media (min-width: 901px) and (pointer: fine) {
+  /* Firefox has no ::-webkit-scrollbar — give it the standard properties instead.
+     Chrome/Safari must NOT get them: setting either one there disables the pseudo-elements. */
+  @supports not (selector(::-webkit-scrollbar)) {
+    html { scrollbar-width: thin; scrollbar-color: rgba(255, 180, 95, .45) rgba(6, 13, 11, .5); }
+  }
+
+  ::-webkit-scrollbar { width: 12px; height: 12px; }
+  ::-webkit-scrollbar-track {
+    background: rgba(6, 13, 11, .5);
+    border-inline-start: 1px solid rgba(255, 255, 255, .07);
+  }
+  ::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background: linear-gradient(180deg, rgba(255, 180, 95, .55), rgba(232, 133, 58, .45)) padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(255, 180, 95, .85), rgba(232, 133, 58, .7)) padding-box;
+  }
+  ::-webkit-scrollbar-thumb:active {
+    background: linear-gradient(180deg, var(--amber), var(--amber-deep)) padding-box;
+  }
+  ::-webkit-scrollbar-corner { background: transparent; }
+}
+
 /* ---------- atmosphere: aurora blobs + grain ---------- */
 
 .atmosphere {
@@ -1126,10 +1156,6 @@ body::after {
   transition: background .15s ease, color .15s ease;
 }
 .action-btn:hover { background: var(--glass-strong); color: var(--paper); }
-.action-btn .ic-check { display: none; }
-.action-btn.editing { background: rgba(255, 180, 95, .13); color: var(--amber); }
-.action-btn.editing .ic-pencil { display: none; }
-.action-btn.editing .ic-check { display: block; }
 .action-btn.liked { color: #ff8896; }
 .action-btn.liked .ic-heart { fill: currentColor; }
 
@@ -1154,18 +1180,65 @@ body::after {
 .add-item-inline:hover { background: rgba(255, 180, 95, .09); }
 .inline-item-form { padding: 18px; margin: 10px 0; }
 
-.owner-box .publish-toggle {
+.publish-toggle {
   display: flex; align-items: center; justify-content: center; gap: 9px;
   margin-top: 14px; cursor: pointer; font-size: .92rem; font-weight: 600; color: var(--paper);
 }
-.owner-box .publish-toggle input { accent-color: var(--amber); width: 18px; height: 18px; cursor: pointer; }
+.publish-toggle input { accent-color: var(--amber); width: 18px; height: 18px; cursor: pointer; }
+
+/* ---------- participants modal ---------- */
+
+.pt-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 4px; border-bottom: 1px solid var(--glass-border);
+}
+.pt-row:last-child { border-bottom: none; }
+.pt-avatar {
+  width: 34px; height: 34px; flex: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 180, 95, .16); border: 1px solid rgba(255, 180, 95, .4);
+  color: var(--amber); font-weight: 800; font-size: .95rem;
+}
+.pt-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pt-name small { color: var(--paper-dim); font-weight: 400; }
+.pt-tag {
+  font-size: .72rem; font-weight: 700; color: var(--mint);
+  border: 1px solid rgba(143, 216, 196, .35); border-radius: 999px; padding: 2px 9px; flex: none;
+}
+.pt-remove {
+  background: transparent; border: none; color: var(--danger); cursor: pointer;
+  font-size: 1rem; opacity: .65; flex: none; padding: 4px 6px;
+}
+.pt-remove:hover { opacity: 1; }
+.invite-title { font-weight: 800; margin-bottom: 2px; }
+.invite-sub { color: var(--paper-dim); font-size: .88rem; margin: 0 0 12px; }
+
+/* ---------- invite join banner (bottom, above the action bar) ---------- */
+
+.join-banner {
+  position: fixed; bottom: 14px; inset-inline: 14px; z-index: 60;
+  display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap;
+  padding: 12px 18px; border-radius: var(--radius);
+  border: 1px solid rgba(255, 180, 95, .45);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .45);
+}
+.join-banner .jb-text { font-weight: 700; font-size: .95rem; text-align: center; }
+body:has(.join-banner) { padding-bottom: 92px; }
+
+/* participant (not owner) badge on my-trips cards — sits under the days chip (top-left) */
+.tc-role {
+  position: absolute; top: 52px; left: 14px; z-index: 2;
+  font-size: .72rem; font-weight: 700; color: var(--mint);
+  background: rgba(10, 21, 18, .75); border: 1px solid rgba(143, 216, 196, .45);
+  border-radius: 999px; padding: 3px 10px;
+}
 
 /* ---------- print: clean light route sheet ---------- */
 
 @media print {
   body { background: #fff !important; color: #111 !important; }
   body::after, .atmosphere, .site-header, .site-footer, .action-bar, .ticket .divider ~ button,
-  #wa-share, #copy-code, #copy-link, .copy-feedback, .owner-box, .dest-switcher,
+  #wa-share, #copy-code, #copy-link, .copy-feedback, .join-banner, .dest-switcher,
   .map-card, .hotels-card, #hotels-card, .add-item-inline, .item-del, .inline-item-form,
   .modal-backdrop, .hero-bg, .hero-veil, .item-expand-btn, .ai-edit-card,
   .view-toggle, .cal-toolbar, .cal-day-strip, .cal-hint { display: none !important; }
@@ -1526,7 +1599,6 @@ body::after {
   padding: 3px 9px; border-radius: 999px; cursor: pointer; color: var(--amber);
   background: rgba(255, 180, 95, .1); border: 1px solid rgba(255, 180, 95, .28);
 }
-.adm-code.edit { color: var(--mint); background: rgba(143, 216, 196, .09); border-color: rgba(143, 216, 196, .3); margin-inline-start: 5px; }
 .adm-code .ic { width: 11px; height: 11px; stroke-width: 2.4; vertical-align: -1px; margin-inline-end: 3px; }
 .adm-you {
   font-size: .72rem; font-weight: 700; color: var(--mint);

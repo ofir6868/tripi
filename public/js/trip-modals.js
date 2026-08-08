@@ -1,7 +1,7 @@
 // Trip page modals: hotels ("איפה ישנים") + budget ("ניהול תקציב").
 // Both operate on the trip.js state object: { trip, items, hotels, budget, expenses, canEdit }.
-// ctx = { state, ensureEdit(), refresh() } — ensureEdit resolves edit headers (prompting
-// for the edit code when needed) or null; refresh() re-renders the trip page around the modal.
+// ctx = { state, ensureEdit(), refresh() } — ensureEdit resolves edit headers (routing
+// invite holders through signup when needed) or null; refresh() re-renders the trip page.
 const TripModals = (() => {
   const CURRENCIES = { ILS: '₪', USD: '$', EUR: '€', GBP: '£', JPY: '¥', THB: '฿', CHF: '₣' };
   const HOTEL_COLORS = ['#ffb45f', '#8fd8c4', '#c9a7ff', '#7fb8ff'];
@@ -283,7 +283,7 @@ const TripModals = (() => {
         ${ideas.length ? `<div class="hc-divider">💡 רעיונות שעוד מתלבטים עליהם</div>${ideas.map(cardHtml).join('')}` : ''}
         <div id="hotel-form-slot"></div>
         ${formState ? '' : `<button type="button" class="add-item-inline" id="hotel-add-btn">➕ הוספת מלון</button>`}
-        ${state.canEdit ? '' : `<div class="mw-footnote">רוצים לערוך? צריך את קוד העריכה מהמארגנים 🔑</div>`}
+        ${state.canEdit ? '' : `<div class="mw-footnote">רוצים לערוך? רק משתתפי הטיול יכולים — בקשו קישור הזמנה מהמארגנים</div>`}
       `;
 
       // strip interactions: empty run → open add form on that range; covered → scroll to card
@@ -544,7 +544,7 @@ const TripModals = (() => {
           <button type="button" data-v="shared" class="${!isPersonal ? 'active' : ''}">👥 משותף</button>
           <button type="button" data-v="personal" class="${isPersonal ? 'active' : ''}">🔒 אישי</button>
         </div>
-        <div class="mode-hint">${isPersonal ? 'נשמר רק בדפדפן הזה — רק אתם רואים' : 'כל מי שיש לו את קוד העריכה רואה ועורך'}</div>
+        <div class="mode-hint">${isPersonal ? 'נשמר רק בדפדפן הזה — רק אתם רואים' : 'כל משתתפי הטיול רואים ועורכים'}</div>
         <div class="seg bm-view">
           <button type="button" data-v="plan" class="${budgetView.view === 'plan' ? 'active' : ''}">תכנון</button>
           <button type="button" data-v="actual" class="${budgetView.view === 'actual' ? 'active' : ''}">בפועל</button>
@@ -671,7 +671,7 @@ const TripModals = (() => {
         </div>
         <div class="qa-hint">${isPersonal ? 'הוצאה אישית — נשמרת רק אצלכם' : 'הוצאה בפועל — נכנסת ל"בפועל" של כולם'}</div>
         ${isPersonal ? personalListHtml(personal, cur) : dayAccordionHtml(cur)}
-        ${!state.canEdit && !isPersonal ? '<div class="mw-footnote">לעריכת התקציב צריך את קוד העריכה 🔑</div>' : ''}
+        ${!state.canEdit && !isPersonal ? '<div class="mw-footnote">רק משתתפי הטיול עורכים את התקציב — בקשו קישור הזמנה מהמארגנים</div>' : ''}
       `;
 
       // ---- wiring ----
@@ -829,7 +829,7 @@ const TripModals = (() => {
             ${exps.map((e) => `
               <div class="expense-row">
                 <span class="er-cat">💸</span>
-                <span class="er-title">${esc(e.title)}</span>
+                <span class="er-title">${esc(e.title)}${e.paid_by ? ` <small>· ${esc(e.paid_by)}</small>` : ''}</span>
                 <span class="er-amount">${fmt(e.amount, cur)}</span>
                 ${state.canEdit ? `<button type="button" class="er-del" data-id="${e.id}">✕</button>` : ''}
               </div>`).join('')}
@@ -845,7 +845,7 @@ const TripModals = (() => {
             .map((e) => `
             <div class="expense-row">
               <span class="er-cat">💸</span>
-              <span class="er-title">${esc(e.title)}</span>
+              <span class="er-title">${esc(e.title)}${e.paid_by ? ` <small>· ${esc(e.paid_by)}</small>` : ''}</span>
               <span class="er-amount">${fmt(e.amount, cur)}</span>
               ${state.canEdit ? `<button type="button" class="er-del" data-id="${e.id}">✕</button>` : ''}
             </div>`).join('')}</div>

@@ -32,9 +32,17 @@ CREATE TABLE IF NOT EXISTS trips (
   is_public BOOLEAN DEFAULT false,
   emoji TEXT,
   destinations JSONB NOT NULL DEFAULT '[]',
-  edit_code CHAR(6),
+  invite_token TEXT,
   likes INT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- a participant can edit the trip; the owner is a participant implicitly
+CREATE TABLE IF NOT EXISTS trip_participants (
+  trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  joined_at TIMESTAMPTZ DEFAULT now(),
+  PRIMARY KEY (trip_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS trip_items (

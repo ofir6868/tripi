@@ -4,18 +4,47 @@
 
   const heDate = (d) => d ? new Date(d).toLocaleDateString('he-IL', { day: 'numeric', month: 'long' }) : null;
 
-  // edit rights: owner (JWT) or a previously entered edit code kept per-trip
-  const savedEditCodes = JSON.parse(localStorage.getItem('tripi_edit_codes') || '{}');
+  // edit rights: trip participants (owner included). A ?join=TOKEN invite link makes
+  // a visitor a participant-in-waiting — the token is stashed per-trip so it survives
+  // the register/login round trip, and is redeemed the moment there's a logged-in user.
+  const savedInvites = JSON.parse(localStorage.getItem('tripi_invites') || '{}');
+  const urlToken = new URLSearchParams(location.search).get('join');
+  if (urlToken) {
+    savedInvites[code] = urlToken;
+    localStorage.setItem('tripi_invites', JSON.stringify(savedInvites));
+    history.replaceState(null, '', location.pathname); // the token shouldn't linger in the address bar
+  }
+  let inviteToken = savedInvites[code] || null;
   let editMode = false;
-  let canEditHeaders = null; // extra headers for item API calls
+  let canEditHeaders = null; // truthy = edit calls allowed (auth rides on the JWT)
+
+  function forgetInvite() {
+    inviteToken = null;
+    delete savedInvites[code];
+    localStorage.setItem('tripi_invites', JSON.stringify(savedInvites));
+  }
+
+  // one shot per token: joined or rejected, it's no longer pending
+  async function redeemInvite() {
+    if (!inviteToken || !TRIPI.user) return false;
+    try {
+      await TRIPI.api('/api/trips/code/' + encodeURIComponent(code) + '/join', {
+        method: 'POST', body: JSON.stringify({ token: inviteToken }),
+      });
+      forgetInvite();
+      return true;
+    } catch {
+      forgetInvite(); // stale or regenerated token — stop offering it
+      return false;
+    }
+  }
 
   async function load() {
+    // an invite link + a logged-in user = redeem first, so the page arrives unlocked
+    if (TRIPI.user && inviteToken) await redeemInvite();
     let data;
     try {
-      // a previously verified edit code unlocks prices/notes/expenses in the payload
-      const savedCode = savedEditCodes[code];
-      data = await TRIPI.api('/api/trips/code/' + encodeURIComponent(code),
-        savedCode ? { headers: { 'X-Edit-Code': savedCode } } : {});
+      data = await TRIPI.api('/api/trips/code/' + encodeURIComponent(code));
     } catch {
       document.querySelector('.trip-hero').style.display = 'none';
       document.getElementById('trip-layout').style.display = 'none';
@@ -23,7 +52,10 @@
       return;
     }
     const { trip, items, isOwner } = data;
-    const isAdmin = !!data.isAdmin; // admins edit any trip, no edit code needed
+    const isAdmin = !!data.isAdmin; // admins edit any trip
+    const canEdit = !!data.canEdit;
+    let participants = data.participants || [];
+    editMode = canEdit; // participants edit inline — there's no separate mode to enter
 
     document.title = `${trip.title} · TRIPI`;
     if (trip.cover_image) {
@@ -60,10 +92,7 @@
       canEdit: !!data.canEdit,
     };
     Object.defineProperty(state, 'items', { get: () => tripItems });
-    if (isOwner || isAdmin) canEditHeaders = {};
-    else if (data.canEdit && savedEditCodes[trip.share_code]) {
-      canEditHeaders = { 'X-Edit-Code': savedEditCodes[trip.share_code] };
-    }
+    canEditHeaders = canEdit ? {} : null;
     const container = document.getElementById('days-container');
     const tripDests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
     const multiDest = () => tripDests.length > 1;
@@ -343,82 +372,152 @@
 
     renderItinerary();
 
-    // ---- edit mode entry ----
-    const editBtn = document.getElementById('edit-btn');
-    const editLabel = document.getElementById('edit-label');
-    function enterEditMode() {
-      editMode = true;
-      editLabel.textContent = 'סיום עריכה';
-      editBtn.classList.add('editing');
-      showAiEditCard(); // edit rights were just proven — the AI box unlocks too
-      renderItinerary();
-    }
-    // the server is the only authority on edit rights — the UI must never unlock
-    // on an unverified code, or a wrong one looks like it worked
-    async function codeGrantsEdit(codeToTry) {
-      try {
-        await TRIPI.api(`/api/trips/code/${trip.share_code}/verify-edit`, {
-          method: 'POST', headers: { 'X-Edit-Code': codeToTry },
-        });
-        return true;
-      } catch { return false; }
-    }
-    function forgetSavedCode() {
-      delete savedEditCodes[trip.share_code];
-      localStorage.setItem('tripi_edit_codes', JSON.stringify(savedEditCodes));
+    // ---- participants: who edits the trip, the invite link, and publishing ----
+    // "privileged" = a participant, or someone holding an invite link who's one signup
+    // away from becoming one. Plain viewers never see these tools.
+    const privileged = canEdit || !!inviteToken;
+
+    // signup gate for invite holders: register/login, redeem the invite, reload unlocked
+    function requireSignup(mode = 'register') {
+      openAuthModal(async () => {
+        await redeemInvite();
+        location.reload();
+      }, mode);
     }
 
-    // one gate for every edit-protected action (edit mode, hotels, budget):
-    // resolves headers, prompting for the edit code when we don't have rights yet
+    // one gate for every edit-protected action (stops, hotels, budget)
     async function ensureEditRights() {
       if (canEditHeaders) return canEditHeaders;
-      if (isOwner || isAdmin) { canEditHeaders = {}; return canEditHeaders; }
-      const saved = savedEditCodes[trip.share_code];
-      const entered = saved || prompt('קוד עריכה בן 6 ספרות (מקבלים מבעל הטיול — זה לא קוד הטיול שמופיע בכרטיס):');
-      if (!entered || !entered.trim()) return null;
-      const codeToTry = entered.trim();
-      const ok = await codeGrantsEdit(codeToTry);
-      if (!ok) {
-        if (saved) forgetSavedCode(); // a stored code that stopped working
-        alert('קוד העריכה שגוי. שימו לב: הקוד שמופיע בכרטיס הטיול הוא קוד צפייה ציבורי — קוד העריכה נפרד ומתקבל מבעל הטיול.');
-        return null;
-      }
-      canEditHeaders = { 'X-Edit-Code': codeToTry };
-      savedEditCodes[trip.share_code] = codeToTry;
-      localStorage.setItem('tripi_edit_codes', JSON.stringify(savedEditCodes));
-      if (!state.canEdit) refreshUnlockedData(); // reveal prices/expenses stripped from the public payload
-      return canEditHeaders;
-    }
-    async function refreshUnlockedData() {
-      try {
-        const fresh = await TRIPI.api('/api/trips/code/' + trip.share_code, { headers: canEditHeaders });
-        state.canEdit = !!fresh.canEdit;
-        state.hotels = fresh.hotels || [];
-        state.budget = fresh.budget || state.budget;
-        state.expenses = fresh.expenses || [];
-        updateAmbient();
-        renderItinerary();
-      } catch { /* keep what we have */ }
+      if (inviteToken) requireSignup();
+      return null;
     }
 
-    editBtn.onclick = async () => {
-      if (editMode) {
-        editMode = false;
-        editLabel.textContent = 'עריכה';
-        editBtn.classList.remove('editing');
-        document.querySelector('.inline-item-form')?.remove();
-        renderItinerary();
-        return;
+    const participantsBtn = document.getElementById('participants-btn');
+    participantsBtn.style.display = privileged ? '' : 'none';
+    document.getElementById('participants-label').textContent =
+      participants.length > 1 ? `${participants.length} משתתפים` : 'משתתפים';
+    participantsBtn.onclick = () => (canEdit ? openParticipants() : requireSignup());
+
+    const inviteLink = () => `${location.origin}/trip/${trip.share_code}?join=${trip.invite_token}`;
+
+    function renderParticipantsList(wrap) {
+      const me = TRIPI.user ? TRIPI.user.id : null;
+      wrap.querySelector('#participants-list').innerHTML = participants.map((p) => `
+        <div class="pt-row">
+          <span class="pt-avatar">${TRIPI.esc((String(p.name || '?').trim()[0] || '?').toUpperCase())}</span>
+          <span class="pt-name">${TRIPI.esc(p.name)}${p.id === me ? ' <small>(אני)</small>' : ''}</span>
+          ${p.is_owner
+            ? '<span class="pt-tag">מארגן הטיול</span>'
+            : `<button type="button" class="pt-remove" data-id="${p.id}"
+                 title="${p.id === me ? 'עזיבת הטיול' : 'הסרת המשתתף מהטיול'}">✕</button>`}
+        </div>`).join('');
+      wrap.querySelectorAll('.pt-remove').forEach((b) => {
+        b.onclick = async () => {
+          const uid = +b.dataset.id;
+          const self = uid === me;
+          if (!confirm(self
+            ? 'לעזוב את הטיול? אפשר תמיד לחזור עם קישור הזמנה'
+            : 'להסיר את המשתתף? הוא יאבד את הרשאת העריכה')) return;
+          try {
+            await TRIPI.api(`/api/trips/code/${trip.share_code}/participants/${uid}`, { method: 'DELETE' });
+            if (self) { location.reload(); return; }
+            participants = participants.filter((p) => p.id !== uid);
+            document.getElementById('participants-label').textContent =
+              participants.length > 1 ? `${participants.length} משתתפים` : 'משתתפים';
+            renderParticipantsList(wrap);
+          } catch (e) { alert(e.message); }
+        };
+      });
+    }
+
+    function openParticipants() {
+      let wrap = document.getElementById('participants-modal');
+      if (!wrap) {
+        wrap = document.createElement('div');
+        wrap.id = 'participants-modal';
+        wrap.className = 'modal-backdrop';
+        wrap.innerHTML = `
+          <div class="modal glass">
+            <button class="modal-close" aria-label="סגירה">✕</button>
+            <h2>משתתפי הטיול</h2>
+            <p class="modal-sub">כל משתתף יכול לערוך את המסלול, המלונות והתקציב</p>
+            <div id="participants-list"></div>
+            <hr class="divider">
+            <div class="invite-box">
+              <div class="invite-title">הזמנת חברים לטיול</div>
+              <p class="invite-sub">שולחים את הקישור — מי שנכנס ונרשם מצטרף כמשתתף</p>
+              <button type="button" class="btn btn-amber" id="invite-wa" style="width:100%;justify-content:center">
+                <svg class="wa-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"/></svg>
+                שליחת הזמנה בוואטסאפ</button>
+              <button type="button" class="btn btn-ghost" id="invite-copy" style="width:100%;justify-content:center;margin-top:8px">
+                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                העתקת קישור ההזמנה</button>
+              <button type="button" class="manual-link" id="invite-regen">חידוש הקישור — קישורים שכבר נשלחו יפסיקו לעבוד</button>
+              <div class="copy-feedback" id="invite-feedback"></div>
+            </div>
+            <hr class="divider">
+            <label class="publish-toggle">
+              <input type="checkbox" id="publish-toggle">
+              <span>🌍 פרסום בגלריית הטיולים</span>
+            </label>
+            <p class="invite-sub" style="margin-top:6px">טיול מפורסם מופיע בעמוד הבית, אוסף לייקים וכל אחד יכול לשכפל אותו</p>
+          </div>`;
+        document.body.appendChild(wrap);
+        wrap.querySelector('.modal-close').onclick = () => wrap.classList.remove('open');
+        wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.classList.remove('open'); });
+
+        const flash = (msg) => {
+          const el = wrap.querySelector('#invite-feedback');
+          el.textContent = msg;
+          setTimeout(() => { el.textContent = ''; }, 2500);
+        };
+        wrap.querySelector('#invite-wa').onclick = () => {
+          const text = `${trip.emoji || '🧭'} בואו לתכנן איתי את "${trip.title}"!\nנכנסים לקישור, נרשמים בשנייה — ועורכים את הטיול יחד:\n${inviteLink()}`;
+          window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
+        };
+        wrap.querySelector('#invite-copy').onclick = async () => {
+          await TRIPI.copy(inviteLink());
+          flash('קישור ההזמנה הועתק! ✓');
+        };
+        wrap.querySelector('#invite-regen').onclick = async (e) => {
+          if (!confirm('לחדש את קישור ההזמנה? מי שקיבל את הקישור הישן ועוד לא נרשם — לא יוכל להצטרף איתו')) return;
+          const btn = e.currentTarget;
+          btn.disabled = true;
+          try {
+            const r = await TRIPI.api(`/api/trips/code/${trip.share_code}/invite/regenerate`, { method: 'POST' });
+            trip.invite_token = r.invite_token;
+            flash('נוצר קישור חדש ✓');
+          } catch (err) { alert(err.message); }
+          btn.disabled = false;
+        };
+
+        const toggle = wrap.querySelector('#publish-toggle');
+        toggle.checked = !!trip.is_public;
+        toggle.onchange = async () => {
+          try {
+            const updated = await TRIPI.api('/api/trips/' + trip.id, {
+              method: 'PATCH', body: JSON.stringify({ is_public: toggle.checked }),
+            });
+            trip.is_public = updated.is_public;
+            syncPublicUI();
+          } catch (e) { toggle.checked = !toggle.checked; alert(e.message); }
+        };
       }
-      if (editBtn.disabled) return;
-      editBtn.disabled = true;
-      const prevLabel = editLabel.textContent;
-      editLabel.textContent = 'בודקים…';
-      const headers = await ensureEditRights();
-      editBtn.disabled = false;
-      editLabel.textContent = prevLabel;
-      if (headers) enterEditMode();
-    };
+      renderParticipantsList(wrap);
+      wrap.classList.add('open');
+    }
+
+    // bottom banner for invite holders who aren't signed in yet: they can look
+    // around freely, and one quick signup makes them a participant
+    if (inviteToken && !canEdit && !TRIPI.user) {
+      const banner = document.createElement('div');
+      banner.className = 'join-banner glass';
+      banner.innerHTML = `
+        <span class="jb-text">🎒 הוזמנתם להשתתף בטיול! נרשמים במהירות — ומתכננים אותו יחד</span>
+        <button type="button" class="btn btn-amber jb-cta">הרשמה מהירה</button>`;
+      document.body.appendChild(banner);
+      banner.querySelector('.jb-cta').onclick = () => requireSignup('register');
+    }
 
     // ---- AI edit box: free-text itinerary changes for anyone with edit rights ----
     const aiCard = document.getElementById('ai-edit-card');
@@ -448,8 +547,7 @@
         renderItinerary();
         const changed = r.added + r.updated + r.removed > 0;
         aiResult.classList.add(changed ? 'ok' : 'info');
-        aiResult.textContent = r.summary +
-          (r.remaining > 0 ? ` · נותרו ${r.remaining} שינויי AI להיום` : ' · זה היה שינוי ה-AI האחרון להיום');
+        aiResult.textContent = r.summary;
         if (changed) { aiInput.value = ''; aiCount.textContent = '0/100'; }
       } catch (err) {
         aiResult.classList.add('err');
@@ -462,49 +560,42 @@
       }
     });
 
-    // ---- owner box: edit code + publish toggle ----
-    if ((isOwner || isAdmin) && trip.edit_code) {
-      document.getElementById('owner-box').style.display = '';
-      document.getElementById('edit-code').textContent = trip.edit_code;
-      const toggle = document.getElementById('publish-toggle');
-      toggle.checked = !!trip.is_public;
-      toggle.onchange = async () => {
-        try { await TRIPI.api('/api/trips/' + trip.id, { method: 'PATCH', body: JSON.stringify({ is_public: toggle.checked }) }); }
-        catch (e) { toggle.checked = !toggle.checked; alert(e.message); }
-      };
-    }
-
     // ---- clone button: published trips can be copied into my account ----
     const cloneBtn = document.getElementById('clone-btn');
-    if (trip.is_public) {
-      cloneBtn.style.display = '';
-      async function doClone() {
-        if (cloneBtn.disabled) return;
-        cloneBtn.disabled = true;
-        const cloneLabel = document.getElementById('clone-label');
-        const prevLabel = cloneLabel.textContent;
-        cloneLabel.textContent = 'משכפלים…';
-        try {
-          const copy = await TRIPI.api(`/api/trips/code/${trip.share_code}/clone`, { method: 'POST' });
-          location.href = '/trip/' + copy.share_code;
-        } catch (e) {
-          alert(e.message);
-          cloneBtn.disabled = false;
-          cloneLabel.textContent = prevLabel;
-        }
+    async function doClone() {
+      if (cloneBtn.disabled) return;
+      cloneBtn.disabled = true;
+      const cloneLabel = document.getElementById('clone-label');
+      const prevLabel = cloneLabel.textContent;
+      cloneLabel.textContent = 'משכפלים…';
+      try {
+        const copy = await TRIPI.api(`/api/trips/code/${trip.share_code}/clone`, { method: 'POST' });
+        location.href = '/trip/' + copy.share_code;
+      } catch (e) {
+        alert(e.message);
+        cloneBtn.disabled = false;
+        cloneLabel.textContent = prevLabel;
       }
-      cloneBtn.onclick = () => {
-        // cloning needs an account to own the copy — register, then clone right away
-        if (!TRIPI.user) { openAuthModal(doClone, 'register'); return; }
-        doClone();
-      };
     }
+    cloneBtn.onclick = () => {
+      // cloning needs an account to own the copy — register, then clone right away
+      if (!TRIPI.user) { openAuthModal(doClone, 'register'); return; }
+      doClone();
+    };
 
     // ---- like button ----
     const likedTrips = JSON.parse(localStorage.getItem('tripi_likes') || '{}');
     const likeBtn = document.getElementById('like-btn');
     const likeCount = document.getElementById('like-count');
     likeCount.textContent = trip.likes || 0;
+
+    // likes and cloning are gallery features — they appear only on published trips
+    // (and follow the publish toggle live)
+    function syncPublicUI() {
+      likeBtn.style.display = trip.is_public ? '' : 'none';
+      cloneBtn.style.display = trip.is_public ? '' : 'none';
+    }
+    syncPublicUI();
     if (likedTrips[trip.id]) likeBtn.classList.add('liked');
     let likeBusy = false; // rapid double-tap must not double-count
     likeBtn.onclick = async () => {
@@ -528,9 +619,12 @@
     };
     const hotelsBtn = document.getElementById('hotels-btn');
     const budgetBtn = document.getElementById('budget-btn');
-    if (trip.days < 2) hotelsBtn.style.display = 'none'; // one-day trip — sleeping at home
-    hotelsBtn.onclick = () => TripModals.openHotels(modalCtx);
-    budgetBtn.onclick = () => TripModals.openBudget(modalCtx);
+    // trip tools are for participants (and invite holders, one signup away);
+    // one-day trips skip hotels either way — sleeping at home
+    budgetBtn.style.display = privileged ? '' : 'none';
+    hotelsBtn.style.display = privileged && trip.days >= 2 ? '' : 'none';
+    hotelsBtn.onclick = () => (canEdit ? TripModals.openHotels(modalCtx) : requireSignup());
+    budgetBtn.onclick = () => (canEdit ? TripModals.openBudget(modalCtx) : requireSignup());
 
     function updateAmbient() {
       // the budget button doubles as the ambient alert: % of budget planned
@@ -554,7 +648,7 @@
       } else chipEl?.remove();
 
       // sidebar nudge: nights that still have no hotel (only once hotels exist)
-      const card = document.getElementById('hotels-card');
+      const nudgeSlot = document.getElementById('nudge-slot');
       let nudge = document.getElementById('nights-nudge');
       const runs = state.hotels.some((h) => h.status === 'booked') ? TripModals.uncoveredRuns(state) : [];
       if (runs.length) {
@@ -563,7 +657,7 @@
           nudge.id = 'nights-nudge';
           nudge.type = 'button';
           nudge.className = 'nights-nudge';
-          card.insertBefore(nudge, document.getElementById('hotels-list'));
+          nudgeSlot.appendChild(nudge);
           nudge.onclick = () => TripModals.openHotels(modalCtx);
         }
         nudge.textContent = `😴 ${runs.map((r) => r.from === r.to ? `לילה ${r.from}` : `לילות ${r.from}–${r.to}`).join(', ')} עדיין בלי מלון ›`;
@@ -606,7 +700,7 @@
       document.getElementById('trip-map').src = TRIPI.mapsEmbedUrl(mapQuery);
       document.getElementById('map-caption').textContent = `📍 ${mapQuery}`;
       loadWeather(d);
-      loadHotels(d, mapQuery);
+      // loadHotels(d, mapQuery); // כרטיס "מלונות באזור" מוסתר זמנית (גם ה-HTML שלו מוער ב-trip.html)
     }
 
     async function loadWeather(d) {
@@ -636,10 +730,10 @@
       } catch { card.style.display = 'none'; }
     }
 
-    async function loadHotels(d, mapQuery) {
+    async function loadHotels(d, mapQuery) { // eslint-disable-line no-unused-vars -- מושבת זמנית, ראו showDestination
       const card = document.getElementById('hotels-card');
       const list = document.getElementById('hotels-list');
-      if (d.lat == null) { card.style.display = 'none'; return; }
+      if (!card || d.lat == null) { if (card) card.style.display = 'none'; return; }
       card.style.display = '';
       list.innerHTML = `
         <div class="hotel-row skl-hotel">

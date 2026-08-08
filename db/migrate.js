@@ -44,15 +44,8 @@ async function main() {
     WHERE destinations = '[]' AND destination IS NOT NULL AND destination <> ''
   `);
 
-  console.log('Migration 3: edit codes + likes...');
-  await pool.query(`ALTER TABLE trips ADD COLUMN IF NOT EXISTS edit_code CHAR(6)`);
+  console.log('Migration 3: likes...');
   await pool.query(`ALTER TABLE trips ADD COLUMN IF NOT EXISTS likes INT NOT NULL DEFAULT 0`);
-  const noCode = await pool.query(`SELECT id FROM trips WHERE edit_code IS NULL`);
-  for (const r of noCode.rows) {
-    await pool.query(`UPDATE trips SET edit_code = $1 WHERE id = $2`,
-      [String(Math.floor(100000 + Math.random() * 900000)), r.id]);
-  }
-  if (noCode.rows.length) console.log(`  + edit codes generated for ${noCode.rows.length} trips`);
 
   console.log('Migration 4: per-item area...');
   await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS area TEXT`);
@@ -110,21 +103,44 @@ async function main() {
   const adminEmails = (process.env.ADMIN_EMAILS || 'ofiregev68@gmail.com')
     .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
   if (adminEmails.length) {
-    const { rows } = await pool.query(
-      `UPDATE users SET is_admin = true WHERE email = ANY($1) AND is_admin = false RETURNING email`,
-      [adminEmails]
-    );
-    rows.forEach((r) => console.log(`  + ${r.email} promoted to admin`));
-    const missing = adminEmails.filter((e) => !rows.some((r) => r.email === e));
-    const { rows: already } = await pool.query(
-      `SELECT email FROM users WHERE email = ANY($1) AND is_admin = true`, [adminEmails]
-    );
-    missing.filter((e) => !already.some((a) => a.email === e))
-      .forEach((e) => console.log(`  ! no account found for ${e} — it will need promoting after signup`));
+    await promoteAdmins(adminEmails);
   }
+
+  console.log('Migration 8: participants + invite links (edit codes retired)...');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trip_participants (
+      trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      joined_at TIMESTAMPTZ DEFAULT now(),
+      PRIMARY KEY (trip_id, user_id)
+    )`);
+  await pool.query(`ALTER TABLE trips ADD COLUMN IF NOT EXISTS invite_token TEXT`);
+  const noToken = await pool.query(`SELECT id FROM trips WHERE invite_token IS NULL`);
+  for (const r of noToken.rows) {
+    await pool.query(`UPDATE trips SET invite_token = $1 WHERE id = $2`,
+      [require('crypto').randomBytes(16).toString('base64url'), r.id]);
+  }
+  if (noToken.rows.length) console.log(`  + invite tokens generated for ${noToken.rows.length} trips`);
+  // run this drop only once the new (participant-based) server code is live —
+  // the old code still selects edit_code and would 500 without it
+  await pool.query(`ALTER TABLE trips DROP COLUMN IF EXISTS edit_code`);
 
   console.log('Done.');
   await pool.end();
+}
+
+async function promoteAdmins(adminEmails) {
+  const { rows } = await pool.query(
+    `UPDATE users SET is_admin = true WHERE email = ANY($1) AND is_admin = false RETURNING email`,
+    [adminEmails]
+  );
+  rows.forEach((r) => console.log(`  + ${r.email} promoted to admin`));
+  const missing = adminEmails.filter((e) => !rows.some((r) => r.email === e));
+  const { rows: already } = await pool.query(
+    `SELECT email FROM users WHERE email = ANY($1) AND is_admin = true`, [adminEmails]
+  );
+  missing.filter((e) => !already.some((a) => a.email === e))
+    .forEach((e) => console.log(`  ! no account found for ${e} — it will need promoting after signup`));
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

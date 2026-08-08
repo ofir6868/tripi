@@ -94,7 +94,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return `
       <table class="adm-table">
         <thead><tr>
-          <th>טיול</th><th>בעלים</th><th>קודים</th><th class="num">תחנות</th>
+          <th>טיול</th><th>בעלים</th><th>קוד</th><th class="num">תחנות</th>
           <th class="num">לייקים</th><th>נוצר</th><th>ציבורי</th><th></th>
         </tr></thead>
         <tbody>${rows.map((t) => `
@@ -107,7 +107,6 @@ document.addEventListener('DOMContentLoaded', async () => {
               ${t.owner_email ? `<div class="adm-sub" dir="ltr">${TRIPI.esc(t.owner_email)}</div>` : ''}</td>
             <td dir="ltr" class="adm-codes">
               <span class="copyable adm-code" data-copy="${t.share_code}" title="קוד טיול — לחיצה מעתיקה">#${t.share_code}</span>
-              <span class="copyable adm-code edit" data-copy="${t.edit_code || ''}" title="קוד עריכה — לחיצה מעתיקה">${ICON.pencil}${t.edit_code || '—'}</span>
             </td>
             <td class="num">${t.item_count}</td>
             <td class="num">${t.likes}</td>

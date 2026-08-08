@@ -88,17 +88,33 @@ async function adminRequired(req, res, next) {
 const tripFields = `id, owner_id, title, destination, country, description, cover_image,
   start_date, end_date, days, share_code, is_public, emoji, destinations, likes, created_at`;
 
-// resolve a trip by share code and check edit rights: owner JWT, x-edit-code header, or admin
+function newInviteToken() {
+  return require('crypto').randomBytes(16).toString('base64url');
+}
+
+async function isParticipant(tripId, userId) {
+  const { rows } = await pool.query(
+    'SELECT 1 FROM trip_participants WHERE trip_id = $1 AND user_id = $2', [tripId, userId]
+  );
+  return rows.length > 0;
+}
+
+// resolve a trip by share code and check edit rights: owner, participant, or admin
 async function tripWithEditAuth(req, res) {
   const { rows } = await pool.query(
-    `SELECT ${tripFields}, edit_code FROM trips WHERE share_code = $1`, [req.params.code]
+    `SELECT ${tripFields}, invite_token FROM trips WHERE share_code = $1`, [req.params.code]
   );
   const trip = rows[0];
   if (!trip) { res.status(404).json({ error: 'הטיול לא נמצא' }); return null; }
-  const isOwner = req.user && req.user.id === trip.owner_id;
-  const editCode = req.headers['x-edit-code'];
-  if (!isOwner && (!editCode || editCode !== trip.edit_code) && !(await isAdmin(req))) {
-    res.status(403).json({ error: 'אין הרשאת עריכה לטיול הזה' });
+  if (!req.user) {
+    res.status(401).json({ error: 'נדרשת התחברות כדי לערוך את הטיול' });
+    return null;
+  }
+  const allowed = req.user.id === trip.owner_id
+    || await isParticipant(trip.id, req.user.id)
+    || await isAdmin(req);
+  if (!allowed) {
+    res.status(403).json({ error: 'רק משתתפי הטיול יכולים לערוך — בקשו קישור הזמנה מהמארגנים' });
     return null;
   }
   return trip;
@@ -206,24 +222,35 @@ app.get('/api/trips/search', async (req, res) => {
 app.get('/api/trips/code/:code', authOptional, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${tripFields}, edit_code FROM trips WHERE share_code = $1`, [req.params.code]
+      `SELECT ${tripFields}, invite_token FROM trips WHERE share_code = $1`, [req.params.code]
     );
     if (!rows[0]) return res.status(404).json({ error: 'לא נמצא טיול עם הקוד הזה' });
     const trip = rows[0];
     const isOwner = !!(req.user && req.user.id === trip.owner_id);
     const admin = await isAdmin(req);
-    // edit rights on a GET: the owner, an admin, or a valid edit code sent along (the
-    // client keeps codes it already verified) — unlocks prices/notes/expenses in the payload
-    const canEdit = isOwner || admin || (!!req.headers['x-edit-code'] && req.headers['x-edit-code'] === trip.edit_code);
-    if (!isOwner && !admin) delete trip.edit_code; // edit code is only revealed to the owner (and admins)
-    const [items, hotels, budget, expenses] = await Promise.all([
+    // edit rights: owner, admin, or a trip participant — unlocks prices/notes/expenses
+    const canEdit = isOwner || admin || (!!req.user && await isParticipant(trip.id, req.user.id));
+    if (canEdit && !trip.invite_token) {
+      // trips that predate invite links get one the first time a participant loads them
+      trip.invite_token = newInviteToken();
+      await pool.query('UPDATE trips SET invite_token = $1 WHERE id = $2', [trip.invite_token, trip.id]);
+    }
+    if (!canEdit) delete trip.invite_token; // the invite link is only revealed to participants
+    const [items, hotels, budget, expenses, participants] = await Promise.all([
       pool.query('SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]),
       pool.query('SELECT * FROM trip_hotels WHERE trip_id = $1 ORDER BY night_start, id', [trip.id]),
       pool.query('SELECT total, currency, travelers FROM trip_budgets WHERE trip_id = $1', [trip.id]),
-      pool.query('SELECT id, title, amount, category, day_number, created_at FROM trip_expenses WHERE trip_id = $1 ORDER BY created_at DESC, id DESC', [trip.id]),
+      pool.query('SELECT id, title, amount, category, day_number, paid_by, created_at FROM trip_expenses WHERE trip_id = $1 ORDER BY created_at DESC, id DESC', [trip.id]),
+      canEdit ? pool.query(
+        `SELECT u.id, u.name, (u.id = COALESCE($2, -1)) AS is_owner
+         FROM users u
+         WHERE u.id = COALESCE($2, -1) OR u.id IN (SELECT user_id FROM trip_participants WHERE trip_id = $1)
+         ORDER BY (u.id = COALESCE($2, -1)) DESC, u.name`,
+        [trip.id, trip.owner_id]
+      ) : Promise.resolve({ rows: [] }),
     ]);
-    // privacy split: share-code viewers see hotel names/nights/links but not money or
-    // confirmation notes, and no expense log — those need the edit code
+    // privacy split: viewers see hotel names/nights/links but not money or
+    // confirmation notes, and no expense log — those are for participants
     const hotelRows = canEdit ? hotels.rows
       : hotels.rows.map((h) => ({ ...h, price_total: null, note: null }));
     res.json({
@@ -231,6 +258,7 @@ app.get('/api/trips/code/:code', authOptional, async (req, res) => {
       hotels: hotelRows,
       budget: budget.rows[0] || null,
       expenses: canEdit ? expenses.rows : [],
+      participants: participants.rows,
     });
   } catch (err) {
     console.error(err);
@@ -238,14 +266,56 @@ app.get('/api/trips/code/:code', authOptional, async (req, res) => {
   }
 });
 
-// ---- collaborative editing (owner or x-edit-code header) ----
+// ---- collaborative editing (trip participants) ----
 
-// check edit rights before the UI unlocks, so a wrong code can never look like it worked
-app.post('/api/trips/code/:code/verify-edit', authOptional, async (req, res) => {
+// redeem an invite link: a logged-in user with the current token becomes a participant
+app.post('/api/trips/code/:code/join', authRequired, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, owner_id, invite_token FROM trips WHERE share_code = $1', [req.params.code]
+    );
+    const trip = rows[0];
+    if (!trip) return res.status(404).json({ error: 'הטיול לא נמצא' });
+    const token = String((req.body || {}).token || '');
+    if (!token || !trip.invite_token || token !== trip.invite_token) {
+      return res.status(403).json({ error: 'קישור ההזמנה כבר לא בתוקף — בקשו מהמארגנים קישור חדש' });
+    }
+    if (req.user.id !== trip.owner_id) {
+      await pool.query(
+        'INSERT INTO trip_participants (trip_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [trip.id, req.user.id]
+      );
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// remove a participant (or yourself — leaving the trip); the owner can't be removed
+app.delete('/api/trips/code/:code/participants/:userId', authOptional, async (req, res) => {
   try {
     const trip = await tripWithEditAuth(req, res);
-    if (!trip) return; // tripWithEditAuth already answered 403/404
+    if (!trip) return;
+    const uid = parseInt(req.params.userId, 10);
+    if (uid === trip.owner_id) return res.status(400).json({ error: 'אי אפשר להסיר את מארגן הטיול' });
+    await pool.query('DELETE FROM trip_participants WHERE trip_id = $1 AND user_id = $2', [trip.id, uid]);
     res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// a fresh invite token invalidates every previously shared link
+app.post('/api/trips/code/:code/invite/regenerate', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const token = newInviteToken();
+    await pool.query('UPDATE trips SET invite_token = $1 WHERE id = $2', [token, trip.id]);
+    res.json({ invite_token: token });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
@@ -428,11 +498,12 @@ app.post('/api/trips/code/:code/expenses', authOptional, async (req, res) => {
     if (!(amount > 0)) return res.status(400).json({ error: 'חסר סכום תקין' });
     const day = parseInt(b.day_number, 10);
     const { rows } = await pool.query(
-      `INSERT INTO trip_expenses (trip_id, title, amount, category, day_number)
-       VALUES ($1,$2,$3,$4,$5) RETURNING id, title, amount, category, day_number, created_at`,
+      `INSERT INTO trip_expenses (trip_id, title, amount, category, day_number, paid_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, title, amount, category, day_number, paid_by, created_at`,
       [trip.id, title, amount,
        EXPENSE_CATEGORIES.includes(b.category) ? b.category : 'אחר',
-       day >= 1 && day <= trip.days ? day : null]
+       day >= 1 && day <= trip.days ? day : null,
+       req.user.name || null]
     );
     res.json(rows[0]);
   } catch (err) {
@@ -463,12 +534,11 @@ app.post('/api/trips/code/:code/clone', authRequired, async (req, res) => {
     if (!src) return res.status(404).json({ error: 'הטיול לא נמצא' });
     await client.query('BEGIN');
     const code = await uniqueShareCode(client);
-    const editCode = String(Math.floor(100000 + Math.random() * 900000));
     const t = await client.query(
-      `INSERT INTO trips (owner_id, title, destination, country, description, cover_image, start_date, end_date, days, share_code, emoji, destinations, edit_code)
+      `INSERT INTO trips (owner_id, title, destination, country, description, cover_image, start_date, end_date, days, share_code, emoji, destinations, invite_token)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING ${tripFields}`,
       [req.user.id, src.title, src.destination, src.country, src.description, src.cover_image,
-       src.start_date, src.end_date, src.days, code, src.emoji, JSON.stringify(src.destinations || []), editCode]
+       src.start_date, src.end_date, src.days, code, src.emoji, JSON.stringify(src.destinations || []), newInviteToken()]
     );
     await client.query(
       `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, cost, sort_order)
@@ -504,8 +574,9 @@ app.post('/api/trips/code/:code/clone', authRequired, async (req, res) => {
 app.post('/api/trips/:id/like', async (req, res) => {
   try {
     const delta = req.body && req.body.undo ? -1 : 1;
+    // likes are a gallery feature — unpublished trips don't show the button and can't be liked
     const { rows } = await pool.query(
-      'UPDATE trips SET likes = GREATEST(likes + $2, 0) WHERE id = $1 RETURNING likes',
+      'UPDATE trips SET likes = GREATEST(likes + $2, 0) WHERE id = $1 AND is_public RETURNING likes',
       [req.params.id, delta]
     );
     if (!rows[0]) return res.status(404).json({ error: 'הטיול לא נמצא' });
@@ -520,8 +591,11 @@ app.patch('/api/trips/:id', authRequired, async (req, res) => {
   try {
     const { is_public } = req.body || {};
     const admin = await isAdmin(req);
+    // publishing moved to the participants screen — any participant may toggle it
     const { rows } = await pool.query(
-      `UPDATE trips SET is_public = $1 WHERE id = $2 AND ($4 OR owner_id = $3) RETURNING ${tripFields}`,
+      `UPDATE trips SET is_public = $1 WHERE id = $2 AND ($4 OR owner_id = $3
+         OR EXISTS (SELECT 1 FROM trip_participants p WHERE p.trip_id = $2 AND p.user_id = $3))
+       RETURNING ${tripFields}`,
       [!!is_public, req.params.id, req.user.id, admin]
     );
     if (!rows[0]) return res.status(404).json({ error: 'הטיול לא נמצא' });
@@ -534,8 +608,11 @@ app.patch('/api/trips/:id', authRequired, async (req, res) => {
 
 app.get('/api/my-trips', authRequired, async (req, res) => {
   try {
+    // trips I own plus trips I joined as a participant (is_mine tells them apart)
     const { rows } = await pool.query(
-      `SELECT ${tripFields} FROM trips WHERE owner_id = $1 ORDER BY created_at DESC`,
+      `SELECT ${tripFields}, (owner_id = $1) AS is_mine FROM trips
+       WHERE owner_id = $1 OR id IN (SELECT trip_id FROM trip_participants WHERE user_id = $1)
+       ORDER BY created_at DESC`,
       [req.user.id]
     );
     res.json(rows);
@@ -556,14 +633,13 @@ app.post('/api/trips', authRequired, async (req, res) => {
     const countryText = country || [...new Set(dests.map((d) => d.country).filter(Boolean))].join(', ') || null;
     await client.query('BEGIN');
     const code = await uniqueShareCode(client);
-    const editCode = String(Math.floor(100000 + Math.random() * 900000));
     const nDays = Math.min(Math.max(parseInt(days, 10) || 1, 1), 60);
     const { rows } = await client.query(
-      `INSERT INTO trips (owner_id, title, destination, country, description, cover_image, start_date, end_date, days, share_code, emoji, destinations, edit_code)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING ${tripFields}, edit_code`,
+      `INSERT INTO trips (owner_id, title, destination, country, description, cover_image, start_date, end_date, days, share_code, emoji, destinations, invite_token)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING ${tripFields}`,
       [req.user.id, title.trim(), destText.slice(0, 160), countryText, description || null,
        cover_image || null, start_date || null, end_date || null, nDays, code, emoji || null,
-       JSON.stringify(dests), editCode]
+       JSON.stringify(dests), newInviteToken()]
     );
     const trip = rows[0];
     if (Array.isArray(items)) {
@@ -648,7 +724,7 @@ app.get('/api/admin/trips', authRequired, adminRequired, async (req, res) => {
   try {
     const q = (req.query.q || '').trim();
     const { rows } = await pool.query(
-      `SELECT t.id, t.title, t.destination, t.country, t.days, t.share_code, t.edit_code,
+      `SELECT t.id, t.title, t.destination, t.country, t.days, t.share_code,
               t.is_public, t.likes, t.emoji, t.created_at, t.owner_id,
               u.name AS owner_name, u.email AS owner_email,
               (SELECT count(*) FROM trip_items i WHERE i.trip_id = t.id)::int AS item_count
@@ -1291,7 +1367,7 @@ app.post('/api/ai/itinerary', authRequired, async (req, res) => {
 
 const AI_EDIT_DAILY_LIMIT = 3;
 const AI_EDIT_MAX_PROMPT = 100;
-const aiEditUsage = new Map(); // 'u<userId>' | 't<tripId>' → {date, count}
+const aiEditUsage = new Map(); // 'u<userId>' → {date, count}
 
 async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNote = '', opsCap = 30 }) {
   const areaNames = dests.map((d) => d.name);
@@ -1396,9 +1472,8 @@ app.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
       return res.status(400).json({ error: `הבקשה ארוכה מדי — עד ${AI_EDIT_MAX_PROMPT} תווים` });
     }
 
-    // 3 AI edits a day: per user when logged in; edit-code editors have no identity,
-    // so they share a per-trip quota instead
-    const quotaKey = req.user ? 'u' + req.user.id : 't' + trip.id;
+    // 3 AI edits a day per user (editing requires login, so req.user is always set here)
+    const quotaKey = 'u' + req.user.id;
     const today = new Date().toISOString().slice(0, 10);
     const usage = aiEditUsage.get(quotaKey);
     const used = usage && usage.date === today ? usage.count : 0;
