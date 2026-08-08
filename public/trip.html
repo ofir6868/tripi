@@ -20,7 +20,11 @@
     <div class="trip-hero-inner">
       <a class="crumb" href="/">‹ חזרה לכל הטיולים</a>
       <h1 id="trip-title"><span class="skl skl-title"></span></h1>
-      <div class="trip-meta" id="trip-meta"><span class="skl skl-chip"></span><span class="skl skl-chip"></span><span class="skl skl-chip short"></span></div>
+      <div class="trip-meta" id="trip-meta">
+        <span class="chip skl-chip"><span class="skl"></span></span>
+        <span class="chip skl-chip short"><span class="skl"></span></span>
+        <span class="chip skl-chip long"><span class="skl"></span></span>
+      </div>
     </div>
   </section>
 
@@ -57,7 +61,7 @@
   <div class="trip-layout" id="trip-layout">
     <main>
       <div class="trip-desc glass" id="trip-desc">
-        <span class="skl skl-line"></span><span class="skl skl-line"></span><span class="skl skl-line short"></span>
+        <div class="skl-desc"><span class="skl"></span><span class="skl short"></span></div>
       </div>
       <div class="ai-edit-card glass" id="ai-edit-card" style="display:none">
         <div class="ai-edit-head">
@@ -73,8 +77,54 @@
         <div class="ai-edit-result" id="ai-edit-result" hidden></div>
       </div>
       <div class="view-toggle" id="view-toggle" style="display:none"></div>
+      <!-- itinerary placeholder: the real day / timeline / stop shapes, so the
+           first days land in place instead of pushing the page around -->
       <div id="days-container">
-        <span class="skl skl-card"></span><span class="skl skl-card"></span><span class="skl skl-card short"></span>
+        <div class="day-block">
+          <div class="day-title"><span class="skl skl-badge"></span><span class="skl skl-daydate"></span></div>
+          <div class="timeline">
+            <div class="item-card glass skl-stop">
+              <div class="item-top"><span class="skl skl-stop-time"></span><span class="skl skl-stop-title"></span><span class="skl skl-stop-cat"></span></div>
+              <div class="item-note"><span class="skl skl-stop-note"></span></div>
+              <div class="skl-expand"><span class="skl"></span></div>
+            </div>
+            <div class="item-card glass skl-stop">
+              <div class="item-top"><span class="skl skl-stop-time"></span><span class="skl skl-stop-title wide"></span><span class="skl skl-stop-cat"></span></div>
+              <div class="item-note"><span class="skl skl-stop-note short"></span></div>
+              <div class="skl-expand"><span class="skl"></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="day-block">
+          <div class="day-title"><span class="skl skl-badge"></span><span class="skl skl-daydate"></span></div>
+          <div class="timeline">
+            <div class="item-card glass skl-stop">
+              <div class="item-top"><span class="skl skl-stop-time"></span><span class="skl skl-stop-title narrow"></span><span class="skl skl-stop-cat"></span></div>
+              <div class="item-note"><span class="skl skl-stop-note"></span></div>
+              <div class="skl-expand"><span class="skl"></span></div>
+            </div>
+            <div class="item-card glass skl-stop">
+              <div class="item-top"><span class="skl skl-stop-time"></span><span class="skl skl-stop-title"></span><span class="skl skl-stop-cat"></span></div>
+              <div class="item-note"><span class="skl skl-stop-note short"></span></div>
+              <div class="skl-expand"><span class="skl"></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="day-block">
+          <div class="day-title"><span class="skl skl-badge"></span><span class="skl skl-daydate"></span></div>
+          <div class="timeline">
+            <div class="item-card glass skl-stop">
+              <div class="item-top"><span class="skl skl-stop-time"></span><span class="skl skl-stop-title wide"></span><span class="skl skl-stop-cat"></span></div>
+              <div class="item-note"><span class="skl skl-stop-note"></span></div>
+              <div class="skl-expand"><span class="skl"></span></div>
+            </div>
+            <div class="item-card glass skl-stop">
+              <div class="item-top"><span class="skl skl-stop-time"></span><span class="skl skl-stop-title narrow"></span><span class="skl skl-stop-cat"></span></div>
+              <div class="item-note"><span class="skl skl-stop-note short"></span></div>
+              <div class="skl-expand"><span class="skl"></span></div>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
     <aside class="trip-side">

@@ -613,7 +613,10 @@
       const card = document.getElementById('weather-card');
       if (d.lat == null) { card.style.display = 'none'; return; }
       card.style.display = '';
-      document.getElementById('weather-row').innerHTML = '<span class="skl skl-wday"></span>'.repeat(7);
+      document.getElementById('weather-row').innerHTML = `
+        <div class="weather-day">
+          <span class="skl skl-wd-name"></span><span class="skl skl-wd-icon"></span><span class="skl skl-wd-temp"></span>
+        </div>`.repeat(7);
       try {
         // when the trip has dates in the next 16 days, fetch far enough to align per itinerary day
         const wantDates = !!trip.start_date;
@@ -638,7 +641,11 @@
       const list = document.getElementById('hotels-list');
       if (d.lat == null) { card.style.display = 'none'; return; }
       card.style.display = '';
-      list.innerHTML = '<span class="skl skl-row"></span>'.repeat(4);
+      list.innerHTML = `
+        <div class="hotel-row skl-hotel">
+          <span class="skl skl-hname"></span>
+          <span class="hotel-links"><span class="skl skl-dot"></span><span class="skl skl-dot"></span></span>
+        </div>`.repeat(4);
       try {
         const hotels = await GEO.hotelsNear(d.lat, d.lon);
         if (!hotels.length) throw new Error('none');

@@ -71,7 +71,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function load() {
-    panel.innerHTML = '<span class="skl skl-row"></span><span class="skl skl-row"></span><span class="skl skl-row"></span>';
+    panel.innerHTML = '<div class="skl-rows">' + '<span class="skl"></span>'.repeat(4) + '</div>';
     const q = encodeURIComponent(searchEl.value.trim());
     try {
       rows = await TRIPI.api(`/api/admin/${tab}?q=${q}`);

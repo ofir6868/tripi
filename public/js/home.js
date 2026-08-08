@@ -52,7 +52,11 @@
     }
 
     hint.textContent = 'מחפשים…';
-    results.innerHTML = '<span class="skl skl-result"></span>'.repeat(3);
+    results.innerHTML = `
+      <div class="search-result">
+        <span class="skl skl-thumb"></span>
+        <div class="skl-sr-text"><span class="skl skl-sr-title"></span><span class="skl skl-sr-meta"></span></div>
+      </div>`.repeat(3);
     results.classList.add('open');
     try {
       const rows = await TRIPI.api('/api/trips/search?q=' + encodeURIComponent(q));
