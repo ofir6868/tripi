@@ -14,6 +14,27 @@ const TripCalendar = (() => {
   const view = { mode: 'month', anchor: 0 };
   let lastContainer = null;
 
+  const AREA_COLORS = ['#ffb45f', '#8fd8c4', '#c9a7ff', '#7fb8ff', '#ff9db1', '#ffd166'];
+
+  // every area of the trip, stable order: declared destinations first, then
+  // free-text areas that only appear on stops (in first-appearance order)
+  function tripAreas(ctx) {
+    const names = (Array.isArray(ctx.trip.destinations) ? ctx.trip.destinations : [])
+      .filter((d) => d && d.name).map((d) => d.name);
+    const seen = new Set(names);
+    for (const it of ctx.state.items) {
+      if (it.area && !seen.has(it.area)) { seen.add(it.area); names.push(it.area); }
+    }
+    return names;
+  }
+
+  // the area a day belongs to, read off its non-travel stops: one clear area →
+  // its name; travel-only, empty, or split between two areas → null (unmarked)
+  function areaOfDay(items) {
+    const areas = [...new Set(items.filter((it) => it.category !== 'נסיעה' && it.area).map((it) => it.area))];
+    return areas.length === 1 ? areas[0] : null;
+  }
+
   const chevPrev = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';  // points right = back in RTL
   const chevNext = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>'; // points left = forward in RTL
 
@@ -84,24 +105,32 @@ const TripCalendar = (() => {
     const byDay = itemsByDay(ctx);
     const hasDates = !!trip.start_date;
     const today = currentTripDay(ctx);
+    const areas = tripAreas(ctx);
+    const multiArea = areas.length > 1;
+    const areaColor = (name) => AREA_COLORS[areas.indexOf(name) % AREA_COLORS.length];
     const cells = [];
     for (let d = 1; d <= trip.days; d++) {
       const date = ctx.dayDate(d);
       const w = weatherOf(ctx, d);
       const items = byDay.get(d) || [];
+      const area = multiArea ? areaOfDay(items) : null;
+      const styles = [];
       // align day 1 to its real weekday (grid column 1 = the right edge = Sunday)
-      const startCol = d === 1 && hasDates ? ` style="grid-column-start:${date.getDay() + 1}"` : '';
+      if (d === 1 && hasDates) styles.push(`grid-column-start:${date.getDay() + 1}`);
+      if (area) styles.push(`--area-c:${areaColor(area)}`);
       const dateLabel = !date ? '' : (d === 1 || date.getDate() === 1)
         ? date.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' })
         : date.getDate();
       cells.push(`
-        <div class="cal-cell${d === today ? ' today' : ''}${items.length ? '' : ' free'}" data-day="${d}"
-          role="button" tabindex="0" aria-label="יום ${d}">
+        <div class="cal-cell${d === today ? ' today' : ''}${items.length ? '' : ' free'}${area ? ' has-area' : ''}"
+          data-day="${d}" role="button" tabindex="0" aria-label="יום ${d}${area ? ` · ${esc(area)}` : ''}"
+          ${styles.length ? ` style="${styles.join(';')}"` : ''}>
           <span class="cc-head">
             <span class="cc-num">${d}</span>
             ${date ? `<span class="cc-date">${dateLabel}</span>` : '<span class="cc-date"></span>'}
             ${w ? `<span class="cc-weather" title="${GEO.weatherLabel(w.code)}">${GEO.weatherIcon(w.code)}</span>` : ''}
           </span>
+          ${area ? `<span class="cc-area">${esc(area)}</span>` : ''}
           <span class="cc-evts">
             ${items.slice(0, 3).map((it) => `
               <span class="cal-evt${it.category === 'נסיעה' ? ' travel' : ''}" data-item="${it.id}" title="${esc(it.title)}">
@@ -115,6 +144,8 @@ const TripCalendar = (() => {
         </div>`);
     }
     body.innerHTML = `
+      ${multiArea ? `<div class="cal-legend">${areas.map((a) =>
+        `<span class="cl-item"><i style="background:${areaColor(a)}"></i>${esc(a)}</span>`).join('')}</div>` : ''}
       ${hasDates ? `<div class="cal-dow-row" aria-hidden="true">${DOW.map((x) => `<span>${x}</span>`).join('')}</div>` : ''}
       <div class="cal-grid">${cells.join('')}</div>
       <div class="cal-hint">לחיצה על יום פותחת את התצוגה היומית שלו</div>`;

@@ -1601,6 +1601,18 @@ body::after {
 .cal-cell:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .cal-cell.free { background: rgba(255, 255, 255, .02); }
 .cal-cell.today { border-color: rgba(255, 180, 95, .6); box-shadow: inset 0 0 0 1px rgba(255, 180, 95, .35); }
+/* area marking: colored top stripe + tiny name; today keeps its inset ring */
+.cal-cell.has-area { border-top: 3px solid var(--area-c); }
+.cc-area {
+  font-size: .68rem; font-weight: 700; color: var(--area-c);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cal-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 10px; }
+.cl-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: .8rem; font-weight: 600; color: var(--paper-dim);
+}
+.cl-item i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .cc-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .cc-num { font-weight: 800; font-size: .95rem; }
 .cc-date { flex: 1; min-width: 0; font-size: .72rem; color: var(--paper-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1713,6 +1725,9 @@ body::after {
   .cc-date { display: none; }
   .cc-weather { font-size: .68rem; }
   .cal-evt, .cc-more { display: none; }
+  /* tiny cells: the stripe + legend carry the area, the name doesn't fit */
+  .cc-area { display: none; }
+  .cal-cell.has-area { border-top-width: 2px; }
   .cc-dots { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
   .cc-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--amber); }
   .cc-dots i.travel { background: var(--mint); }
