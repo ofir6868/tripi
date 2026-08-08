@@ -16,24 +16,14 @@
   }
   let inviteToken = savedInvites[code] || null;
 
-  // A long trip opens as a calendar for everyone who can't edit it, so the list-shaped
-  // placeholder in the HTML is the wrong shape for it. The server marks the day count on
-  // the container when the trip is a long one — enough to lay the month grid out before
-  // the fetch. Which shape a trip settled on is remembered (rememberShape below), because
-  // edit rights only come back with the trip itself; until then a signed-out visitor is
-  // the one case we can be sure about.
-  const savedShapes = JSON.parse(localStorage.getItem('tripi_view_shapes') || '{}');
-  function rememberShape(shape) {
-    if (savedShapes[code] === shape) return;
-    savedShapes[code] = shape;
-    localStorage.setItem('tripi_view_shapes', JSON.stringify(savedShapes));
-  }
+  // A long trip is calendar-only, for everyone, so the list-shaped placeholder in the
+  // HTML is the wrong shape for it. The server marks the day count on the container for
+  // exactly those trips — enough to lay the month grid out before the fetch, with no
+  // guessing about who's looking.
   (function calendarPlaceholder() {
     const container = document.getElementById('days-container');
     const days = +container.dataset.sklDays;
     if (!days) return;
-    const opensAsCalendar = savedShapes[code] ? savedShapes[code] === 'calendar' : !TRIPI.user;
-    if (!opensAsCalendar) return;
     const dow = container.dataset.sklDow; // weekday of day 1 — absent on trips without dates
     const areaCount = +container.dataset.sklAreas || 0; // destinations, when the trip has more than one
     const area = areaCount ? '<span class="cc-area"><span class="skl skl-cc-area"></span></span>' : '';
@@ -202,11 +192,9 @@
         viewToggle.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === viewMode));
       }
       if (viewMode === 'calendar') {
-        rememberShape('calendar'); // so the next visit starts on a calendar-shaped placeholder
         TripCalendar.render(container, { trip, state, dayDate, weather: () => weatherByDate });
         return;
       }
-      rememberShape('list'); // only short trips reach here — a long trip is calendar-only
       TripCalendar.exitFull(); // the list can't live inside the fullscreen calendar
       renderListView();
     }
