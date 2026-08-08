@@ -398,10 +398,12 @@ body::after {
 .modal .modal-sub { color: var(--paper-dim); font-weight: 300; margin-bottom: 20px; }
 .modal-close {
   position: absolute; top: 16px; left: 16px; width: 34px; height: 34px;
+  display: grid; place-items: center;
   border-radius: 50%; border: 1px solid var(--glass-border); background: transparent;
   color: var(--paper-dim); cursor: pointer; font-size: 1rem;
+  transition: background .15s ease, color .15s ease;
 }
-.modal-close:hover { background: var(--glass-strong); }
+.modal-close:hover { background: var(--glass-strong); color: var(--paper); }
 
 .field { margin-bottom: 14px; }
 .field label { display: block; font-size: .88rem; font-weight: 600; color: var(--paper-dim); margin-bottom: 6px; }
@@ -1204,38 +1206,130 @@ body::after {
 .add-item-inline:hover { background: rgba(255, 180, 95, .09); }
 .inline-item-form { padding: 18px; margin: 10px 0; }
 
-.publish-toggle {
-  display: flex; align-items: center; justify-content: center; gap: 9px;
-  margin-top: 14px; cursor: pointer; font-size: .92rem; font-weight: 600; color: var(--paper);
+/* ---------- participants modal ----------
+   Two jobs, ranked: see who's in (the list) and pull more people in (invite).
+   Sections carry their own quiet label so neither needs a heavy divider. */
+
+.modal-people { width: min(460px, 100%); padding: 0; max-height: min(88vh, 720px); display: flex; flex-direction: column; }
+.pm-head { padding: 24px 24px 16px; border-bottom: 1px solid var(--glass-border); }
+.modal-people h2 { font-size: 1.4rem; padding-inline-end: 40px; }
+.modal-people .modal-sub { margin: 0; font-size: .9rem; line-height: 1.45; }
+.pm-body { overflow-y: auto; padding: 4px 24px 24px; overscroll-behavior: contain; }
+
+.pm-sec { padding-top: 18px; }
+.pm-sec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.pm-sec-title {
+  font-size: .74rem; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--mint);
 }
-.publish-toggle input { accent-color: var(--amber); width: 18px; height: 18px; cursor: pointer; }
+.pm-count {
+  font-size: .72rem; font-weight: 800; color: var(--paper-dim);
+  background: var(--glass); border: 1px solid var(--glass-border);
+  border-radius: 999px; padding: 1px 8px; font-variant-numeric: tabular-nums;
+}
+.pm-sec-sub { color: var(--paper-dim); font-size: .88rem; line-height: 1.5; margin: 0 0 12px; }
 
-/* ---------- participants modal ---------- */
-
+.pt-list { display: flex; flex-direction: column; gap: 4px; }
 .pt-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 4px; border-bottom: 1px solid var(--glass-border);
+  display: flex; align-items: center; gap: 11px; padding: 8px 10px;
+  border-radius: var(--radius-sm); transition: background .15s ease;
 }
-.pt-row:last-child { border-bottom: none; }
+.pt-row:hover { background: var(--glass); }
 .pt-avatar {
-  width: 34px; height: 34px; flex: none; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(255, 180, 95, .16); border: 1px solid rgba(255, 180, 95, .4);
-  color: var(--amber); font-weight: 800; font-size: .95rem;
+  width: 38px; height: 38px; flex: none; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 800; font-size: 1rem;
+  /* role-coded, so the organiser reads at a glance without an extra badge */
+  background: rgba(143, 216, 196, .14); border: 1px solid rgba(143, 216, 196, .38); color: var(--mint);
 }
-.pt-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.pt-name small { color: var(--paper-dim); font-weight: 400; }
-.pt-tag {
-  font-size: .72rem; font-weight: 700; color: var(--mint);
-  border: 1px solid rgba(143, 216, 196, .35); border-radius: 999px; padding: 2px 9px; flex: none;
+.pt-row.owner .pt-avatar {
+  background: rgba(255, 180, 95, .16); border-color: rgba(255, 180, 95, .45); color: var(--amber);
+  box-shadow: 0 0 0 3px rgba(255, 180, 95, .08);
 }
+.pt-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pt-name {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  font-weight: 700; font-size: .98rem;
+}
+.pt-name-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-me {
+  flex: none; font-size: .68rem; font-weight: 700; color: var(--paper-dim);
+  border: 1px solid var(--glass-border); border-radius: 999px; padding: 0 7px;
+}
+.pt-role { font-size: .8rem; color: var(--paper-dim); font-weight: 400; }
+.pt-row.owner .pt-role { color: rgba(255, 180, 95, .8); font-weight: 600; }
 .pt-remove {
-  background: transparent; border: none; color: var(--danger); cursor: pointer;
-  font-size: 1rem; opacity: .65; flex: none; padding: 4px 6px;
+  flex: none; width: 32px; height: 32px; display: grid; place-items: center;
+  background: transparent; border: 1px solid transparent; border-radius: 50%;
+  color: var(--paper-dim); cursor: pointer; opacity: 0;
+  transition: opacity .15s ease, color .15s ease, background .15s ease;
 }
-.pt-remove:hover { opacity: 1; }
-.invite-title { font-weight: 800; margin-bottom: 2px; }
-.invite-sub { color: var(--paper-dim); font-size: .88rem; margin: 0 0 12px; }
+.pt-row:hover .pt-remove, .pt-remove:focus-visible { opacity: 1; }
+.pt-remove:hover { color: var(--danger); background: rgba(255, 122, 110, .12); border-color: rgba(255, 122, 110, .3); }
+/* touch has no hover — the action must be reachable there */
+@media (hover: none) { .pt-remove { opacity: .55; } }
+
+/* side by side while both labels fit; one per row on narrow phones */
+.pm-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+/* the label wraps rather than spilling out of the pill on very narrow phones */
+.pm-actions .btn { justify-content: center; padding-inline: 12px; white-space: normal; text-align: center; }
+.pm-invite .copy-feedback { margin-top: 6px; text-align: center; }
+.pm-quiet-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pm-quiet {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  background: transparent; border: none; padding: 0; cursor: pointer;
+  font-family: var(--font-body); font-size: .84rem; font-weight: 600; color: var(--paper-dim);
+  transition: color .15s ease;
+}
+.pm-quiet .ic { width: 14px; height: 14px; }
+.pm-quiet:hover { color: var(--amber); }
+.pm-quiet:disabled { opacity: .5; cursor: wait; }
+.pm-quiet-hint { font-size: .78rem; color: rgba(207, 199, 182, .6); }
+
+@media (max-width: 400px) {
+  .pm-head { padding: 20px 18px 14px; }
+  .pm-body { padding: 4px 18px 20px; }
+}
+
+/* ---------- publish setting row (TRIPI PASS card) ---------- */
+
+.ticket-setting { text-align: start; margin-top: 14px; }
+.ticket-setting .divider { margin-bottom: 14px; }
+.pm-setting {
+  display: flex; align-items: center; gap: 12px; cursor: pointer;
+  padding: 10px; margin: -10px; border-radius: var(--radius-sm);
+  transition: background .15s ease;
+}
+.pm-setting:hover { background: var(--glass); }
+.pm-setting-ic {
+  width: 34px; height: 34px; flex: none; border-radius: 10px; display: grid; place-items: center;
+  background: var(--glass); border: 1px solid var(--glass-border); color: var(--paper-dim);
+  transition: color .2s ease, border-color .2s ease, background .2s ease;
+}
+.pm-setting:has(:checked) .pm-setting-ic {
+  color: var(--amber); border-color: rgba(255, 180, 95, .4); background: rgba(255, 180, 95, .12);
+}
+.pm-setting-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pm-setting-title { font-weight: 700; font-size: .95rem; }
+.pm-setting-desc { font-size: .8rem; color: var(--paper-dim); line-height: 1.45; font-weight: 300; }
+
+.pm-switch { position: relative; width: 46px; height: 27px; flex: none; }
+.pm-switch input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
+.pm-switch-track {
+  position: absolute; inset: 0; border-radius: 999px; display: flex; align-items: center; padding: 3px;
+  background: rgba(6, 13, 11, .55); border: 1px solid var(--glass-border);
+  transition: background .2s ease, border-color .2s ease;
+}
+.pm-switch-knob {
+  width: 19px; height: 19px; border-radius: 50%; background: var(--paper-dim);
+  transition: transform .2s cubic-bezier(.3, .8, .4, 1.2), background .2s ease;
+}
+.pm-switch input:checked + .pm-switch-track {
+  background: linear-gradient(135deg, var(--amber), var(--amber-deep)); border-color: transparent;
+}
+/* the app is RTL, so "on" travels leftwards */
+.pm-switch input:checked + .pm-switch-track .pm-switch-knob { transform: translateX(-19px); background: #241302; }
+.pm-switch input:focus-visible + .pm-switch-track { box-shadow: 0 0 0 4px rgba(255, 180, 95, .18); }
+.pm-switch input:disabled { cursor: wait; }
 
 /* ---------- invite join banner (bottom, above the action bar) ---------- */
 
@@ -1262,10 +1356,10 @@ body:has(.join-banner) { padding-bottom: 92px; }
 @media print {
   body { background: #fff !important; color: #111 !important; }
   body::after, .atmosphere, .site-header, .site-footer, .action-bar, .ticket .divider ~ button,
-  #wa-share, #copy-code, #copy-link, .copy-feedback, .join-banner, .dest-switcher,
+  #wa-share, #copy-code, #copy-link, .copy-feedback, .join-banner, .dest-switcher, #publish-row,
   .map-card, .hotels-card, #hotels-card, .add-item-inline, .item-del, .inline-item-form,
   .modal-backdrop, .hero-bg, .hero-veil, .item-expand-btn, .ai-edit-card,
-  .cal-toolbar, .cal-day-strip, .cal-hint { display: none !important; }
+  .view-toggle, .cal-toolbar, .cal-day-strip, .cal-hint { display: none !important; }
   /* printing from fullscreen: the calendar prints as a normal block, not a fixed overlay */
   .cal-wrap.cal-full { position: static !important; padding: 0 !important; background: none !important; }
   .trip-hero { min-height: auto; padding: 20px 0; }
@@ -1718,8 +1812,13 @@ body:has(.join-banner) { padding-bottom: 92px; }
 }
 
 /* ============================================================
-   Calendar view (long trips): month / week / day + stop modal
+   Calendar view: month / week / day + stop modal
    ============================================================ */
+
+/* list / calendar switch, short trips only */
+.view-toggle { margin-top: 18px; }
+.view-seg { width: 100%; max-width: 360px; margin: 0 auto; }
+.view-seg button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
 
 .cal-wrap { margin-top: 18px; }
 .cal-toolbar {
@@ -1744,13 +1843,18 @@ body.cal-full-open { overflow: hidden; }
   position: fixed; inset: 0; z-index: 300; margin: 0;
   overflow-y: auto; overscroll-behavior: contain;
   padding: 18px clamp(14px, 3vw, 34px) calc(28px + env(safe-area-inset-bottom));
-  background: rgba(8, 18, 15, .97);
+  /* a lifted panel, not a blackout: the page's own warm/teal glow stays visible through it */
+  background:
+    radial-gradient(58% 42% at 82% 0%, rgba(232, 133, 58, .10), transparent 70%),
+    radial-gradient(50% 40% at 8% 100%, rgba(143, 216, 196, .07), transparent 70%),
+    rgba(22, 48, 42, .82);
   -webkit-backdrop-filter: blur(18px) saturate(140%); backdrop-filter: blur(18px) saturate(140%);
   animation: calFullIn .22s ease;
 }
 .cal-wrap.cal-full .cal-toolbar {
   position: sticky; top: -18px; z-index: 2; margin: -18px 0 14px; padding: 18px 0 12px;
-  background: linear-gradient(180deg, rgba(8, 18, 15, .99) 72%, transparent);
+  /* same hue as the panel, just opaque — the sticky bar must not read as a darker band */
+  background: linear-gradient(180deg, rgba(22, 48, 42, .96) 72%, transparent);
 }
 .cal-wrap.cal-full .cal-fs-btn { color: var(--amber); border-color: rgba(255, 180, 95, .4); }
 /* the extra height is the whole point — let the month grid use it */
@@ -1899,7 +2003,6 @@ body.cal-full-open { overflow: hidden; }
 @media (max-width: 640px) {
   .cal-toolbar { flex-direction: column; align-items: stretch; }
   .cal-title { text-align: center; order: -1; }
-  .cal-fs-btn { justify-content: center; }
   .cal-grid, .cal-dow-row { gap: 4px; }
   /* month cells shrink to number + dots; the day view carries the detail */
   .cal-cell { min-height: 58px; padding: 5px 6px; gap: 4px; border-radius: 11px; }

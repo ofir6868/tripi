@@ -86,6 +86,15 @@ const TripModals = (() => {
     return byDay;
   }
 
+  function actualByDay(expenses) {
+    const byDay = {};
+    for (const e of expenses) {
+      const a = +e.amount;
+      if (a > 0 && e.day_number) byDay[e.day_number] = (byDay[e.day_number] || 0) + a;
+    }
+    return byDay;
+  }
+
   // ---- nights (night N = sleeping between day N and N+1) ----
 
   const nightCount = (state) => Math.max(state.trip.days - 1, 0);
@@ -536,6 +545,7 @@ const TripModals = (() => {
       const cur = curOf(state);
       const personal = loadPersonal(state);
       const isPersonal = budgetView.mode === 'personal';
+      const isActual = budgetView.view === 'actual';
       const planned = plannedTotals(state);
       const travelers = (state.budget && state.budget.travelers) || 1;
 
@@ -661,6 +671,7 @@ const TripModals = (() => {
           </button>`;
         }).join('')}</div>` : (budgetView.view === 'plan' && !isPersonal ? '<div class="mw-footnote">לחצו על ₪ — ליד כל תחנה כדי להוסיף הערכה ✍️</div>' : '')}
         ${budgetView.filter ? `<button type="button" class="day-tab clear-filter">סינון: ${esc(budgetView.filter)} ✕</button>` : ''}
+        ${isActual ? `
         <div class="qa-row">
           <input type="number" min="0" class="qa-amount" placeholder="${sym(cur)} סכום">
           <input type="text" class="qa-title" maxlength="160" placeholder="על מה? ראמן ששווה כל שקל 🍜">
@@ -669,8 +680,10 @@ const TripModals = (() => {
             `<option value="${i + 1}"${dToday === i + 1 ? ' selected' : ''}>יום ${i + 1}</option>`).join('')}</select>
           <button type="button" class="btn btn-amber qa-add">הוספה</button>
         </div>
-        <div class="qa-hint">${isPersonal ? 'הוצאה אישית — נשמרת רק אצלכם' : 'הוצאה בפועל — נכנסת ל"בפועל" של כולם'}</div>
-        ${isPersonal ? personalListHtml(personal, cur) : dayAccordionHtml(cur)}
+        <div class="qa-hint">${isPersonal ? 'הוצאה אישית — נשמרת רק אצלכם' : 'הוצאה בפועל — נכנסת ל"בפועל" של כולם'}</div>` : ''}
+        ${isPersonal
+          ? (isActual ? personalListHtml(personal, cur) : '<div class="mw-footnote">ההערכות מנוהלות במצב 👥 משותף — כאן רואים כמה מהתכנון נופל עליכם</div>')
+          : dayAccordionHtml(cur)}
         ${!state.canEdit && !isPersonal ? '<div class="mw-footnote">רק משתתפי הטיול עורכים את התקציב — בקשו קישור הזמנה מהמארגנים</div>' : ''}
       `;
 
@@ -684,7 +697,8 @@ const TripModals = (() => {
 
       if (budgetView.showSettings) wireSettings(cur, personal, isPersonal);
 
-      body.querySelector('.qa-add').onclick = async (e) => {
+      const qaAdd = body.querySelector('.qa-add');
+      if (qaAdd) qaAdd.onclick = async (e) => {
         const btn = e.currentTarget; // currentTarget is null after an await
         const amount = +body.querySelector('.qa-amount').value;
         const title = body.querySelector('.qa-title').value.trim();
@@ -790,16 +804,18 @@ const TripModals = (() => {
     }
 
     function dayAccordionHtml(cur) {
-      const byDay = plannedByDay(state);
+      // each view owns its own rows: תכנון = estimates + booked hotels, בפועל = real expenses
+      const isActual = budgetView.view === 'actual';
+      const byDay = isActual ? actualByDay(state.expenses) : plannedByDay(state);
       const blocks = destBlocks(state);
       const rows = [];
-      const generalExp = state.expenses.filter((e) => !e.day_number || e.day_number > state.trip.days);
+      const generalExp = isActual ? state.expenses.filter((e) => !e.day_number || e.day_number > state.trip.days) : [];
       for (let d = 1; d <= state.trip.days; d++) {
-        const items = state.items.filter((it) => it.day_number === d &&
+        const items = isActual ? [] : state.items.filter((it) => it.day_number === d &&
           (!budgetView.filter || budgetCatOf(it.category) === budgetView.filter));
-        const hotels = bookedHotels(state).filter((h) => h.night_start <= d && d <= h.night_end)
+        const hotels = isActual ? [] : bookedHotels(state).filter((h) => h.night_start <= d && d <= h.night_end)
           .filter(() => !budgetView.filter || budgetView.filter === 'לינה');
-        const exps = state.expenses.filter((e) => e.day_number === d &&
+        const exps = !isActual ? [] : state.expenses.filter((e) => e.day_number === d &&
           (!budgetView.filter || e.category === budgetView.filter));
         if (budgetView.filter && !items.length && !hotels.length && !exps.length) continue;
         const block = blocks.find((b) => d >= b.from && d <= b.to);
@@ -833,7 +849,7 @@ const TripModals = (() => {
                 <span class="er-amount">${fmt(e.amount, cur)}</span>
                 ${state.canEdit ? `<button type="button" class="er-del" data-id="${e.id}">✕</button>` : ''}
               </div>`).join('')}
-            ${!items.length && !hotels.length && !exps.length ? '<div class="empty-day" style="padding:8px">יום בלי הוצאות</div>' : ''}
+            ${!items.length && !hotels.length && !exps.length ? `<div class="empty-day" style="padding:8px">${isActual ? 'יום בלי הוצאות' : 'יום בלי הערכות'}</div>` : ''}
           </div>` : ''}
         </div>`);
       }

@@ -166,18 +166,47 @@
       return d;
     };
 
-    // ---- view mode: a long trip is always a calendar; the list is the editing surface ----
+    // ---- view mode: a long trip is always a calendar, no toggle. A short trip is a
+    // list, with a toggle over to the calendar. The choice can't ride on editMode —
+    // participants are always in edit mode, so that would pin them to one view. ----
+    const savedViewModes = JSON.parse(localStorage.getItem('tripi_view_modes') || '{}');
     const longTrip = trip.days > 7;
+    let viewMode = longTrip ? 'calendar' : (savedViewModes[trip.share_code] || 'list');
+    const viewToggle = document.getElementById('view-toggle');
+    if (!longTrip) {
+      viewToggle.innerHTML = `
+        <div class="seg view-seg">
+          <button type="button" data-v="list">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            רשימה
+          </button>
+          <button type="button" data-v="calendar">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
+            לוח שנה
+          </button>
+        </div>`;
+      viewToggle.style.display = '';
+      viewToggle.querySelectorAll('button').forEach((b) => {
+        b.onclick = () => {
+          viewMode = b.dataset.v;
+          savedViewModes[trip.share_code] = viewMode;
+          localStorage.setItem('tripi_view_modes', JSON.stringify(savedViewModes));
+          renderItinerary();
+        };
+      });
+    }
 
     // every existing call site funnels through here, so both views stay fresh
     function renderItinerary() {
-      // the editing UI lives in the list, so edit mode falls back to it
-      if (longTrip && !editMode) {
+      if (!longTrip) {
+        viewToggle.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === viewMode));
+      }
+      if (viewMode === 'calendar') {
         rememberShape('calendar'); // so the next visit starts on a calendar-shaped placeholder
         TripCalendar.render(container, { trip, state, dayDate, weather: () => weatherByDate });
         return;
       }
-      if (longTrip) rememberShape('list');
+      rememberShape('list'); // only short trips reach here — a long trip is calendar-only
       TripCalendar.exitFull(); // the list can't live inside the fullscreen calendar
       renderListView();
     }
@@ -426,17 +455,30 @@
 
     const inviteLink = () => `${location.origin}/trip/${trip.share_code}?join=${trip.invite_token}`;
 
+    // stroke icons for the participants modal — currentColor keeps them in step
+    // with row hover, danger tints and disabled states
+    const PT_ICON = {
+      leave: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>',
+      remove: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+    };
+
     function renderParticipantsList(wrap) {
       const me = TRIPI.user ? TRIPI.user.id : null;
-      wrap.querySelector('#participants-list').innerHTML = participants.map((p) => `
-        <div class="pt-row">
+      wrap.querySelector('#pt-count').textContent = participants.length;
+      wrap.querySelector('#participants-list').innerHTML = participants.map((p) => {
+        const self = p.id === me;
+        const action = self ? 'עזיבת הטיול' : `הסרת ${p.name} מהטיול`;
+        return `
+        <div class="pt-row${p.is_owner ? ' owner' : ''}">
           <span class="pt-avatar">${TRIPI.esc((String(p.name || '?').trim()[0] || '?').toUpperCase())}</span>
-          <span class="pt-name">${TRIPI.esc(p.name)}${p.id === me ? ' <small>(אני)</small>' : ''}</span>
-          ${p.is_owner
-            ? '<span class="pt-tag">מארגן הטיול</span>'
-            : `<button type="button" class="pt-remove" data-id="${p.id}"
-                 title="${p.id === me ? 'עזיבת הטיול' : 'הסרת המשתתף מהטיול'}">✕</button>`}
-        </div>`).join('');
+          <span class="pt-id">
+            <span class="pt-name"><span class="pt-name-t">${TRIPI.esc(p.name)}</span>${self ? '<span class="pt-me">אני</span>' : ''}</span>
+            <span class="pt-role">${p.is_owner ? 'מארגן הטיול' : 'עורך את הטיול'}</span>
+          </span>
+          ${p.is_owner ? '' : `<button type="button" class="pt-remove" data-id="${p.id}"
+            title="${TRIPI.esc(action)}" aria-label="${TRIPI.esc(action)}">${self ? PT_ICON.leave : PT_ICON.remove}</button>`}
+        </div>`;
+      }).join('');
       wrap.querySelectorAll('.pt-remove').forEach((b) => {
         b.onclick = async () => {
           const uid = +b.dataset.id;
@@ -463,30 +505,43 @@
         wrap.id = 'participants-modal';
         wrap.className = 'modal-backdrop';
         wrap.innerHTML = `
-          <div class="modal glass">
-            <button class="modal-close" aria-label="סגירה">✕</button>
-            <h2>משתתפי הטיול</h2>
-            <p class="modal-sub">כל משתתף יכול לערוך את המסלול, המלונות והתקציב</p>
-            <div id="participants-list"></div>
-            <hr class="divider">
-            <div class="invite-box">
-              <div class="invite-title">הזמנת חברים לטיול</div>
-              <p class="invite-sub">שולחים את הקישור — מי שנכנס ונרשם מצטרף כמשתתף</p>
-              <button type="button" class="btn btn-amber" id="invite-wa" style="width:100%;justify-content:center">
-                <svg class="wa-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"/></svg>
-                שליחת הזמנה בוואטסאפ</button>
-              <button type="button" class="btn btn-ghost" id="invite-copy" style="width:100%;justify-content:center;margin-top:8px">
-                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                העתקת קישור ההזמנה</button>
-              <button type="button" class="manual-link" id="invite-regen">חידוש הקישור — קישורים שכבר נשלחו יפסיקו לעבוד</button>
-              <div class="copy-feedback" id="invite-feedback"></div>
+          <div class="modal glass modal-people">
+            <div class="pm-head">
+              <button class="modal-close" aria-label="סגירה">
+                <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+              <h2>מי מתכנן את הטיול</h2>
+              <p class="modal-sub">כל מי שברשימה עורך את המסלול, המלונות והתקציב</p>
             </div>
-            <hr class="divider">
-            <label class="publish-toggle">
-              <input type="checkbox" id="publish-toggle">
-              <span>🌍 פרסום בגלריית הטיולים</span>
-            </label>
-            <p class="invite-sub" style="margin-top:6px">טיול מפורסם מופיע בעמוד הבית, אוסף לייקים וכל אחד יכול לשכפל אותו</p>
+            <div class="pm-body">
+              <section class="pm-sec">
+                <div class="pm-sec-head">
+                  <span class="pm-sec-title">משתתפים</span>
+                  <span class="pm-count" id="pt-count"></span>
+                </div>
+                <div id="participants-list" class="pt-list"></div>
+              </section>
+
+              <section class="pm-sec pm-invite">
+                <div class="pm-sec-head"><span class="pm-sec-title">הזמנת חברים</span></div>
+                <p class="pm-sec-sub">שולחים קישור — מי שנרשם דרכו מצטרף ומקבל הרשאת עריכה</p>
+                <div class="pm-actions">
+                  <button type="button" class="btn btn-amber" id="invite-wa">
+                    <svg class="wa-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"/></svg>
+                    שליחה בוואטסאפ</button>
+                  <button type="button" class="btn btn-ghost" id="invite-copy">
+                    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                    העתקת קישור</button>
+                </div>
+                <div class="copy-feedback" id="invite-feedback" role="status"></div>
+                <div class="pm-quiet-row">
+                  <button type="button" class="pm-quiet" id="invite-regen">
+                    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+                    חידוש הקישור</button>
+                  <span class="pm-quiet-hint">קישורים שכבר נשלחו יפסיקו לעבוד</span>
+                </div>
+              </section>
+            </div>
           </div>`;
         document.body.appendChild(wrap);
         wrap.querySelector('.modal-close').onclick = () => wrap.classList.remove('open');
@@ -516,18 +571,6 @@
           } catch (err) { alert(err.message); }
           btn.disabled = false;
         };
-
-        const toggle = wrap.querySelector('#publish-toggle');
-        toggle.checked = !!trip.is_public;
-        toggle.onchange = async () => {
-          try {
-            const updated = await TRIPI.api('/api/trips/' + trip.id, {
-              method: 'PATCH', body: JSON.stringify({ is_public: toggle.checked }),
-            });
-            trip.is_public = updated.is_public;
-            syncPublicUI();
-          } catch (e) { toggle.checked = !toggle.checked; alert(e.message); }
-        };
       }
       renderParticipantsList(wrap);
       wrap.classList.add('open');
@@ -553,7 +596,7 @@
     const aiResult = document.getElementById('ai-edit-result');
     function showAiEditCard() { aiCard.style.display = ''; }
     if (canEditHeaders) showAiEditCard();
-    aiInput.addEventListener('input', () => { aiCount.textContent = `${aiInput.value.length}/100`; });
+    aiInput.addEventListener('input', () => { aiCount.textContent = `${aiInput.value.length}/200`; });
     document.getElementById('ai-edit-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const prompt = aiInput.value.trim();
@@ -574,7 +617,7 @@
         const changed = r.added + r.updated + r.removed > 0;
         aiResult.classList.add(changed ? 'ok' : 'info');
         aiResult.textContent = r.summary;
-        if (changed) { aiInput.value = ''; aiCount.textContent = '0/100'; }
+        if (changed) { aiInput.value = ''; aiCount.textContent = '0/200'; }
       } catch (err) {
         aiResult.classList.add('err');
         aiResult.textContent = err.message;
@@ -622,6 +665,25 @@
       cloneBtn.style.display = trip.is_public ? '' : 'none';
     }
     syncPublicUI();
+
+    // publishing lives on the TRIPI PASS card — it's a sharing decision, next to
+    // the public code and the share buttons. Participants only.
+    const publishRow = document.getElementById('publish-row');
+    const publishToggle = document.getElementById('publish-toggle');
+    publishRow.style.display = canEdit ? '' : 'none';
+    publishToggle.checked = !!trip.is_public;
+    publishToggle.onchange = async () => {
+      publishToggle.disabled = true;
+      try {
+        const updated = await TRIPI.api('/api/trips/' + trip.id, {
+          method: 'PATCH', body: JSON.stringify({ is_public: publishToggle.checked }),
+        });
+        trip.is_public = updated.is_public;
+        syncPublicUI();
+      } catch (e) { publishToggle.checked = !publishToggle.checked; alert(e.message); }
+      publishToggle.disabled = false;
+    };
+
     if (likedTrips[trip.id]) likeBtn.classList.add('liked');
     let likeBusy = false; // rapid double-tap must not double-count
     likeBtn.onclick = async () => {

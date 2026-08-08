@@ -1366,7 +1366,7 @@ app.post('/api/ai/itinerary', authRequired, async (req, res) => {
 // snapshot of the CURRENT itinerary instead of replaying any "creation conversation".
 
 const AI_EDIT_DAILY_LIMIT = 3;
-const AI_EDIT_MAX_PROMPT = 100;
+const AI_EDIT_MAX_PROMPT = 200;
 const aiEditUsage = new Map(); // 'u<userId>' → {date, count}
 
 async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNote = '', opsCap = 30 }) {

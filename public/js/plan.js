@@ -611,7 +611,7 @@
   const planAiBtn = document.getElementById('plan-ai-btn');
   const planAiCount = document.getElementById('plan-ai-count');
   const planAiResult = document.getElementById('plan-ai-result');
-  planAiInput.addEventListener('input', () => { planAiCount.textContent = `${planAiInput.value.length}/100`; });
+  planAiInput.addEventListener('input', () => { planAiCount.textContent = `${planAiInput.value.length}/200`; });
   document.getElementById('plan-ai-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const prompt = planAiInput.value.trim();
@@ -673,7 +673,7 @@
         const changed = added + updated + removed > 0;
         planAiResult.classList.add(changed ? 'ok' : 'info');
         planAiResult.textContent = r.summary;
-        if (changed) { planAiInput.value = ''; planAiCount.textContent = '0/100'; }
+        if (changed) { planAiInput.value = ''; planAiCount.textContent = '0/200'; }
       } catch (err) {
         planAiResult.classList.add('err');
         planAiResult.textContent = err.message;
