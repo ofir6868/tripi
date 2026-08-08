@@ -8,6 +8,20 @@ const TRIPI = {
     localStorage.setItem('tripi_token', token);
     localStorage.setItem('tripi_user', JSON.stringify(user));
   },
+  // the cached user is whatever login returned, possibly months ago — re-read it so
+  // an admin promotion (or rename) shows up without forcing a logout/login round
+  async refreshUser() {
+    if (!this.token) return false;
+    try {
+      const me = await this.api('/api/me');
+      const changed = !this.user || this.user.is_admin !== me.is_admin || this.user.name !== me.name;
+      this.user = me;
+      localStorage.setItem('tripi_user', JSON.stringify(me));
+      return changed;
+    } catch {
+      return false; // expired token / offline — every other call handles that on its own
+    }
+  },
   logout() {
     this.token = null; this.user = null;
     localStorage.removeItem('tripi_token');
@@ -29,6 +43,22 @@ const TRIPI = {
   },
   mapsSearchUrl(q) {
     return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
+  },
+  // clipboard with an execCommand fallback for browsers that block the async API
+  async copy(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    }
   },
   // arrow-key highlight for autocomplete dropdowns
   acMove(list, dir) {
@@ -64,10 +94,15 @@ const TRIPI = {
 
 // ---------- header ----------
 function renderHeader() {
+  document.querySelector('.site-header')?.remove(); // re-render after refreshUser()
   const el = document.createElement('header');
   el.className = 'site-header glass';
+  const adminPart = TRIPI.user && TRIPI.user.is_admin
+    ? `<a class="btn btn-ghost nav-admin" href="/admin" title="ניהול">⚙️<span class="nav-label"> ניהול</span></a>`
+    : '';
   const authPart = TRIPI.user
-    ? `<a class="btn btn-ghost" href="/my" title="הטיולים שלי">🧳<span class="nav-label"> הטיולים של ${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</span></a>
+    ? `${adminPart}
+       <a class="btn btn-ghost" href="/my" title="הטיולים שלי">🧳<span class="nav-label"> הטיולים של ${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</span></a>
        <button class="btn btn-ghost nav-logout" id="nav-logout" title="התנתקות">יציאה</button>`
     : `<button class="btn btn-ghost" id="nav-login">התחברות</button>`;
   el.innerHTML = `
@@ -83,6 +118,21 @@ function renderHeader() {
   el.querySelector('#nav-login')?.addEventListener('click', () => openAuthModal());
   el.querySelector('#nav-logout')?.addEventListener('click', () => TRIPI.logout());
 }
+
+// ---------- click-to-copy ----------
+// any element marked .copyable copies data-copy (or its own text) — delegated once,
+// so codes rendered later by trip.js / plan.js / my.html work without extra wiring
+document.addEventListener('click', async (e) => {
+  const el = e.target.closest('.copyable');
+  if (!el) return;
+  e.preventDefault();   // codes often sit inside a card <a> — copy instead of navigating
+  e.stopPropagation();
+  const ok = await TRIPI.copy(el.dataset.copy || el.textContent.trim());
+  el.classList.remove('copied', 'copy-failed');
+  void el.offsetWidth; // restart the bubble even on a rapid second click
+  el.classList.add(ok ? 'copied' : 'copy-failed');
+  setTimeout(() => el.classList.remove('copied', 'copy-failed'), 1500);
+});
 
 // ---------- auth modal ----------
 let authMode = 'login';
@@ -177,5 +227,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.body.prepend(atm);
   renderHeader();
   renderAuthModal();
+  TRIPI.refreshUser().then((changed) => { if (changed) renderHeader(); });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 });

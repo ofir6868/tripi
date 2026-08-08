@@ -63,10 +63,32 @@ function authOptional(req, _res, next) {
   next();
 }
 
+// admin flag: trusted straight off the JWT when it's there, otherwise read once per
+// request from the DB — so tokens minted before the admin column existed still work,
+// and a promotion/demotion takes effect without waiting for the 30-day token to expire
+async function isAdmin(req) {
+  if (!req.user) return false;
+  if (req.user.is_admin) return true;
+  if (req.adminChecked !== undefined) return req.adminChecked;
+  try {
+    const { rows } = await pool.query('SELECT is_admin FROM users WHERE id = $1', [req.user.id]);
+    req.adminChecked = !!(rows[0] && rows[0].is_admin);
+  } catch {
+    req.adminChecked = false; // a DB hiccup must never hand out admin rights
+  }
+  return req.adminChecked;
+}
+
+// use after authRequired
+async function adminRequired(req, res, next) {
+  if (!(await isAdmin(req))) return res.status(403).json({ error: 'האזור הזה מיועד למנהלי המערכת' });
+  next();
+}
+
 const tripFields = `id, owner_id, title, destination, country, description, cover_image,
   start_date, end_date, days, share_code, is_public, emoji, destinations, likes, created_at`;
 
-// resolve a trip by share code and check edit rights: owner JWT or x-edit-code header
+// resolve a trip by share code and check edit rights: owner JWT, x-edit-code header, or admin
 async function tripWithEditAuth(req, res) {
   const { rows } = await pool.query(
     `SELECT ${tripFields}, edit_code FROM trips WHERE share_code = $1`, [req.params.code]
@@ -75,7 +97,7 @@ async function tripWithEditAuth(req, res) {
   if (!trip) { res.status(404).json({ error: 'הטיול לא נמצא' }); return null; }
   const isOwner = req.user && req.user.id === trip.owner_id;
   const editCode = req.headers['x-edit-code'];
-  if (!isOwner && (!editCode || editCode !== trip.edit_code)) {
+  if (!isOwner && (!editCode || editCode !== trip.edit_code) && !(await isAdmin(req))) {
     res.status(403).json({ error: 'אין הרשאת עריכה לטיול הזה' });
     return null;
   }
@@ -102,11 +124,11 @@ app.post('/api/auth/register', async (req, res) => {
     if (password.length < 6) return res.status(400).json({ error: 'הסיסמה חייבת להכיל לפחות 6 תווים' });
     const hash = await bcrypt.hash(password, 10);
     const { rows } = await pool.query(
-      'INSERT INTO users (name, email, password_hash) VALUES ($1, lower($2), $3) RETURNING id, name, email',
+      'INSERT INTO users (name, email, password_hash) VALUES ($1, lower($2), $3) RETURNING id, name, email, is_admin',
       [name.trim(), email.trim(), hash]
     );
     const user = rows[0];
-    const token = jwt.sign({ id: user.id, name: user.name }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: user.id, name: user.name, is_admin: user.is_admin }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'כתובת האימייל כבר רשומה במערכת' });
@@ -124,8 +146,22 @@ app.post('/api/auth/login', async (req, res) => {
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
       return res.status(401).json({ error: 'אימייל או סיסמה שגויים' });
     }
-    const token = jwt.sign({ id: user.id, name: user.name }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
+    const token = jwt.sign({ id: user.id, name: user.name, is_admin: user.is_admin }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email, is_admin: !!user.is_admin } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// the client's cached user can predate the admin column — this is the fresh copy
+app.get('/api/me', authRequired, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, name, email, is_admin FROM users WHERE id = $1', [req.user.id]
+    );
+    if (!rows[0]) return res.status(401).json({ error: 'המשתמש לא נמצא' });
+    res.json(rows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
@@ -175,12 +211,27 @@ app.get('/api/trips/code/:code', authOptional, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ error: 'לא נמצא טיול עם הקוד הזה' });
     const trip = rows[0];
     const isOwner = !!(req.user && req.user.id === trip.owner_id);
-    if (!isOwner) delete trip.edit_code; // edit code is only revealed to the owner
-    const items = await pool.query(
-      'SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id',
-      [trip.id]
-    );
-    res.json({ trip, items: items.rows, isOwner });
+    const admin = await isAdmin(req);
+    // edit rights on a GET: the owner, an admin, or a valid edit code sent along (the
+    // client keeps codes it already verified) — unlocks prices/notes/expenses in the payload
+    const canEdit = isOwner || admin || (!!req.headers['x-edit-code'] && req.headers['x-edit-code'] === trip.edit_code);
+    if (!isOwner && !admin) delete trip.edit_code; // edit code is only revealed to the owner (and admins)
+    const [items, hotels, budget, expenses] = await Promise.all([
+      pool.query('SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]),
+      pool.query('SELECT * FROM trip_hotels WHERE trip_id = $1 ORDER BY night_start, id', [trip.id]),
+      pool.query('SELECT total, currency, travelers FROM trip_budgets WHERE trip_id = $1', [trip.id]),
+      pool.query('SELECT id, title, amount, category, day_number, created_at FROM trip_expenses WHERE trip_id = $1 ORDER BY created_at DESC, id DESC', [trip.id]),
+    ]);
+    // privacy split: share-code viewers see hotel names/nights/links but not money or
+    // confirmation notes, and no expense log — those need the edit code
+    const hotelRows = canEdit ? hotels.rows
+      : hotels.rows.map((h) => ({ ...h, price_total: null, note: null }));
+    res.json({
+      trip, items: items.rows, isOwner, canEdit, isAdmin: admin,
+      hotels: hotelRows,
+      budget: budget.rows[0] || null,
+      expenses: canEdit ? expenses.rows : [],
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
@@ -208,13 +259,14 @@ app.post('/api/trips/code/:code/items', authOptional, async (req, res) => {
     const it = req.body || {};
     if (!it.title || !String(it.title).trim()) return res.status(400).json({ error: 'חסרה כותרת לתחנה' });
     const { rows } = await pool.query(
-      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
+      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, cost, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
        RETURNING *`,
       [trip.id, Math.min(Math.max(parseInt(it.day_number, 10) || 1, 1), trip.days),
        it.time_label || null, String(it.title).slice(0, 200).trim(), it.note || null,
        it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null,
-       Number.isFinite(+it.lat) ? +it.lat : null, Number.isFinite(+it.lon) ? +it.lon : null]
+       Number.isFinite(+it.lat) ? +it.lat : null, Number.isFinite(+it.lon) ? +it.lon : null,
+       Number.isFinite(+it.cost) && +it.cost >= 0 ? Math.min(+it.cost, 99999999) : null]
     );
     res.json(rows[0]);
   } catch (err) {
@@ -227,12 +279,20 @@ app.patch('/api/trips/code/:code/items/:itemId', authOptional, async (req, res) 
   try {
     const trip = await tripWithEditAuth(req, res);
     if (!trip) return;
-    const { place_query, lat, lon } = req.body || {};
+    // partial update: only the keys present in the body are touched
+    const body = req.body || {};
+    const sets = [];
+    const vals = [];
+    const add = (col, val) => { vals.push(val); sets.push(`${col} = $${vals.length}`); };
+    if ('place_query' in body) add('place_query', body.place_query ? String(body.place_query).slice(0, 120) : null);
+    if ('lat' in body) add('lat', Number.isFinite(+body.lat) ? +body.lat : null);
+    if ('lon' in body) add('lon', Number.isFinite(+body.lon) ? +body.lon : null);
+    if ('cost' in body) add('cost', Number.isFinite(+body.cost) && +body.cost >= 0 ? Math.min(+body.cost, 99999999) : null);
+    if (!sets.length) return res.status(400).json({ error: 'אין מה לעדכן' });
+    vals.push(req.params.itemId, trip.id);
     const { rows } = await pool.query(
-      `UPDATE trip_items SET place_query = $1, lat = $2, lon = $3 WHERE id = $4 AND trip_id = $5 RETURNING *`,
-      [place_query ? String(place_query).slice(0, 120) : null,
-       Number.isFinite(+lat) ? +lat : null, Number.isFinite(+lon) ? +lon : null,
-       req.params.itemId, trip.id]
+      `UPDATE trip_items SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND trip_id = $${vals.length} RETURNING *`,
+      vals
     );
     if (!rows[0]) return res.status(404).json({ error: 'התחנה לא נמצאה' });
     res.json(rows[0]);
@@ -247,6 +307,145 @@ app.delete('/api/trips/code/:code/items/:itemId', authOptional, async (req, res)
     const trip = await tripWithEditAuth(req, res);
     if (!trip) return;
     await pool.query('DELETE FROM trip_items WHERE id = $1 AND trip_id = $2', [req.params.itemId, trip.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// ---- shared budget (one row per trip) ----
+
+const BUDGET_CURRENCIES = ['ILS', 'USD', 'EUR', 'GBP', 'JPY', 'THB', 'CHF'];
+const EXPENSE_CATEGORIES = ['לינה', 'אוכל', 'נסיעות', 'אטרקציות', 'קניות', 'אחר'];
+
+app.put('/api/trips/code/:code/budget', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const b = req.body || {};
+    const total = Number.isFinite(+b.total) && +b.total > 0 ? Math.min(+b.total, 999999999) : null;
+    const currency = BUDGET_CURRENCIES.includes(b.currency) ? b.currency : 'ILS';
+    const travelers = Math.min(Math.max(parseInt(b.travelers, 10) || 1, 1), 50);
+    const { rows } = await pool.query(
+      `INSERT INTO trip_budgets (trip_id, total, currency, travelers)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (trip_id) DO UPDATE SET total = $2, currency = $3, travelers = $4, updated_at = now()
+       RETURNING total, currency, travelers`,
+      [trip.id, total, currency, travelers]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// ---- hotels: night N = sleeping between day N and N+1 ----
+
+function cleanHotel(body, trip) {
+  const maxNight = Math.max(trip.days - 1, 1);
+  const clampNight = (v, dflt) => Math.min(Math.max(parseInt(v, 10) || dflt, 1), maxNight);
+  const start = clampNight(body.night_start, 1);
+  const end = Math.max(clampNight(body.night_end, start), start);
+  const link = body.link && /^https?:\/\//i.test(String(body.link).trim())
+    ? String(body.link).trim().slice(0, 400) : null;
+  return {
+    name: String(body.name || '').slice(0, 160).trim(),
+    night_start: start,
+    night_end: end,
+    status: body.status === 'idea' ? 'idea' : 'booked',
+    stars: Number.isFinite(+body.stars) && +body.stars >= 1 ? Math.min(Math.round(+body.stars), 5) : null,
+    lat: Number.isFinite(+body.lat) ? +body.lat : null,
+    lon: Number.isFinite(+body.lon) ? +body.lon : null,
+    price_total: Number.isFinite(+body.price_total) && +body.price_total >= 0 ? Math.min(+body.price_total, 999999999) : null,
+    link,
+    note: body.note ? String(body.note).slice(0, 300) : null,
+  };
+}
+
+app.post('/api/trips/code/:code/hotels', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const h = cleanHotel(req.body || {}, trip);
+    if (!h.name) return res.status(400).json({ error: 'חסר שם למלון' });
+    const { rows } = await pool.query(
+      `INSERT INTO trip_hotels (trip_id, name, night_start, night_end, status, stars, lat, lon, price_total, link, note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [trip.id, h.name, h.night_start, h.night_end, h.status, h.stars, h.lat, h.lon, h.price_total, h.link, h.note]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+app.put('/api/trips/code/:code/hotels/:hotelId', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const h = cleanHotel(req.body || {}, trip);
+    if (!h.name) return res.status(400).json({ error: 'חסר שם למלון' });
+    const { rows } = await pool.query(
+      `UPDATE trip_hotels SET name=$1, night_start=$2, night_end=$3, status=$4, stars=$5,
+         lat=$6, lon=$7, price_total=$8, link=$9, note=$10
+       WHERE id = $11 AND trip_id = $12 RETURNING *`,
+      [h.name, h.night_start, h.night_end, h.status, h.stars, h.lat, h.lon, h.price_total, h.link, h.note,
+       req.params.hotelId, trip.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'המלון לא נמצא' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+app.delete('/api/trips/code/:code/hotels/:hotelId', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    await pool.query('DELETE FROM trip_hotels WHERE id = $1 AND trip_id = $2', [req.params.hotelId, trip.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// ---- expense log (actual spending, quick-add) ----
+
+app.post('/api/trips/code/:code/expenses', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const b = req.body || {};
+    const title = String(b.title || '').slice(0, 160).trim();
+    const amount = Number.isFinite(+b.amount) ? Math.min(+b.amount, 999999999) : NaN;
+    if (!title) return res.status(400).json({ error: 'על מה הוצאתם? חסר תיאור' });
+    if (!(amount > 0)) return res.status(400).json({ error: 'חסר סכום תקין' });
+    const day = parseInt(b.day_number, 10);
+    const { rows } = await pool.query(
+      `INSERT INTO trip_expenses (trip_id, title, amount, category, day_number)
+       VALUES ($1,$2,$3,$4,$5) RETURNING id, title, amount, category, day_number, created_at`,
+      [trip.id, title, amount,
+       EXPENSE_CATEGORIES.includes(b.category) ? b.category : 'אחר',
+       day >= 1 && day <= trip.days ? day : null]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+app.delete('/api/trips/code/:code/expenses/:expenseId', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    await pool.query('DELETE FROM trip_expenses WHERE id = $1 AND trip_id = $2', [req.params.expenseId, trip.id]);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -272,9 +471,21 @@ app.post('/api/trips/code/:code/clone', authRequired, async (req, res) => {
        src.start_date, src.end_date, src.days, code, src.emoji, JSON.stringify(src.destinations || []), editCode]
     );
     await client.query(
-      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, sort_order)
-       SELECT $1, day_number, time_label, title, note, place_query, category, sort_order
+      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, cost, sort_order)
+       SELECT $1, day_number, time_label, title, note, place_query, category, area, lat, lon, cost, sort_order
        FROM trip_items WHERE trip_id = $2`,
+      [t.rows[0].id, src.id]
+    );
+    // the plan travels with the trip: budget frame + hotels; the expense log (actuals) doesn't
+    await client.query(
+      `INSERT INTO trip_budgets (trip_id, total, currency, travelers)
+       SELECT $1, total, currency, travelers FROM trip_budgets WHERE trip_id = $2`,
+      [t.rows[0].id, src.id]
+    );
+    await client.query(
+      `INSERT INTO trip_hotels (trip_id, name, night_start, night_end, status, stars, lat, lon, price_total, link, note)
+       SELECT $1, name, night_start, night_end, status, stars, lat, lon, price_total, link, note
+       FROM trip_hotels WHERE trip_id = $2`,
       [t.rows[0].id, src.id]
     );
     await client.query('COMMIT');
@@ -308,9 +519,10 @@ app.post('/api/trips/:id/like', async (req, res) => {
 app.patch('/api/trips/:id', authRequired, async (req, res) => {
   try {
     const { is_public } = req.body || {};
+    const admin = await isAdmin(req);
     const { rows } = await pool.query(
-      `UPDATE trips SET is_public = $1 WHERE id = $2 AND owner_id = $3 RETURNING ${tripFields}`,
-      [!!is_public, req.params.id, req.user.id]
+      `UPDATE trips SET is_public = $1 WHERE id = $2 AND ($4 OR owner_id = $3) RETURNING ${tripFields}`,
+      [!!is_public, req.params.id, req.user.id, admin]
     );
     if (!rows[0]) return res.status(404).json({ error: 'הטיול לא נמצא' });
     res.json(rows[0]);
@@ -381,9 +593,10 @@ app.post('/api/trips', authRequired, async (req, res) => {
 
 app.delete('/api/trips/:id', authRequired, async (req, res) => {
   try {
+    const admin = await isAdmin(req);
     const { rowCount } = await pool.query(
-      'DELETE FROM trips WHERE id = $1 AND owner_id = $2',
-      [req.params.id, req.user.id]
+      'DELETE FROM trips WHERE id = $1 AND ($3 OR owner_id = $2)',
+      [req.params.id, req.user.id, admin]
     );
     if (!rowCount) return res.status(404).json({ error: 'הטיול לא נמצא' });
     res.json({ ok: true });
@@ -393,10 +606,90 @@ app.delete('/api/trips/:id', authRequired, async (req, res) => {
   }
 });
 
+// ---------- admin ----------
+// Trip publish/delete reuse the routes above (they already let an admin through),
+// so this section is only the read views plus promoting/demoting users.
+
+app.get('/api/admin/stats', authRequired, adminRequired, async (_req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT (SELECT count(*) FROM users)::int                      AS users,
+             (SELECT count(*) FROM trips)::int                      AS trips,
+             (SELECT count(*) FROM trips WHERE is_public)::int      AS public_trips,
+             (SELECT count(*) FROM trip_items)::int                 AS items,
+             (SELECT count(*) FROM users WHERE created_at > now() - interval '7 days')::int AS new_users,
+             (SELECT count(*) FROM trips WHERE created_at > now() - interval '7 days')::int AS new_trips`);
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+app.get('/api/admin/users', authRequired, adminRequired, async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    const { rows } = await pool.query(
+      `SELECT u.id, u.name, u.email, u.is_admin, u.created_at,
+              (SELECT count(*) FROM trips t WHERE t.owner_id = u.id)::int AS trip_count
+       FROM users u
+       WHERE $1 = '' OR u.name ILIKE $2 OR u.email ILIKE $2
+       ORDER BY u.id`,
+      [q, `%${q}%`]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+app.get('/api/admin/trips', authRequired, adminRequired, async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    const { rows } = await pool.query(
+      `SELECT t.id, t.title, t.destination, t.country, t.days, t.share_code, t.edit_code,
+              t.is_public, t.likes, t.emoji, t.created_at, t.owner_id,
+              u.name AS owner_name, u.email AS owner_email,
+              (SELECT count(*) FROM trip_items i WHERE i.trip_id = t.id)::int AS item_count
+       FROM trips t LEFT JOIN users u ON u.id = t.owner_id
+       WHERE $1 = '' OR t.title ILIKE $2 OR t.destination ILIKE $2 OR t.country ILIKE $2
+             OR t.share_code = $1 OR u.email ILIKE $2 OR u.name ILIKE $2
+       ORDER BY t.created_at DESC, t.id DESC
+       LIMIT 300`,
+      [q, `%${q}%`]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+app.patch('/api/admin/users/:id', authRequired, adminRequired, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const makeAdmin = !!(req.body || {}).is_admin;
+    // no self-demotion: locking yourself out of the panel needs a DB round trip to undo
+    if (id === req.user.id && !makeAdmin) {
+      return res.status(400).json({ error: 'אי אפשר להסיר הרשאות מנהל מעצמכם' });
+    }
+    const { rows } = await pool.query(
+      'UPDATE users SET is_admin = $1 WHERE id = $2 RETURNING id, name, email, is_admin',
+      [makeAdmin, id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'המשתמש לא נמצא' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
 // ---------- AI itinerary builder (OpenAI, server-side — the key never reaches the client) ----------
 
 const AI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-const AI_CATEGORIES = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבות', 'קניות', 'לינה', 'נוף', 'חיי לילה', 'תחבורה', 'היסטוריה', 'אמנות', 'עיר'];
+const AI_CATEGORIES = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבות', 'קניות', 'לינה', 'נוף', 'חיי לילה', 'נסיעה', 'היסטוריה', 'אמנות', 'עיר'];
 const aiUsage = new Map(); // userId → {date, count}
 const AI_DAILY_LIMIT = 20;
 
@@ -722,7 +1015,9 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
       ? Math.round(haversineKm(fromDest, toDest) / 10) * 10 : null;
     userMsg += `\nהמטיילים מגיעים ביום ${from} מ${destDescFull([fromDest || { name: transferFrom }])}` +
       (km ? ` (מרחק אווירי ~${km} ק"מ)` : '') +
-      ` — פתח את היום הזה בתחנת מעבר (קטגוריה: תחבורה) שמפרטת את אמצעי התחבורה וזמן נסיעה משוער בהערה. ` +
+      ` — חובה לפתוח את היום הזה בתחנת נסיעה (קטגוריה: נסיעה, בדיוק) שכותרתה מתארת את המעבר ואת אמצעי הנסיעה (למשל "רכבת מ${transferFrom} ל${area}") ` +
+      `והערתה מפרטת זמן נסיעה משוער. בחר אמצעי מציאותי לפי המרחק והאזור: רכבת / אוטובוס / טיסה פנימית / מעבורת / רכב שכור. ` +
+      `אסור לדלג על תחנת הנסיעה — בלעדיה הטיול "קופץ" בין ערים בלי הסבר. ` +
       `אם המטיילים ציינו העדפת תחבורה בתשובות ההבהרה — השתמש בה; אם בחרו לעצור במקומות בדרך, אפשר להוסיף עצירת ביניים שווה כתחנה נוספת באותו יום. ` +
       `אחרי המעבר תכנן יום קליל יותר.`;
   }
@@ -806,7 +1101,7 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
       ? `${area}, ${areaDest.country}` : area;
     const withContext = (q) => (q.includes(',') ? q : `${q}, ${contextSuffix}`.slice(0, 120));
     // hard-enforce the block's day range and area regardless of what the model wrote
-    return items
+    const cleaned = items
       .filter((it) => it && it.title && it.day_number >= from && it.day_number <= to)
       .map((it) => ({
         day_number: it.day_number,
@@ -817,6 +1112,24 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
         category: AI_CATEGORIES.includes(it.category) ? it.category : 'אטרקציה',
         area,
       }));
+    // travel stops are mandatory between areas: if the model skipped the נסיעה stop
+    // (or labeled it something else), synthesize one so the trip never teleports
+    if (transferFrom && !cleaned.some((it) => it.day_number === from && it.category === 'נסיעה')) {
+      const fromDest = dests.find((d) => d.name === transferFrom);
+      const toDest = dests.find((d) => d.name === area);
+      const km = fromDest && toDest && fromDest.lat != null && toDest.lat != null
+        ? Math.round(haversineKm(fromDest, toDest) / 10) * 10 : null;
+      cleaned.unshift({
+        day_number: from,
+        time_label: '08:00',
+        title: `נסיעה מ${transferFrom} ל${area}`,
+        note: km ? `מעבר בין אזורים (~${km} ק"מ אוויר) — בדקו מראש זמני יציאה וכרטיסים` : 'מעבר בין אזורים — בדקו מראש זמני יציאה וכרטיסים',
+        place_query: null,
+        category: 'נסיעה',
+        area,
+      });
+    }
+    return cleaned;
   } finally {
     clearTimeout(timer);
   }
@@ -829,7 +1142,10 @@ app.post('/api/ai/itinerary', authRequired, async (req, res) => {
     const today = new Date().toISOString().slice(0, 10);
     const usage = aiUsage.get(req.user.id);
     const used = usage && usage.date === today ? usage.count : 0;
-    if (used >= AI_DAILY_LIMIT) return res.status(429).json({ error: 'הגעתם למכסת בניות ה-AI היומית — נסו שוב מחר' });
+    // admins still get counted (the panel shows the number) but are never capped
+    if (used >= AI_DAILY_LIMIT && !(await isAdmin(req))) {
+      return res.status(429).json({ error: 'הגעתם למכסת בניות ה-AI היומית — נסו שוב מחר' });
+    }
 
     const { destinations, area, day_from, day_to, interests, notes, answers, want_description } = req.body || {};
     const interestList = (Array.isArray(interests) ? interests : [])
@@ -908,6 +1224,311 @@ app.post('/api/ai/itinerary', authRequired, async (req, res) => {
   }
 });
 
+// ---------- AI trip editor: one structured-diff call over the current itinerary ----------
+// The trip was built by several parallel structured calls (no stored transcript), and
+// manual edits diverge from it anyway — so each edit request sends a fresh, compact
+// snapshot of the CURRENT itinerary instead of replaying any "creation conversation".
+
+const AI_EDIT_DAILY_LIMIT = 3;
+const AI_EDIT_MAX_PROMPT = 100;
+const aiEditUsage = new Map(); // 'u<userId>' | 't<tripId>' → {date, count}
+
+async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNote = '', opsCap = 30 }) {
+  const areaNames = dests.map((d) => d.name);
+  const itemLines = items.map((it) =>
+    `#${it.id} | יום ${it.day_number} | ${it.time_label || '--:--'} | [${it.category || 'כללי'}] ${it.title}` +
+    (areaNames.length > 1 && it.area ? ` | אזור: ${it.area}` : '') +
+    (it.place_query ? ` | ${it.place_query}` : ''));
+  const userMsg =
+    `הטיול: "${title}" — ${dests.length ? destDescFull(dests) : destText}, ${days} ימים (1 עד ${days}).` +
+    `\nהמסלול הנוכחי (כל שורה: #מזהה | יום | שעה | [קטגוריה] כותרת | מקום):\n${itemLines.join('\n') || '(המסלול עדיין ריק)'}` +
+    (scopeNote ? `\n${scopeNote}` : '') +
+    `\n\nבקשת השינוי של המטיילים: "${prompt}"`;
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        model: AI_MODEL,
+        max_completion_tokens: 5000,
+        messages: [
+          {
+            role: 'system',
+            content: 'אתה עורך מסלולי טיולים. מקבל מסלול קיים ובקשת שינוי קצרה, ומחזיר אך ורק JSON לפי הסכמה: ops (רשימת פעולות) ו-summary (סיכום קצר וידידותי בעברית של מה ששינית). ' +
+              'כללים: שנה רק את מה שהתבקש ואל תיגע בשאר התחנות. אתה רשאי לשנות אך ורק תחנות מסלול (add/update/delete). ' +
+              'בקשות על תאריכים, תקציב, מלונות, תמונת נושא או כל דבר שאינו תחנות — החזר ops ריק והסבר ב-summary שדרך הקסם אפשר לשנות רק את תחנות המסלול. ' +
+              'אם הבקשה לא ברורה — החזר ops ריק ושאלת הבהרה קצרה ב-summary. ' +
+              'update/delete חייבים id של תחנה קיימת; ב-update החזר null בכל שדה שלא משתנה. ' +
+              'add חייב title קצר בעברית; note טיפ פרקטי קצר בעברית; time_label בפורמט HH:MM; ' +
+              'place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan"), ורק למקום אמיתי וספציפי שניתן למצוא בגוגל מפות — לתחנה כללית (כמו "ארוחת ערב" בלי מקום מוגדר) החזר null; ' +
+              `category מתוך: ${AI_CATEGORIES.join(', ')}` +
+              (areaNames.length > 1 ? `; area מתוך: ${areaNames.join(', ')}.` : '.'),
+          },
+          { role: 'user', content: userMsg },
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'trip_edit',
+            strict: true,
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['summary', 'ops'],
+              properties: {
+                summary: { type: 'string' },
+                ops: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['action', 'id', 'day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area'],
+                    properties: {
+                      action: { type: 'string', enum: ['add', 'update', 'delete'] },
+                      id: { type: ['integer', 'null'] },
+                      day_number: { type: ['integer', 'null'] },
+                      time_label: { type: ['string', 'null'] },
+                      title: { type: ['string', 'null'] },
+                      note: { type: ['string', 'null'] },
+                      place_query: { type: ['string', 'null'] },
+                      category: { type: ['string', 'null'] },
+                      area: { type: ['string', 'null'] },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    });
+    if (!aiRes.ok) {
+      const errBody = await aiRes.text().catch(() => '');
+      console.error('OpenAI ai-edit error', aiRes.status, errBody.slice(0, 300));
+      return null;
+    }
+    const data = await aiRes.json();
+    const parsed = JSON.parse(data.choices[0].message.content);
+    return {
+      summary: String(parsed.summary || '').slice(0, 300),
+      ops: Array.isArray(parsed.ops) ? parsed.ops.slice(0, opsCap) : [],
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+app.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'עריכת AI לא זמינה כרגע' });
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const prompt = String((req.body || {}).prompt || '').trim();
+    if (!prompt) return res.status(400).json({ error: 'כתבו מה לשנות במסלול' });
+    if (prompt.length > AI_EDIT_MAX_PROMPT) {
+      return res.status(400).json({ error: `הבקשה ארוכה מדי — עד ${AI_EDIT_MAX_PROMPT} תווים` });
+    }
+
+    // 3 AI edits a day: per user when logged in; edit-code editors have no identity,
+    // so they share a per-trip quota instead
+    const quotaKey = req.user ? 'u' + req.user.id : 't' + trip.id;
+    const today = new Date().toISOString().slice(0, 10);
+    const usage = aiEditUsage.get(quotaKey);
+    const used = usage && usage.date === today ? usage.count : 0;
+    if (used >= AI_EDIT_DAILY_LIMIT) {
+      return res.status(429).json({ error: 'ניצלתם את שלושת שינויי ה-AI להיום — אפשר להמשיך לערוך ידנית, או לנסות שוב מחר' });
+    }
+
+    const { rows: items } = await pool.query(
+      'SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
+    );
+    const result = await aiEditOps({
+      title: trip.title,
+      destText: trip.destination,
+      dests: Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [],
+      days: trip.days,
+      items,
+      prompt,
+    });
+    if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לעבד את הבקשה — נסו שוב עוד רגע' });
+    aiEditUsage.set(quotaKey, { date: today, count: used + 1 }); // the model call is the budgeted resource
+
+    const validIds = new Set(items.map((it) => it.id));
+    const clampDay = (d) => Math.min(Math.max(parseInt(d, 10) || 1, 1), trip.days);
+    const cleanTime = (t) => (/^\d{1,2}:\d{2}$/.test(t || '') ? t : null);
+    let added = 0, updated = 0, removed = 0;
+    await client.query('BEGIN');
+    for (const op of result.ops) {
+      if (op.action === 'delete' && validIds.has(op.id)) {
+        await client.query('DELETE FROM trip_items WHERE id = $1 AND trip_id = $2', [op.id, trip.id]);
+        removed++;
+      } else if (op.action === 'update' && validIds.has(op.id)) {
+        const sets = [];
+        const vals = [];
+        const add = (col, val) => { vals.push(val); sets.push(`${col} = $${vals.length}`); };
+        if (op.day_number != null) add('day_number', clampDay(op.day_number));
+        if (op.time_label != null) add('time_label', cleanTime(op.time_label));
+        if (op.title != null && String(op.title).trim()) add('title', String(op.title).slice(0, 200).trim());
+        if (op.note != null) add('note', String(op.note).slice(0, 300) || null);
+        if (op.place_query != null) {
+          add('place_query', String(op.place_query).slice(0, 120) || null);
+          // the stop moved somewhere else — stale coordinates would pin the old spot
+          add('lat', null);
+          add('lon', null);
+        }
+        if (op.category != null && AI_CATEGORIES.includes(op.category)) add('category', op.category);
+        if (op.area != null) add('area', String(op.area).slice(0, 80) || null);
+        if (sets.length) {
+          vals.push(op.id, trip.id);
+          await client.query(
+            `UPDATE trip_items SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND trip_id = $${vals.length}`, vals
+          );
+          updated++;
+        }
+      } else if (op.action === 'add' && op.title && String(op.title).trim()) {
+        await client.query(
+          `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))`,
+          [trip.id, clampDay(op.day_number), cleanTime(op.time_label), String(op.title).slice(0, 200).trim(),
+           op.note ? String(op.note).slice(0, 300) : null,
+           op.place_query ? String(op.place_query).slice(0, 120) : null,
+           AI_CATEGORIES.includes(op.category) ? op.category : 'אטרקציה',
+           op.area ? String(op.area).slice(0, 80) : null]
+        );
+        added++;
+      }
+    }
+    await client.query('COMMIT');
+
+    const fresh = await pool.query(
+      'SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
+    );
+    res.json({
+      summary: result.summary || 'בוצע',
+      added, updated, removed,
+      items: fresh.rows,
+      remaining: AI_EDIT_DAILY_LIMIT - used - 1,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  } finally {
+    client.release();
+  }
+});
+
+// draft edits: the plan wizard's itinerary lives only in the client, so the ops are
+// computed here (same model call, same daily quota) and applied by the browser.
+// An optional area + day range scopes the request — the integrated replacement for
+// the old "build a specific area" form, including full in-range rebuilds.
+app.post('/api/ai/edit-draft', authRequired, async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'עריכת AI לא זמינה כרגע' });
+    const b = req.body || {};
+    const prompt = String(b.prompt || '').trim();
+    if (!prompt) return res.status(400).json({ error: 'כתבו מה לשנות במסלול' });
+    if (prompt.length > AI_EDIT_MAX_PROMPT) {
+      return res.status(400).json({ error: `הבקשה ארוכה מדי — עד ${AI_EDIT_MAX_PROMPT} תווים` });
+    }
+    const dests = cleanDestinations(b.destinations);
+    if (!dests.length) return res.status(400).json({ error: 'חסרים יעדים' });
+    const days = Math.min(Math.max(parseInt(b.days, 10) || 1, 1), 60);
+    const cleanTime = (t) => (/^\d{1,2}:\d{2}$/.test(t || '') ? t : null);
+    const items = (Array.isArray(b.items) ? b.items : []).slice(0, 200).map((it) => ({
+      id: parseInt(it?.id, 10) || 0,
+      day_number: Math.min(Math.max(parseInt(it?.day_number, 10) || 1, 1), days),
+      time_label: cleanTime(it?.time_label),
+      title: String(it?.title || '').slice(0, 200),
+      note: it?.note ? String(it.note).slice(0, 300) : null,
+      place_query: it?.place_query ? String(it.place_query).slice(0, 120) : null,
+      category: AI_CATEGORIES.includes(it?.category) ? it.category : null,
+      area: it?.area ? String(it.area).slice(0, 80) : null,
+    })).filter((it) => it.id && it.title);
+
+    // optional scope: one area within a day range (multi-destination trips)
+    const areaNames = dests.map((d) => d.name);
+    const area = b.area && areaNames.includes(b.area) ? b.area : null;
+    let from = 1, to = days, scopeNote = '';
+    if (area) {
+      from = Math.min(Math.max(parseInt(b.day_from, 10) || 1, 1), days);
+      to = Math.min(Math.max(parseInt(b.day_to, 10) || days, from), days);
+      scopeNote = `החל את הבקשה אך ורק על אזור "${area}" בימים ${from} עד ${to}: ` +
+        `כל תחנה שתוסיף תהיה באזור הזה ובטווח הימים הזה (שדה area: "${area}"), ואל תיגע בתחנות מחוץ לטווח. ` +
+        `אם התבקשה בנייה מחדש — החלף את כל התחנות בטווח (מחיקות + הוספות), 3-4 תחנות ליום בסדר כרונולוגי.`;
+    }
+
+    const quotaKey = 'u' + req.user.id; // shared daily pool with the trip-page AI edits
+    const today = new Date().toISOString().slice(0, 10);
+    const usage = aiEditUsage.get(quotaKey);
+    const used = usage && usage.date === today ? usage.count : 0;
+    if (used >= AI_EDIT_DAILY_LIMIT) {
+      return res.status(429).json({ error: 'ניצלתם את שלושת שינויי ה-AI להיום — אפשר להמשיך לערוך ידנית, או לנסות שוב מחר' });
+    }
+
+    const result = await aiEditOps({
+      title: String(b.title || '').slice(0, 80) || 'טיול חדש',
+      destText: dests.map((d) => d.name).join(' · '),
+      dests, days, items, prompt, scopeNote,
+      opsCap: 60, // scoped rebuilds legitimately delete + re-add several days
+    });
+    if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לעבד את הבקשה — נסו שוב עוד רגע' });
+    aiEditUsage.set(quotaKey, { date: today, count: used + 1 });
+
+    // sanitize ops for the client: known ids, clamped days, scope enforced
+    const byId = new Map(items.map((it) => [it.id, it]));
+    const inScope = (day) => !area || (day >= from && day <= to);
+    const clampDay = (d, dflt) => Math.min(Math.max(parseInt(d, 10) || dflt, 1), days);
+    const ops = [];
+    for (const op of result.ops) {
+      if (op.action === 'delete') {
+        const target = byId.get(op.id);
+        if (target && inScope(target.day_number)) ops.push({ action: 'delete', id: op.id });
+      } else if (op.action === 'update') {
+        const target = byId.get(op.id);
+        if (!target || !inScope(target.day_number)) continue;
+        const day = op.day_number != null ? clampDay(op.day_number, target.day_number) : null;
+        if (day != null && !inScope(day)) continue;
+        ops.push({
+          action: 'update',
+          id: op.id,
+          day_number: day,
+          time_label: op.time_label != null ? cleanTime(op.time_label) : null,
+          title: op.title != null && String(op.title).trim() ? String(op.title).slice(0, 200).trim() : null,
+          note: op.note != null ? String(op.note).slice(0, 300) : null,
+          place_query: op.place_query != null ? String(op.place_query).slice(0, 120) : null,
+          category: op.category != null && AI_CATEGORIES.includes(op.category) ? op.category : null,
+          area: op.area != null ? String(op.area).slice(0, 80) : null,
+        });
+      } else if (op.action === 'add' && op.title && String(op.title).trim()) {
+        const day = clampDay(op.day_number, from);
+        if (!inScope(day)) continue;
+        ops.push({
+          action: 'add',
+          day_number: day,
+          time_label: cleanTime(op.time_label),
+          title: String(op.title).slice(0, 200).trim(),
+          note: op.note ? String(op.note).slice(0, 300) : null,
+          place_query: op.place_query ? String(op.place_query).slice(0, 120) : null,
+          category: AI_CATEGORIES.includes(op.category) ? op.category : 'אטרקציה',
+          area: op.area ? String(op.area).slice(0, 80) : (area || null),
+        });
+      }
+    }
+    res.json({ summary: result.summary || 'בוצע', ops, remaining: AI_EDIT_DAILY_LIMIT - used - 1 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
 // ---------- hotels (OSM Overpass, server-side with cache) ----------
 
 const hotelsCache = new Map(); // "lat,lon" → {at, data}
@@ -982,7 +1603,8 @@ const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({
 }[c]));
 let tripHtmlCache = null;
 app.get('/trip/:code', async (req, res) => {
-  if (!tripHtmlCache) {
+  // cache the page only in production — in dev, re-read so edits show up without a restart
+  if (!tripHtmlCache || process.env.NODE_ENV !== 'production') {
     tripHtmlCache = require('fs').readFileSync(path.join(__dirname, 'public', 'trip.html'), 'utf8');
   }
   let html = tripHtmlCache;
@@ -1013,5 +1635,6 @@ app.get('/trip/:code', async (req, res) => {
 });
 app.get('/plan', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'plan.html')));
 app.get('/my', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'my.html')));
+app.get('/admin', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 
 app.listen(PORT, () => console.log(`TRIPI running on http://localhost:${PORT}`));

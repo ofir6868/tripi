@@ -1,7 +1,7 @@
 // TRIPI service worker: cache-first for static assets, network-first for pages/API
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
-const CACHE = 'tripi-v2';
-const STATIC = ['/css/style.css', '/js/common.js', '/js/geo.js', '/js/home.js', '/js/trip.js', '/js/plan.js', '/icon.svg', '/manifest.json'];
+const CACHE = 'tripi-v6';
+const STATIC = ['/css/style.css', '/js/common.js', '/js/geo.js', '/js/home.js', '/js/trip.js', '/js/trip-modals.js', '/js/plan.js', '/icon.svg', '/manifest.json'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(STATIC)).then(() => self.skipWaiting()));

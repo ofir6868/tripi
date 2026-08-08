@@ -61,6 +61,68 @@ async function main() {
   await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION`);
   await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS lon DOUBLE PRECISION`);
 
+  console.log('Migration 6: hotels + budget + travel stops...');
+  await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS cost NUMERIC(10,2)`);
+  // "תחבורה" and "נסיעה" merged into a single travel category
+  const merged = await pool.query(`UPDATE trip_items SET category = 'נסיעה' WHERE category = 'תחבורה'`);
+  if (merged.rowCount) console.log(`  + ${merged.rowCount} transport stops renamed to נסיעה`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trip_budgets (
+      trip_id INT PRIMARY KEY REFERENCES trips(id) ON DELETE CASCADE,
+      total NUMERIC(12,2),
+      currency CHAR(3) NOT NULL DEFAULT 'ILS',
+      travelers INT NOT NULL DEFAULT 2,
+      updated_at TIMESTAMPTZ DEFAULT now()
+    )`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trip_hotels (
+      id SERIAL PRIMARY KEY,
+      trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      night_start INT NOT NULL,
+      night_end INT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'booked',
+      stars INT,
+      lat DOUBLE PRECISION,
+      lon DOUBLE PRECISION,
+      price_total NUMERIC(12,2),
+      link TEXT,
+      note TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    )`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trip_expenses (
+      id SERIAL PRIMARY KEY,
+      trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      amount NUMERIC(12,2) NOT NULL,
+      category TEXT NOT NULL DEFAULT 'אחר',
+      day_number INT,
+      paid_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_hotels_trip ON trip_hotels(trip_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_expenses_trip ON trip_expenses(trip_id)`);
+
+  console.log('Migration 7: admin users...');
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`);
+  // ADMIN_EMAILS (comma separated) promotes accounts on every run — the site owner is the default
+  const adminEmails = (process.env.ADMIN_EMAILS || 'ofiregev68@gmail.com')
+    .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+  if (adminEmails.length) {
+    const { rows } = await pool.query(
+      `UPDATE users SET is_admin = true WHERE email = ANY($1) AND is_admin = false RETURNING email`,
+      [adminEmails]
+    );
+    rows.forEach((r) => console.log(`  + ${r.email} promoted to admin`));
+    const missing = adminEmails.filter((e) => !rows.some((r) => r.email === e));
+    const { rows: already } = await pool.query(
+      `SELECT email FROM users WHERE email = ANY($1) AND is_admin = true`, [adminEmails]
+    );
+    missing.filter((e) => !already.some((a) => a.email === e))
+      .forEach((e) => console.log(`  ! no account found for ${e} — it will need promoting after signup`));
+  }
+
   console.log('Done.');
   await pool.end();
 }

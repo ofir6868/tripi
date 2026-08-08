@@ -177,12 +177,16 @@ const GEO = {
 
   // fill a container with a horizontal photo strip; removes it when nothing found
   async renderGallery(container, query) {
-    container.innerHTML = '<span class="skl skl-photo"></span>'.repeat(4);
+    container.innerHTML = '<span class="gal-ph skl"></span>'.repeat(4);
     const photos = await this.placePhotos(query);
     if (!photos.length) { container.remove(); return; }
-    container.innerHTML = photos.map((p, i) =>
-      `<img src="${p.thumb}" data-full="${p.full}" loading="lazy" alt="" onerror="this.remove()">`).join('');
+    // each photo keeps shimmering in its own slot and fades in once decoded — no empty boxes, no reflow
+    container.innerHTML = photos.map((p) =>
+      `<span class="gal-ph skl"><img src="${p.thumb}" data-full="${p.full}" loading="lazy" alt=""></span>`).join('');
     container.querySelectorAll('img').forEach((img) => {
+      const reveal = () => { img.classList.add('loaded'); img.parentElement.classList.remove('skl'); };
+      if (img.complete && img.naturalWidth) reveal(); else img.onload = reveal;
+      img.onerror = () => img.parentElement.remove();
       img.onclick = (e) => { e.stopPropagation(); TRIPI.openLightbox(img.dataset.full); };
     });
   },

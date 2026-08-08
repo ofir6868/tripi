@@ -452,17 +452,30 @@
     interestRow.appendChild(b);
   });
 
+  // the AI edit box replaces the old rebuild / build-by-area buttons; the area+days
+  // scope is integrated into it (multi-destination trips only)
+  const planAiArea = document.getElementById('plan-ai-area');
   function setupAiPanel() {
-    const byAreaBtn = document.getElementById('ai-by-area');
-    byAreaBtn.style.display = multiArea() ? '' : 'none';
-    if (!multiArea()) document.getElementById('ai-area-form').style.display = 'none';
-    const sel = document.getElementById('ai-area-sel');
-    sel.innerHTML = destinations.map((d) => `<option>${TRIPI.esc(d.name)}</option>`).join('');
-    const to = document.getElementById('ai-day-to');
-    const from = document.getElementById('ai-day-from');
-    from.max = to.max = +daysSel.value;
-    if (+to.value > +daysSel.value) to.value = daysSel.value;
+    document.getElementById('plan-ai-scope').style.display = multiArea() ? '' : 'none';
+    const prev = planAiArea.value;
+    planAiArea.innerHTML = '<option value="">כל הטיול</option>' +
+      destinations.map((d) => `<option>${TRIPI.esc(d.name)}</option>`).join('');
+    if ([...planAiArea.options].some((o) => o.value === prev)) planAiArea.value = prev;
+    syncAiScopeRange();
   }
+  // picking an area reveals its day range, pre-filled with where that area sits today
+  function syncAiScopeRange() {
+    const area = planAiArea.value;
+    document.getElementById('plan-ai-range').style.display = area ? '' : 'none';
+    if (!area) return;
+    const fromInp = document.getElementById('plan-ai-from');
+    const toInp = document.getElementById('plan-ai-to');
+    fromInp.max = toInp.max = +daysSel.value;
+    const areaDays = items.filter((it) => it.area === area).map((it) => it.day_number);
+    fromInp.value = areaDays.length ? Math.min(...areaDays) : 1;
+    toInp.value = areaDays.length ? Math.min(Math.max(...areaDays), +daysSel.value) : +daysSel.value;
+  }
+  planAiArea.onchange = syncAiScopeRange;
 
   // clarifying-questions dialog: fixed components (choice chips / free text),
   // shown only when the AI decided it truly needs the answer
@@ -477,8 +490,9 @@
           <div class="field aiq" data-i="${i}" data-q="${TRIPI.esc(q.question)}">
             <label>${TRIPI.esc(q.question)}</label>
             ${q.type === 'choice'
-              ? `<div class="aiq-opts">${q.options.map((o) => `<button type="button" class="day-tab aiq-opt">${TRIPI.esc(o)}</button>`).join('')}</div>`
-              : `<input type="text" class="aiq-text" maxlength="120" placeholder="התשובה שלכם…">`}
+              ? `<div class="aiq-opts">${q.options.map((o) => `<button type="button" class="day-tab aiq-opt">${TRIPI.esc(o)}</button>`).join('')}<button type="button" class="day-tab aiq-opt aiq-other">אחר…</button></div>
+                 <input type="text" class="aiq-text aiq-other-text" maxlength="120" placeholder="ספרו במילים שלכם (עד 15 מילים)…" hidden>`
+              : `<input type="text" class="aiq-text" maxlength="120" placeholder="התשובה שלכם (עד 15 מילים)…">`}
           </div>`).join('')}
         <div style="display:flex;gap:8px;margin-top:18px">
           <button class="btn btn-amber btn-lg" id="aiq-go" style="flex:1;justify-content:center">בונים את הטיול ✨</button>
@@ -486,20 +500,34 @@
         </div>
       </div>`;
     document.body.appendChild(wrap);
+    // free text is capped at 15 words (typing past the limit trims back)
+    const clampWords = (inp) => {
+      const words = inp.value.split(/\s+/).filter(Boolean);
+      if (words.length > 15) inp.value = words.slice(0, 15).join(' ');
+    };
+    wrap.querySelectorAll('.aiq-text').forEach((inp) => inp.addEventListener('input', () => clampWords(inp)));
     wrap.querySelectorAll('.aiq-opts').forEach((opts) => {
+      const otherText = opts.parentElement.querySelector('.aiq-other-text');
       opts.querySelectorAll('.aiq-opt').forEach((b) => {
         b.onclick = () => {
           opts.querySelectorAll('.aiq-opt').forEach((x) => x.classList.remove('active'));
           b.classList.add('active');
+          // "אחר" opens a free-text field; picking a regular option tucks it away
+          const isOther = b.classList.contains('aiq-other');
+          otherText.hidden = !isOther;
+          if (isOther) otherText.focus();
         };
       });
     });
     const finish = (collect) => {
       const answers = collect
-        ? [...wrap.querySelectorAll('.aiq')].map((f) => ({
-            question: f.dataset.q,
-            answer: f.querySelector('.aiq-opt.active')?.textContent || f.querySelector('.aiq-text')?.value.trim() || '',
-          })).filter((a) => a.answer)
+        ? [...wrap.querySelectorAll('.aiq')].map((f) => {
+            const act = f.querySelector('.aiq-opt.active');
+            const answer = act?.classList.contains('aiq-other')
+              ? f.querySelector('.aiq-other-text').value.trim()
+              : act?.textContent || f.querySelector('.aiq-text:not([hidden])')?.value.trim() || '';
+            return { question: f.dataset.q, answer };
+          }).filter((a) => a.answer)
         : [];
       wrap.remove();
       runAi({ ...payload, answers }, label, replaceRange); // answers present (even []) skips the question round
@@ -576,21 +604,90 @@
     if (items.length && !confirm(`הבנייה מחדש תחליף את כל ${items.length} התחנות הקיימות במסלול. להמשיך?`)) return;
     runAi({ day_from: 1, day_to: days }, 'את כל הטיול', { from: 1, to: days });
   }
-  document.getElementById('ai-full').onclick = fullBuild;    // step 3 primary CTA
-  document.getElementById('ai-rebuild').onclick = fullBuild; // step 4 rebuild
-  document.getElementById('ai-by-area').onclick = () => {
-    const f = document.getElementById('ai-area-form');
-    f.style.display = f.style.display === 'none' ? '' : 'none';
-  };
-  document.getElementById('ai-area-go').onclick = () => {
-    const area = document.getElementById('ai-area-sel').value;
-    const from = +document.getElementById('ai-day-from').value || 1;
-    const to = Math.min(+document.getElementById('ai-day-to').value || from, +daysSel.value);
-    if (to < from) { aiStatus.className = 'ai-status error'; aiStatus.textContent = '⚠️ טווח הימים הפוך'; return; }
-    const inRange = items.filter((it) => it.day_number >= from && it.day_number <= to).length;
-    if (inRange && !confirm(`הבנייה תחליף את ${inRange} התחנות הקיימות בימים ${from}–${to}. להמשיך?`)) return;
-    runAi({ area, day_from: from, day_to: to }, `את ${area}`, { from, to });
-  };
+  document.getElementById('ai-full').onclick = fullBuild; // step 3 primary CTA
+
+  // ---- step 4 AI edit box: free-text changes over the draft itinerary ----
+  const planAiInput = document.getElementById('plan-ai-input');
+  const planAiBtn = document.getElementById('plan-ai-btn');
+  const planAiCount = document.getElementById('plan-ai-count');
+  const planAiResult = document.getElementById('plan-ai-result');
+  planAiInput.addEventListener('input', () => { planAiCount.textContent = `${planAiInput.value.length}/100`; });
+  document.getElementById('plan-ai-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const prompt = planAiInput.value.trim();
+    if (!prompt || planAiBtn.disabled) return;
+    const go = async () => {
+      planAiBtn.disabled = true;
+      planAiInput.disabled = true;
+      const prevLabel = planAiBtn.textContent;
+      planAiBtn.textContent = 'רגע… ⏳';
+      planAiResult.hidden = true;
+      planAiResult.className = 'ai-edit-result';
+      try {
+        const area = multiArea() ? planAiArea.value || null : null;
+        const r = await TRIPI.api('/api/ai/edit-draft', {
+          method: 'POST',
+          body: JSON.stringify({
+            title: titleInput.value.trim() || null,
+            destinations,
+            days: +daysSel.value,
+            items: items.map((it) => ({
+              id: it._id, day_number: it.day_number, time_label: it.time_label, title: it.title,
+              note: it.note, place_query: it.place_query, category: it.category, area: it.area,
+            })),
+            prompt,
+            area,
+            day_from: area ? +document.getElementById('plan-ai-from').value || 1 : null,
+            day_to: area ? +document.getElementById('plan-ai-to').value || +daysSel.value : null,
+          }),
+        });
+        let added = 0, updated = 0, removed = 0;
+        for (const op of r.ops) {
+          if (op.action === 'delete') {
+            const before = items.length;
+            items = items.filter((it) => it._id !== op.id);
+            removed += before - items.length;
+          } else if (op.action === 'update') {
+            const it = items.find((x) => x._id === op.id);
+            if (!it) continue;
+            if (op.day_number != null) it.day_number = op.day_number;
+            if (op.time_label != null) it.time_label = op.time_label;
+            if (op.title != null) it.title = op.title;
+            if (op.note != null) it.note = op.note;
+            if (op.place_query != null) { it.place_query = op.place_query; it.lat = null; it.lon = null; }
+            if (op.category != null) it.category = op.category;
+            if (op.area != null) it.area = op.area;
+            updated++;
+          } else if (op.action === 'add') {
+            items.push({
+              _id: idSeq++, day_number: op.day_number, time_label: op.time_label, title: op.title,
+              note: op.note, place_query: op.place_query, category: op.category, area: op.area,
+              lat: null, lon: null,
+            });
+            added++;
+          }
+        }
+        items.sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')));
+        buildDayTabs();
+        scheduleSave();
+        const changed = added + updated + removed > 0;
+        planAiResult.classList.add(changed ? 'ok' : 'info');
+        planAiResult.textContent = r.summary +
+          (r.remaining > 0 ? ` · נותרו ${r.remaining} שינויי AI להיום` : ' · זה היה שינוי ה-AI האחרון להיום');
+        if (changed) { planAiInput.value = ''; planAiCount.textContent = '0/100'; }
+      } catch (err) {
+        planAiResult.classList.add('err');
+        planAiResult.textContent = err.message;
+      } finally {
+        planAiResult.hidden = false;
+        planAiBtn.disabled = false;
+        planAiInput.disabled = false;
+        planAiBtn.textContent = prevLabel;
+      }
+    };
+    if (!TRIPI.user) openAuthModal(go, 'register');
+    else go();
+  });
 
   // ---- create ----
   let creatingTrip = false; // double-tap on the create button must not create two trips
@@ -623,13 +720,21 @@
     };
     try {
       const trip = await TRIPI.api('/api/trips', { method: 'POST', body: JSON.stringify(payload) });
-      document.getElementById('new-code').textContent = trip.share_code;
+      const newCode = document.getElementById('new-code');
+      newCode.textContent = trip.share_code;
+      newCode.classList.add('copyable');
+      newCode.title = 'לחיצה מעתיקה את קוד הטיול';
       document.getElementById('new-title').textContent = `${trip.emoji || ''} ${trip.title}`;
       document.getElementById('view-trip').href = '/trip/' + trip.share_code;
-      document.getElementById('copy-new-code').onclick = async () => {
-        await navigator.clipboard.writeText(trip.share_code).catch(() => {});
+      const tripLink = location.origin + '/trip/' + trip.share_code;
+      document.getElementById('wa-share-new').onclick = () => {
+        const text = `${trip.emoji || '🧭'} ${trip.title}\n${tripLink}`;
+        window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
+      };
+      document.getElementById('copy-new-link').onclick = async () => {
+        await TRIPI.copy(tripLink);
         const f = document.getElementById('new-feedback');
-        f.textContent = 'הקוד הועתק! ✓';
+        f.textContent = 'הקישור הועתק! ✓';
         setTimeout(() => { f.textContent = ''; }, 2200);
       };
       goStep(5);

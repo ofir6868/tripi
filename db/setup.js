@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
+  is_admin BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -48,12 +49,53 @@ CREATE TABLE IF NOT EXISTS trip_items (
   area TEXT,
   lat DOUBLE PRECISION,
   lon DOUBLE PRECISION,
+  cost NUMERIC(10,2),
   sort_order INT DEFAULT 0
+);
+
+-- one shared budget per trip; NULL total = "sum only" mode (no cap, no alerts)
+CREATE TABLE IF NOT EXISTS trip_budgets (
+  trip_id INT PRIMARY KEY REFERENCES trips(id) ON DELETE CASCADE,
+  total NUMERIC(12,2),
+  currency CHAR(3) NOT NULL DEFAULT 'ILS',
+  travelers INT NOT NULL DEFAULT 2,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- night N = sleeping between day N and day N+1 (nights 1..days-1)
+CREATE TABLE IF NOT EXISTS trip_hotels (
+  id SERIAL PRIMARY KEY,
+  trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  night_start INT NOT NULL,
+  night_end INT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'booked',
+  stars INT,
+  lat DOUBLE PRECISION,
+  lon DOUBLE PRECISION,
+  price_total NUMERIC(12,2),
+  link TEXT,
+  note TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- actual spending log (quick-add) — planned estimates live on trip_items.cost
+CREATE TABLE IF NOT EXISTS trip_expenses (
+  id SERIAL PRIMARY KEY,
+  trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  amount NUMERIC(12,2) NOT NULL,
+  category TEXT NOT NULL DEFAULT 'אחר',
+  day_number INT,
+  paid_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_trips_share_code ON trips(share_code);
 CREATE INDEX IF NOT EXISTS idx_trips_public ON trips(is_public);
 CREATE INDEX IF NOT EXISTS idx_items_trip ON trip_items(trip_id);
+CREATE INDEX IF NOT EXISTS idx_hotels_trip ON trip_hotels(trip_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_trip ON trip_expenses(trip_id);
 `;
 
 const U = (id, w = 1200) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=${w}&q=80`;
@@ -130,7 +172,7 @@ const TRIPS = [
     items: [
       { day: 1, time: '12:00', title: 'הגעה לקוסמוי', note: 'מעבורת או טיסה פנימית מבנגקוק', place: 'Koh Samui', cat: 'לינה' },
       { day: 2, time: '10:00', title: 'חוף צ׳אוונג', note: 'החוף המרכזי — ג׳ט סקי ושמש', place: 'Chaweng Beach', cat: 'ים' },
-      { day: 3, time: '09:00', title: 'מעבורת לקופנגן', note: 'כ-30 דקות שיט', place: 'Koh Phangan', cat: 'תחבורה' },
+      { day: 3, time: '09:00', title: 'מעבורת לקופנגן', note: 'כ-30 דקות שיט', place: 'Koh Phangan', cat: 'נסיעה' },
       { day: 3, time: '16:00', title: 'שקיעה בזן ביץ׳', note: 'החוף הכי רגוע באי', place: 'Zen Beach Koh Phangan', cat: 'ים' },
       { day: 4, time: '10:00', title: 'מפל פאנג', note: 'טרק קצר ובריכה טבעית', place: 'Phaeng Waterfall', cat: 'טבע' },
       { day: 5, time: '11:00', title: 'בוטל ביץ׳', note: 'מגיעים בסירה או בטרק — גן עדן קטן', place: 'Bottle Beach Koh Phangan', cat: 'ים' },
