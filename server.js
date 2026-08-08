@@ -1745,7 +1745,7 @@ app.get('/trip/:code', async (req, res) => {
   let html = tripHtmlCache;
   try {
     const { rows } = await pool.query(
-      'SELECT title, destination, description, cover_image, days, share_code, emoji FROM trips WHERE share_code = $1',
+      'SELECT title, destination, description, cover_image, days, start_date, destinations, share_code, emoji FROM trips WHERE share_code = $1',
       [req.params.code]
     );
     const t = rows[0];
@@ -1764,6 +1764,16 @@ app.get('/trip/:code', async (req, res) => {
   <meta name="description" content="${escapeHtml(desc)}">`;
       html = html
         .replace('<title>טיול · TRIPI</title>', `<title>${escapeHtml(title)}</title>${og}`);
+
+      // trips longer than a week open in the calendar view — tell the page how many
+      // days, which weekday day 1 falls on, and whether its cells carry an area
+      // stripe, so the placeholder is the right shape before the trip is fetched
+      if (t.days > 7) {
+        const dow = t.start_date ? ` data-skl-dow="${new Date(t.start_date).getDay()}"` : '';
+        const dests = Array.isArray(t.destinations) ? t.destinations.filter((d) => d && d.name) : [];
+        const areas = dests.length > 1 ? ` data-skl-areas="${dests.length}"` : '';
+        html = html.replace('<div id="days-container">', `<div id="days-container" data-skl-days="${t.days}"${dow}${areas}>`);
+      }
     }
   } catch { /* serve the plain page on any error */ }
   res.type('html').send(html);

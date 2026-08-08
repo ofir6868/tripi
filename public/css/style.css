@@ -1032,6 +1032,30 @@ body::after {
 }
 .skl-expand .skl { width: 104px; height: .72em; }
 
+/* calendar placeholder (long trips): the real toolbar, month grid and cell metrics */
+.skl-cal-seg { width: 201px; height: 45px; border-radius: 999px; }
+.skl-cal-title { width: 168px; height: 15px; }
+.skl-cal-fs { width: 105px; height: 36px; border-radius: 999px; }
+.skl-legend { height: 17px; align-items: center; }
+.skl-cl-name { width: 54px; height: 11px; border-radius: 4px; }
+.skl-dow-row { height: 17px; align-items: center; }
+.skl-cal-dow { width: 22px; height: 12px; margin-inline: auto; border-radius: 4px; }
+.skl-cell { pointer-events: none; --area-c: rgba(255, 255, 255, .14); }
+.skl-cell .cc-head { height: 20px; align-items: center; }
+.skl-cc-num { width: 18px; height: 13px; border-radius: 4px; }
+.skl-cc-area { width: 62%; height: 9px; border-radius: 4px; }
+.skl-cc-evt { display: block; height: 23px; border-radius: 7px; }
+.skl-cc-evt:nth-child(2) { width: 78%; }
+.skl-cc-evt:nth-child(3) { width: 60%; }
+.skl-cc-more { width: 46px; height: 9px; border-radius: 4px; }
+/* phones stack the toolbar and shrink the month cell to number + dots (see .cal-evt below) */
+@media (max-width: 640px) {
+  .skl-cal-fs { width: auto; align-self: stretch; }
+  .skl-cc-evt { display: none; }
+  .skl-cell .cc-dots i { background: rgba(255, 255, 255, .18); }
+}
+.skl-cal-hint { width: 190px; height: 12px; }
+
 /* ticket code — the .code line box holds the height */
 .skl-code { width: 168px; height: .58em; border-radius: 10px; }
 

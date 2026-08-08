@@ -15,6 +15,57 @@
     history.replaceState(null, '', location.pathname); // the token shouldn't linger in the address bar
   }
   let inviteToken = savedInvites[code] || null;
+
+  // A long trip opens as a calendar for everyone who can't edit it, so the list-shaped
+  // placeholder in the HTML is the wrong shape for it. The server marks the day count on
+  // the container when the trip is a long one — enough to lay the month grid out before
+  // the fetch. Which shape a trip settled on is remembered (rememberShape below), because
+  // edit rights only come back with the trip itself; until then a signed-out visitor is
+  // the one case we can be sure about.
+  const savedShapes = JSON.parse(localStorage.getItem('tripi_view_shapes') || '{}');
+  function rememberShape(shape) {
+    if (savedShapes[code] === shape) return;
+    savedShapes[code] = shape;
+    localStorage.setItem('tripi_view_shapes', JSON.stringify(savedShapes));
+  }
+  (function calendarPlaceholder() {
+    const container = document.getElementById('days-container');
+    const days = +container.dataset.sklDays;
+    if (!days) return;
+    const opensAsCalendar = savedShapes[code] ? savedShapes[code] === 'calendar' : !TRIPI.user;
+    if (!opensAsCalendar) return;
+    const dow = container.dataset.sklDow; // weekday of day 1 — absent on trips without dates
+    const areaCount = +container.dataset.sklAreas || 0; // destinations, when the trip has more than one
+    const area = areaCount ? '<span class="cc-area"><span class="skl skl-cc-area"></span></span>' : '';
+    // a month cell shows at most three stops, then a "+N more" line
+    const cells = Array.from({ length: days }, (_, i) => `
+      <div class="cal-cell skl-cell${area ? ' has-area' : ''}"${i === 0 && dow ? ` style="grid-column-start:${+dow + 1}"` : ''}>
+        <span class="cc-head"><span class="skl skl-cc-num"></span></span>
+        ${area}
+        <span class="cc-evts">
+          ${'<span class="skl skl-cc-evt"></span>'.repeat(3)}
+          <span class="cc-more"><span class="skl skl-cc-more"></span></span>
+        </span>
+        <span class="cc-dots">${'<i></i>'.repeat(3)}</span>
+      </div>`).join('');
+    container.innerHTML = `
+      <div class="cal-wrap">
+        <div class="cal-toolbar">
+          <span class="skl skl-cal-seg"></span>
+          <span class="cal-title"><span class="skl skl-cal-title"></span></span>
+          <span class="skl skl-cal-fs"></span>
+        </div>
+        <div class="cal-body">
+          ${areaCount ? `<div class="cal-legend skl-legend">${
+            '<span class="cl-item"><i class="skl"></i><span class="skl skl-cl-name"></span></span>'.repeat(areaCount)
+          }</div>` : ''}
+          ${dow ? `<div class="cal-dow-row skl-dow-row">${'<span class="skl skl-cal-dow"></span>'.repeat(7)}</div>` : ''}
+          <div class="cal-grid">${cells}</div>
+          <div class="cal-hint"><span class="skl skl-cal-hint"></span></div>
+        </div>
+      </div>`;
+  })();
+
   let editMode = false;
   let canEditHeaders = null; // truthy = edit calls allowed (auth rides on the JWT)
 
@@ -122,9 +173,11 @@
     function renderItinerary() {
       // the editing UI lives in the list, so edit mode falls back to it
       if (longTrip && !editMode) {
+        rememberShape('calendar'); // so the next visit starts on a calendar-shaped placeholder
         TripCalendar.render(container, { trip, state, dayDate, weather: () => weatherByDate });
         return;
       }
+      if (longTrip) rememberShape('list');
       TripCalendar.exitFull(); // the list can't live inside the fullscreen calendar
       renderListView();
     }
