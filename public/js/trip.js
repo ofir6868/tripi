@@ -86,7 +86,48 @@
       return d;
     };
 
+    // ---- view mode: long trips open as a calendar, with a toggle back to the list ----
+    const savedViewModes = JSON.parse(localStorage.getItem('tripi_view_modes') || '{}');
+    const longTrip = trip.days > 7;
+    let viewMode = longTrip ? (savedViewModes[trip.share_code] || 'calendar') : 'list';
+    const viewToggle = document.getElementById('view-toggle');
+    if (longTrip) {
+      viewToggle.innerHTML = `
+        <div class="seg view-seg">
+          <button type="button" data-v="calendar">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
+            לוח שנה
+          </button>
+          <button type="button" data-v="list">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            רשימה
+          </button>
+        </div>`;
+      viewToggle.querySelectorAll('button').forEach((b) => {
+        b.onclick = () => {
+          viewMode = b.dataset.v;
+          savedViewModes[trip.share_code] = viewMode;
+          localStorage.setItem('tripi_view_modes', JSON.stringify(savedViewModes));
+          renderItinerary();
+        };
+      });
+    }
+
+    // every existing call site funnels through here, so both views stay fresh
     function renderItinerary() {
+      if (longTrip) {
+        // the editing UI lives in the list — the toggle hides while editing
+        viewToggle.style.display = editMode ? 'none' : '';
+        viewToggle.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === viewMode));
+      }
+      if (viewMode === 'calendar' && !editMode) {
+        TripCalendar.render(container, { trip, state, dayDate, weather: () => weatherByDate });
+        return;
+      }
+      renderListView();
+    }
+
+    function renderListView() {
       const byDay = new Map();
       for (let d = 1; d <= (editMode ? trip.days : 0); d++) byDay.set(d, []); // edit mode shows all days
       for (const it of tripItems) {
