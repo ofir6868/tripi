@@ -7,13 +7,6 @@
       "runtimeArgs": ["server.js"],
       "port": 3000,
       "autoPort": true
-    },
-    {
-      "name": "tripi-calendar-branch",
-      "runtimeExecutable": "node",
-      "runtimeArgs": [".claude/worktrees/long-trips-calendar-view-7af436/server.js"],
-      "port": 3100,
-      "autoPort": true
     }
   ]
 }

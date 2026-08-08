@@ -1241,7 +1241,9 @@ body:has(.join-banner) { padding-bottom: 92px; }
   #wa-share, #copy-code, #copy-link, .copy-feedback, .join-banner, .dest-switcher,
   .map-card, .hotels-card, #hotels-card, .add-item-inline, .item-del, .inline-item-form,
   .modal-backdrop, .hero-bg, .hero-veil, .item-expand-btn, .ai-edit-card,
-  .view-toggle, .cal-toolbar, .cal-day-strip, .cal-hint { display: none !important; }
+  .cal-toolbar, .cal-day-strip, .cal-hint { display: none !important; }
+  /* printing from fullscreen: the calendar prints as a normal block, not a fixed overlay */
+  .cal-wrap.cal-full { position: static !important; padding: 0 !important; background: none !important; }
   .trip-hero { min-height: auto; padding: 20px 0; }
   .trip-hero h1, .trip-hero .crumb { color: #111; text-shadow: none; }
   .trip-layout { display: block; width: 100%; }
@@ -1695,17 +1697,41 @@ body:has(.join-banner) { padding-bottom: 92px; }
    Calendar view (long trips): month / week / day + stop modal
    ============================================================ */
 
-.view-toggle { margin-top: 18px; }
-.view-seg { width: 100%; max-width: 360px; margin: 0 auto; }
-.view-seg button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
-
 .cal-wrap { margin-top: 18px; }
 .cal-toolbar {
   display: flex; align-items: center; justify-content: space-between;
   gap: 10px; flex-wrap: wrap; margin-bottom: 14px;
 }
 .cal-seg button { padding: 8px 16px; flex: 0 1 auto; }
-.cal-title { font-family: var(--font-display); font-size: 1.1rem; color: var(--paper-dim); }
+.cal-title { font-family: var(--font-display); font-size: 1.1rem; color: var(--paper-dim); flex: 1; }
+.cal-fs-btn {
+  display: inline-flex; align-items: center; gap: 7px; flex: none; cursor: pointer;
+  padding: 8px 14px; border-radius: 999px; color: var(--paper-dim);
+  border: 1px solid var(--glass-border); background: var(--glass);
+  font-family: var(--font-body); font-weight: 700; font-size: .86rem;
+  transition: background .18s ease, color .18s ease, border-color .18s ease;
+}
+.cal-fs-btn:hover { background: var(--glass-strong); color: var(--amber); border-color: rgba(255, 180, 95, .4); }
+.cal-fs-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+/* ---- fullscreen calendar: covers the page, scrolls on its own ---- */
+body.cal-full-open { overflow: hidden; }
+.cal-wrap.cal-full {
+  position: fixed; inset: 0; z-index: 300; margin: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: 18px clamp(14px, 3vw, 34px) calc(28px + env(safe-area-inset-bottom));
+  background: rgba(8, 18, 15, .97);
+  -webkit-backdrop-filter: blur(18px) saturate(140%); backdrop-filter: blur(18px) saturate(140%);
+  animation: calFullIn .22s ease;
+}
+.cal-wrap.cal-full .cal-toolbar {
+  position: sticky; top: -18px; z-index: 2; margin: -18px 0 14px; padding: 18px 0 12px;
+  background: linear-gradient(180deg, rgba(8, 18, 15, .99) 72%, transparent);
+}
+.cal-wrap.cal-full .cal-fs-btn { color: var(--amber); border-color: rgba(255, 180, 95, .4); }
+/* the extra height is the whole point — let the month grid use it */
+.cal-wrap.cal-full .cal-cell { min-height: clamp(96px, 12vh, 150px); }
+@keyframes calFullIn { from { opacity: 0; } to { opacity: 1; } }
 
 .cal-nav { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 12px; }
 .cal-nav-btn {
@@ -1849,6 +1875,7 @@ body:has(.join-banner) { padding-bottom: 92px; }
 @media (max-width: 640px) {
   .cal-toolbar { flex-direction: column; align-items: stretch; }
   .cal-title { text-align: center; order: -1; }
+  .cal-fs-btn { justify-content: center; }
   .cal-grid, .cal-dow-row { gap: 4px; }
   /* month cells shrink to number + dots; the day view carries the detail */
   .cal-cell { min-height: 58px; padding: 5px 6px; gap: 4px; border-radius: 11px; }

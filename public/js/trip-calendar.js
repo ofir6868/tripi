@@ -11,8 +11,9 @@ const TripCalendar = (() => {
   };
 
   // anchor = the trip day the day/week views center on; survives re-renders
-  const view = { mode: 'month', anchor: 0 };
+  const view = { mode: 'month', anchor: 0, full: false };
   let lastContainer = null;
+  let lastCtx = null;
 
   const AREA_COLORS = ['#ffb45f', '#8fd8c4', '#c9a7ff', '#7fb8ff', '#ff9db1', '#ffd166'];
 
@@ -37,6 +38,21 @@ const TripCalendar = (() => {
 
   const chevPrev = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';  // points right = back in RTL
   const chevNext = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>'; // points left = forward in RTL
+  const icExpand = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>';
+  const icShrink = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>';
+
+  // fullscreen: the calendar covers the page (own scroll), Esc brings it back
+  function setFull(on) {
+    view.full = on;
+    document.body.classList.toggle('cal-full-open', on);
+    render(lastContainer, lastCtx);
+  }
+
+  // the list view replaces the calendar's markup (edit mode) — drop the page lock with it
+  function exitFull() {
+    view.full = false;
+    document.body.classList.remove('cal-full-open');
+  }
 
   function currentTripDay(ctx) {
     if (!ctx.trip.start_date) return null;
@@ -63,11 +79,12 @@ const TripCalendar = (() => {
 
   function render(container, ctx) {
     lastContainer = container;
+    lastCtx = ctx;
     if (!view.anchor) view.anchor = currentTripDay(ctx) || 1;
     view.anchor = Math.min(Math.max(view.anchor, 1), ctx.trip.days);
 
     container.innerHTML = `
-      <div class="cal-wrap">
+      <div class="cal-wrap${view.full ? ' cal-full' : ''}">
         <div class="cal-toolbar">
           <div class="seg cal-seg">
             <button type="button" data-v="day" class="${view.mode === 'day' ? 'active' : ''}">יומי</button>
@@ -75,12 +92,28 @@ const TripCalendar = (() => {
             <button type="button" data-v="month" class="${view.mode === 'month' ? 'active' : ''}">חודשי</button>
           </div>
           <div class="cal-title">${calTitle(ctx)}</div>
+          <button type="button" class="cal-fs-btn" aria-pressed="${view.full}"
+            title="${view.full ? 'יציאה ממסך מלא (Esc)' : 'הגדלה למסך מלא'}"
+            aria-label="${view.full ? 'יציאה ממסך מלא' : 'הגדלה למסך מלא'}">
+            ${view.full ? icShrink : icExpand}
+            <span>${view.full ? 'יציאה ממסך מלא' : 'מסך מלא'}</span>
+          </button>
         </div>
         <div class="cal-body"></div>
       </div>`;
     container.querySelectorAll('.cal-seg button').forEach((b) => {
       b.onclick = () => { view.mode = b.dataset.v; render(container, ctx); };
     });
+    container.querySelector('.cal-fs-btn').onclick = () => setFull(!view.full);
+    // one listener for the page: Esc closes fullscreen, unless a stop modal is open on top
+    if (!render.escBound) {
+      render.escBound = true;
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || !view.full) return;
+        if (document.getElementById('stop-modal')?.classList.contains('open')) return;
+        setFull(false);
+      });
+    }
 
     const body = container.querySelector('.cal-body');
     if (view.mode === 'month') renderMonth(body, ctx);
@@ -323,5 +356,5 @@ const TripCalendar = (() => {
     wrap.classList.add('open');
   }
 
-  return { render };
+  return { render, exitFull };
 })();
