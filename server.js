@@ -666,6 +666,66 @@ app.get('/api/admin/trips', authRequired, adminRequired, async (req, res) => {
   }
 });
 
+// quick-add from the users table: the admin creates the account, no email round trip.
+// Leaving the password blank mints a temporary one and returns it once, so the admin
+// has something to hand over — it is never recoverable afterwards.
+app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
+  try {
+    const { name, email, password, is_admin } = req.body || {};
+    if (!name || !name.trim()) return res.status(400).json({ error: 'צריך שם' });
+    if (!email || !email.trim()) return res.status(400).json({ error: 'צריך אימייל' });
+    if (password && password.length < 6) {
+      return res.status(400).json({ error: 'הסיסמה חייבת להכיל לפחות 6 תווים' });
+    }
+    const generated = password ? null : require('crypto').randomBytes(6).toString('base64url');
+    const hash = await bcrypt.hash(password || generated, 10);
+    const { rows } = await pool.query(
+      `INSERT INTO users (name, email, password_hash, is_admin) VALUES ($1, lower($2), $3, $4)
+       RETURNING id, name, email, is_admin, created_at`,
+      [name.trim(), email.trim(), hash, !!is_admin]
+    );
+    res.json({ ...rows[0], trip_count: 0, temp_password: generated });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'כתובת האימייל כבר רשומה במערכת' });
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// Deleting a user leaves their trips standing but ownerless (trips.owner_id is
+// ON DELETE SET NULL) — ?trips=delete removes those trips too, which cascades to
+// their stops, hotels and expenses.
+app.delete('/api/admin/users/:id', authRequired, adminRequired, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const id = parseInt(req.params.id, 10);
+    // deleting your own account mid-session would leave the panel authenticated as a ghost
+    if (id === req.user.id) return res.status(400).json({ error: 'אי אפשר למחוק את המשתמש שלכם' });
+
+    const dropTrips = req.query.trips === 'delete';
+    await client.query('BEGIN');
+    const { rows: found } = await client.query('SELECT id, name, email FROM users WHERE id = $1', [id]);
+    if (!found[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'המשתמש לא נמצא' });
+    }
+    const { rowCount: owned } = await client.query('SELECT 1 FROM trips WHERE owner_id = $1', [id]);
+    let tripsDeleted = 0;
+    if (dropTrips && owned) {
+      ({ rowCount: tripsDeleted } = await client.query('DELETE FROM trips WHERE owner_id = $1', [id]));
+    }
+    await client.query('DELETE FROM users WHERE id = $1', [id]);
+    await client.query('COMMIT');
+    res.json({ ok: true, trips_deleted: tripsDeleted, trips_orphaned: dropTrips ? 0 : owned });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  } finally {
+    client.release();
+  }
+});
+
 app.patch('/api/admin/users/:id', authRequired, adminRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
