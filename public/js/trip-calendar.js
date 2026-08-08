@@ -315,7 +315,9 @@ const TripCalendar = (() => {
               ${it.note ? `<span class="cd-note">${esc(it.note)}</span>` : ''}
             </span>
             <svg class="ic cd-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
-          </button>`).join('') || '<div class="empty-day" style="border-radius:var(--radius-sm)">יום פנוי — זמן לאלתורים 🌴</div>'}
+          </button>`).join('') || `<div class="empty-day" style="border-radius:var(--radius-sm)">${
+            ctx.canEdit ? 'יום פנוי — מוסיפים תחנה למטה ↓' : 'יום פנוי — זמן לאלתורים 🌴'}</div>`}
+        ${ctx.canEdit ? `<button type="button" class="add-item-inline cal-add-stop">+ הוספת תחנה ליום ${d}</button>` : ''}
       </div>`;
 
     body.querySelector('.cds-btn.active')?.scrollIntoView({ block: 'nearest', inline: 'center' });
@@ -325,52 +327,240 @@ const TripCalendar = (() => {
     body.querySelectorAll('.cal-devt').forEach((b) => {
       b.onclick = () => openStop(ctx, +b.dataset.item);
     });
+    const addBtn = body.querySelector('.cal-add-stop');
+    if (addBtn) addBtn.onclick = () => openNewStop(ctx, d);
   }
 
   // ---------- stop details modal (bottom sheet on phones) ----------
+  // Two faces of the same sheet: the details, and — for participants — a form over
+  // every field of the stop. Tapping any detail opens the form focused on it, so
+  // "fix the time" is one tap, not a hunt through a settings screen.
+
+  const CATS = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבות', 'קניות', 'לינה', 'נוף', 'חיי לילה', 'נסיעה'];
+  const icPencil = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+  const icTrash = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+
+  // `dirty` = the form has unsaved keystrokes; a stray backdrop tap then asks first
+  const sheet = { dirty: false };
+
+  function closeStop(force) {
+    const wrap = document.getElementById('stop-modal');
+    if (!wrap) return;
+    if (sheet.dirty && !force && !confirm('יש שינויים שלא נשמרו. לסגור בכל זאת?')) return;
+    sheet.dirty = false;
+    wrap.classList.remove('open');
+  }
+
+  function stopSheet() {
+    let wrap = document.getElementById('stop-modal');
+    if (wrap) return wrap;
+    wrap = document.createElement('div');
+    wrap.id = 'stop-modal';
+    wrap.className = 'modal-backdrop sheet';
+    wrap.innerHTML = `
+      <div class="modal glass modal-stop">
+        <div class="sheet-grab" aria-hidden="true"></div>
+        <button class="modal-close" aria-label="סגירה">✕</button>
+        <div class="sm-body"></div>
+      </div>`;
+    document.body.appendChild(wrap);
+    wrap.querySelector('.modal-close').onclick = () => closeStop();
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) closeStop(); });
+    // Esc closes the sheet before the fullscreen calendar behind it (which checks
+    // for an open sheet and stands down)
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && wrap.classList.contains('open')) closeStop();
+    });
+    return wrap;
+  }
 
   function openStop(ctx, itemId) {
     const it = ctx.state.items.find((x) => x.id === itemId);
     if (!it) return;
-    let wrap = document.getElementById('stop-modal');
-    if (!wrap) {
-      wrap = document.createElement('div');
-      wrap.id = 'stop-modal';
-      wrap.className = 'modal-backdrop sheet';
-      wrap.innerHTML = `
-        <div class="modal glass modal-stop">
-          <div class="sheet-grab" aria-hidden="true"></div>
-          <button class="modal-close" aria-label="סגירה">✕</button>
-          <div class="sm-body"></div>
-        </div>`;
-      document.body.appendChild(wrap);
-      wrap.querySelector('.modal-close').onclick = () => wrap.classList.remove('open');
-      wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.classList.remove('open'); });
-    }
+    const wrap = stopSheet();
+    sheet.dirty = false;
+    renderStopView(ctx, it);
+    wrap.classList.add('open');
+  }
 
+  // a new stop is the same form over a blank draft — one screen to learn, not two
+  function openNewStop(ctx, day) {
+    const draft = {
+      id: null, day_number: day, time_label: null, title: '', category: null,
+      area: ctx.defaultArea ? ctx.defaultArea(day) : null,
+      note: null, place_query: null, lat: null, lon: null, cost: null,
+    };
+    const wrap = stopSheet();
+    sheet.dirty = false;
+    wrap.classList.add('open'); // before the render: focus() is a no-op while hidden
+    renderStopEdit(ctx, draft, null, true);
+  }
+
+  function renderStopView(ctx, it) {
+    const wrap = stopSheet();
     const date = ctx.dayDate(it.day_number);
     const cur = TripModals.curOf(ctx.state);
     const hasMap = !!(it.place_query || (it.lat != null && it.lon != null));
+    // in view mode every detail doubles as a shortcut into the field that holds it
+    const tap = (field) => ctx.canEdit ? ` data-edit=".se-${field}"` : '';
     const body = wrap.querySelector('.sm-body');
     body.innerHTML = `
-      <div class="sm-day">יום ${it.day_number}${date ? ` · ${date.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}` : ''}</div>
-      <h2 class="sm-title">${stopEmoji(it)} ${esc(it.title)}</h2>
+      <div class="sm-day"${tap('day')}>יום ${it.day_number}${date ? ` · ${date.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}` : ''}</div>
+      <h2 class="sm-title"${tap('title')}>${stopEmoji(it)} ${esc(it.title)}</h2>
       <div class="sm-chips">
-        ${it.time_label ? `<span class="item-time">${esc(it.time_label)}</span>` : ''}
-        ${it.category ? `<span class="item-cat">${esc(it.category)}</span>` : ''}
-        ${+it.cost > 0 ? `<span class="item-cost">${TripModals.fmt(it.cost, cur)}</span>` : ''}
-        ${it.area ? `<span class="item-area">📍 ${esc(it.area)}</span>` : ''}
+        ${it.time_label ? `<span class="item-time"${tap('time')}>${esc(it.time_label)}</span>` : ''}
+        ${it.category ? `<span class="item-cat"${tap('cat')}>${esc(it.category)}</span>` : ''}
+        ${+it.cost > 0 ? `<span class="item-cost"${tap('cost')}>${TripModals.fmt(it.cost, cur)}</span>` : ''}
+        ${it.area ? `<span class="item-area"${tap('area')}>📍 ${esc(it.area)}</span>` : ''}
       </div>
-      ${it.note ? `<div class="item-note">${esc(it.note)}</div>` : ''}
-      ${it.place_query ? `<div class="item-more-place"><span class="imp-pin">📍</span><span class="imp-text">${esc(it.place_query)}</span></div>` : ''}
+      ${it.note ? `<div class="item-note"${tap('note')}>${esc(it.note)}</div>` : ''}
+      ${it.place_query ? `<div class="item-more-place"${tap('place')}><span class="imp-pin">📍</span><span class="imp-text">${esc(it.place_query)}</span></div>` : ''}
       ${hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPI.mapsEmbedUrlExact(it)}"></iframe>` : ''}
       ${it.place_query ? '<div class="stop-gallery"></div>' : ''}
       ${hasMap ? `<a class="btn btn-ghost sm-maps" target="_blank" rel="noopener"
-        href="${esc(TRIPI.mapsSearchUrl(it.place_query || `${it.lat},${it.lon}`))}">פתיחה בגוגל מפות ›</a>` : ''}`;
+        href="${esc(TRIPI.mapsSearchUrl(it.place_query || `${it.lat},${it.lon}`))}">פתיחה בגוגל מפות ›</a>` : ''}
+      ${ctx.canEdit ? `<button type="button" class="btn btn-amber sm-edit">${icPencil}<span>עריכת התחנה</span></button>` : ''}`;
+
     const gal = body.querySelector('.stop-gallery');
     if (gal) GEO.renderGallery(gal, it.place_query);
+
+    if (ctx.canEdit) {
+      body.querySelector('.sm-edit').onclick = () => renderStopEdit(ctx, it);
+      body.querySelectorAll('[data-edit]').forEach((el) => {
+        el.classList.add('sm-tap');
+        el.setAttribute('role', 'button');
+        el.setAttribute('tabindex', '0');
+        el.setAttribute('title', 'לחיצה לעריכה');
+        const go = () => renderStopEdit(ctx, it, el.dataset.edit);
+        el.onclick = go;
+        el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+      });
+    }
     wrap.querySelector('.modal-stop').scrollTop = 0;
-    wrap.classList.add('open');
+  }
+
+  // focusSel = the field the user tapped to get here, so the caret lands on it.
+  // isNew = the draft of a stop that doesn't exist yet (same form, POST instead of PATCH)
+  function renderStopEdit(ctx, it, focusSel, isNew) {
+    const wrap = stopSheet();
+    const body = wrap.querySelector('.sm-body');
+    const areas = [...new Set([...tripAreas(ctx), it.area].filter(Boolean))];
+    const cats = CATS.includes(it.category) || !it.category ? CATS : [it.category, ...CATS];
+    // an AI-free-text hour ("אחה״צ") would be swallowed by a time picker — that stop
+    // keeps a plain text box
+    const timePicker = !it.time_label || /^\d{1,2}:\d{2}$/.test(it.time_label);
+
+    body.innerHTML = `
+      <div class="sm-day">${isNew ? 'תחנה חדשה' : 'עריכת תחנה'}</div>
+      <h2 class="sm-title sm-edit-head">${isNew ? 'מה מוסיפים למסלול?' : `${stopEmoji(it)} ${esc(it.title)}`}</h2>
+      <div class="form-grid sm-form">
+        <div class="field"><label for="se-day">יום</label>
+          <select id="se-day" class="se-day">${Array.from({ length: ctx.trip.days }, (_, i) => i + 1).map((n) => {
+            const dt = ctx.dayDate(n);
+            return `<option value="${n}"${n === it.day_number ? ' selected' : ''}>יום ${n}${dt ? ` · ${dt.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}` : ''}</option>`;
+          }).join('')}</select></div>
+        <div class="field"><label for="se-time">שעה</label>
+          ${timePicker
+            ? `<input id="se-time" class="se-time" type="time" value="${esc(it.time_label || '')}">`
+            : `<input id="se-time" class="se-time" type="text" maxlength="20" value="${esc(it.time_label)}">`}</div>
+        <div class="field span-2"><label for="se-title">מה עושים? *</label>
+          <input id="se-title" class="se-title" type="text" maxlength="120"
+            placeholder="למשל: ארוחת ערב על הגג" value="${esc(it.title)}"></div>
+        <div class="field"><label for="se-cat">קטגוריה</label>
+          <select id="se-cat" class="se-cat">${cats.map((c) =>
+            `<option${c === it.category ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
+        <div class="field"><label for="se-cost">עלות משוערת</label>
+          <input id="se-cost" class="se-cost" type="number" min="0" placeholder="נכנסת לתקציב"
+            value="${+it.cost > 0 ? +it.cost : ''}"></div>
+        ${areas.length ? `<div class="field span-2"><label for="se-area">אזור</label>
+          <select id="se-area" class="se-area"><option value="">ללא אזור</option>${areas.map((a) =>
+            `<option${a === it.area ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select></div>` : ''}
+        <div class="field span-2"><label for="se-place">מיקום</label>
+          <input id="se-place" class="se-place" type="text" maxlength="120" autocomplete="off"
+            placeholder="הקלידו ובחרו מהרשימה…" value="${esc(it.place_query || '')}"></div>
+        <div class="field span-2"><label for="se-note">הערה</label>
+          <textarea id="se-note" class="se-note" maxlength="500" placeholder="טיפ, הזמנה, מה שווה לדעת…">${esc(it.note || '')}</textarea></div>
+      </div>
+      <div class="form-error se-err"></div>
+      <div class="sm-foot">
+        <button type="button" class="btn btn-amber se-save">${isNew ? 'הוספה למסלול' : 'שמירה'}</button>
+        <button type="button" class="btn btn-ghost se-cancel">ביטול</button>
+      </div>
+      ${isNew ? '' : `<button type="button" class="sm-del">${icTrash}<span>מחיקת התחנה</span></button>`}`;
+
+    const placeInput = body.querySelector('.se-place');
+    const err = body.querySelector('.se-err');
+    const picker = GEO.attachPlaceAutocomplete(placeInput, {
+      getBias: () => (ctx.bias ? ctx.bias(it) : { lat: it.lat, lon: it.lon }),
+      onPick: () => { sheet.dirty = true; },
+    });
+    body.querySelectorAll('input, select, textarea').forEach((f) => {
+      f.addEventListener('input', () => { sheet.dirty = true; });
+    });
+
+    body.querySelector('.se-cancel').onclick = () => {
+      if (sheet.dirty && !confirm(isNew ? 'לוותר על התחנה החדשה?' : 'לוותר על השינויים?')) return;
+      sheet.dirty = false;
+      // a cancelled draft has no details page to fall back to
+      if (isNew) closeStop(true); else renderStopView(ctx, it);
+    };
+
+    body.querySelector('.se-save').onclick = async (e) => {
+      const btn = e.currentTarget;
+      if (btn.disabled) return;
+      const titleInput = body.querySelector('.se-title');
+      const title = titleInput.value.trim();
+      if (!title) { err.textContent = 'צריך לכתוב מה עושים'; titleInput.focus(); return; }
+      const place = placeInput.value.trim();
+      const picked = picker.getPicked();
+      const day = +body.querySelector('.se-day').value;
+      const cost = body.querySelector('.se-cost').value;
+      const patch = {
+        day_number: day,
+        time_label: body.querySelector('.se-time').value.trim() || null,
+        title,
+        category: body.querySelector('.se-cat').value || null,
+        note: body.querySelector('.se-note').value.trim() || null,
+        place_query: place || null,
+        cost: cost === '' ? null : +cost,
+      };
+      const areaSel = body.querySelector('.se-area');
+      if (areaSel) patch.area = areaSel.value || null;
+      // coordinates belong to a picked place: a hand-typed edit drops the old pin
+      // rather than pointing the map at the previous spot
+      if (picked) { patch.lat = picked.lat; patch.lon = picked.lon; }
+      else if (place !== (it.place_query || '')) { patch.lat = null; patch.lon = null; }
+      // the day view follows a stop that was just moved or just created
+      if (view.mode === 'day' && day !== view.anchor) view.anchor = day;
+      btn.disabled = true;
+      err.textContent = '';
+      try {
+        // the fresh stop's own details page is the confirmation that it landed
+        const saved = isNew ? await ctx.addItem(patch) : await ctx.saveItem(it, patch);
+        sheet.dirty = false;
+        renderStopView(ctx, saved);
+      } catch (ex) {
+        err.textContent = ex.message;
+        btn.disabled = false;
+      }
+    };
+
+    const delBtn = body.querySelector('.sm-del');
+    if (delBtn) delBtn.onclick = async (e) => {
+      if (e.currentTarget.disabled) return;
+      if (!confirm(`למחוק את "${it.title}"?`)) return;
+      e.currentTarget.disabled = true;
+      try {
+        await ctx.deleteItem(it);
+        closeStop(true);
+      } catch (ex) {
+        err.textContent = ex.message;
+        e.currentTarget.disabled = false;
+      }
+    };
+
+    wrap.querySelector('.modal-stop').scrollTop = 0;
+    ((focusSel && body.querySelector(focusSel)) || body.querySelector('.se-title')).focus();
   }
 
   return { render, exitFull };

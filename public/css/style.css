@@ -1990,6 +1990,40 @@ body.cal-full-open { overflow: hidden; }
 .modal-stop .item-note { margin: 0 0 12px; }
 .modal-stop .item-mini-map { margin-top: 10px; }
 .sm-maps { width: 100%; justify-content: center; margin-top: 14px; }
+.sm-edit { width: 100%; justify-content: center; margin-top: 10px; }
+
+/* every detail in the sheet is a shortcut into the field that holds it. Nothing
+   marks them at rest — the details should read as details; the affordance only
+   shows up under the cursor or the focus ring */
+.sm-tap {
+  cursor: pointer; border-radius: 8px;
+  transition: color .15s ease, background .15s ease;
+}
+.sm-tap:hover, .sm-tap:focus-visible { color: var(--amber); background: rgba(255, 180, 95, .09); outline: none; }
+.sm-chips .sm-tap:hover, .sm-chips .sm-tap:focus-visible { background: rgba(255, 180, 95, .18); }
+
+/* ---- editing a stop, in the same sheet ---- */
+.sm-edit-head { opacity: .75; font-size: 1.15rem; margin-bottom: 14px; }
+.sm-form { text-align: right; }
+.sm-form .field { margin-bottom: 0; }
+.sm-form textarea { min-height: 72px; }
+/* the save row stays on screen however long the form scrolls */
+.sm-foot {
+  position: sticky; bottom: 0; z-index: 3; display: flex; gap: 10px;
+  margin: 0 -24px; padding: 12px 24px;
+  background: linear-gradient(to top, rgba(8, 17, 14, .97) 65%, rgba(8, 17, 14, .8));
+  border-top: 1px solid var(--glass-border);
+}
+.sm-foot .se-save { flex: 1; justify-content: center; }
+.sm-del {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; margin-top: 14px; padding: 10px;
+  background: none; border: 1px solid rgba(255, 122, 110, .3); border-radius: var(--radius-sm);
+  color: var(--danger); font-family: var(--font-body); font-size: .9rem; font-weight: 700;
+  cursor: pointer; transition: background .15s ease, border-color .15s ease;
+}
+.sm-del:hover { background: rgba(255, 122, 110, .1); border-color: var(--danger); }
+.sm-del:disabled { opacity: .5; cursor: default; }
 
 /* ---- calendar on phones ---- */
 @media (max-width: 760px) {
@@ -2029,6 +2063,11 @@ body.cal-full-open { overflow: hidden; }
     background: rgba(255, 255, 255, .25); margin: 0 auto 14px;
   }
   .modal-backdrop.sheet .modal-close { top: 14px; }
+  /* day+שעה and קטגוריה+עלות are short enough to stay paired on a phone —
+     collapsing them would double the scroll of the edit form */
+  .sm-form { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .sm-form .span-2 { grid-column: span 2; }
+  .sm-foot { margin: 0 -18px; padding: 12px 18px calc(12px + env(safe-area-inset-bottom)); }
 }
 @keyframes sheetUp { from { transform: translateY(40px); opacity: .5; } to { transform: none; opacity: 1; } }
 

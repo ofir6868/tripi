@@ -121,13 +121,24 @@ async function tripWithEditAuth(req, res) {
 }
 
 // sanitize a client-supplied destinations array → [{name, country, lat, lon}]
+// a cleared field arrives as null or '' — and `+null` is 0, which Number.isFinite
+// happily accepts. Without these, clearing a location pins it at 0°,0° in the
+// Atlantic, and clearing a price books it as free.
+const numOrNull = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(+v) ? null : +v);
+// same, for a non-negative capped amount (null stays null — `null >= 0` is true, so
+// the check has to be explicit)
+const moneyOrNull = (v, max = 99999999) => {
+  const n = numOrNull(v);
+  return n != null && n >= 0 ? Math.min(n, max) : null;
+};
+
 function cleanDestinations(input) {
   if (!Array.isArray(input)) return [];
   return input.slice(0, 10).map((d) => ({
     name: String(d?.name || '').slice(0, 80).trim(),
     country: d?.country ? String(d.country).slice(0, 60).trim() : null,
-    lat: Number.isFinite(+d?.lat) ? +d.lat : null,
-    lon: Number.isFinite(+d?.lon) ? +d.lon : null,
+    lat: numOrNull(d?.lat),
+    lon: numOrNull(d?.lon),
   })).filter((d) => d.name);
 }
 
@@ -335,8 +346,7 @@ app.post('/api/trips/code/:code/items', authOptional, async (req, res) => {
       [trip.id, Math.min(Math.max(parseInt(it.day_number, 10) || 1, 1), trip.days),
        it.time_label || null, String(it.title).slice(0, 200).trim(), it.note || null,
        it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null,
-       Number.isFinite(+it.lat) ? +it.lat : null, Number.isFinite(+it.lon) ? +it.lon : null,
-       Number.isFinite(+it.cost) && +it.cost >= 0 ? Math.min(+it.cost, 99999999) : null]
+       numOrNull(it.lat), numOrNull(it.lon), moneyOrNull(it.cost)]
     );
     res.json(rows[0]);
   } catch (err) {
@@ -354,10 +364,20 @@ app.patch('/api/trips/code/:code/items/:itemId', authOptional, async (req, res) 
     const sets = [];
     const vals = [];
     const add = (col, val) => { vals.push(val); sets.push(`${col} = $${vals.length}`); };
+    if ('title' in body) {
+      const title = String(body.title || '').trim();
+      if (!title) return res.status(400).json({ error: 'חסרה כותרת לתחנה' });
+      add('title', title.slice(0, 200));
+    }
+    if ('day_number' in body) add('day_number', Math.min(Math.max(parseInt(body.day_number, 10) || 1, 1), trip.days));
+    if ('time_label' in body) add('time_label', body.time_label ? String(body.time_label).slice(0, 20) : null);
+    if ('category' in body) add('category', body.category ? String(body.category).slice(0, 40) : null);
+    if ('area' in body) add('area', body.area ? String(body.area).slice(0, 80) : null);
+    if ('note' in body) add('note', body.note ? String(body.note).slice(0, 500) : null);
     if ('place_query' in body) add('place_query', body.place_query ? String(body.place_query).slice(0, 120) : null);
-    if ('lat' in body) add('lat', Number.isFinite(+body.lat) ? +body.lat : null);
-    if ('lon' in body) add('lon', Number.isFinite(+body.lon) ? +body.lon : null);
-    if ('cost' in body) add('cost', Number.isFinite(+body.cost) && +body.cost >= 0 ? Math.min(+body.cost, 99999999) : null);
+    if ('lat' in body) add('lat', numOrNull(body.lat));
+    if ('lon' in body) add('lon', numOrNull(body.lon));
+    if ('cost' in body) add('cost', moneyOrNull(body.cost));
     if (!sets.length) return res.status(400).json({ error: 'אין מה לעדכן' });
     vals.push(req.params.itemId, trip.id);
     const { rows } = await pool.query(
@@ -420,15 +440,16 @@ function cleanHotel(body, trip) {
   const end = Math.max(clampNight(body.night_end, start), start);
   const link = body.link && /^https?:\/\//i.test(String(body.link).trim())
     ? String(body.link).trim().slice(0, 400) : null;
+  const stars = numOrNull(body.stars);
   return {
     name: String(body.name || '').slice(0, 160).trim(),
     night_start: start,
     night_end: end,
     status: body.status === 'idea' ? 'idea' : 'booked',
-    stars: Number.isFinite(+body.stars) && +body.stars >= 1 ? Math.min(Math.round(+body.stars), 5) : null,
-    lat: Number.isFinite(+body.lat) ? +body.lat : null,
-    lon: Number.isFinite(+body.lon) ? +body.lon : null,
-    price_total: Number.isFinite(+body.price_total) && +body.price_total >= 0 ? Math.min(+body.price_total, 999999999) : null,
+    stars: stars != null && stars >= 1 ? Math.min(Math.round(stars), 5) : null,
+    lat: numOrNull(body.lat),
+    lon: numOrNull(body.lon),
+    price_total: moneyOrNull(body.price_total, 999999999),
     link,
     note: body.note ? String(body.note).slice(0, 300) : null,
   };
@@ -652,7 +673,7 @@ app.post('/api/trips', authRequired, async (req, res) => {
           [trip.id, Math.min(Math.max(parseInt(it.day_number, 10) || 1, 1), nDays),
            it.time_label || null, String(it.title).slice(0, 200), it.note || null,
            it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null,
-           Number.isFinite(+it.lat) ? +it.lat : null, Number.isFinite(+it.lon) ? +it.lon : null, i]
+           numOrNull(it.lat), numOrNull(it.lon), i]
         );
       }
     }

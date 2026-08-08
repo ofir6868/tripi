@@ -186,13 +186,57 @@
       });
     }
 
+    // day order first, then the clock — the order both views read stops in
+    const sortItems = () => tripItems.sort((a, b) =>
+      a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')));
+
+    // the one write path for a stop: patch, fold the server's row back into the
+    // item both views already hold, and repaint. Throws on failure — callers show it.
+    async function saveItem(item, patch) {
+      const updated = await TRIPI.api(`/api/trips/code/${trip.share_code}/items/${item.id}`, {
+        method: 'PATCH', headers: canEditHeaders, body: JSON.stringify(patch),
+      });
+      Object.assign(item, updated);
+      sortItems();
+      renderItinerary();
+      updateAmbient();
+      return item;
+    }
+
+    async function addItem(data) {
+      const item = await TRIPI.api(`/api/trips/code/${trip.share_code}/items`, {
+        method: 'POST', headers: canEditHeaders, body: JSON.stringify(data),
+      });
+      tripItems.push(item);
+      sortItems();
+      renderItinerary();
+      updateAmbient();
+      return item;
+    }
+
+    async function deleteItem(item) {
+      await TRIPI.api(`/api/trips/code/${trip.share_code}/items/${item.id}`, {
+        method: 'DELETE', headers: canEditHeaders,
+      });
+      tripItems = tripItems.filter((x) => x.id !== item.id);
+      renderItinerary();
+      updateAmbient();
+    }
+
     // every existing call site funnels through here, so both views stay fresh
     function renderItinerary() {
       if (!longTrip) {
         viewToggle.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === viewMode));
       }
       if (viewMode === 'calendar') {
-        TripCalendar.render(container, { trip, state, dayDate, weather: () => weatherByDate });
+        TripCalendar.render(container, {
+          trip, state, dayDate, weather: () => weatherByDate,
+          canEdit: editMode,
+          // a stop's own coordinates beat the trip's, so the picker searches near it
+          bias: (it) => ({ lat: it?.lat ?? dests[0]?.lat, lon: it?.lon ?? dests[0]?.lon }),
+          defaultArea: (day) => (multiDest() ? defaultAreaForDay(day) : tripDests[0]?.name || null),
+          saveItem, addItem, deleteItem,
+        });
         return;
       }
       TripCalendar.exitFull(); // the list can't live inside the fullscreen calendar
@@ -307,16 +351,11 @@
                 saveBtn.disabled = true;
                 const picked = locPicker.getPicked();
                 try {
-                  const updated = await TRIPI.api(`/api/trips/code/${trip.share_code}/items/${it.id}`, {
-                    method: 'PATCH', headers: canEditHeaders,
-                    body: JSON.stringify({
-                      place_query: locInput.value.trim() || null,
-                      lat: picked ? picked.lat : null,
-                      lon: picked ? picked.lon : null,
-                    }),
+                  await saveItem(it, {
+                    place_query: locInput.value.trim() || null,
+                    lat: picked ? picked.lat : null,
+                    lon: picked ? picked.lon : null,
                   });
-                  Object.assign(it, { place_query: updated.place_query, lat: updated.lat, lon: updated.lon });
-                  renderItinerary();
                 } catch (err) {
                   more.querySelector('.edit-loc-err').textContent = err.message;
                   saveBtn.disabled = false;
@@ -339,10 +378,7 @@
             if (!confirm('למחוק את התחנה?')) return;
             b.disabled = true;
             try {
-              await TRIPI.api(`/api/trips/code/${trip.share_code}/items/${b.dataset.id}`, { method: 'DELETE', headers: canEditHeaders });
-              tripItems = tripItems.filter((it) => it.id !== +b.dataset.id);
-              renderItinerary();
-              updateAmbient();
+              await deleteItem(tripItems.find((it) => it.id === +b.dataset.id));
             } catch (e) { alert(e.message); b.disabled = false; }
           };
         });
@@ -388,24 +424,17 @@
         if (!title) { form.querySelector('.iif-err').textContent = 'צריך לכתוב מה עושים'; return; }
         saveBtn.disabled = true;
         try {
-          const item = await TRIPI.api(`/api/trips/code/${trip.share_code}/items`, {
-            method: 'POST', headers: canEditHeaders,
-            body: JSON.stringify({
-              day_number: day,
-              time_label: form.querySelector('.iif-time').value || null,
-              title,
-              category: form.querySelector('.iif-cat').value,
-              place_query: placeInput.value.trim() || null,
-              area: form.querySelector('.iif-area')?.value || tripDests[0]?.name || null,
-              lat: picker.getPicked()?.lat ?? null,
-              lon: picker.getPicked()?.lon ?? null,
-              cost: form.querySelector('.iif-cost').value || null,
-            }),
+          await addItem({
+            day_number: day,
+            time_label: form.querySelector('.iif-time').value || null,
+            title,
+            category: form.querySelector('.iif-cat').value,
+            place_query: placeInput.value.trim() || null,
+            area: form.querySelector('.iif-area')?.value || tripDests[0]?.name || null,
+            lat: picker.getPicked()?.lat ?? null,
+            lon: picker.getPicked()?.lon ?? null,
+            cost: form.querySelector('.iif-cost').value || null,
           });
-          tripItems.push(item);
-          tripItems.sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')));
-          renderItinerary();
-          updateAmbient();
         } catch (e) {
           form.querySelector('.iif-err').textContent = e.message;
           saveBtn.disabled = false;
