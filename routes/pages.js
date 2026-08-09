@@ -1,0 +1,58 @@
+const express = require('express');
+const path = require('path');
+const { pool } = require('../lib/db');
+
+const router = express.Router();
+
+// pretty routes — /trip/:code gets Open Graph tags injected so WhatsApp/social previews
+// show the trip cover, title and code
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[c]));
+let tripHtmlCache = null;
+router.get('/trip/:code', async (req, res) => {
+  // cache the page only in production — in dev, re-read so edits show up without a restart
+  if (!tripHtmlCache || process.env.NODE_ENV !== 'production') {
+    tripHtmlCache = require('fs').readFileSync(path.join(__dirname, '..', 'public', 'trip.html'), 'utf8');
+  }
+  let html = tripHtmlCache;
+  try {
+    const { rows } = await pool.query(
+      'SELECT title, destination, description, cover_image, days, start_date, destinations, share_code, emoji FROM trips WHERE share_code = $1',
+      [req.params.code]
+    );
+    const t = rows[0];
+    if (t) {
+      const title = `${t.emoji || '🧭'} ${t.title} · TRIPI`;
+      const desc = `${t.destination} · ${t.days} ימים · קוד טיול ${t.share_code}` +
+        (t.description ? ` — ${t.description.slice(0, 120)}` : '');
+      const og = `
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="TRIPI">
+  <meta property="og:title" content="${escapeHtml(title)}">
+  <meta property="og:description" content="${escapeHtml(desc)}">
+  ${t.cover_image ? `<meta property="og:image" content="${escapeHtml(t.cover_image)}">` : ''}
+  <meta property="og:url" content="https://tripi-caw3.onrender.com/trip/${escapeHtml(t.share_code)}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="description" content="${escapeHtml(desc)}">`;
+      html = html
+        .replace('<title>טיול · TRIPI</title>', `<title>${escapeHtml(title)}</title>${og}`);
+
+      // trips longer than a week open in the calendar view — tell the page how many
+      // days, which weekday day 1 falls on, and whether its cells carry an area
+      // stripe, so the placeholder is the right shape before the trip is fetched
+      if (t.days > 7) {
+        const dow = t.start_date ? ` data-skl-dow="${new Date(t.start_date).getDay()}"` : '';
+        const dests = Array.isArray(t.destinations) ? t.destinations.filter((d) => d && d.name) : [];
+        const areas = dests.length > 1 ? ` data-skl-areas="${dests.length}"` : '';
+        html = html.replace('<div id="days-container">', `<div id="days-container" data-skl-days="${t.days}"${dow}${areas}>`);
+      }
+    }
+  } catch { /* serve the plain page on any error */ }
+  res.type('html').send(html);
+});
+router.get('/plan', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'plan.html')));
+router.get('/my', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'my.html')));
+router.get('/admin', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'admin.html')));
+
+module.exports = router;
