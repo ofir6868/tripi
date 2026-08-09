@@ -774,6 +774,20 @@
     updateAmbient();
 
     // ---- print / WhatsApp ----
+    // the PDF is always the full list, whatever view is on screen — swap the
+    // calendar out before the print snapshot and put it back after
+    let printSwapped = false;
+    window.addEventListener('beforeprint', () => {
+      if (viewMode !== 'calendar') return;
+      printSwapped = true;
+      TripCalendar.exitFull();
+      renderListView();
+    });
+    window.addEventListener('afterprint', () => {
+      if (!printSwapped) return;
+      printSwapped = false;
+      renderItinerary();
+    });
     document.getElementById('print-btn').onclick = () => window.print();
     document.getElementById('wa-share').onclick = () => {
       const text = `${trip.emoji || '🧭'} ${trip.title}\n${trip.destination} · ${trip.days} ימים\nקוד טיול: ${trip.share_code}\n${location.href}`;
