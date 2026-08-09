@@ -468,7 +468,7 @@ router.post('/api/trips', authRequired, async (req, res) => {
     const nDays = Math.min(Math.max(parseInt(days, 10) || 1, 1), 60);
     const { rows } = await client.query(
       `INSERT INTO trips (owner_id, title, destination, country, description, cover_image, start_date, end_date, days, share_code, emoji, destinations, invite_token)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING ${tripFields}`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING ${tripFields}, invite_token`,
       [req.user.id, title.trim(), destText.slice(0, 160), countryText, description || null,
        cover_image || null, start_date || null, end_date || null, nDays, code, emoji || null,
        JSON.stringify(dests), newInviteToken()]

@@ -725,16 +725,28 @@
       newCode.title = 'לחיצה מעתיקה את קוד הטיול';
       document.getElementById('new-title').textContent = `${trip.emoji || ''} ${trip.title}`;
       document.getElementById('view-trip').href = '/trip/' + trip.share_code;
+      // the common next step after creating a trip is inviting co-planners, so the
+      // edit (invite) link leads; the view-only link stays as a quiet secondary
       const tripLink = location.origin + '/trip/' + trip.share_code;
+      const editLink = trip.invite_token ? `${tripLink}?join=${trip.invite_token}` : tripLink;
+      const flash = (msg) => {
+        const f = document.getElementById('new-feedback');
+        f.textContent = msg;
+        setTimeout(() => { f.textContent = ''; }, 2200);
+      };
       document.getElementById('wa-share-new').onclick = () => {
-        const text = `${trip.emoji || '🧭'} ${trip.title}\n${tripLink}`;
+        const text = trip.invite_token
+          ? `${trip.emoji || '🧭'} בואו לתכנן איתי את "${trip.title}"!\nנכנסים לקישור, נרשמים בשנייה — ועורכים את הטיול יחד:\n${editLink}`
+          : `${trip.emoji || '🧭'} ${trip.title}\n${tripLink}`;
         window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
       };
       document.getElementById('copy-new-link').onclick = async () => {
+        await TRIPI.copy(editLink);
+        flash('קישור העריכה הועתק! ✓');
+      };
+      document.getElementById('copy-view-link').onclick = async () => {
         await TRIPI.copy(tripLink);
-        const f = document.getElementById('new-feedback');
-        f.textContent = 'הקישור הועתק! ✓';
-        setTimeout(() => { f.textContent = ''; }, 2200);
+        flash('קישור הצפייה הועתק! ✓');
       };
       goStep(5);
     } catch (e) {
