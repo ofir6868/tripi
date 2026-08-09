@@ -490,8 +490,8 @@ const TripCalendar = (() => {
       <div class="sm-foot">
         <button type="button" class="btn btn-amber se-save">${isNew ? 'הוספה למסלול' : 'שמירה'}</button>
         <button type="button" class="btn btn-ghost se-cancel">ביטול</button>
-      </div>
-      ${isNew ? '' : `<button type="button" class="sm-del">${icTrash}<span>מחיקת התחנה</span></button>`}`;
+        ${isNew ? '' : `<button type="button" class="sm-del" title="מחיקת התחנה" aria-label="מחיקת התחנה">${icTrash}</button>`}
+      </div>`;
 
     const placeInput = body.querySelector('.se-place');
     const err = body.querySelector('.se-err');

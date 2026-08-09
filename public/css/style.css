@@ -2027,13 +2027,16 @@ body.cal-full-open { overflow: hidden; }
   border-top: 1px solid var(--glass-border);
 }
 .sm-foot .se-save { flex: 1; justify-content: center; }
+/* delete rides the sticky foot as a compact icon — always on screen, and the
+   cancel button sits between it and the save it must not be mistaken for */
 .sm-del {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  width: 100%; margin-top: 14px; padding: 10px;
-  background: none; border: 1px solid rgba(255, 122, 110, .3); border-radius: var(--radius-sm);
-  color: var(--danger); font-family: var(--font-body); font-size: .9rem; font-weight: 700;
-  cursor: pointer; transition: background .15s ease, border-color .15s ease;
+  flex: none; display: grid; place-items: center;
+  width: 40px; height: 40px; align-self: center; padding: 0;
+  background: none; border: 1px solid rgba(255, 122, 110, .3); border-radius: 50%;
+  color: var(--danger); cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
 }
+.sm-del .ic { width: 18px; height: 18px; }
 .sm-del:hover { background: rgba(255, 122, 110, .1); border-color: var(--danger); }
 .sm-del:disabled { opacity: .5; cursor: default; }
 
