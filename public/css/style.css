@@ -2019,7 +2019,9 @@ body.cal-full-open { overflow: hidden; }
 .sm-form { text-align: right; }
 .sm-form .field { margin-bottom: 0; }
 .sm-form textarea { min-height: 72px; }
-/* the save row stays on screen however long the form scrolls */
+/* the save row stays on screen however long the form scrolls; the sheet gives
+   up its own bottom padding so the row sits flush on the bottom edge */
+.modal-stop:has(.sm-foot) { padding-bottom: 0; }
 .sm-foot {
   position: sticky; bottom: 0; z-index: 3; display: flex; gap: 10px;
   margin: 0 -24px; padding: 12px 24px;
@@ -2073,6 +2075,7 @@ body.cal-full-open { overflow: hidden; }
     padding: 12px 18px calc(22px + env(safe-area-inset-bottom));
     animation: sheetUp .32s cubic-bezier(.2, .9, .3, 1);
   }
+  .modal-backdrop.sheet .modal-stop:has(.sm-foot) { padding-bottom: 0; }
   .modal-backdrop.sheet .sheet-grab {
     display: block; width: 44px; height: 4px; border-radius: 999px;
     background: rgba(255, 255, 255, .25); margin: 0 auto 14px;
