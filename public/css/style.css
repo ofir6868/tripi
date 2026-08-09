@@ -1665,6 +1665,7 @@ body:has(.join-banner) { padding-bottom: 92px; }
   transition: background .18s ease, border-color .18s ease;
 }
 .day-route .ic { width: 14px; height: 14px; }
+.day-route .ic-ext { width: 12px; height: 12px; opacity: .75; }
 .day-route:hover { background: rgba(143, 216, 196, .2); border-color: rgba(143, 216, 196, .5); }
 .day-hotels { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 7px; padding-right: 2px; }
 .day-hotel { font-size: .85rem; font-weight: 300; color: var(--paper-dim); }

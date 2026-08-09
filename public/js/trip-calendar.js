@@ -301,7 +301,7 @@ const TripCalendar = (() => {
         ${date ? `<span class="day-date">${date.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}</span>` : ''}
         ${dayCost ? `<span class="day-cost" title="עלות משוערת של היום (בלי לינה)">${TripModals.fmt(dayCost, cur)}</span>` : ''}
         ${routeUrl ? `<a class="day-route" target="_blank" rel="noopener" href="${esc(routeUrl)}"
-          title="פתיחת מסלול היום בגוגל מפות">${TRIPI.routeIcon} מסלול</a>` : ''}
+          title="נפתח בגוגל מפות, בחלון חדש">${TRIPI.routeIcon} מסלול בגוגל מפות ${TRIPI.externalIcon}</a>` : ''}
         ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}">${GEO.weatherIcon(w.code)} ${w.max}°</span>` : ''}
       </div>
       ${hotelLines.length ? `<div class="day-hotels">${hotelLines.map((l) =>
