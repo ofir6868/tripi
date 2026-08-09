@@ -383,7 +383,8 @@ body::after {
 /* ---------- modal (auth) ---------- */
 
 .modal-backdrop {
-  position: fixed; inset: 0; z-index: 200; display: none;
+  /* above the fullscreen calendar (300), below the photo lightbox (400) that opens from a stop sheet */
+  position: fixed; inset: 0; z-index: 350; display: none;
   align-items: center; justify-content: center; padding: 20px;
   background: rgba(5, 10, 8, .68);
   -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
@@ -1656,6 +1657,15 @@ body:has(.join-banner) { padding-bottom: 92px; }
   background: rgba(255, 180, 95, .1); border: 1px solid rgba(255, 180, 95, .28);
   padding: 4px 11px; border-radius: 999px; font-variant-numeric: tabular-nums;
 }
+.day-route {
+  display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+  font-family: var(--font-body); font-size: .82rem; font-weight: 700; color: var(--mint);
+  background: rgba(143, 216, 196, .1); border: 1px solid rgba(143, 216, 196, .25);
+  padding: 4px 11px; border-radius: 999px;
+  transition: background .18s ease, border-color .18s ease;
+}
+.day-route .ic { width: 14px; height: 14px; }
+.day-route:hover { background: rgba(143, 216, 196, .2); border-color: rgba(143, 216, 196, .5); }
 .day-hotels { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 7px; padding-right: 2px; }
 .day-hotel { font-size: .85rem; font-weight: 300; color: var(--paper-dim); }
 .day-hotel.checkin { color: var(--amber); font-weight: 600; }
@@ -1849,8 +1859,9 @@ body.cal-full-open { overflow: hidden; }
     radial-gradient(50% 40% at 8% 100%, rgba(143, 216, 196, .07), transparent 70%),
     rgba(22, 48, 42, .82);
   -webkit-backdrop-filter: blur(18px) saturate(140%); backdrop-filter: blur(18px) saturate(140%);
-  animation: calFullIn .22s ease;
 }
+/* the fade belongs to entering fullscreen only — re-renders inside it (tab/day switches) stay instant */
+.cal-wrap.cal-full-in { animation: calFullIn .22s ease; }
 .cal-wrap.cal-full .cal-toolbar {
   position: sticky; top: -18px; z-index: 2; margin: -18px 0 14px; padding: 18px 0 12px;
   /* same hue as the panel, just opaque — the sticky bar must not read as a darker band */

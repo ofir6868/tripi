@@ -44,6 +44,20 @@ const TRIPI = {
   mapsSearchUrl(q) {
     return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
   },
+  routeIcon: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h6a3.5 3.5 0 0 0 0-7h-4a3.5 3.5 0 0 1 0-7h6"/></svg>',
+  // a day's stops as one Google Maps directions route — the official URL scheme,
+  // no API key. Caps at 11 points (origin + 9 waypoints + destination), Google's limit.
+  mapsRouteUrl(items) {
+    const pts = items
+      .filter((it) => it.place_query || (it.lat != null && it.lon != null))
+      .map((it) => (it.lat != null && it.lon != null ? `${it.lat},${it.lon}` : it.place_query))
+      .slice(0, 11);
+    if (pts.length < 2) return null;
+    const enc = encodeURIComponent;
+    return 'https://www.google.com/maps/dir/?api=1&hl=he'
+      + `&origin=${enc(pts[0])}&destination=${enc(pts[pts.length - 1])}`
+      + (pts.length > 2 ? `&waypoints=${enc(pts.slice(1, -1).join('|'))}` : '');
+  },
   // clipboard with an execCommand fallback for browsers that block the async API
   async copy(text) {
     try {

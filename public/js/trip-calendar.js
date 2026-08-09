@@ -49,6 +49,7 @@ const TripCalendar = (() => {
   // fullscreen: the calendar covers the page (own scroll), Esc brings it back
   function setFull(on) {
     view.full = on;
+    view.fullEntering = on; // fade in only now — not on every re-render inside fullscreen
     document.body.classList.toggle('cal-full-open', on);
     render(lastContainer, lastCtx);
   }
@@ -93,7 +94,7 @@ const TripCalendar = (() => {
     if (!showFull && view.full) { view.full = false; document.body.classList.remove('cal-full-open'); }
 
     container.innerHTML = `
-      <div class="cal-wrap${view.full ? ' cal-full' : ''}">
+      <div class="cal-wrap${view.full ? ' cal-full' : ''}${view.fullEntering ? ' cal-full-in' : ''}">
         <div class="cal-toolbar">
           <div class="seg cal-seg">
             <button type="button" data-v="day" class="${view.mode === 'day' ? 'active' : ''}">יומי</button>
@@ -110,6 +111,7 @@ const TripCalendar = (() => {
         </div>
         <div class="cal-body"></div>
       </div>`;
+    view.fullEntering = false;
     container.querySelectorAll('.cal-seg button').forEach((b) => {
       b.onclick = () => { view.mode = b.dataset.v; render(container, ctx); };
     });
@@ -281,6 +283,7 @@ const TripCalendar = (() => {
     const cur = TripModals.curOf(ctx.state);
     const dayCost = TripModals.plannedByDay(ctx.state)[d];
     const hotelLines = TripModals.dayHotelLines(ctx.state, d);
+    const routeUrl = TRIPI.mapsRouteUrl(items);
 
     body.innerHTML = `
       <div class="cal-day-strip">
@@ -297,6 +300,8 @@ const TripCalendar = (() => {
         <span class="day-badge">יום ${d}</span>
         ${date ? `<span class="day-date">${date.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}</span>` : ''}
         ${dayCost ? `<span class="day-cost" title="עלות משוערת של היום (בלי לינה)">${TripModals.fmt(dayCost, cur)}</span>` : ''}
+        ${routeUrl ? `<a class="day-route" target="_blank" rel="noopener" href="${esc(routeUrl)}"
+          title="פתיחת מסלול היום בגוגל מפות">${TRIPI.routeIcon} מסלול</a>` : ''}
         ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}">${GEO.weatherIcon(w.code)} ${w.max}°</span>` : ''}
       </div>
       ${hotelLines.length ? `<div class="day-hotels">${hotelLines.map((l) =>

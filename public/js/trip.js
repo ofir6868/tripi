@@ -261,12 +261,15 @@
         const iso = date ? date.toISOString().slice(0, 10) : null;
         const w = iso && weatherByDate[iso];
         const hotelLines = TripModals.dayHotelLines(state, day);
+        const routeUrl = TRIPI.mapsRouteUrl(byDay.get(day));
         return `
         <div class="day-block">
           <div class="day-title">
             <span class="day-badge">יום ${day}</span>
             ${date ? `<span class="day-date">${date.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}</span>` : ''}
             ${dayCosts[day] ? `<span class="day-cost" title="עלות משוערת של היום (בלי לינה)">${TripModals.fmt(dayCosts[day], cur)}</span>` : ''}
+            ${routeUrl ? `<a class="day-route" target="_blank" rel="noopener" href="${TRIPI.esc(routeUrl)}"
+              title="פתיחת מסלול היום בגוגל מפות">${TRIPI.routeIcon} מסלול</a>` : ''}
             ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}">${GEO.weatherIcon(w.code)} ${w.max}°</span>` : ''}
           </div>
           ${hotelLines.length ? `<div class="day-hotels">${hotelLines.map((l) =>
