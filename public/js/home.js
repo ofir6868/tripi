@@ -1,9 +1,22 @@
-// Homepage: search (destination / 6-digit code) + suggested trips strip.
+// Homepage: search (destination autocomplete / 6-digit code) + suggested trips strip.
 (() => {
   let mode = 'dest';
+  const box = document.querySelector('.search-box');
   const input = document.getElementById('search-input');
   const hint = document.getElementById('search-hint');
   const results = document.getElementById('search-results');
+
+  function openResults() {
+    results.classList.add('open');
+    box.classList.add('dd-open');
+    input.setAttribute('aria-expanded', 'true');
+  }
+  function closeResults() {
+    results.classList.remove('open');
+    box.classList.remove('dd-open');
+    input.setAttribute('aria-expanded', 'false');
+    activeIdx = -1;
+  }
 
   // ---- tabs ----
   document.querySelectorAll('.search-tab').forEach((tab) => {
@@ -11,7 +24,7 @@
       document.querySelectorAll('.search-tab').forEach((t) => t.classList.remove('active'));
       tab.classList.add('active');
       mode = tab.dataset.mode;
-      results.classList.remove('open');
+      closeResults();
       hint.textContent = '';
       input.value = '';
       if (mode === 'code') {
@@ -29,66 +42,141 @@
     });
   });
 
-  // ---- search ----
-  async function doSearch() {
-    const q = input.value.trim();
-    hint.textContent = '';
-    results.classList.remove('open');
-    if (!q) { input.focus(); return; }
-
-    if (mode === 'code' || /^\d{6}$/.test(q)) {
-      if (!/^\d{6}$/.test(q)) {
-        hint.innerHTML = '<span class="err">קוד טיול מורכב מ-6 ספרות בדיוק</span>';
-        return;
-      }
-      hint.textContent = 'רגע, מאתרים את הטיול…';
-      try {
-        await TRIPI.api('/api/trips/code/' + q);
-        location.href = '/trip/' + q;
-      } catch (err) {
-        hint.innerHTML = `<span class="err">${TRIPI.esc(err.message)}</span>`;
-      }
+  // ---- code lookup ----
+  let codeBusy = false;
+  async function goCode(q) {
+    if (!/^\d{6}$/.test(q)) {
+      hint.innerHTML = '<span class="err">קוד טיול מורכב מ-6 ספרות בדיוק</span>';
       return;
     }
+    if (codeBusy) return;
+    codeBusy = true;
+    hint.textContent = 'רגע, מאתרים את הטיול…';
+    try {
+      await TRIPI.api('/api/trips/code/' + q);
+      location.href = '/trip/' + q;
+    } catch (err) {
+      hint.innerHTML = `<span class="err">${TRIPI.esc(err.message)}</span>`;
+      codeBusy = false;
+    }
+  }
 
-    hint.textContent = 'מחפשים…';
-    results.innerHTML = `
-      <div class="search-result">
-        <span class="skl skl-thumb"></span>
-        <div class="skl-sr-text"><span class="skl skl-sr-title"></span><span class="skl skl-sr-meta"></span></div>
-      </div>`.repeat(3);
-    results.classList.add('open');
+  // ---- destination autocomplete ----
+  let activeIdx = -1;
+  let seq = 0; // stale-response guard: only the latest request may render
+
+  const options = () => [...results.querySelectorAll('.search-result')];
+
+  function setActive(idx) {
+    const opts = options();
+    if (!opts.length) return;
+    activeIdx = (idx + opts.length) % opts.length;
+    opts.forEach((o, i) => o.classList.toggle('sr-active', i === activeIdx));
+    opts[activeIdx].scrollIntoView({ block: 'nearest' });
+  }
+
+  const GO_ARROW = '<svg class="ic sr-go" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>';
+
+  async function autocomplete(q) {
+    const mySeq = ++seq;
+    if (!results.classList.contains('open')) {
+      results.innerHTML = `
+        <div class="skl-row">
+          <span class="skl skl-thumb"></span>
+          <div class="skl-sr-text"><span class="skl skl-sr-title"></span><span class="skl skl-sr-meta"></span></div>
+        </div>`.repeat(3);
+      openResults();
+    }
     try {
       const rows = await TRIPI.api('/api/trips/search?q=' + encodeURIComponent(q));
-      hint.textContent = '';
-      // every search ends with a "plan this destination" CTA — the wizard pre-fills it
-      const planCta = `
-        <a class="search-result plan-cta" href="/plan?dest=${encodeURIComponent(q)}">
-          <span class="pc-icon">✨</span>
-          <div>
-            <div class="sr-title">מתכננים טיול חדש ל"${TRIPI.esc(q)}"</div>
-            <div class="sr-meta">בוחרים יעד, כמה ימים — וה-AI בונה את המסלול</div>
-          </div>
-        </a>`;
-      results.innerHTML = rows.map((t) => `
-        <a class="search-result" href="/trip/${t.share_code}">
-          <img src="${TRIPI.esc(t.cover_image || '')}" alt="" loading="lazy" onerror="this.style.display='none'">
-          <div>
-            <div class="sr-title">${t.emoji || '🧭'} ${TRIPI.esc(t.title)}</div>
-            <div class="sr-meta">${TRIPI.esc(t.destination)}${t.country ? ' · ' + TRIPI.esc(t.country) : ''} · ${t.days} ימים</div>
-          </div>
-        </a>`).join('') + planCta;
-      if (!rows.length) hint.textContent = `לא מצאנו טיול קיים ל"${q}" — אבל אפשר להיות הראשונים:`;
-      results.classList.add('open');
+      if (mySeq !== seq) return; // a newer keystroke already took over
+      // section 1 — creation. Country matches (max 3, flag in the thumb square) lead;
+      // clicking one opens the wizard with that country pre-picked. With no country
+      // match the free-text CTA fills the same slot, so creating is always first.
+      const countries = COUNTRIES.search(q, 3);
+      const planCta = countries.length
+        ? countries.map((c) => `
+          <a class="search-result plan-cta" href="/plan?dest=${encodeURIComponent(c.name)}&cc=${c.cc}" role="option">
+            <span class="sr-flag">${COUNTRIES.flagHtml(c.cc)}</span>
+            <div>
+              <div class="sr-title">טיול ל${TRIPI.esc(c.name)}</div>
+              <div class="sr-meta">מתכננים טיול חדש — ה-AI בונה את המסלול</div>
+            </div>
+            ${GO_ARROW}
+          </a>`).join('')
+        : `
+          <a class="search-result plan-cta" href="/plan?dest=${encodeURIComponent(q)}" role="option">
+            <span class="pc-icon"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg></span>
+            <div>
+              <div class="sr-title">מתכננים טיול חדש ל"${TRIPI.esc(q)}"</div>
+              <div class="sr-meta">בוחרים יעד, כמה ימים — וה-AI בונה את המסלול</div>
+            </div>
+            ${GO_ARROW}
+          </a>`;
+      const inspiration = rows.length
+        ? `<div class="sr-group-label">מקבלים השראה מטיולים של אחרים</div>` + rows.map((t) => `
+          <a class="search-result" href="/trip/${t.share_code}" role="option">
+            <img src="${TRIPI.esc(t.cover_image || '')}" alt="" loading="lazy" onerror="this.style.display='none'">
+            <div>
+              <div class="sr-title">${t.emoji || '🧭'} ${TRIPI.esc(t.title)}</div>
+              <div class="sr-meta">${TRIPI.esc(t.destination)}${t.country ? ' · ' + TRIPI.esc(t.country) : ''} · ${t.days} ימים</div>
+            </div>
+            ${GO_ARROW}
+          </a>`).join('')
+        : `<div class="sr-empty">עוד אין טיולים ל"${TRIPI.esc(q)}" — תהיו הראשונים 🌍</div>`;
+      results.innerHTML = planCta + inspiration;
+      activeIdx = -1;
+      openResults();
     } catch (err) {
+      if (mySeq !== seq) return;
+      closeResults();
       hint.innerHTML = `<span class="err">${TRIPI.esc(err.message)}</span>`;
     }
   }
 
-  document.getElementById('search-btn').addEventListener('click', doSearch);
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+  let debounceTimer = null;
   input.addEventListener('input', () => {
-    if (mode === 'code') input.value = input.value.replace(/\D/g, '').slice(0, 6);
+    if (mode === 'code') {
+      input.value = input.value.replace(/\D/g, '').slice(0, 6);
+      if (input.value.length === 6) goCode(input.value); // full code — no button, just go
+      return;
+    }
+    hint.textContent = '';
+    clearTimeout(debounceTimer);
+    const q = input.value.trim();
+    if (q.length < 2) { seq++; closeResults(); return; }
+    debounceTimer = setTimeout(() => autocomplete(q), 250);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const q = input.value.trim();
+      if (mode === 'code' || /^\d{6}$/.test(q)) { goCode(q); return; }
+      const opts = options();
+      if (results.classList.contains('open') && opts.length) {
+        // chosen option wins; with nothing highlighted, the top result is the intent
+        opts[activeIdx >= 0 ? activeIdx : 0].click();
+      } else if (q.length >= 2) {
+        clearTimeout(debounceTimer);
+        autocomplete(q);
+      }
+    } else if (e.key === 'ArrowDown' && results.classList.contains('open')) {
+      e.preventDefault();
+      setActive(activeIdx + 1);
+    } else if (e.key === 'ArrowUp' && results.classList.contains('open')) {
+      e.preventDefault();
+      setActive(activeIdx - 1);
+    } else if (e.key === 'Escape') {
+      closeResults();
+    }
+  });
+
+  // the dropdown behaves like a native one: focus back in reopens it, click-away closes
+  input.addEventListener('focus', () => {
+    if (mode === 'dest' && results.children.length && input.value.trim().length >= 2) openResults();
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (!box.contains(e.target)) closeResults();
   });
 
   // ---- suggested strip ----

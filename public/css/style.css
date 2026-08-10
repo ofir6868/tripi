@@ -165,10 +165,15 @@ body::after {
   position: relative; min-height: 92vh;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   text-align: center; padding: 120px 20px 60px;
-  isolation: isolate; overflow: hidden;
+  /* z-index lifts the hero above the sections below, so the search dropdown can
+     spill past the hero's bottom edge instead of being clipped by it */
+  isolation: isolate; z-index: 5;
 }
+/* the kenburns zoom needs a clipping box — but on this wrapper, not on .hero
+   itself, so absolutely-positioned UI (the autocomplete) may overflow freely */
+.hero-clip { position: absolute; inset: 0; z-index: -1; overflow: hidden; }
 .hero-bg {
-  position: absolute; inset: 0; z-index: -1;
+  position: absolute; inset: 0;
   background-size: cover; background-position: center 65%;
   animation: kenburns 24s ease-in-out infinite alternate;
   filter: saturate(.92) brightness(.8);
@@ -176,7 +181,7 @@ body::after {
 }
 @keyframes kenburns { from { transform: scale(1); } to { transform: scale(1.09); } }
 .hero-veil {
-  position: absolute; inset: 0; z-index: -1;
+  position: absolute; inset: 0;
   background:
     linear-gradient(180deg, rgba(10, 21, 18, .78) 0%, rgba(10, 21, 18, .38) 42%, rgba(10, 21, 18, .82) 88%),
     radial-gradient(70% 55% at 50% 42%, transparent 30%, rgba(10, 21, 18, .55) 100%);
@@ -229,7 +234,7 @@ body::after {
 }
 .search-tab.active { background: var(--glass-strong); color: var(--amber); }
 
-.search-row { display: flex; gap: 8px; }
+.search-row { display: flex; gap: 8px; position: relative; }
 .search-input {
   flex: 1; min-width: 0; background: rgba(6, 13, 11, .55);
   border: 1px solid var(--glass-border); border-radius: 18px;
@@ -245,37 +250,99 @@ body::after {
 .search-hint { padding: 10px 10px 2px; font-size: .85rem; color: rgba(245, 239, 227, .45); min-height: 1.6em; }
 .search-hint .err { color: var(--danger); }
 
+/* autocomplete dropdown: an overlay glued to the input's bottom edge, so it reads
+   as one combobox control — it floats above the hero instead of pushing it */
 .search-results {
-  margin-top: 10px; text-align: right; display: none;
-  max-height: 300px; overflow-y: auto; border-radius: 18px;
+  position: absolute; top: calc(100% - 1px); right: 0; left: 0; z-index: 40;
+  display: none; text-align: right;
+  max-height: 320px; overflow-y: auto; overscroll-behavior: contain;
+  background: rgba(8, 17, 14, .97);
+  border: 1px solid var(--amber); border-top: none;
+  border-radius: 0 0 18px 18px;
+  box-shadow: 0 24px 48px -18px rgba(0, 0, 0, .65);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
 }
 .search-results.open { display: block; }
+/* while the dropdown is open the input fuses into it: flat bottom, shared border */
+.search-box.dd-open .search-input {
+  border-radius: 18px 18px 0 0;
+  border-color: var(--amber); box-shadow: none;
+}
 .search-result {
-  display: flex; align-items: center; gap: 12px; padding: 11px 14px;
-  text-decoration: none; color: var(--paper); border-radius: 14px; transition: background .15s ease;
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  text-decoration: none; color: var(--paper); transition: background .12s ease;
 }
-.search-result:hover { background: var(--glass-strong); }
+.search-result + .search-result { border-top: 1px solid rgba(245, 239, 227, .06); }
+.search-result:hover, .search-result.sr-active { background: var(--glass-strong); }
+.search-result .sr-go {
+  margin-inline-start: auto; color: var(--paper-dim);
+  opacity: 0; transform: translateX(4px); transition: opacity .15s ease, transform .15s ease;
+}
+.search-result:hover .sr-go, .search-result.sr-active .sr-go { opacity: 1; transform: none; }
+/* the "plan a new trip" options lead the list: an amber wash and a heavier title
+   mark them as the recommended path without saying so out loud. Country matches
+   stack up to 3 such rows — thin amber seams between them, one dashed seam after */
 .search-result.plan-cta {
-  border-top: 1px dashed rgba(255, 180, 95, .35); border-radius: 0;
-  background: rgba(255, 180, 95, .06);
+  padding: 13px 14px;
+  background: linear-gradient(135deg, rgba(255, 180, 95, .17), rgba(255, 180, 95, .05));
 }
-.search-result.plan-cta:hover { background: rgba(255, 180, 95, .14); }
-.search-result.plan-cta .sr-title { color: var(--amber); }
+.search-result.plan-cta + .search-result.plan-cta { border-top: 1px solid rgba(255, 180, 95, .16); }
+.search-result.plan-cta:hover, .search-result.plan-cta.sr-active {
+  background: linear-gradient(135deg, rgba(255, 180, 95, .26), rgba(255, 180, 95, .1));
+}
+.search-result.plan-cta .sr-title { color: var(--amber); font-size: 1.02rem; }
+.search-result.plan-cta .sr-go { color: var(--amber); }
 .search-result.plan-cta .pc-icon {
-  width: 52px; height: 52px; flex-shrink: 0; display: grid; place-items: center;
-  font-size: 1.5rem; background: rgba(255, 180, 95, .12); border-radius: 12px;
-  border: 1px solid rgba(255, 180, 95, .3);
+  width: 44px; height: 44px; flex-shrink: 0; display: grid; place-items: center;
+  background: rgba(255, 180, 95, .14); border-radius: 12px;
+  border: 1px solid rgba(255, 180, 95, .4); color: var(--amber);
+  box-shadow: 0 0 18px -4px rgba(255, 180, 95, .45);
 }
-.search-result img { width: 52px; height: 52px; border-radius: 12px; object-fit: cover; flex-shrink: 0; }
-.search-result .sr-title { font-weight: 700; }
-.search-result .sr-meta { font-size: .85rem; color: var(--paper-dim); }
+.search-result.plan-cta .pc-icon .ic { width: 22px; height: 22px; fill: currentColor; stroke: none; }
+/* country flag in the thumb square (emoji on mobile, SVG image on desktop) */
+.search-result .sr-flag {
+  width: 44px; height: 44px; flex-shrink: 0; display: grid; place-items: center;
+  background: rgba(255, 180, 95, .1); border-radius: 12px; overflow: hidden;
+  border: 1px solid rgba(255, 180, 95, .35);
+}
+.search-result .sr-flag .flag-img { width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
+.search-result .sr-flag .flag-emoji { font-size: 1.55rem; line-height: 1; }
+/* quiet section label above the existing-trip results; the dashed amber seam
+   closes the creation section above it */
+.search-results .sr-group-label {
+  padding: 10px 14px 4px; font-size: .74rem; font-weight: 600;
+  letter-spacing: .12em; color: rgba(245, 239, 227, .42);
+  border-top: 1px dashed rgba(255, 180, 95, .35);
+}
+.search-results .sr-group-label + .search-result { border-top: none; }
+.search-results .sr-empty { border-top: 1px dashed rgba(255, 180, 95, .35); }
+
+/* shared flag bits (wizard chips, dest context, title row) */
+.flag-img { width: 20px; height: 15px; border-radius: 3px; object-fit: cover; vertical-align: -2px; }
+/* inside headings the flag scales with the type instead of staying 20px */
+#trip-title .flag-img, #new-title .flag-img { width: .8em; height: .6em; border-radius: .1em; vertical-align: -.02em; }
+.flag-emoji { line-height: 1; }
+.dest-chip .flag-img { width: 18px; height: 13px; }
+.title-flags { display: inline-flex; gap: 5px; align-items: center; margin-inline-start: 8px; vertical-align: -2px; }
+.ac-icon .flag-img { width: 20px; height: 15px; }
+.search-result img, .search-results .skl-thumb { width: 44px; height: 44px; border-radius: 12px; object-fit: cover; flex-shrink: 0; }
+.search-result .sr-title { font-weight: 700; font-size: .98rem; }
+.search-result .sr-meta { font-size: .82rem; color: var(--paper-dim); margin-top: 1px; }
+.search-results .search-result { border-radius: 0; }
+.search-results .sr-empty {
+  padding: 12px 14px 10px; font-size: .85rem; color: var(--paper-dim);
+}
+.search-results .skl-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
 
 .scroll-cue {
   position: absolute; bottom: 26px; right: 50%; transform: translateX(50%);
   color: rgba(245, 239, 227, .5); font-size: .85rem; letter-spacing: .1em;
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   animation: bob 2.4s ease-in-out infinite;
+  transition: opacity .2s ease;
 }
+/* the open dropdown floats right above the cue — fade it out instead of colliding */
+.search-box.dd-open ~ .scroll-cue { opacity: 0; }
 @keyframes bob { 0%, 100% { transform: translate(50%, 0); } 50% { transform: translate(50%, 8px); } }
 
 /* ---------- suggested strip ---------- */
@@ -1408,8 +1475,6 @@ body:has(.join-banner) { padding-bottom: 92px; }
   .logo .logo-he { display: none; }
   .btn { padding: 8px 14px; font-size: .88rem; }
   .hero { min-height: 88vh; padding-top: 100px; }
-  .search-row { flex-direction: column; }
-  .search-row .btn { justify-content: center; padding: 13px; }
   .trip-card { flex-basis: 248px; }
   .tc-media { height: 300px; }
   .skl-tripcard { flex-basis: 248px; height: 302px; }

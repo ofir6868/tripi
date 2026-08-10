@@ -56,8 +56,10 @@
   </script>
 
   <section class="hero">
-    <div class="hero-bg" style="background-image:url('https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=2000&q=80')"></div>
-    <div class="hero-veil"></div>
+    <div class="hero-clip">
+      <div class="hero-bg" style="background-image:url('https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=2000&q=80')"></div>
+      <div class="hero-veil"></div>
+    </div>
 
     <div class="hero-kicker">· מתכננים · משתפים · נוסעים ·</div>
     <h1>טיול טוב<br>מתכננים <span class="accent">ביחד</span></h1>
@@ -69,11 +71,11 @@
         <button class="search-tab" data-mode="code">🎫 יש לי קוד טיול</button>
       </div>
       <div class="search-row">
-        <input class="search-input" id="search-input" type="text" placeholder="לאן חולמים לנסוע? נסו: רומא, טוקיו, גולן…" autocomplete="off">
-        <button class="btn btn-amber btn-lg" id="search-btn">יאללה</button>
+        <input class="search-input" id="search-input" type="text" placeholder="לאן חולמים לנסוע? נסו: רומא, טוקיו, גולן…"
+               autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="search-results">
+        <div class="search-results" id="search-results" role="listbox"></div>
       </div>
       <div class="search-hint" id="search-hint"></div>
-      <div class="search-results glass" id="search-results"></div>
     </div>
 
     <div class="scroll-cue"><span>טיולים מומלצים</span><span>↓</span></div>
@@ -131,6 +133,7 @@
   </footer>
 
   <script src="/js/common.js"></script>
+  <script src="/js/countries.js"></script>
   <script src="/js/home.js"></script>
 </body>
 </html>

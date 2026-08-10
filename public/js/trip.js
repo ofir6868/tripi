@@ -116,7 +116,16 @@
     if (trip.cover_image) {
       document.getElementById('trip-cover').style.backgroundImage = `url('${trip.cover_image.replace(/'/g, '')}')`;
     }
-    document.getElementById('trip-title').textContent = `${trip.emoji || '🧭'} ${trip.title}`;
+    // flags render per-platform (emoji mobile / SVG desktop) from the trip's
+    // destination countries — never baked into the stored title text
+    const tripFlags = [...new Set(
+      (Array.isArray(trip.destinations) ? trip.destinations : [])
+        .concat(trip.country ? [{ country: trip.country }] : [])
+        .map((d) => d.cc || COUNTRIES.ccByName(d.country || d.name))
+        .filter(Boolean)
+    )].map((cc) => COUNTRIES.flagHtml(cc)).join(' ');
+    document.getElementById('trip-title').innerHTML =
+      `${trip.emoji || '🧭'} ${TRIPI.esc(trip.title)}${tripFlags ? ' ' + tripFlags : ''}`;
 
     const meta = [];
     meta.push(`<span class="chip"><span class="dot">●</span> ${TRIPI.esc(trip.destination)}${trip.country ? ', ' + TRIPI.esc(trip.country) : ''}</span>`);

@@ -102,7 +102,7 @@
       <h2>המסלול שלכם 🗺️</h2>
       <div class="form-grid">
         <div class="field span-2">
-          <label for="f-title">שם הטיול</label>
+          <label for="f-title">שם הטיול <span class="title-flags" id="title-flags"></span></label>
           <input id="f-title" type="text" maxlength="80" placeholder="נמלא לבד לפי היעד — או תנו שם משלכם">
         </div>
         <!-- the AI still writes a description behind the scenes; it shows on the trip page, not here -->
@@ -237,6 +237,7 @@
 
   <script src="/js/common.js"></script>
   <script src="/js/geo.js"></script>
+  <script src="/js/countries.js"></script>
   <script src="/js/plan.js"></script>
 </body>
 </html>

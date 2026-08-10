@@ -15,16 +15,37 @@
   let debounceTimer = null;
   let titleWasAutofilled = false;
 
+  // a destination's country code: carried from the homepage (?cc=) or looked up
+  // by the Hebrew country name — powers every flag in the wizard
+  const ccFor = (d) => d.cc || COUNTRIES.ccByName(d.country || d.name);
+  const tripCcs = () => [...new Set(destinations.map(ccFor).filter(Boolean))];
+
   function renderChips() {
-    chipsBox.innerHTML = destinations.map((d, i) => `
+    chipsBox.innerHTML = destinations.map((d, i) => {
+      const cc = ccFor(d);
+      return `
       <span class="dest-chip">
-        ${TRIPI.esc(d.name)}${d.country && d.country !== d.name ? `<small>${TRIPI.esc(d.country)}</small>` : ''}
+        ${cc ? COUNTRIES.flagHtml(cc) + ' ' : ''}${TRIPI.esc(d.name)}${d.country && d.country !== d.name ? `<small>${TRIPI.esc(d.country)}</small>` : ''}
         <button type="button" data-i="${i}" aria-label="הסרת יעד">✕</button>
-      </span>`).join('');
-    chipsBox.querySelectorAll('button').forEach((b) => {
+      </span>`;
+    }).join('');
+    chipsBox.querySelectorAll('.dest-chip > button').forEach((b) => {
       b.onclick = () => { destinations.splice(+b.dataset.i, 1); renderChips(); autoTitle(); };
     });
+    // once something is picked, the input invites the next stop instead of the first
+    destInput.placeholder = destinations.length
+      ? 'מוסיפים עוד יעד? עיר או מדינה נוספת…'
+      : 'הקלידו יעד… למשל: טוקיו, יוון, רומא';
+    renderTitleFlags();
     renderDestContext();
+  }
+
+  // flags live beside the trip-name label, never inside the stored title —
+  // flagHtml picks emoji on mobile and SVG images on desktop
+  function renderTitleFlags() {
+    const el = document.getElementById('title-flags');
+    if (!el) return;
+    el.innerHTML = tripCcs().map((cc) => COUNTRIES.flagHtml(cc)).join('');
   }
 
   // step 2 reminder of what was chosen — matters most when we jumped here automatically
@@ -34,16 +55,26 @@
     if (!destinations.length) { box.hidden = true; return; }
     box.hidden = false;
     box.innerHTML = `<span class="dc-label">הטיול שלכם ל־</span>` + destinations
-      .map((d) => `<span class="dc-dest">${TRIPI.esc(d.name)}${d.country && d.country !== d.name ? `<small>, ${TRIPI.esc(d.country)}</small>` : ''}</span>`)
+      .map((d) => {
+        const cc = ccFor(d);
+        return `<span class="dc-dest">${cc ? COUNTRIES.flagHtml(cc) + ' ' : ''}${TRIPI.esc(d.name)}${d.country && d.country !== d.name ? `<small>, ${TRIPI.esc(d.country)}</small>` : ''}</span>`;
+      })
       .join('<span class="dc-sep">·</span>') +
+      ` <button type="button" class="dc-change" id="dc-add">+ עוד יעד</button>` +
       ` <button type="button" class="dc-change" id="dc-change">שינוי</button>`;
     box.querySelector('#dc-change').onclick = () => goStep(1);
+    // the homepage country flow lands directly on step 2 — this is where a
+    // multi-country trip picks up its second destination
+    box.querySelector('#dc-add').onclick = () => { goStep(1); destInput.focus(); };
   }
 
   function autoTitle() {
     if (titleInput.value && !titleWasAutofilled) return; // never overwrite the user's own title
     if (!destinations.length) { if (titleWasAutofilled) { titleInput.value = ''; titleWasAutofilled = false; } return; }
     const names = destinations.map((d) => d.name);
+    // the stored title stays flag-free: a title created on one platform is read on
+    // others, and emoji flags degrade to bare letters ("IE") on Windows. Flags are
+    // a DISPLAY concern — rendered beside the title per-platform (renderTitleFlags)
     titleInput.value = names.length === 1 ? `טיול ל${names[0]}` : `${names.slice(0, 3).join(' · ')} — הטיול הגדול`;
     titleWasAutofilled = true;
   }
@@ -65,12 +96,15 @@
     if (q.length < 2) { suggBox.classList.remove('open'); return; }
     const places = await GEO.searchPlaces(q).catch(() => []);
     if (destInput.value.trim() !== q) return; // stale response — user kept typing
-    const options = places.map((p, i) => `
+    const options = places.map((p, i) => {
+      const cc = p.isCountry ? COUNTRIES.ccByName(p.name) : null;
+      return `
       <button type="button" class="autocomplete-item" data-i="${i}">
-        <span class="ac-icon">${p.isCountry ? '🌍' : '📍'}</span>
+        <span class="ac-icon">${cc ? COUNTRIES.flagHtml(cc) : (p.isCountry ? '🌍' : '📍')}</span>
         <span class="ac-name">${TRIPI.esc(p.name)}</span>
         <span class="ac-meta">${p.isCountry ? 'מדינה' : TRIPI.esc([p.admin, p.country].filter(Boolean).join(', '))}</span>
-      </button>`).join('');
+      </button>`;
+    }).join('');
     // free-text fallback appears only AFTER results loaded, so it can't be picked blindly
     suggBox.innerHTML = options + `
       <button type="button" class="autocomplete-item free-text" data-free="1">
@@ -83,7 +117,8 @@
         if (btn.dataset.free) addDestination({ name: q, country: null, lat: null, lon: null });
         else {
           const p = places[+btn.dataset.i];
-          addDestination({ name: p.name, country: p.isCountry ? p.name : p.country, lat: p.lat, lon: p.lon });
+          const country = p.isCountry ? p.name : p.country;
+          addDestination({ name: p.name, country, lat: p.lat, lon: p.lon, cc: COUNTRIES.ccByName(country) });
         }
       };
     });
@@ -724,7 +759,9 @@
       newCode.textContent = trip.share_code;
       newCode.classList.add('copyable');
       newCode.title = 'לחיצה מעתיקה את קוד הטיול';
-      document.getElementById('new-title').textContent = `${trip.emoji || ''} ${trip.title}`;
+      const newFlags = tripCcs().map((cc) => COUNTRIES.flagHtml(cc)).join(' ');
+      document.getElementById('new-title').innerHTML =
+        `${trip.emoji || ''} ${TRIPI.esc(trip.title)}${newFlags ? ' ' + newFlags : ''}`;
       document.getElementById('view-trip').href = '/trip/' + trip.share_code;
       // the common next step after creating a trip is inviting co-planners, so the
       // edit (invite) link leads; the view-only link stays as a quiet secondary
@@ -821,19 +858,33 @@
   })();
 
   // ---- ?dest= from the homepage search ----
-  // Only an EXACT cities/countries API match may auto-fill; then we jump straight to
-  // step 2 with the chosen destination shown. Anything else just pre-fills the search
-  // box and opens real suggestions — raw text is never added as a destination.
+  // A country pick (?cc= present, from the static list) is trusted as-is: the chip
+  // appears instantly and we land on step 2, while coordinates fill in quietly in
+  // the background. Free text goes through the API — only an EXACT match may
+  // auto-fill; anything else just pre-fills the search box and opens suggestions.
   (function applyDestParam() {
-    const q = (new URLSearchParams(location.search).get('dest') || '').trim().slice(0, 60);
+    const params = new URLSearchParams(location.search);
+    const q = (params.get('dest') || '').trim().slice(0, 60);
+    const cc = (params.get('cc') || '').trim().toLowerCase().slice(0, 2);
     if (!q) return;
     history.replaceState(null, '', '/plan'); // one-shot: a reload shouldn't re-add it
     if (destinations.length) return;
+    if (cc && /^[a-z]{2}$/.test(cc)) {
+      addDestination({ name: q, country: q, lat: null, lon: null, cc });
+      goStep(2); // dest-context line in the panel shows what was picked
+      GEO.searchPlaces(q).then((places) => {
+        const hit = (places || []).find((p) => p.isCountry) || (places || [])[0];
+        const d = destinations.find((x) => x.name === q && x.cc === cc);
+        if (hit && d && d.lat == null) { d.lat = hit.lat; d.lon = hit.lon; scheduleSave(); }
+      }).catch(() => { /* coords are a nice-to-have — the AI works off the name */ });
+      return;
+    }
     GEO.searchPlaces(q)
       .then((places) => {
         const exact = (places || []).find((p) => p.name.trim().toLowerCase() === q.toLowerCase());
         if (exact) {
-          addDestination({ name: exact.name, country: exact.isCountry ? exact.name : exact.country, lat: exact.lat, lon: exact.lon });
+          const country = exact.isCountry ? exact.name : exact.country;
+          addDestination({ name: exact.name, country, lat: exact.lat, lon: exact.lon, cc: COUNTRIES.ccByName(country) });
           goStep(2); // dest-context line in the panel shows what was picked
         } else {
           destInput.value = q;
