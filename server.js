@@ -6,6 +6,10 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Render terminates TLS at its proxy — without this, req.ip (which the rate
+// limiters key on) would be the proxy's address, one shared bucket for everyone
+app.set('trust proxy', 1);
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 

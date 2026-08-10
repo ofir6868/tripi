@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TRIPI · טריפי — מתכנן הטיולים שלך</title>
-  <meta name="description" content="טריפי — מתכננים טיול, משתפים בקוד בן 6 ספרות, ויוצאים לדרך. השראה מטיולים מומלצים בכל העולם.">
+  <title>TRIP MAKER · טריפ מייקר — מתכנן הטיולים שלך</title>
+  <meta name="description" content="טריפ מייקר — מתכננים טיול, משתפים בקוד בן 6 ספרות, ויוצאים לדרך. השראה מטיולים מומלצים בכל העולם.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧭</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,6 +14,46 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
+
+  <!-- entry splash: compass draws + needle settles, wordmark crossfades EN↔HE.
+       shown once per browser session, removed by the inline script below -->
+  <div class="entry-splash" id="entry-splash" aria-hidden="true">
+    <svg width="170" height="170" viewBox="0 0 512 512">
+      <circle class="es-ring" cx="256" cy="256" r="150" fill="none" stroke="rgba(245,239,227,.25)" stroke-width="14" stroke-linecap="round" stroke-dasharray="942" transform="rotate(-90 256 256)"/>
+      <path class="es-cross" d="M116 256 L256 216 L396 256 L256 296 Z" fill="rgba(143,216,196,.85)"/>
+      <g class="es-needle"><path d="M256 116 L296 256 L256 396 L216 256 Z" fill="url(#es-am)"/></g>
+      <circle class="es-hub" cx="256" cy="256" r="26" fill="#0a1512" stroke="#ffb45f" stroke-width="8"/>
+      <defs><linearGradient id="es-am" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb45f"/><stop offset="1" stop-color="#e8853a"/></linearGradient></defs>
+    </svg>
+    <div class="es-word">
+      <div class="es-logos">
+        <div class="es-latin" dir="ltr">
+          <span class="ls-trip"><b>T</b><b>R</b><b>I</b><b>P</b></span>
+          <span class="ls-maker"><b>M</b><b>A</b><b>K</b><b>E</b><b>R</b></span>
+        </div>
+        <div class="es-hebrew" dir="rtl">
+          <span class="ls-trip"><b>ט</b><b>ר</b><b>י</b><b>פ</b></span>
+          <span class="ls-maker"><b>מ</b><b>י</b><b>י</b><b>ק</b><b>ר</b></span>
+        </div>
+      </div>
+      <div class="es-tag">· מתכננים · משתפים · נוסעים ·</div>
+    </div>
+    <div class="es-bar"><i></i></div>
+  </div>
+  <script>
+    (() => {
+      const el = document.getElementById('entry-splash');
+      try {
+        if (sessionStorage.getItem('tm_splash')) { el.remove(); return; }
+        sessionStorage.setItem('tm_splash', '1');
+      } catch { /* private mode — just play it */ }
+      // wordmark rises at 1.2s showing TRIP MAKER, crossfades to Hebrew at 2.6s,
+      // and the whole splash fades at 4.6s — each language gets a readable hold
+      setTimeout(() => el.querySelector('.es-logos').classList.add('he'), 2600);
+      setTimeout(() => el.classList.add('done'), 4600);
+      setTimeout(() => el.remove(), 5200);
+    })();
+  </script>
 
   <section class="hero">
     <div class="hero-bg" style="background-image:url('https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=2000&q=80')"></div>
@@ -87,7 +127,7 @@
   </section>
 
   <footer class="site-footer">
-    <span class="logo-mark">TRIPI</span> · נבנה באהבה לטיולים · <span dir="ltr">© 2026</span>
+    <span class="logo-stack" dir="ltr" role="img" aria-label="TRIP MAKER"><span class="ls-trip" aria-hidden="true"><b>T</b><b>R</b><b>I</b><b>P</b></span><span class="ls-maker" aria-hidden="true"><b>M</b><b>A</b><b>K</b><b>E</b><b>R</b></span></span> · נבנה באהבה לטיולים · <span dir="ltr">© 2026</span>
   </footer>
 
   <script src="/js/common.js"></script>

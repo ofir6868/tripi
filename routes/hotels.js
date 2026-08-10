@@ -1,4 +1,5 @@
-// hotels (OSM Overpass, server-side with cache)
+// hotels near coordinates (OSM Overpass, server-side with cache) — feeds the
+// hotel-name autocomplete in the trip page's hotels modal (trip-modals.js)
 const express = require('express');
 
 const router = express.Router();

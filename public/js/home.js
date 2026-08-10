@@ -155,60 +155,74 @@
       }, { threshold: 0.15 });
       originals.forEach((c) => observer.observe(c));
       if (loop) setupLoop();
-      startDrift();
+      maybeDrift();
     } catch {
       strip.innerHTML = '<div class="empty-day" style="width:100%">הטיולים המומלצים יופיעו כאן ממש בקרוב 🌍</div>';
     }
   }
 
-  // arrows — with the loop active they never hit a dead end
+  // arrows — with the loop active they never hit a dead end. Every click pauses
+  // the drift first: a drift tick writes scrollLeft, and that cancels an in-flight
+  // smooth scroll — without the pause the arrows lose the race and appear dead.
   const CARD = 312;
   document.getElementById('strip-next').addEventListener('click', () => {
+    pauseDrift();
     if (loopEnabled && getPos() < CARD + 4) setPos(getPos() + setW()); // wrap before leaving the start
     strip.scrollBy({ left: CARD, behavior: 'smooth' });
   });
   document.getElementById('strip-prev').addEventListener('click', () => {
+    pauseDrift();
     strip.scrollBy({ left: -CARD, behavior: 'smooth' }); // far-end wrap handled by the scroll listener
   });
 
-  // gentle auto-drift, pauses on interaction
-  let paused = false, resumeTimer = null;
+  // gentle auto-drift, pauses on interaction. Perf: the rAF loop runs only while
+  // it can actually move something — strip on screen, tab visible, not paused.
+  // The moment any of that stops being true the loop cancels itself, and the
+  // state-change listeners below restart it. An idle homepage burns zero frames.
+  let paused = false, resumeTimer = null, rafId = null, stripOnScreen = false;
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  const driftAllowed = () => !paused && !document.hidden && stripOnScreen && !reducedMotion.matches;
+
+  let dir = -1; // only used in non-loop fallback: bounce between the ends
+  let acc = 0;
+  function frame() {
+    if (!driftAllowed()) { rafId = null; return; } // stop ticking — maybeDrift() restarts us
+    const max = strip.scrollWidth - strip.clientWidth;
+    if (max > 0) {
+      acc += 0.5;
+      if (acc >= 1) {
+        const step = Math.floor(acc);
+        acc -= step;
+        if (loopEnabled) {
+          setPos(getPos() + step); // always forward — the wrap listener makes it endless
+        } else {
+          const pos = getPos();
+          if (pos >= max - 4) dir = 1;
+          if (pos <= 4) dir = -1;
+          strip.scrollLeft += dir * step;
+        }
+      }
+    }
+    rafId = requestAnimationFrame(frame);
+  }
+  function maybeDrift() {
+    if (rafId == null && driftAllowed()) rafId = requestAnimationFrame(frame);
+  }
+
   function pauseDrift() {
     paused = true;
     clearTimeout(resumeTimer);
-    resumeTimer = setTimeout(() => { paused = false; }, 3500);
+    resumeTimer = setTimeout(() => { paused = false; maybeDrift(); }, 3500);
   }
   ['pointerdown', 'wheel', 'touchstart'].forEach((ev) => strip.addEventListener(ev, pauseDrift, { passive: true }));
   strip.addEventListener('pointerenter', () => { paused = true; clearTimeout(resumeTimer); });
   strip.addEventListener('pointerleave', pauseDrift);
-
-  function startDrift() {
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    let dir = -1; // only used in non-loop fallback: bounce between the ends
-    let acc = 0;
-    function frame() {
-      if (!paused && !document.hidden) {
-        const max = strip.scrollWidth - strip.clientWidth;
-        if (max > 0) {
-          acc += 0.5;
-          if (acc >= 1) {
-            const step = Math.floor(acc);
-            acc -= step;
-            if (loopEnabled) {
-              setPos(getPos() + step); // always forward — the wrap listener makes it endless
-            } else {
-              const pos = getPos();
-              if (pos >= max - 4) dir = 1;
-              if (pos <= 4) dir = -1;
-              strip.scrollLeft += dir * step;
-            }
-          }
-        }
-      }
-      requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(frame);
-  }
+  new IntersectionObserver((entries) => {
+    stripOnScreen = entries[0].isIntersecting;
+    maybeDrift();
+  }).observe(strip);
+  document.addEventListener('visibilitychange', maybeDrift);
+  reducedMotion.addEventListener?.('change', maybeDrift);
 
   loadSuggested();
 })();

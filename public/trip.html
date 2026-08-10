@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>טיול · TRIPI</title>
+  <title>טיול · TRIP MAKER</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧭</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -13,6 +13,30 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
+
+  <!-- full-screen trip loader: a pin retraces the dashed route while the trip
+       fetches — trip.js fades it out when the data lands (or on not-found) -->
+  <div class="trip-loader" id="trip-loader" aria-hidden="true">
+    <svg width="320" height="130" viewBox="0 0 320 130">
+      <path id="tl-route" class="tl-route" d="M300,95 C250,15 195,115 140,45 C105,2 55,80 20,38" fill="none" stroke="rgba(255,180,95,.55)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="7 9"/>
+      <circle class="tl-wp" cx="300" cy="95" r="5" fill="#8fd8c4"/>
+      <circle class="tl-wp" cx="140" cy="45" r="5" fill="#8fd8c4" style="animation-delay:1.5s"/>
+      <circle class="tl-wp" cx="20" cy="38" r="5" fill="#8fd8c4" style="animation-delay:3s"/>
+      <g>
+        <circle class="tl-pin" r="9" fill="#0a1512" stroke="#ffb45f" stroke-width="3"/>
+        <animateMotion dur="4.5s" repeatCount="indefinite" keyPoints="1;0" keyTimes="0;1" calcMode="linear">
+          <mpath href="#tl-route"/>
+        </animateMotion>
+      </g>
+    </svg>
+    <div class="tl-title">טוען את הטיול…</div>
+    <div class="tl-sub">עוד רגע יוצאים לדרך 🧳</div>
+    <div class="tl-chips">
+      <span class="skl"></span>
+      <span class="skl"></span>
+      <span class="skl"></span>
+    </div>
+  </div>
 
   <section class="trip-hero">
     <div class="hero-bg" id="trip-cover"></div>
@@ -128,7 +152,7 @@
     </main>
     <aside class="trip-side">
       <div class="ticket glass">
-        <div class="ticket-label">✈ TRIPI PASS ✈</div>
+        <div class="ticket-label">✈ TRIP MAKER PASS ✈</div>
         <div class="code" id="ticket-code"><span class="skl skl-code"></span></div>
         <div class="ticket-sub">קוד צפייה ציבורי — משתפים אותו וכולם רואים את המסלול</div>
         <hr class="divider">
@@ -164,13 +188,6 @@
         <div class="map-caption" id="map-caption"></div>
       </div>
       <div id="nudge-slot"></div>
-      <!-- מוסתר זמנית: כרטיס "מלונות באזור" (OSM + בוקינג). להחזרה — לבטל את ההערה ולהחזיר את loadHotels() ב-trip.js
-      <div class="side-card glass" id="hotels-card" style="display:none">
-        <div class="side-card-title">🏨 מלונות באזור</div>
-        <div id="hotels-list"></div>
-        <div class="side-card-foot" id="hotels-foot"></div>
-      </div>
-      -->
     </aside>
   </div>
 
@@ -184,7 +201,7 @@
   </div>
 
   <footer class="site-footer">
-    <span class="logo-mark">TRIPI</span> · נבנה באהבה לטיולים · <span dir="ltr">© 2026</span>
+    <span class="logo-stack" dir="ltr" role="img" aria-label="TRIP MAKER"><span class="ls-trip" aria-hidden="true"><b>T</b><b>R</b><b>I</b><b>P</b></span><span class="ls-maker" aria-hidden="true"><b>M</b><b>A</b><b>K</b><b>E</b><b>R</b></span></span> · נבנה באהבה לטיולים · <span dir="ltr">© 2026</span>
   </footer>
 
   <script src="/js/common.js"></script>

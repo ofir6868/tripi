@@ -122,7 +122,10 @@ function renderHeader() {
     : `<button class="btn btn-ghost" id="nav-login">התחברות</button>`;
   el.innerHTML = `
     <a class="logo" href="/">
-      <span class="logo-mark">TRIPI</span>
+      <span class="logo-stack" dir="ltr" role="img" aria-label="TRIP MAKER">
+        <span class="ls-trip" aria-hidden="true"><b>T</b><b>R</b><b>I</b><b>P</b></span>
+        <span class="ls-maker" aria-hidden="true"><b>M</b><b>A</b><b>K</b><b>E</b><b>R</b></span>
+      </span>
       <span class="logo-he">מתכנן הטיולים שלך</span>
     </a>
     <nav class="nav-actions">

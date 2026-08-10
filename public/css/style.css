@@ -124,13 +124,8 @@ body::after {
 }
 
 .logo {
-  display: flex; align-items: baseline; gap: 10px;
+  display: flex; align-items: center; gap: 12px;
   text-decoration: none; color: var(--paper);
-}
-.logo .logo-mark {
-  font-family: var(--font-display);
-  font-size: 1.45rem; letter-spacing: .04em; color: var(--amber);
-  text-shadow: 0 0 24px rgba(255, 180, 95, .45);
 }
 .logo .logo-he { font-weight: 300; font-size: .95rem; color: var(--paper-dim); }
 
@@ -378,7 +373,6 @@ body::after {
   color: rgba(245, 239, 227, .4); font-size: .88rem; font-weight: 300;
   border-top: 1px solid rgba(255, 255, 255, .07);
 }
-.site-footer .logo-mark { font-family: var(--font-display); color: var(--amber); font-size: 1.1rem; }
 
 /* ---------- modal (auth) ---------- */
 
@@ -641,6 +635,31 @@ body::after {
 
 .wizard-nav { display: flex; justify-content: space-between; margin-top: 24px; gap: 10px; }
 
+/* step 4 ends in a long itinerary that reads as "done" — the create action rides a
+   sticky bar so it never scrolls off screen, and says the trip isn't saved yet */
+.wizard-panel:has(.create-bar) { padding-bottom: 0; }
+.create-bar {
+  position: sticky; bottom: 0; z-index: 5; display: block;
+  margin: 24px -28px 0; padding: 10px 28px calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, rgba(8, 17, 14, .97) 65%, rgba(8, 17, 14, .85));
+  border-top: 1px solid var(--glass-border);
+  border-radius: 0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px);
+}
+.create-hint {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  font-size: .85rem; font-weight: 600; color: var(--amber); margin-bottom: 9px;
+}
+.create-hint .ic { width: 15px; height: 15px; }
+.create-row { display: flex; justify-content: space-between; gap: 10px; }
+/* the create button is THE way forward here, so it takes all the width it can get */
+.create-row #create-trip { flex: 1; justify-content: center; }
+@keyframes create-pulse {
+  0%, 100% { box-shadow: 0 8px 26px -8px rgba(232, 133, 58, .65); }
+  50% { box-shadow: 0 8px 30px -6px rgba(232, 133, 58, .95), 0 0 0 6px rgba(255, 180, 95, .14); }
+}
+.create-row #create-trip:not(:disabled) { animation: create-pulse 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .create-row #create-trip { animation: none; } }
+
 .day-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
 .day-tab {
   padding: 9px 18px; border-radius: 999px; cursor: pointer; font-weight: 700; font-size: .92rem;
@@ -768,19 +787,8 @@ body::after {
 .wd-temp { font-size: .82rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .wd-temp span { color: var(--paper-dim); font-weight: 400; margin-inline-start: 3px; }
 
-.hotel-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 9px 4px; border-bottom: 1px solid rgba(255, 255, 255, .07);
-}
-.hotel-row:last-child { border-bottom: none; }
-.hotel-name { font-size: .92rem; font-weight: 600; }
+/* hotel star rating — shown in the hotels modal list */
 .hotel-stars { color: var(--amber); font-size: .78rem; letter-spacing: .1em; }
-.hotel-links { display: flex; gap: 8px; flex-shrink: 0; }
-.hotel-links a { text-decoration: none; font-size: 1rem; opacity: .85; }
-.hotel-links a:hover { opacity: 1; transform: scale(1.1); }
-.side-card-foot { margin-top: 12px; text-align: center; }
-.side-card-foot a { color: var(--amber); font-weight: 700; font-size: .9rem; text-decoration: none; }
-.side-card-foot a:hover { text-decoration: underline; }
 
 /* ---------- my trips ---------- */
 
@@ -1068,14 +1076,6 @@ body::after {
 .skl-wd-icon { width: 26px; height: 26px; border-radius: 50%; margin-block: 5px; }
 .skl-wd-temp { width: 34px; height: 17px; border-radius: 5px; }
 
-/* hotels: real rows with slim bars — the links slot keeps the row height */
-.skl-hotel .hotel-links { height: 22px; align-items: center; }
-.skl-hname { width: 70%; height: 15px; }
-.skl-hotel:nth-child(2) .skl-hname { width: 54%; }
-.skl-hotel:nth-child(3) .skl-hname { width: 62%; }
-.skl-hotel:nth-child(4) .skl-hname { width: 46%; }
-.skl-dot { width: 14px; height: 14px; border-radius: 50%; }
-
 /* home search results: real row, real 52px thumb slot */
 .skl-thumb { width: 52px; height: 52px; border-radius: 12px; flex-shrink: 0; }
 .skl-sr-text { display: flex; flex-direction: column; gap: 6px; }
@@ -1358,7 +1358,7 @@ body:has(.join-banner) { padding-bottom: 92px; }
   body { background: #fff !important; color: #111 !important; }
   body::after, .atmosphere, .site-header, .site-footer, .action-bar, .ticket .divider ~ button,
   #wa-share, #copy-code, #copy-link, .copy-feedback, .join-banner, .dest-switcher, #publish-row,
-  .map-card, .hotels-card, #hotels-card, .add-item-inline, .item-del, .inline-item-form,
+  .map-card, .add-item-inline, .item-del, .inline-item-form,
   .modal-backdrop, .hero-bg, .hero-veil, .item-expand-btn, .ai-edit-card,
   .view-toggle, .cal-toolbar, .cal-day-strip, .cal-hint { display: none !important; }
   /* printing from fullscreen: the calendar prints as a normal block, not a fixed overlay */
@@ -1443,7 +1443,9 @@ body:has(.join-banner) { padding-bottom: 92px; }
   .nav-label { display: none; } /* the my-trips link collapses to just ✈️ */
   .nav-actions { gap: 6px; }
   .btn { padding: 8px 11px; font-size: .84rem; }
-  .logo .logo-mark { font-size: 1.2rem; }
+  .logo .logo-stack { width: 50px; }
+  .logo .logo-stack .ls-trip { font-size: 18px; }
+  .logo .logo-stack .ls-maker { font-size: 9px; }
   .site-header { padding: 7px 10px; }
   .ticket { padding: 20px 14px; }
   .ticket .code { font-size: 1.85rem; letter-spacing: .1em; }
@@ -2088,6 +2090,133 @@ body.cal-full-open { overflow: hidden; }
   .sm-foot { margin: 0 -18px; padding: 12px 18px calc(12px + env(safe-area-inset-bottom)); }
 }
 @keyframes sheetUp { from { transform: translateY(40px); opacity: .5; } to { transform: none; opacity: 1; } }
+
+/* ---------- TRIP MAKER wordmark ---------- */
+/* two stacked rows justified to the same width, so TRIP over MAKER reads as one
+   block — the header logo from the brand sheet */
+
+.logo-stack {
+  display: inline-flex; flex-direction: column; width: 58px; flex: none;
+  font-family: var(--font-display); line-height: 1;
+  filter: drop-shadow(0 0 12px rgba(255, 180, 95, .45));
+}
+.logo-stack span { display: flex; justify-content: space-between; }
+.logo-stack b, .es-logos b { font-weight: 400; }
+.logo-stack .ls-trip { font-size: 21px; color: var(--amber); }
+.logo-stack .ls-maker { font-size: 11px; margin-top: 3px; color: var(--paper); }
+
+.site-footer .logo-stack { width: 44px; vertical-align: middle; filter: none; }
+.site-footer .logo-stack .ls-trip { font-size: 16px; }
+.site-footer .logo-stack .ls-maker { font-size: 8px; margin-top: 2px; }
+
+/* ---------- entry splash (app boot) ---------- */
+/* compass draws itself, needle overshoots and settles, wordmark rises and
+   crossfades Latin ↔ Hebrew; a thin amber bar sweeps below. Removed by home.js
+   after one pass — once per session. */
+
+.entry-splash {
+  position: fixed; inset: 0; z-index: 900;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background:
+    radial-gradient(52% 44% at 82% 6%, rgba(232, 133, 58, .16), transparent 70%),
+    radial-gradient(46% 40% at 8% 88%, rgba(143, 216, 196, .10), transparent 70%),
+    linear-gradient(180deg, #0c1a16 0%, var(--ink) 60%, #081210 100%);
+  transition: opacity .5s ease, visibility .5s ease;
+}
+.entry-splash.done { opacity: 0; visibility: hidden; }
+
+.entry-splash svg { filter: drop-shadow(0 0 30px rgba(255, 180, 95, .35)); }
+.es-ring { animation: ring-draw 4.2s ease-in-out forwards; }
+.es-cross { animation: cross-fade 4.2s ease forwards; }
+.es-needle { transform-origin: 256px 256px; animation: needle-settle 4.2s cubic-bezier(.34, 1.3, .5, 1) forwards; }
+.es-hub { transform-origin: 256px 256px; animation: hub-pop 4.2s ease forwards; }
+
+.es-word { margin-top: 22px; text-align: center; opacity: 0; animation: word-rise .8s ease 1.2s forwards; }
+.es-logos {
+  position: relative; width: 148px; height: 84px; margin: 0 auto;
+  font-family: var(--font-display); line-height: 1;
+  filter: drop-shadow(0 0 24px rgba(255, 180, 95, .5)); text-shadow: 0 0 32px rgba(255, 180, 95, .5);
+}
+.es-logos > div { position: absolute; inset: 0; transition: opacity .45s ease; }
+.es-logos span { display: flex; justify-content: space-between; }
+/* language swap is driven by the inline script adding .he — one deterministic
+   crossfade (EN holds, then HE holds) instead of a free-running keyframe loop */
+.es-hebrew { opacity: 0; }
+.es-logos.he .es-latin { opacity: 0; }
+.es-logos.he .es-hebrew { opacity: 1; }
+.es-latin .ls-trip { font-size: 52px; color: var(--amber); }
+.es-latin .ls-maker { font-size: 26px; margin-top: 6px; color: var(--paper); }
+.es-hebrew .ls-trip { font-size: 46px; line-height: 1.1; color: var(--amber); }
+.es-hebrew .ls-maker { font-size: 24px; margin-top: 2px; color: var(--paper); }
+.es-tag { margin-top: 10px; color: var(--mint); font-weight: 600; font-size: 11px; letter-spacing: .22em; white-space: nowrap; }
+
+.es-bar {
+  position: absolute; bottom: 54px; width: 150px; height: 3px; border-radius: 999px;
+  background: rgba(255, 255, 255, .08); overflow: hidden;
+}
+.es-bar i {
+  display: block; width: 45%; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--amber), var(--amber-deep), transparent);
+  animation: sweep 1.4s linear infinite;
+}
+
+@keyframes ring-draw { 0% { stroke-dashoffset: 942; opacity: 0; } 12% { opacity: 1; } 55%, 100% { stroke-dashoffset: 0; } }
+@keyframes needle-settle {
+  0% { transform: rotate(-120deg); } 42% { transform: rotate(26deg); }
+  62% { transform: rotate(-9deg); } 78% { transform: rotate(4deg); }
+  88%, 100% { transform: rotate(0deg); }
+}
+@keyframes cross-fade { 0%, 30% { opacity: 0; } 55%, 100% { opacity: .85; } }
+@keyframes hub-pop { 0%, 40% { transform: scale(0); } 60% { transform: scale(1.25); } 72%, 100% { transform: scale(1); } }
+@keyframes word-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes sweep { 0% { transform: translateX(120%); } 100% { transform: translateX(-220%); } }
+
+/* ---------- AI overlay: cycling task rows ---------- */
+/* three pretend work-rows fading through under the title — dot pings, bar
+   shimmers (same gradient as .skl), chip hints at a result */
+
+.ai-rows { margin: 30px auto 0; width: 250px; display: flex; flex-direction: column; gap: 14px; text-align: start; }
+.ai-row { display: flex; align-items: center; gap: 12px; opacity: 0; animation: row-cycle 5.4s ease infinite; }
+.ai-row:nth-child(2) { animation-delay: .6s; }
+.ai-row:nth-child(3) { animation-delay: 1.2s; }
+.ai-row .ar-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--mint); animation: dot-glow 1.6s ease infinite; }
+.ai-row:nth-child(2) .ar-dot { animation-delay: .4s; }
+.ai-row:nth-child(3) .ar-dot { animation-delay: .8s; }
+.ai-row .skl { flex: 1; height: 13px; border-radius: 999px; }
+.ai-row:nth-child(2) .skl { max-width: 78%; }
+.ai-row:nth-child(3) .skl { max-width: 60%; }
+.ar-chip { flex: none; width: 40px; height: 20px; border-radius: 999px; background: rgba(255, 180, 95, .12); border: 1px solid rgba(255, 180, 95, .3); }
+.ar-chip.mint { background: rgba(143, 216, 196, .1); border-color: rgba(143, 216, 196, .3); }
+
+@keyframes dot-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(143, 216, 196, .5); } 50% { box-shadow: 0 0 0 6px rgba(143, 216, 196, 0); } }
+@keyframes row-cycle { 0% { opacity: 0; transform: translateY(10px); } 8% { opacity: 1; transform: none; } 82% { opacity: 1; } 94%, 100% { opacity: 0; } }
+
+/* ---------- trip loader ---------- */
+/* full-screen while the trip fetches: a pin retraces a dashed route between
+   pulsing waypoints. Sits above the skeletons and fades out when data lands. */
+
+.trip-loader {
+  position: fixed; inset: 0; z-index: 800;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background:
+    radial-gradient(60% 55% at 50% 45%, rgba(22, 48, 42, .85), transparent 100%),
+    linear-gradient(180deg, #0c1a16 0%, var(--ink) 60%, #081210 100%);
+  transition: opacity .45s ease, visibility .45s ease;
+}
+.trip-loader.done { opacity: 0; visibility: hidden; }
+
+.tl-route { animation: route-dash 4.5s linear infinite; }
+.tl-wp { animation: wp-pulse 4.5s ease infinite; }
+.tl-pin { filter: drop-shadow(0 0 12px rgba(255, 180, 95, .8)); }
+.tl-title { margin-top: 26px; font-family: var(--font-display); font-size: 1.9rem; color: var(--paper); text-shadow: 0 0 40px rgba(255, 180, 95, .35); }
+.tl-sub { margin-top: 10px; color: var(--paper-dim); font-weight: 300; font-size: 1rem; }
+.tl-chips { margin-top: 30px; display: flex; gap: 8px; }
+.tl-chips .skl { width: 64px; height: 30px; border-radius: 999px; border: 1px solid var(--glass-border); }
+.tl-chips .skl:nth-child(2) { animation-delay: .3s; }
+.tl-chips .skl:nth-child(3) { animation-delay: .6s; }
+
+@keyframes route-dash { from { stroke-dashoffset: 560; } to { stroke-dashoffset: 0; } }
+@keyframes wp-pulse { 0%, 100% { opacity: .35; r: 5; } 50% { opacity: 1; } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }

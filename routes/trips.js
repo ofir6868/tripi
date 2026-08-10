@@ -5,8 +5,15 @@ const {
   uniqueShareCode, tripFields, newInviteToken, isParticipant, tripWithEditAuth,
   numOrNull, moneyOrNull, cleanDestinations,
 } = require('../lib/trips');
+const { rateLimiter } = require('../lib/rate-limit');
 
 const router = express.Router();
+
+// the 6-digit share code is the only thing protecting unpublished trips, so codes
+// must not be enumerable. Only *missed* lookups count — typos are rare and page
+// loads of real trips never touch the counter, but a scanner burns out in seconds.
+const codeMissLimit = rateLimiter({ windowMs: 15 * 60 * 1000, max: 20 });
+const CODE_MISS_ERROR = 'יותר מדי קודים שגויים — נסו שוב בעוד רבע שעה';
 
 router.get('/api/trips/suggested', async (_req, res) => {
   try {
@@ -25,7 +32,9 @@ router.get('/api/trips/search', async (req, res) => {
     const q = (req.query.q || '').trim();
     if (!q) return res.json([]);
     if (/^\d{6}$/.test(q)) {
+      if (codeMissLimit.blocked(req.ip)) return res.status(429).json({ error: CODE_MISS_ERROR });
       const { rows } = await pool.query(`SELECT ${tripFields} FROM trips WHERE share_code = $1`, [q]);
+      if (!rows.length) codeMissLimit.hit(req.ip);
       return res.json(rows);
     }
     const { rows } = await pool.query(
@@ -43,10 +52,14 @@ router.get('/api/trips/search', async (req, res) => {
 
 router.get('/api/trips/code/:code', authOptional, async (req, res) => {
   try {
+    if (codeMissLimit.blocked(req.ip)) return res.status(429).json({ error: CODE_MISS_ERROR });
     const { rows } = await pool.query(
       `SELECT ${tripFields}, invite_token FROM trips WHERE share_code = $1`, [req.params.code]
     );
-    if (!rows[0]) return res.status(404).json({ error: 'לא נמצא טיול עם הקוד הזה' });
+    if (!rows[0]) {
+      codeMissLimit.hit(req.ip);
+      return res.status(404).json({ error: 'לא נמצא טיול עם הקוד הזה' });
+    }
     const trip = rows[0];
     const isOwner = !!(req.user && req.user.id === trip.owner_id);
     const admin = await isAdmin(req);
@@ -474,19 +487,28 @@ router.post('/api/trips', authRequired, async (req, res) => {
        JSON.stringify(dests), newInviteToken()]
     );
     const trip = rows[0];
-    if (Array.isArray(items)) {
-      for (let i = 0; i < items.length; i++) {
-        const it = items[i];
-        if (!it || !it.title) continue;
-        await client.query(
-          `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-          [trip.id, Math.min(Math.max(parseInt(it.day_number, 10) || 1, 1), nDays),
-           it.time_label || null, String(it.title).slice(0, 200), it.note || null,
-           it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null,
-           numOrNull(it.lat), numOrNull(it.lon), i]
+    // one multi-row insert — an AI-built trip arrives with a hundred-plus stops,
+    // and a round trip per stop is what made creation feel slow
+    const rowsToInsert = (Array.isArray(items) ? items : [])
+      .map((it, i) => ({ it, i }))
+      .filter(({ it }) => it && it.title);
+    if (rowsToInsert.length) {
+      const vals = [];
+      const tuples = rowsToInsert.map(({ it, i }) => {
+        vals.push(
+          trip.id, Math.min(Math.max(parseInt(it.day_number, 10) || 1, 1), nDays),
+          it.time_label || null, String(it.title).slice(0, 200), it.note || null,
+          it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null,
+          numOrNull(it.lat), numOrNull(it.lon), i
         );
-      }
+        const base = vals.length - 11;
+        return `(${Array.from({ length: 11 }, (_, k) => '$' + (base + k + 1)).join(',')})`;
+      });
+      await client.query(
+        `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, sort_order)
+         VALUES ${tuples.join(',')}`,
+        vals
+      );
     }
     await client.query('COMMIT');
     res.json(trip);

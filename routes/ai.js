@@ -11,6 +11,47 @@ const AI_CATEGORIES = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבו
 const aiUsage = new Map(); // userId → {date, count}
 const AI_DAILY_LIMIT = 20;
 
+// the one OpenAI caller: chat completion forced into a strict JSON schema.
+// Returns the parsed object, or null on any failure (HTTP error, timeout, bad
+// JSON) — unless `required`, which rethrows so the route can distinguish an
+// aborted call (timeout message) from the rest.
+async function aiJson({ system, user, schemaName, schema, maxTokens, timeoutMs = 30000, required = false }) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        model: AI_MODEL,
+        max_completion_tokens: maxTokens,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: { name: schemaName, strict: true, schema },
+        },
+      }),
+    });
+    if (!aiRes.ok) {
+      const errBody = await aiRes.text().catch(() => '');
+      console.error(`OpenAI ${schemaName} error`, aiRes.status, errBody.slice(0, 300));
+      if (required) throw new Error('openai failed');
+      return null;
+    }
+    const data = await aiRes.json();
+    return JSON.parse(data.choices[0].message.content);
+  } catch (err) {
+    if (required) throw err;
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // nearest-neighbor ordering by coordinates, starting from the first destination —
 // keeps multi-city trips geographically sequential (Tokyo → Kyoto → Osaka, not zigzag)
 function orderByProximity(dests) {
@@ -93,64 +134,40 @@ async function aiClarify({ dests, from, to, interestList, freeText }) {
     `ברירת המחדל החזקה היא לא לשאול כלום ולהחזיר רשימה ריקה. שאל רק אם התשובה תשנה את התוכנית מהותית, ולכל היותר 2 שאלות קצרות בעברית. ` +
     `סוג שאלה: "choice" עם options קצרות (העדף את זה), או "text" לתשובה חופשית (options ריק).`;
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 30000);
-  try {
-    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        model: AI_MODEL,
-        max_completion_tokens: 400,
-        messages: [
-          { role: 'system', content: 'אתה מתכנן טיולים מומחה. אתה מחזיר אך ורק JSON תקין לפי הסכמה.' },
-          { role: 'user', content: userMsg },
-        ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'clarifying_questions',
-            strict: true,
-            schema: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['questions'],
-              properties: {
-                questions: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    additionalProperties: false,
-                    required: ['type', 'question', 'options'],
-                    properties: {
-                      type: { type: 'string', enum: ['choice', 'text'] },
-                      question: { type: 'string' },
-                      options: { type: 'array', items: { type: 'string' } },
-                    },
-                  },
-                },
-              },
+  const parsed = await aiJson({
+    system: 'אתה מתכנן טיולים מומחה. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
+    user: userMsg,
+    schemaName: 'clarifying_questions',
+    maxTokens: 400,
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['questions'],
+      properties: {
+        questions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['type', 'question', 'options'],
+            properties: {
+              type: { type: 'string', enum: ['choice', 'text'] },
+              question: { type: 'string' },
+              options: { type: 'array', items: { type: 'string' } },
             },
           },
         },
-      }),
-    });
-    if (!aiRes.ok) return [];
-    const data = await aiRes.json();
-    return (JSON.parse(data.choices[0].message.content).questions || [])
-      .slice(0, 2)
-      .map((q) => ({
-        type: q.type === 'choice' && Array.isArray(q.options) && q.options.length ? 'choice' : 'text',
-        question: String(q.question || '').slice(0, 160),
-        options: (q.options || []).slice(0, 6).map((o) => String(o).slice(0, 60)),
-      }))
-      .filter((q) => q.question);
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
-  }
+      },
+    },
+  });
+  return ((parsed && parsed.questions) || [])
+    .slice(0, 2)
+    .map((q) => ({
+      type: q.type === 'choice' && Array.isArray(q.options) && q.options.length ? 'choice' : 'text',
+      question: String(q.question || '').slice(0, 160),
+      options: (q.options || []).slice(0, 6).map((o) => String(o).slice(0, 60)),
+    }))
+    .filter((q) => q.question);
 }
 
 // trip meta: description + emoji + cover image. The AI sees only the NAMES of
@@ -188,59 +205,33 @@ function validateCoverChoice(chosenName, dests) {
 }
 
 async function aiTripMeta({ dests, from, to, interestList, freeText, answers }) {
-  const destDesc = destDescFull(dests);
-  const coverNames = COVER_OPTIONS.map((c) => c.name);
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 30000);
-  try {
-    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        model: AI_MODEL,
-        max_completion_tokens: 350,
-        messages: [
-          { role: 'system', content: 'אתה קופירייטר של טיולים. אתה מחזיר אך ורק JSON תקין לפי הסכמה.' },
-          { role: 'user', content:
-            `טיול של ${to - from + 1} ימים ב: ${destDesc}.` + tripPrefsText({ interestList, freeText, answers }) +
-            `\n1. כתוב תיאור קצר, חם ומזמין (2-3 משפטים, עברית).` +
-            `\n2. בחר אימוג'י אחד שהכי מתאים לאופי הטיול.` +
-            `\n3. בחר את תמונת הנושא שהכי מתאימה מתוך הרשימה (לפי השם בלבד). ` +
-            `חשוב: תמונה של עיר או אתר מסוים מותרת רק אם הטיול באמת מבקר שם — לטיול במקום אחר בחר תמונה כללית (נוף, חוף, הרים, כביש).` },
-        ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'trip_meta',
-            strict: true,
-            schema: {
-              type: 'object', additionalProperties: false,
-              required: ['description', 'emoji', 'cover'],
-              properties: {
-                description: { type: 'string' },
-                emoji: { type: 'string', enum: TRIP_EMOJIS },
-                cover: { type: 'string', enum: COVER_OPTIONS.map((c) => c.name) },
-              },
-            },
-          },
-        },
-      }),
-    });
-    if (!aiRes.ok) return null;
-    const data = await aiRes.json();
-    const meta = JSON.parse(data.choices[0].message.content);
-    const coverName = validateCoverChoice(meta.cover, dests);
-    return {
-      description: String(meta.description || '').slice(0, 500) || null,
-      emoji: TRIP_EMOJIS.includes(meta.emoji) ? meta.emoji : '🧭',
-      cover_image: (COVER_OPTIONS.find((c) => c.name === coverName) || COVER_OPTIONS[0]).url,
-    };
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+  const meta = await aiJson({
+    system: 'אתה קופירייטר של טיולים. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
+    user:
+      `טיול של ${to - from + 1} ימים ב: ${destDescFull(dests)}.` + tripPrefsText({ interestList, freeText, answers }) +
+      `\n1. כתוב תיאור קצר, חם ומזמין (2-3 משפטים, עברית).` +
+      `\n2. בחר אימוג'י אחד שהכי מתאים לאופי הטיול.` +
+      `\n3. בחר את תמונת הנושא שהכי מתאימה מתוך הרשימה (לפי השם בלבד). ` +
+      `חשוב: תמונה של עיר או אתר מסוים מותרת רק אם הטיול באמת מבקר שם — לטיול במקום אחר בחר תמונה כללית (נוף, חוף, הרים, כביש).`,
+    schemaName: 'trip_meta',
+    maxTokens: 350,
+    schema: {
+      type: 'object', additionalProperties: false,
+      required: ['description', 'emoji', 'cover'],
+      properties: {
+        description: { type: 'string' },
+        emoji: { type: 'string', enum: TRIP_EMOJIS },
+        cover: { type: 'string', enum: COVER_OPTIONS.map((c) => c.name) },
+      },
+    },
+  });
+  if (!meta) return null;
+  const coverName = validateCoverChoice(meta.cover, dests);
+  return {
+    description: String(meta.description || '').slice(0, 500) || null,
+    emoji: TRIP_EMOJIS.includes(meta.emoji) ? meta.emoji : '🧭',
+    cover_image: (COVER_OPTIONS.find((c) => c.name === coverName) || COVER_OPTIONS[0]).url,
+  };
 }
 
 // stage 1: the AI itself decides city order and how many days each deserves —
@@ -255,69 +246,47 @@ async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers }
     `כל אזור מופיע פעם אחת בדיוק, הבלוקים רצופים ומכסים את כל טווח הימים בלי חורים ובלי חפיפות.` +
     tripPrefsText({ interestList, freeText, answers });
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 45000);
-  try {
-    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        model: AI_MODEL,
-        max_completion_tokens: 600,
-        messages: [
-          { role: 'system', content: 'אתה מתכנן טיולים מומחה. אתה מחזיר אך ורק JSON תקין לפי הסכמה.' },
-          { role: 'user', content: userMsg },
-        ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'day_allocation',
-            strict: true,
-            schema: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['blocks'],
-              properties: {
-                blocks: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    additionalProperties: false,
-                    required: ['area', 'day_from', 'day_to'],
-                    properties: {
-                      area: { type: 'string', enum: areaNames },
-                      day_from: { type: 'integer' },
-                      day_to: { type: 'integer' },
-                    },
-                  },
-                },
-              },
+  const parsed = await aiJson({
+    system: 'אתה מתכנן טיולים מומחה. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
+    user: userMsg,
+    schemaName: 'day_allocation',
+    maxTokens: 600,
+    timeoutMs: 45000,
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['blocks'],
+      properties: {
+        blocks: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['area', 'day_from', 'day_to'],
+            properties: {
+              area: { type: 'string', enum: areaNames },
+              day_from: { type: 'integer' },
+              day_to: { type: 'integer' },
             },
           },
         },
-      }),
-    });
-    if (!aiRes.ok) return null;
-    const data = await aiRes.json();
-    const blocks = (JSON.parse(data.choices[0].message.content).blocks || [])
-      .map((b) => ({ dest: dests.find((d) => d.name === b.area), from: b.day_from, to: b.day_to }))
-      .sort((a, b) => a.from - b.from);
+      },
+    },
+  });
+  if (!parsed) return null;
+  const blocks = (parsed.blocks || [])
+    .map((b) => ({ dest: dests.find((d) => d.name === b.area), from: b.day_from, to: b.day_to }))
+    .sort((a, b) => a.from - b.from);
 
-    // structural validation: every area once, contiguous, exact coverage — else reject
-    if (!blocks.length || blocks.some((b) => !b.dest || b.to < b.from)) return null;
-    if (new Set(blocks.map((b) => b.dest.name)).size !== blocks.length) return null;
-    if (blocks.length !== dests.length) return null;
-    if (blocks[0].from !== from || blocks[blocks.length - 1].to !== to) return null;
-    for (let i = 1; i < blocks.length; i++) {
-      if (blocks[i].from !== blocks[i - 1].to + 1) return null;
-    }
-    return blocks;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
+  // structural validation: every area once, contiguous, exact coverage — else reject
+  if (!blocks.length || blocks.some((b) => !b.dest || b.to < b.from)) return null;
+  if (new Set(blocks.map((b) => b.dest.name)).size !== blocks.length) return null;
+  if (blocks.length !== dests.length) return null;
+  if (blocks[0].from !== from || blocks[blocks.length - 1].to !== to) return null;
+  for (let i = 1; i < blocks.length; i++) {
+    if (blocks[i].from !== blocks[i - 1].to + 1) return null;
   }
+  return blocks;
 }
 
 // one OpenAI call for ONE area and a fixed day range — the shape that stays coherent
@@ -349,108 +318,79 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
     userMsg += `\nתשובות המטיילים לשאלות הבהרה (קח אותן בחשבון): ${answers.map((a) => `${a.question} ← ${a.answer}`).join(' | ')}`;
   }
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 90000);
-  try {
-    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        model: AI_MODEL,
-        max_completion_tokens: 10000,
-        messages: [
-          {
-            role: 'system',
-            content: 'אתה מתכנן טיולים ישראלי מנוסה שבונה מסלולים ריאליים ומהנים. לכל יום תכנן 3-4 תחנות בסדר כרונולוגי: בוקר, צהריים, אחר צהריים, ולפעמים ערב. ' +
-              'title קצר וקולע בעברית; note טיפ פרקטי קצר בעברית (הזמנות מראש, מתי להגיע, מה לא לפספס); ' +
-              'place_query הוא שם המקום באנגלית כפי שמחפשים בגוגל מפות, ותמיד חייב לכלול גם את שם העיר וגם את שם המדינה (למשל "Sensoji Temple, Asakusa, Tokyo, Japan" ולא סתם "Sensoji Temple") — כדי שגוגל מפות לא יטעה למקום דומה במדינה אחרת; ' +
-              'time_label בפורמט HH:MM. גוון בין קטגוריות והימנע מתחנות גנריות.',
-          },
-          { role: 'user', content: userMsg },
-        ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'itinerary',
-            strict: true,
-            schema: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['items'],
-              properties: {
-                items: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    additionalProperties: false,
-                    required: ['day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area'],
-                    properties: {
-                      day_number: { type: 'integer' },
-                      time_label: { type: 'string' },
-                      title: { type: 'string' },
-                      note: { type: 'string' },
-                      place_query: { type: 'string' },
-                      category: { type: 'string', enum: AI_CATEGORIES },
-                      area: { type: 'string' },
-                    },
-                  },
-                },
-              },
+  const parsed = await aiJson({
+    system: 'אתה מתכנן טיולים ישראלי מנוסה שבונה מסלולים ריאליים ומהנים. לכל יום תכנן 3-4 תחנות בסדר כרונולוגי: בוקר, צהריים, אחר צהריים, ולפעמים ערב. ' +
+      'title קצר וקולע בעברית; note טיפ פרקטי קצר בעברית (הזמנות מראש, מתי להגיע, מה לא לפספס); ' +
+      'place_query הוא שם המקום באנגלית כפי שמחפשים בגוגל מפות, ותמיד חייב לכלול גם את שם העיר וגם את שם המדינה (למשל "Sensoji Temple, Asakusa, Tokyo, Japan" ולא סתם "Sensoji Temple") — כדי שגוגל מפות לא יטעה למקום דומה במדינה אחרת; ' +
+      'time_label בפורמט HH:MM. גוון בין קטגוריות והימנע מתחנות גנריות.',
+    user: userMsg,
+    schemaName: 'itinerary',
+    maxTokens: 10000,
+    timeoutMs: 90000,
+    required: true, // the itinerary is the product — a failed block fails the build
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['items'],
+      properties: {
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area'],
+            properties: {
+              day_number: { type: 'integer' },
+              time_label: { type: 'string' },
+              title: { type: 'string' },
+              note: { type: 'string' },
+              place_query: { type: 'string' },
+              category: { type: 'string', enum: AI_CATEGORIES },
+              area: { type: 'string' },
             },
           },
         },
-      }),
+      },
+    },
+  });
+  const items = parsed.items || [];
+  // city/country context guaranteed on every map query — Google Maps sometimes resolves
+  // an unqualified place name to the wrong country. The prompt asks for "Name, City, Country";
+  // a comma-less query means the model skipped that, so we append the context ourselves.
+  const areaDest = dests.find((d) => d.name === area);
+  const contextSuffix = areaDest && areaDest.country && areaDest.country !== areaDest.name
+    ? `${area}, ${areaDest.country}` : area;
+  const withContext = (q) => (q.includes(',') ? q : `${q}, ${contextSuffix}`.slice(0, 120));
+  // hard-enforce the block's day range and area regardless of what the model wrote
+  const cleaned = items
+    .filter((it) => it && it.title && it.day_number >= from && it.day_number <= to)
+    .map((it) => ({
+      day_number: it.day_number,
+      time_label: /^\d{1,2}:\d{2}$/.test(it.time_label || '') ? it.time_label : null,
+      title: String(it.title).slice(0, 200),
+      note: it.note ? String(it.note).slice(0, 300) : null,
+      place_query: it.place_query ? withContext(String(it.place_query).slice(0, 90)) : null,
+      category: AI_CATEGORIES.includes(it.category) ? it.category : 'אטרקציה',
+      area,
+    }));
+  // travel stops are mandatory between areas: if the model skipped the נסיעה stop
+  // (or labeled it something else), synthesize one so the trip never teleports
+  if (transferFrom && !cleaned.some((it) => it.day_number === from && it.category === 'נסיעה')) {
+    const fromDest = dests.find((d) => d.name === transferFrom);
+    const toDest = dests.find((d) => d.name === area);
+    const km = fromDest && toDest && fromDest.lat != null && toDest.lat != null
+      ? Math.round(haversineKm(fromDest, toDest) / 10) * 10 : null;
+    cleaned.unshift({
+      day_number: from,
+      time_label: '08:00',
+      title: `נסיעה מ${transferFrom} ל${area}`,
+      note: km ? `מעבר בין אזורים (~${km} ק"מ אוויר) — בדקו מראש זמני יציאה וכרטיסים` : 'מעבר בין אזורים — בדקו מראש זמני יציאה וכרטיסים',
+      place_query: null,
+      category: 'נסיעה',
+      area,
     });
-    clearTimeout(timer);
-    if (!aiRes.ok) {
-      const errBody = await aiRes.text().catch(() => '');
-      console.error('OpenAI error', aiRes.status, errBody.slice(0, 300));
-      throw new Error('openai failed');
-    }
-    const data = await aiRes.json();
-    let items = [];
-    try { items = JSON.parse(data.choices[0].message.content).items || []; } catch { /* empty */ }
-    // city/country context guaranteed on every map query — Google Maps sometimes resolves
-    // an unqualified place name to the wrong country. The prompt asks for "Name, City, Country";
-    // a comma-less query means the model skipped that, so we append the context ourselves.
-    const areaDest = dests.find((d) => d.name === area);
-    const contextSuffix = areaDest && areaDest.country && areaDest.country !== areaDest.name
-      ? `${area}, ${areaDest.country}` : area;
-    const withContext = (q) => (q.includes(',') ? q : `${q}, ${contextSuffix}`.slice(0, 120));
-    // hard-enforce the block's day range and area regardless of what the model wrote
-    const cleaned = items
-      .filter((it) => it && it.title && it.day_number >= from && it.day_number <= to)
-      .map((it) => ({
-        day_number: it.day_number,
-        time_label: /^\d{1,2}:\d{2}$/.test(it.time_label || '') ? it.time_label : null,
-        title: String(it.title).slice(0, 200),
-        note: it.note ? String(it.note).slice(0, 300) : null,
-        place_query: it.place_query ? withContext(String(it.place_query).slice(0, 90)) : null,
-        category: AI_CATEGORIES.includes(it.category) ? it.category : 'אטרקציה',
-        area,
-      }));
-    // travel stops are mandatory between areas: if the model skipped the נסיעה stop
-    // (or labeled it something else), synthesize one so the trip never teleports
-    if (transferFrom && !cleaned.some((it) => it.day_number === from && it.category === 'נסיעה')) {
-      const fromDest = dests.find((d) => d.name === transferFrom);
-      const toDest = dests.find((d) => d.name === area);
-      const km = fromDest && toDest && fromDest.lat != null && toDest.lat != null
-        ? Math.round(haversineKm(fromDest, toDest) / 10) * 10 : null;
-      cleaned.unshift({
-        day_number: from,
-        time_label: '08:00',
-        title: `נסיעה מ${transferFrom} ל${area}`,
-        note: km ? `מעבר בין אזורים (~${km} ק"מ אוויר) — בדקו מראש זמני יציאה וכרטיסים` : 'מעבר בין אזורים — בדקו מראש זמני יציאה וכרטיסים',
-        place_query: null,
-        category: 'נסיעה',
-        area,
-      });
-    }
-    return cleaned;
-  } finally {
-    clearTimeout(timer);
   }
+  return cleaned;
 }
 
 router.post('/api/ai/itinerary', authRequired, async (req, res) => {
@@ -551,6 +491,10 @@ const AI_EDIT_DAILY_LIMIT = 3;
 const AI_EDIT_MAX_PROMPT = 200;
 const aiEditUsage = new Map(); // 'u<userId>' → {date, count}
 
+// field cleaners shared by both edit routes (DB-applied and draft)
+const cleanTime = (t) => (/^\d{1,2}:\d{2}$/.test(t || '') ? t : null);
+const clampDay = (d, days, dflt = 1) => Math.min(Math.max(parseInt(d, 10) || dflt, 1), days);
+
 async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNote = '', opsCap = 30 }) {
   const areaNames = dests.map((d) => d.name);
   const itemLines = items.map((it) =>
@@ -563,87 +507,57 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNot
     (scopeNote ? `\n${scopeNote}` : '') +
     `\n\nבקשת השינוי של המטיילים: "${prompt}"`;
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 60000);
-  try {
-    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        model: AI_MODEL,
-        max_completion_tokens: 5000,
-        messages: [
-          {
-            role: 'system',
-            content: 'אתה עורך מסלולי טיולים. מקבל מסלול קיים ובקשת שינוי קצרה, ומחזיר אך ורק JSON לפי הסכמה: ops (רשימת פעולות) ו-summary (סיכום קצר וידידותי בעברית של מה שביצעת). ' +
-              'התפקיד שלך הוא לבצע את הבקשה בפועל דרך פעולות על תחנות המסלול: add (הוספה), update (עדכון — כולל העברה ליום או שעה אחרים), delete (מחיקה). ' +
-              'כמעט כל בקשה ניתנת למימוש דרך תחנות, גם אם לא נאמרה בהן המילה "תחנה": "יום רגוע יותר" = לדלל או להזיז תחנות; "עוד אוכל מקומי" = להוסיף תחנות אוכל; "להחליף את יום 3" = מחיקות והוספות באותו יום; "להתחיל מאוחר יותר" = לעדכן שעות; וכן הלאה. ' +
-              'ברירת המחדל שלך היא לבצע: אל תחזיר ops ריק אם אפשר לממש את הבקשה, ולו חלקית, באמצעות פעולות על תחנות. בקשה כללית או עמומה — קבל החלטות סבירות בעצמך ותאר אותן ב-summary, במקום לשאול. ' +
-              'מחוץ לתחום שלך: תאריכי הטיול, תקציב, מלונות ותמונת הנושא. אל תדמה שינוי כזה דרך תחנות — הזזת הטיול כולו לתאריכים אחרים, למשל, אינה הזזת תחנות בין ימים (הימים ממוספרים 1 עד N ללא תלות בתאריך). ' +
-              'בקשה מעורבת — בצע רק את חלק התחנות וציין ב-summary מה נשאר מחוץ לתחום. ' +
-              'החזר ops ריק רק בשני מקרים: (1) הבקשה עוסקת אך ורק בדברים שמחוץ לתחום — ואז הסבר ב-summary בעדינות שכאן משנים רק את תחנות המסלול; (2) אי אפשר להבין מהבקשה שום כוונה — ואז שאל שאלת הבהרה קצרה ב-summary. ' +
-              'שנה רק את מה שנוגע לבקשה ואל תיגע בשאר התחנות. ' +
-              'update/delete חייבים id של תחנה קיימת; ב-update החזר null בכל שדה שלא משתנה. ' +
-              'add חייב title קצר בעברית; note טיפ פרקטי קצר בעברית; time_label בפורמט HH:MM; ' +
-              'place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan"), ורק למקום אמיתי וספציפי שניתן למצוא בגוגל מפות — לתחנה כללית (כמו "ארוחת ערב" בלי מקום מוגדר) החזר null; ' +
-              `category מתוך: ${AI_CATEGORIES.join(', ')}` +
-              (areaNames.length > 1 ? `; area מתוך: ${areaNames.join(', ')}.` : '.'),
-          },
-          { role: 'user', content: userMsg },
-        ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'trip_edit',
-            strict: true,
-            schema: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['summary', 'ops'],
-              properties: {
-                summary: { type: 'string' },
-                ops: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    additionalProperties: false,
-                    required: ['action', 'id', 'day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area'],
-                    properties: {
-                      action: { type: 'string', enum: ['add', 'update', 'delete'] },
-                      id: { type: ['integer', 'null'] },
-                      day_number: { type: ['integer', 'null'] },
-                      time_label: { type: ['string', 'null'] },
-                      title: { type: ['string', 'null'] },
-                      note: { type: ['string', 'null'] },
-                      place_query: { type: ['string', 'null'] },
-                      category: { type: ['string', 'null'] },
-                      area: { type: ['string', 'null'] },
-                    },
-                  },
-                },
-              },
+  const parsed = await aiJson({
+    system: 'אתה עורך מסלולי טיולים. מקבל מסלול קיים ובקשת שינוי קצרה, ומחזיר אך ורק JSON לפי הסכמה: ops (רשימת פעולות) ו-summary (סיכום קצר וידידותי בעברית של מה שביצעת). ' +
+      'התפקיד שלך הוא לבצע את הבקשה בפועל דרך פעולות על תחנות המסלול: add (הוספה), update (עדכון — כולל העברה ליום או שעה אחרים), delete (מחיקה). ' +
+      'כמעט כל בקשה ניתנת למימוש דרך תחנות, גם אם לא נאמרה בהן המילה "תחנה": "יום רגוע יותר" = לדלל או להזיז תחנות; "עוד אוכל מקומי" = להוסיף תחנות אוכל; "להחליף את יום 3" = מחיקות והוספות באותו יום; "להתחיל מאוחר יותר" = לעדכן שעות; וכן הלאה. ' +
+      'ברירת המחדל שלך היא לבצע: אל תחזיר ops ריק אם אפשר לממש את הבקשה, ולו חלקית, באמצעות פעולות על תחנות. בקשה כללית או עמומה — קבל החלטות סבירות בעצמך ותאר אותן ב-summary, במקום לשאול. ' +
+      'מחוץ לתחום שלך: תאריכי הטיול, תקציב, מלונות ותמונת הנושא. אל תדמה שינוי כזה דרך תחנות — הזזת הטיול כולו לתאריכים אחרים, למשל, אינה הזזת תחנות בין ימים (הימים ממוספרים 1 עד N ללא תלות בתאריך). ' +
+      'בקשה מעורבת — בצע רק את חלק התחנות וציין ב-summary מה נשאר מחוץ לתחום. ' +
+      'החזר ops ריק רק בשני מקרים: (1) הבקשה עוסקת אך ורק בדברים שמחוץ לתחום — ואז הסבר ב-summary בעדינות שכאן משנים רק את תחנות המסלול; (2) אי אפשר להבין מהבקשה שום כוונה — ואז שאל שאלת הבהרה קצרה ב-summary. ' +
+      'שנה רק את מה שנוגע לבקשה ואל תיגע בשאר התחנות. ' +
+      'update/delete חייבים id של תחנה קיימת; ב-update החזר null בכל שדה שלא משתנה. ' +
+      'add חייב title קצר בעברית; note טיפ פרקטי קצר בעברית; time_label בפורמט HH:MM; ' +
+      'place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan"), ורק למקום אמיתי וספציפי שניתן למצוא בגוגל מפות — לתחנה כללית (כמו "ארוחת ערב" בלי מקום מוגדר) החזר null; ' +
+      `category מתוך: ${AI_CATEGORIES.join(', ')}` +
+      (areaNames.length > 1 ? `; area מתוך: ${areaNames.join(', ')}.` : '.'),
+    user: userMsg,
+    schemaName: 'trip_edit',
+    maxTokens: 5000,
+    timeoutMs: 60000,
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['summary', 'ops'],
+      properties: {
+        summary: { type: 'string' },
+        ops: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['action', 'id', 'day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area'],
+            properties: {
+              action: { type: 'string', enum: ['add', 'update', 'delete'] },
+              id: { type: ['integer', 'null'] },
+              day_number: { type: ['integer', 'null'] },
+              time_label: { type: ['string', 'null'] },
+              title: { type: ['string', 'null'] },
+              note: { type: ['string', 'null'] },
+              place_query: { type: ['string', 'null'] },
+              category: { type: ['string', 'null'] },
+              area: { type: ['string', 'null'] },
             },
           },
         },
-      }),
-    });
-    if (!aiRes.ok) {
-      const errBody = await aiRes.text().catch(() => '');
-      console.error('OpenAI ai-edit error', aiRes.status, errBody.slice(0, 300));
-      return null;
-    }
-    const data = await aiRes.json();
-    const parsed = JSON.parse(data.choices[0].message.content);
-    return {
-      summary: String(parsed.summary || '').slice(0, 300),
-      ops: Array.isArray(parsed.ops) ? parsed.ops.slice(0, opsCap) : [],
-    };
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+      },
+    },
+  });
+  if (!parsed) return null;
+  return {
+    summary: String(parsed.summary || '').slice(0, 300),
+    ops: Array.isArray(parsed.ops) ? parsed.ops.slice(0, opsCap) : [],
+  };
 }
 
 router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
@@ -682,8 +596,6 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
     aiEditUsage.set(quotaKey, { date: today, count: used + 1 }); // the model call is the budgeted resource
 
     const validIds = new Set(items.map((it) => it.id));
-    const clampDay = (d) => Math.min(Math.max(parseInt(d, 10) || 1, 1), trip.days);
-    const cleanTime = (t) => (/^\d{1,2}:\d{2}$/.test(t || '') ? t : null);
     let added = 0, updated = 0, removed = 0;
     await client.query('BEGIN');
     for (const op of result.ops) {
@@ -694,7 +606,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
         const sets = [];
         const vals = [];
         const add = (col, val) => { vals.push(val); sets.push(`${col} = $${vals.length}`); };
-        if (op.day_number != null) add('day_number', clampDay(op.day_number));
+        if (op.day_number != null) add('day_number', clampDay(op.day_number, trip.days));
         if (op.time_label != null) add('time_label', cleanTime(op.time_label));
         if (op.title != null && String(op.title).trim()) add('title', String(op.title).slice(0, 200).trim());
         if (op.note != null) add('note', String(op.note).slice(0, 300) || null);
@@ -717,7 +629,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
         await client.query(
           `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, sort_order)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))`,
-          [trip.id, clampDay(op.day_number), cleanTime(op.time_label), String(op.title).slice(0, 200).trim(),
+          [trip.id, clampDay(op.day_number, trip.days), cleanTime(op.time_label), String(op.title).slice(0, 200).trim(),
            op.note ? String(op.note).slice(0, 300) : null,
            op.place_query ? String(op.place_query).slice(0, 120) : null,
            AI_CATEGORIES.includes(op.category) ? op.category : 'אטרקציה',
@@ -762,10 +674,9 @@ router.post('/api/ai/edit-draft', authRequired, async (req, res) => {
     const dests = cleanDestinations(b.destinations);
     if (!dests.length) return res.status(400).json({ error: 'חסרים יעדים' });
     const days = Math.min(Math.max(parseInt(b.days, 10) || 1, 1), 60);
-    const cleanTime = (t) => (/^\d{1,2}:\d{2}$/.test(t || '') ? t : null);
     const items = (Array.isArray(b.items) ? b.items : []).slice(0, 200).map((it) => ({
       id: parseInt(it?.id, 10) || 0,
-      day_number: Math.min(Math.max(parseInt(it?.day_number, 10) || 1, 1), days),
+      day_number: clampDay(it?.day_number, days),
       time_label: cleanTime(it?.time_label),
       title: String(it?.title || '').slice(0, 200),
       note: it?.note ? String(it.note).slice(0, 300) : null,
@@ -806,7 +717,6 @@ router.post('/api/ai/edit-draft', authRequired, async (req, res) => {
     // sanitize ops for the client: known ids, clamped days, scope enforced
     const byId = new Map(items.map((it) => [it.id, it]));
     const inScope = (day) => !area || (day >= from && day <= to);
-    const clampDay = (d, dflt) => Math.min(Math.max(parseInt(d, 10) || dflt, 1), days);
     const ops = [];
     for (const op of result.ops) {
       if (op.action === 'delete') {
@@ -815,7 +725,7 @@ router.post('/api/ai/edit-draft', authRequired, async (req, res) => {
       } else if (op.action === 'update') {
         const target = byId.get(op.id);
         if (!target || !inScope(target.day_number)) continue;
-        const day = op.day_number != null ? clampDay(op.day_number, target.day_number) : null;
+        const day = op.day_number != null ? clampDay(op.day_number, days, target.day_number) : null;
         if (day != null && !inScope(day)) continue;
         ops.push({
           action: 'update',
@@ -829,7 +739,7 @@ router.post('/api/ai/edit-draft', authRequired, async (req, res) => {
           area: op.area != null ? String(op.area).slice(0, 80) : null,
         });
       } else if (op.action === 'add' && op.title && String(op.title).trim()) {
-        const day = clampDay(op.day_number, from);
+        const day = clampDay(op.day_number, days, from);
         if (!inScope(day)) continue;
         ops.push({
           action: 'add',

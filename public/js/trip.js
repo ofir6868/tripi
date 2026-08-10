@@ -80,6 +80,18 @@
     }
   }
 
+  // the route loader plays at least one beat before fading out, so a fast
+  // response doesn't flash it on and off
+  const loaderT0 = Date.now();
+  function hideTripLoader() {
+    const el = document.getElementById('trip-loader');
+    if (!el) return;
+    setTimeout(() => {
+      el.classList.add('done');
+      setTimeout(() => el.remove(), 500);
+    }, Math.max(0, 1200 - (Date.now() - loaderT0)));
+  }
+
   async function load() {
     // an invite link + a logged-in user = redeem first, so the page arrives unlocked
     if (TRIPI.user && inviteToken) await redeemInvite();
@@ -87,18 +99,20 @@
     try {
       data = await TRIPI.api('/api/trips/code/' + encodeURIComponent(code));
     } catch {
+      hideTripLoader();
       document.querySelector('.trip-hero').style.display = 'none';
       document.getElementById('trip-layout').style.display = 'none';
       document.getElementById('not-found').style.display = '';
       return;
     }
+    hideTripLoader();
     const { trip, items, isOwner } = data;
     const isAdmin = !!data.isAdmin; // admins edit any trip
     const canEdit = !!data.canEdit;
     let participants = data.participants || [];
     editMode = canEdit; // participants edit inline — there's no separate mode to enter
 
-    document.title = `${trip.title} · TRIPI`;
+    document.title = `${trip.title} · TRIP MAKER`;
     if (trip.cover_image) {
       document.getElementById('trip-cover').style.backgroundImage = `url('${trip.cover_image.replace(/'/g, '')}')`;
     }
@@ -822,7 +836,6 @@
       document.getElementById('trip-map').src = TRIPI.mapsEmbedUrl(mapQuery);
       document.getElementById('map-caption').textContent = `📍 ${mapQuery}`;
       loadWeather(d);
-      // loadHotels(d, mapQuery); // כרטיס "מלונות באזור" מוסתר זמנית (גם ה-HTML שלו מוער ב-trip.html)
     }
 
     async function loadWeather(d) {
@@ -850,36 +863,6 @@
           </div>`).join('');
         card.style.display = '';
       } catch { card.style.display = 'none'; }
-    }
-
-    async function loadHotels(d, mapQuery) { // eslint-disable-line no-unused-vars -- מושבת זמנית, ראו showDestination
-      const card = document.getElementById('hotels-card');
-      const list = document.getElementById('hotels-list');
-      if (!card || d.lat == null) { if (card) card.style.display = 'none'; return; }
-      card.style.display = '';
-      list.innerHTML = `
-        <div class="hotel-row skl-hotel">
-          <span class="skl skl-hname"></span>
-          <span class="hotel-links"><span class="skl skl-dot"></span><span class="skl skl-dot"></span></span>
-        </div>`.repeat(4);
-      try {
-        const hotels = await GEO.hotelsNear(d.lat, d.lon);
-        if (!hotels.length) throw new Error('none');
-        list.innerHTML = hotels.map((h) => `
-          <div class="hotel-row">
-            <span class="hotel-name">${TRIPI.esc(h.name)}${h.stars ? ` <span class="hotel-stars">${'★'.repeat(Math.min(+h.stars || 0, 5))}</span>` : ''}</span>
-            <span class="hotel-links">
-              <a target="_blank" rel="noopener" title="גוגל מפות" href="${TRIPI.mapsSearchUrl(h.name + ' ' + d.name)}">📍</a>
-              <a target="_blank" rel="noopener" title="חיפוש בבוקינג" href="https://www.booking.com/searchresults.he.html?ss=${encodeURIComponent(h.name + ' ' + d.name)}">🛏️</a>
-            </span>
-          </div>`).join('');
-        document.getElementById('hotels-foot').innerHTML =
-          `<a target="_blank" rel="noopener" href="https://www.booking.com/searchresults.he.html?ss=${encodeURIComponent(mapQuery)}">לכל המלונות ב${TRIPI.esc(d.name)} ›</a>`;
-      } catch {
-        list.innerHTML = '';
-        document.getElementById('hotels-foot').innerHTML =
-          `<a target="_blank" rel="noopener" href="https://www.booking.com/searchresults.he.html?ss=${encodeURIComponent(mapQuery)}">חיפוש מלונות ב${TRIPI.esc(d.name)} ›</a>`;
-      }
     }
 
     showDestination(dests[0]);

@@ -3,10 +3,19 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { pool } = require('../lib/db');
 const { JWT_SECRET, authRequired } = require('../lib/auth');
+const { rateLimiter } = require('../lib/rate-limit');
 
 const router = express.Router();
 
-router.post('/api/auth/register', async (req, res) => {
+// register: every attempt counts (mass account creation). login: only *failed*
+// attempts count (below), so real users are never locked out by their own logins.
+const registerLimit = rateLimiter({
+  windowMs: 15 * 60 * 1000, max: 10,
+  error: 'יותר מדי נסיונות הרשמה — נסו שוב בעוד רבע שעה',
+});
+const loginLimit = rateLimiter({ windowMs: 15 * 60 * 1000, max: 15 });
+
+router.post('/api/auth/register', registerLimit.middleware, async (req, res) => {
   try {
     const { name, email, password } = req.body || {};
     if (!name || !email || !password) return res.status(400).json({ error: 'נא למלא את כל השדות' });
@@ -28,11 +37,15 @@ router.post('/api/auth/register', async (req, res) => {
 
 router.post('/api/auth/login', async (req, res) => {
   try {
+    if (loginLimit.blocked(req.ip)) {
+      return res.status(429).json({ error: 'יותר מדי נסיונות התחברות כושלים — נסו שוב בעוד רבע שעה' });
+    }
     const { email, password } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: 'נא למלא אימייל וסיסמה' });
     const { rows } = await pool.query('SELECT * FROM users WHERE email = lower($1)', [email.trim()]);
     const user = rows[0];
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+      loginLimit.hit(req.ip); // brute-force signal: only wrong credentials count
       return res.status(401).json({ error: 'אימייל או סיסמה שגויים' });
     }
     const token = jwt.sign({ id: user.id, name: user.name, is_admin: user.is_admin }, JWT_SECRET, { expiresIn: '30d' });

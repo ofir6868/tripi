@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>תכנון טיול חדש · TRIPI</title>
+  <title>תכנון טיול חדש · TRIP MAKER</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧭</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -170,9 +170,18 @@
       </div>
       <div class="added-items" id="added-items"></div>
       <div class="form-error" id="err-2"></div>
-      <div class="wizard-nav">
-        <button class="btn btn-ghost" id="back-to-3">‹ חזרה</button>
-        <button class="btn btn-amber btn-lg" id="create-trip">יוצרים את הטיול 🎫</button>
+      <!-- the itinerary above looks "done", so the bar must say out loud that it isn't -->
+      <div class="wizard-nav create-bar">
+        <div class="create-hint">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+          הטיול עוד לא נשמר — נשארה לחיצה אחת
+        </div>
+        <div class="create-row">
+          <button class="btn btn-ghost" id="back-to-3">‹ חזרה</button>
+          <button class="btn btn-amber btn-lg" id="create-trip">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 6v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-6Z"/><path d="M13 5v2M13 11v2M13 17v2"/></svg>
+            יוצרים את הטיול</button>
+        </div>
       </div>
     </div>
 
@@ -183,7 +192,7 @@
         <h2 style="font-family:var(--font-display);font-size:1.7rem">הטיול נוצר!</h2>
         <p class="success-sub">שולחים לחברים קישור עריכה — נרשמים בשנייה ומתכננים את הטיול יחד</p>
         <div class="ticket glass" style="max-width:340px;margin:0 auto">
-          <div class="ticket-label">✈ TRIPI PASS ✈</div>
+          <div class="ticket-label">✈ TRIP MAKER PASS ✈</div>
           <div class="code" id="new-code"></div>
           <div class="ticket-sub" id="new-title"></div>
           <hr class="divider">
@@ -211,14 +220,19 @@
     <div class="ai-glow g1"></div>
     <div class="ai-glow g2"></div>
     <div class="ai-overlay-content">
-      <div class="ai-orb">✨</div>
+      <div class="ai-orb">🧭</div>
       <h2 class="ai-overlay-title" id="ai-overlay-title">ה-AI מתכנן את הטיול שלכם</h2>
       <div class="ai-overlay-sub" id="ai-overlay-sub">רגע של קסם…</div>
+      <div class="ai-rows" aria-hidden="true">
+        <div class="ai-row"><span class="ar-dot"></span><span class="skl"></span><span class="ar-chip"></span></div>
+        <div class="ai-row"><span class="ar-dot"></span><span class="skl"></span></div>
+        <div class="ai-row"><span class="ar-dot"></span><span class="skl"></span><span class="ar-chip mint"></span></div>
+      </div>
     </div>
   </div>
 
   <footer class="site-footer">
-    <span class="logo-mark">TRIPI</span> · נבנה באהבה לטיולים · <span dir="ltr">© 2026</span>
+    <span class="logo-stack" dir="ltr" role="img" aria-label="TRIP MAKER"><span class="ls-trip" aria-hidden="true"><b>T</b><b>R</b><b>I</b><b>P</b></span><span class="ls-maker" aria-hidden="true"><b>M</b><b>A</b><b>K</b><b>E</b><b>R</b></span></span> · נבנה באהבה לטיולים · <span dir="ltr">© 2026</span>
   </footer>
 
   <script src="/js/common.js"></script>

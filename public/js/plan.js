@@ -602,7 +602,7 @@
   function fullBuild() {
     const days = +daysSel.value;
     if (items.length && !confirm(`הבנייה מחדש תחליף את כל ${items.length} התחנות הקיימות במסלול. להמשיך?`)) return;
-    runAi({ day_from: 1, day_to: days }, 'את כל הטיול', { from: 1, to: days });
+    runAi({ day_from: 1, day_to: days }, 'את הטיול', { from: 1, to: days });
   }
   document.getElementById('ai-full').onclick = fullBuild; // step 3 primary CTA
 
@@ -695,8 +695,9 @@
     creatingTrip = true;
     const createBtn = document.getElementById('create-trip');
     createBtn.disabled = true;
-    const prevLabel = createBtn.textContent;
-    createBtn.textContent = 'יוצרים… ⏳';
+    // the button holds an SVG icon, so the label swap must go through innerHTML
+    const prevLabel = createBtn.innerHTML;
+    createBtn.textContent = 'עוד רגע — שומרים את הטיול…';
     const err = document.getElementById('err-2');
     err.textContent = '';
     const days = +daysSel.value;
@@ -754,7 +755,7 @@
     } finally {
       creatingTrip = false;
       createBtn.disabled = false;
-      createBtn.textContent = prevLabel;
+      createBtn.innerHTML = prevLabel;
     }
   }
 
