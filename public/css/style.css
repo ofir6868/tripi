@@ -611,7 +611,10 @@ body::after {
 .map-card .map-caption { padding: 13px 18px; font-size: .88rem; color: var(--paper-dim); }
 
 /* boarding-pass ticket */
-.ticket { overflow: visible; position: relative; padding: 24px; text-align: center; }
+/* --ticket-pad drives BOTH the padding and the divider's negative margin, so the
+   perforation always stops exactly on the card edge — a hardcoded -24px overhangs
+   once a narrow phone shrinks the padding */
+.ticket { --ticket-pad: 24px; overflow: visible; position: relative; padding: var(--ticket-pad); text-align: center; }
 .ticket::before, .ticket::after {
   content: ''; position: absolute; top: 50%; width: 26px; height: 26px; border-radius: 50%;
   background: var(--ink); border: 1px solid var(--glass-border); transform: translateY(-50%);
@@ -626,7 +629,8 @@ body::after {
 }
 .ticket .ticket-sub { color: var(--paper-dim); font-size: .9rem; font-weight: 300; margin-bottom: 16px; }
 .ticket .divider {
-  border: none; border-top: 2px dashed rgba(255, 255, 255, .16); margin: 0 -24px 16px;
+  border: none; border-top: 2px dashed rgba(255, 255, 255, .16);
+  margin: 0 calc(-1 * var(--ticket-pad)) 16px;
 }
 .copy-feedback { color: var(--mint); font-size: .85rem; min-height: 1.3em; margin-top: 8px; }
 
@@ -1512,7 +1516,7 @@ body:has(.join-banner) { padding-bottom: 92px; }
   .logo .logo-stack .ls-trip { font-size: 18px; }
   .logo .logo-stack .ls-maker { font-size: 9px; }
   .site-header { padding: 7px 10px; }
-  .ticket { padding: 20px 14px; }
+  .ticket { --ticket-pad: 14px; padding: 20px var(--ticket-pad); }
   .ticket .code { font-size: 1.85rem; letter-spacing: .1em; }
   .ticket::before, .ticket::after { display: none; }
   .trip-hero h1 { font-size: 1.75rem; }
