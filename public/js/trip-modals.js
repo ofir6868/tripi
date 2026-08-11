@@ -161,7 +161,7 @@ const TripModals = (() => {
     const mk = (offsetDays) => {
       const d = new Date(state.trip.start_date);
       d.setDate(d.getDate() + offsetDays);
-      return d.toISOString().slice(0, 10);
+      return TRIPI.isoDate(d);
     };
     return { checkin: mk(h.night_start - 1), checkout: mk(h.night_end) };
   }

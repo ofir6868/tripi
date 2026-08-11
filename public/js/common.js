@@ -44,6 +44,12 @@ const TRIPI = {
   mapsSearchUrl(q) {
     return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
   },
+  // the calendar day a Date falls on *here* — never toISOString(), which east of
+  // UTC rolls local midnight back a day and pairs every itinerary day with the
+  // previous day's forecast
+  isoDate(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  },
   routeIcon: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h6a3.5 3.5 0 0 0 0-7h-4a3.5 3.5 0 0 1 0-7h6"/></svg>',
   externalIcon: '<svg class="ic ic-ext" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
   // a day's stops as one Google Maps directions route — the official URL scheme,
@@ -112,7 +118,7 @@ const TRIPI = {
 // each button's hover and state tints
 const NAV_ICON = {
   gear: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
-  luggage: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2"/><path d="M8 18V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v14"/><path d="M10 20h4"/><circle cx="16" cy="20" r="2"/><circle cx="8" cy="20" r="2"/></svg>',
+  map: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>',
   plus: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>',
 };
 
@@ -125,7 +131,7 @@ function renderHeader() {
     : '';
   const authPart = TRIPI.user
     ? `${adminPart}
-       <a class="btn btn-ghost" href="/my" title="הטיולים שלי">${NAV_ICON.luggage}<span class="nav-label">הטיולים של ${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</span></a>
+       <a class="btn btn-ghost" href="/my" title="הטיולים שלי">${NAV_ICON.map}<span class="nav-label">הטיולים של ${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</span></a>
        <button class="btn btn-ghost nav-logout" id="nav-logout" title="התנתקות">יציאה</button>`
     : `<button class="btn btn-ghost" id="nav-login">התחברות</button>`;
   el.innerHTML = `

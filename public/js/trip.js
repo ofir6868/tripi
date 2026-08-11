@@ -308,7 +308,7 @@
       const cur = TripModals.curOf(state);
       container.innerHTML = [...byDay.keys()].sort((a, b) => a - b).map((day) => {
         const date = dayDate(day);
-        const iso = date ? date.toISOString().slice(0, 10) : null;
+        const iso = date ? TRIPI.isoDate(date) : null;
         const w = iso && weatherByDate[iso];
         const hotelLines = TripModals.dayHotelLines(state, day);
         const routeUrl = TRIPI.mapsRouteUrl(byDay.get(day));
@@ -1151,12 +1151,18 @@
         }
         // the strip is always a forecast from today, so it only says something
         // about *this trip* when the horizon actually reaches the trip's days.
-        // A trip six months out would otherwise carry "the coming week at the
-        // destination" into the printed sheet as if it were the trip's weather.
-        card.classList.toggle('wx-trip', wantDates && Array.from(
-          { length: trip.days }, (_, i) => dayDate(i + 1),
-        ).some((d2) => d2 && weatherByDate[d2.toISOString().slice(0, 10)]));
-        document.getElementById('weather-row').innerHTML = days.slice(0, 7).map((w) => `
+        // When it does, the strip becomes the trip's own days and says so; when
+        // it doesn't it stays "the coming week at the destination" — true, but
+        // not about this trip, so the printed sheet drops it (see .wx-trip).
+        const tripDays = wantDates
+          ? Array.from({ length: trip.days }, (_, i) => dayDate(i + 1))
+            .map((d2) => d2 && weatherByDate[TRIPI.isoDate(d2)])
+            .filter(Boolean)
+          : [];
+        card.classList.toggle('wx-trip', tripDays.length > 0);
+        document.getElementById('weather-title').textContent =
+          tripDays.length ? '🌤️ מזג האוויר בימי הטיול' : '🌤️ מזג האוויר בשבוע הקרוב';
+        document.getElementById('weather-row').innerHTML = (tripDays.length ? tripDays : days).slice(0, 7).map((w) => `
           <div class="weather-day" title="${GEO.weatherLabel(w.code)}">
             <div class="wd-name">${new Date(w.date + 'T00:00').toLocaleDateString('he-IL', { weekday: 'short' })}</div>
             <div class="wd-icon">${GEO.weatherIcon(w.code)}</div>

@@ -78,7 +78,7 @@ const TripCalendar = (() => {
   function weatherOf(ctx, day) {
     const date = ctx.dayDate(day);
     if (!date) return null;
-    return ctx.weather()[date.toISOString().slice(0, 10)] || null;
+    return ctx.weather()[TRIPI.isoDate(date)] || null;
   }
 
   const stopEmoji = (it) => it.category === 'נסיעה' ? TripModals.travelIcon(it) : (CAT_EMOJI[it.category] || '📍');
