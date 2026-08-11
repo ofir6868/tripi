@@ -125,6 +125,25 @@ async function main() {
   // the old code still selects edit_code and would 500 without it
   await pool.query(`ALTER TABLE trips DROP COLUMN IF EXISTS edit_code`);
 
+  console.log('Migration 9: draft trips (created at AI build, published as a ceremony)...');
+  await pool.query(`ALTER TABLE trips ADD COLUMN IF NOT EXISTS is_draft BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_trips_owner ON trips(owner_id)`);
+
+  console.log('Migration 10: web-push subscriptions...');
+  // one row per browser (endpoint is the browser's own push mailbox, and is unique
+  // across users — a shared phone re-subscribing simply reassigns the row)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id SERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      endpoint TEXT UNIQUE NOT NULL,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      user_agent TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id)`);
+
   console.log('Done.');
   await pool.end();
 }

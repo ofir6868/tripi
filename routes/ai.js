@@ -8,6 +8,8 @@ const router = express.Router();
 
 const AI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const AI_CATEGORIES = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבות', 'קניות', 'לינה', 'נוף', 'חיי לילה', 'נסיעה', 'היסטוריה', 'אמנות', 'עיר'];
+// cost estimates arrive as loose model output — keep only positive, sane integers
+const cleanCost = (v) => (Number.isFinite(+v) && +v > 0 ? Math.min(Math.round(+v), 999999999) : null);
 const aiUsage = new Map(); // userId → {date, count}
 const AI_DAILY_LIMIT = 20;
 
@@ -323,7 +325,9 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
     system: 'אתה מתכנן טיולים ישראלי מנוסה שבונה מסלולים ריאליים ומהנים. לכל יום תכנן 3-4 תחנות בסדר כרונולוגי: בוקר, צהריים, אחר צהריים, ולפעמים ערב. ' +
       'title קצר וקולע בעברית; note טיפ פרקטי קצר בעברית (הזמנות מראש, מתי להגיע, מה לא לפספס); ' +
       'place_query הוא שם המקום באנגלית כפי שמחפשים בגוגל מפות, ותמיד חייב לכלול גם את שם העיר וגם את שם המדינה (למשל "Sensoji Temple, Asakusa, Tokyo, Japan" ולא סתם "Sensoji Temple") — כדי שגוגל מפות לא יטעה למקום דומה במדינה אחרת; ' +
-      'time_label בפורמט HH:MM. גוון בין קטגוריות והימנע מתחנות גנריות.',
+      'time_label בפורמט HH:MM; ' +
+      'cost הוא הערכת עלות ריאלית לאדם בשקלים חדשים (מספר שלם): כרטיס כניסה, ארוחה ממוצעת או מחיר נסיעה — לתחנה חינמית (רחוב, פארק, נוף, שוק בלי קנייה) החזר null. ' +
+      'גוון בין קטגוריות והימנע מתחנות גנריות.',
     user: userMsg,
     schemaName: 'itinerary',
     maxTokens: 10000,
@@ -339,7 +343,7 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area'],
+            required: ['day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area', 'cost'],
             properties: {
               day_number: { type: 'integer' },
               time_label: { type: 'string' },
@@ -348,6 +352,7 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
               place_query: { type: 'string' },
               category: { type: 'string', enum: AI_CATEGORIES },
               area: { type: 'string' },
+              cost: { type: ['integer', 'null'] },
             },
           },
         },
@@ -373,6 +378,7 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
       place_query: it.place_query ? withContext(String(it.place_query).slice(0, 90)) : null,
       category: AI_CATEGORIES.includes(it.category) ? it.category : 'אטרקציה',
       area,
+      cost: cleanCost(it.cost),
     }));
   // travel stops are mandatory between areas: if the model skipped the נסיעה stop
   // (or labeled it something else), synthesize one so the trip never teleports
@@ -389,6 +395,7 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
       place_query: null,
       category: 'נסיעה',
       area,
+      cost: null,
     });
   }
   return cleaned;
@@ -501,7 +508,8 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNot
   const itemLines = items.map((it) =>
     `#${it.id} | יום ${it.day_number} | ${it.time_label || '--:--'} | [${it.category || 'כללי'}] ${it.title}` +
     (areaNames.length > 1 && it.area ? ` | אזור: ${it.area}` : '') +
-    (it.place_query ? ` | ${it.place_query}` : ''));
+    (it.place_query ? ` | ${it.place_query}` : '') +
+    (+it.cost > 0 ? ` | עלות משוערת: ${Math.round(+it.cost)}` : ''));
   const userMsg =
     `הטיול: "${title}" — ${dests.length ? destDescFull(dests) : destText}, ${days} ימים (1 עד ${days}).` +
     `\nהמסלול הנוכחי (כל שורה: #מזהה | יום | שעה | [קטגוריה] כותרת | מקום):\n${itemLines.join('\n') || '(המסלול עדיין ריק)'}` +
@@ -520,6 +528,7 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNot
       'update/delete חייבים id של תחנה קיימת; ב-update החזר null בכל שדה שלא משתנה. ' +
       'add חייב title קצר בעברית; note טיפ פרקטי קצר בעברית; time_label בפורמט HH:MM; ' +
       'place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan"), ורק למקום אמיתי וספציפי שניתן למצוא בגוגל מפות — לתחנה כללית (כמו "ארוחת ערב" בלי מקום מוגדר) החזר null; ' +
+      'cost הוא הערכת עלות לאדם במטבע התקציב (מספר שלם) — מלא אותו בהוספת תחנה עם עלות אופיינית, והחזר null לתחנה חינמית או כשאין שינוי; ' +
       `category מתוך: ${AI_CATEGORIES.join(', ')}` +
       (areaNames.length > 1 ? `; area מתוך: ${areaNames.join(', ')}.` : '.'),
     user: userMsg,
@@ -537,7 +546,7 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNot
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['action', 'id', 'day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area'],
+            required: ['action', 'id', 'day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area', 'cost'],
             properties: {
               action: { type: 'string', enum: ['add', 'update', 'delete'] },
               id: { type: ['integer', 'null'] },
@@ -548,6 +557,7 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNot
               place_query: { type: ['string', 'null'] },
               category: { type: ['string', 'null'] },
               area: { type: ['string', 'null'] },
+              cost: { type: ['integer', 'null'] },
             },
           },
         },
@@ -567,10 +577,25 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
     if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'עריכת AI לא זמינה כרגע' });
     const trip = await tripWithEditAuth(req, res);
     if (!trip) return;
-    const prompt = String((req.body || {}).prompt || '').trim();
+    const b = req.body || {};
+    const prompt = String(b.prompt || '').trim();
     if (!prompt) return res.status(400).json({ error: 'כתבו מה לשנות במסלול' });
     if (prompt.length > AI_EDIT_MAX_PROMPT) {
       return res.status(400).json({ error: `הבקשה ארוכה מדי — עד ${AI_EDIT_MAX_PROMPT} תווים` });
+    }
+
+    // optional scope: one area within a day range (multi-destination trips) —
+    // validated against the trip's stored destinations, enforced on the ops below
+    const dests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
+    const areaNames = dests.map((d) => d.name);
+    const area = b.area && areaNames.includes(b.area) ? b.area : null;
+    let from = 1, to = trip.days, scopeNote = '';
+    if (area) {
+      from = Math.min(Math.max(parseInt(b.day_from, 10) || 1, 1), trip.days);
+      to = Math.min(Math.max(parseInt(b.day_to, 10) || trip.days, from), trip.days);
+      scopeNote = `החל את הבקשה אך ורק על אזור "${area}" בימים ${from} עד ${to}: ` +
+        `כל תחנה שתוסיף תהיה באזור הזה ובטווח הימים הזה (שדה area: "${area}"), ואל תיגע בתחנות מחוץ לטווח. ` +
+        `אם התבקשה בנייה מחדש — החלף את כל התחנות בטווח (מחיקות + הוספות), 3-4 תחנות ליום בסדר כרונולוגי.`;
     }
 
     // 3 AI edits a day per user (editing requires login, so req.user is always set here)
@@ -588,26 +613,35 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
     const result = await aiEditOps({
       title: trip.title,
       destText: trip.destination,
-      dests: Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [],
+      dests,
       days: trip.days,
       items,
       prompt,
+      scopeNote,
+      opsCap: area ? 60 : 30, // scoped rebuilds legitimately delete + re-add several days
     });
     if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לעבד את הבקשה — נסו שוב עוד רגע' });
     aiEditUsage.set(quotaKey, { date: today, count: used + 1 }); // the model call is the budgeted resource
 
-    const validIds = new Set(items.map((it) => it.id));
+    const byId = new Map(items.map((it) => [it.id, it]));
+    const inScope = (day) => !area || (day >= from && day <= to);
     let added = 0, updated = 0, removed = 0;
     await client.query('BEGIN');
     for (const op of result.ops) {
-      if (op.action === 'delete' && validIds.has(op.id)) {
+      if (op.action === 'delete' && byId.has(op.id)) {
+        if (!inScope(byId.get(op.id).day_number)) continue;
         await client.query('DELETE FROM trip_items WHERE id = $1 AND trip_id = $2', [op.id, trip.id]);
         removed++;
-      } else if (op.action === 'update' && validIds.has(op.id)) {
+      } else if (op.action === 'update' && byId.has(op.id)) {
+        const target = byId.get(op.id);
+        if (!inScope(target.day_number)) continue;
+        // a move must also land inside the scope, else drop the whole op
+        const newDay = op.day_number != null ? clampDay(op.day_number, trip.days, target.day_number) : null;
+        if (newDay != null && !inScope(newDay)) continue;
         const sets = [];
         const vals = [];
         const add = (col, val) => { vals.push(val); sets.push(`${col} = $${vals.length}`); };
-        if (op.day_number != null) add('day_number', clampDay(op.day_number, trip.days));
+        if (newDay != null) add('day_number', newDay);
         if (op.time_label != null) add('time_label', cleanTime(op.time_label));
         if (op.title != null && String(op.title).trim()) add('title', String(op.title).slice(0, 200).trim());
         if (op.note != null) add('note', String(op.note).slice(0, 300) || null);
@@ -619,6 +653,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
         }
         if (op.category != null && AI_CATEGORIES.includes(op.category)) add('category', op.category);
         if (op.area != null) add('area', String(op.area).slice(0, 80) || null);
+        if (op.cost != null) add('cost', cleanCost(op.cost));
         if (sets.length) {
           vals.push(op.id, trip.id);
           await client.query(
@@ -627,14 +662,17 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
           updated++;
         }
       } else if (op.action === 'add' && op.title && String(op.title).trim()) {
+        const day = clampDay(op.day_number, trip.days, from);
+        if (!inScope(day)) continue;
         await client.query(
-          `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))`,
-          [trip.id, clampDay(op.day_number, trip.days), cleanTime(op.time_label), String(op.title).slice(0, 200).trim(),
+          `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, cost, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))`,
+          [trip.id, day, cleanTime(op.time_label), String(op.title).slice(0, 200).trim(),
            op.note ? String(op.note).slice(0, 300) : null,
            op.place_query ? String(op.place_query).slice(0, 120) : null,
            AI_CATEGORIES.includes(op.category) ? op.category : 'אטרקציה',
-           op.area ? String(op.area).slice(0, 80) : null]
+           op.area ? String(op.area).slice(0, 80) : (area || null),
+           cleanCost(op.cost)]
         );
         added++;
       }
@@ -656,108 +694,6 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
     res.status(500).json({ error: 'שגיאת שרת' });
   } finally {
     client.release();
-  }
-});
-
-// draft edits: the plan wizard's itinerary lives only in the client, so the ops are
-// computed here (same model call, same daily quota) and applied by the browser.
-// An optional area + day range scopes the request — the integrated replacement for
-// the old "build a specific area" form, including full in-range rebuilds.
-router.post('/api/ai/edit-draft', authRequired, async (req, res) => {
-  try {
-    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'עריכת AI לא זמינה כרגע' });
-    const b = req.body || {};
-    const prompt = String(b.prompt || '').trim();
-    if (!prompt) return res.status(400).json({ error: 'כתבו מה לשנות במסלול' });
-    if (prompt.length > AI_EDIT_MAX_PROMPT) {
-      return res.status(400).json({ error: `הבקשה ארוכה מדי — עד ${AI_EDIT_MAX_PROMPT} תווים` });
-    }
-    const dests = cleanDestinations(b.destinations);
-    if (!dests.length) return res.status(400).json({ error: 'חסרים יעדים' });
-    const days = Math.min(Math.max(parseInt(b.days, 10) || 1, 1), 60);
-    const items = (Array.isArray(b.items) ? b.items : []).slice(0, 200).map((it) => ({
-      id: parseInt(it?.id, 10) || 0,
-      day_number: clampDay(it?.day_number, days),
-      time_label: cleanTime(it?.time_label),
-      title: String(it?.title || '').slice(0, 200),
-      note: it?.note ? String(it.note).slice(0, 300) : null,
-      place_query: it?.place_query ? String(it.place_query).slice(0, 120) : null,
-      category: AI_CATEGORIES.includes(it?.category) ? it.category : null,
-      area: it?.area ? String(it.area).slice(0, 80) : null,
-    })).filter((it) => it.id && it.title);
-
-    // optional scope: one area within a day range (multi-destination trips)
-    const areaNames = dests.map((d) => d.name);
-    const area = b.area && areaNames.includes(b.area) ? b.area : null;
-    let from = 1, to = days, scopeNote = '';
-    if (area) {
-      from = Math.min(Math.max(parseInt(b.day_from, 10) || 1, 1), days);
-      to = Math.min(Math.max(parseInt(b.day_to, 10) || days, from), days);
-      scopeNote = `החל את הבקשה אך ורק על אזור "${area}" בימים ${from} עד ${to}: ` +
-        `כל תחנה שתוסיף תהיה באזור הזה ובטווח הימים הזה (שדה area: "${area}"), ואל תיגע בתחנות מחוץ לטווח. ` +
-        `אם התבקשה בנייה מחדש — החלף את כל התחנות בטווח (מחיקות + הוספות), 3-4 תחנות ליום בסדר כרונולוגי.`;
-    }
-
-    const quotaKey = 'u' + req.user.id; // shared daily pool with the trip-page AI edits
-    const today = new Date().toISOString().slice(0, 10);
-    const usage = aiEditUsage.get(quotaKey);
-    const used = usage && usage.date === today ? usage.count : 0;
-    if (used >= AI_EDIT_DAILY_LIMIT) {
-      return res.status(429).json({ error: 'ניצלתם את שלושת שינויי ה-AI להיום — אפשר להמשיך לערוך ידנית, או לנסות שוב מחר' });
-    }
-
-    const result = await aiEditOps({
-      title: String(b.title || '').slice(0, 80) || 'טיול חדש',
-      destText: dests.map((d) => d.name).join(' · '),
-      dests, days, items, prompt, scopeNote,
-      opsCap: 60, // scoped rebuilds legitimately delete + re-add several days
-    });
-    if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לעבד את הבקשה — נסו שוב עוד רגע' });
-    aiEditUsage.set(quotaKey, { date: today, count: used + 1 });
-
-    // sanitize ops for the client: known ids, clamped days, scope enforced
-    const byId = new Map(items.map((it) => [it.id, it]));
-    const inScope = (day) => !area || (day >= from && day <= to);
-    const ops = [];
-    for (const op of result.ops) {
-      if (op.action === 'delete') {
-        const target = byId.get(op.id);
-        if (target && inScope(target.day_number)) ops.push({ action: 'delete', id: op.id });
-      } else if (op.action === 'update') {
-        const target = byId.get(op.id);
-        if (!target || !inScope(target.day_number)) continue;
-        const day = op.day_number != null ? clampDay(op.day_number, days, target.day_number) : null;
-        if (day != null && !inScope(day)) continue;
-        ops.push({
-          action: 'update',
-          id: op.id,
-          day_number: day,
-          time_label: op.time_label != null ? cleanTime(op.time_label) : null,
-          title: op.title != null && String(op.title).trim() ? String(op.title).slice(0, 200).trim() : null,
-          note: op.note != null ? String(op.note).slice(0, 300) : null,
-          place_query: op.place_query != null ? String(op.place_query).slice(0, 120) : null,
-          category: op.category != null && AI_CATEGORIES.includes(op.category) ? op.category : null,
-          area: op.area != null ? String(op.area).slice(0, 80) : null,
-        });
-      } else if (op.action === 'add' && op.title && String(op.title).trim()) {
-        const day = clampDay(op.day_number, days, from);
-        if (!inScope(day)) continue;
-        ops.push({
-          action: 'add',
-          day_number: day,
-          time_label: cleanTime(op.time_label),
-          title: String(op.title).slice(0, 200).trim(),
-          note: op.note ? String(op.note).slice(0, 300) : null,
-          place_query: op.place_query ? String(op.place_query).slice(0, 120) : null,
-          category: AI_CATEGORIES.includes(op.category) ? op.category : 'אטרקציה',
-          area: op.area ? String(op.area).slice(0, 80) : (area || null),
-        });
-      }
-    }
-    res.json({ summary: result.summary || 'בוצע', ops, remaining: AI_EDIT_DAILY_LIMIT - used - 1 });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'שגיאת שרת' });
   }
 });
 

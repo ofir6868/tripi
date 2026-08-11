@@ -18,25 +18,43 @@ router.get('/trip/:code', async (req, res) => {
   let html = tripHtmlCache;
   try {
     const { rows } = await pool.query(
-      'SELECT title, destination, description, cover_image, days, start_date, destinations, share_code, emoji FROM trips WHERE share_code = $1',
+      'SELECT title, destination, description, cover_image, days, start_date, destinations, share_code, emoji, is_draft FROM trips WHERE share_code = $1',
       [req.params.code]
     );
     const t = rows[0];
     if (t) {
-      const title = `${t.emoji || '🧭'} ${t.title} · TRIPI`;
+      const title = `${t.emoji || '🧭'} ${t.title} · TRIP MAKER`;
       const desc = `${t.destination} · ${t.days} ימים · קוד טיול ${t.share_code}` +
         (t.description ? ` — ${t.description.slice(0, 120)}` : '');
-      const og = `
+      if (t.is_draft) {
+        // drafts aren't shared: no OG block (it would leak the not-yet-revealed code
+        // to scrapers), just the plain title for the owner's browser tab
+        html = html.replace(/<title>[\s\S]*?<\/title>/, `<title>${escapeHtml(title)}</title>`);
+      } else {
+        // absolute, self-describing URL: the share link is forwarded by people, not
+        // crawled from a sitemap, so it has to name the host it was actually served from
+        const origin = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
+        const og = `
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="TRIPI">
+  <meta property="og:site_name" content="TRIP MAKER">
+  <meta property="og:locale" content="he_IL">
   <meta property="og:title" content="${escapeHtml(title)}">
   <meta property="og:description" content="${escapeHtml(desc)}">
-  ${t.cover_image ? `<meta property="og:image" content="${escapeHtml(t.cover_image)}">` : ''}
-  <meta property="og:url" content="https://tripi-caw3.onrender.com/trip/${escapeHtml(t.share_code)}">
+  ${t.cover_image ? `<meta property="og:image" content="${escapeHtml(t.cover_image)}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="${escapeHtml(t.destination)}">
+  <meta name="twitter:image" content="${escapeHtml(t.cover_image)}">` : ''}
+  <meta property="og:url" content="${escapeHtml(origin)}/trip/${escapeHtml(t.share_code)}">
   <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${escapeHtml(title)}">
+  <meta name="twitter:description" content="${escapeHtml(desc)}">
   <meta name="description" content="${escapeHtml(desc)}">`;
-      html = html
-        .replace('<title>טיול · TRIPI</title>', `<title>${escapeHtml(title)}</title>${og}`);
+        // anchor on the tag shape, not on its text — a rebrand rewrote the title once
+        // already, and a silent no-op here costs every WhatsApp preview the product has
+        html = html
+          .replace(/<title>[\s\S]*?<\/title>/, `<title>${escapeHtml(title)}</title>${og}`);
+      }
 
       // trips longer than a week open in the calendar view — tell the page how many
       // days, which weekday day 1 falls on, and whether its cells carry an area

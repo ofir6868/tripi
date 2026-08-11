@@ -101,6 +101,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           <tr data-id="${t.id}">
             <td>
               <a class="adm-link" href="/trip/${t.share_code}">${t.emoji || '🧭'} ${TRIPI.esc(t.title)}</a>
+              ${t.is_draft ? '<span class="adm-draft">✍️ בתכנון</span>' : ''}
               <div class="adm-sub">${TRIPI.esc(t.destination)}${t.country ? ' · ' + TRIPI.esc(t.country) : ''} · ${t.days} ימים</div>
             </td>
             <td>${t.owner_name ? TRIPI.esc(t.owner_name) : '<span class="adm-sub">— ללא בעלים</span>'}
@@ -111,7 +112,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             <td class="num">${t.item_count}</td>
             <td class="num">${t.likes}</td>
             <td class="adm-sub">${heDate(t.created_at)}</td>
-            <td><label class="adm-switch"><input type="checkbox" class="adm-pub" ${t.is_public ? 'checked' : ''}><span></span></label></td>
+            <td><label class="adm-switch"${t.is_draft ? ' title="טיוטה — הבעלים עוד לא סיימו לתכנן"' : ''}><input type="checkbox" class="adm-pub" ${t.is_public ? 'checked' : ''}${t.is_draft ? ' disabled' : ''}><span></span></label></td>
             <td><button class="adm-del" title="מחיקת הטיול" aria-label="מחיקת הטיול">${ICON.trash}</button></td>
           </tr>`).join('')}</tbody>
       </table>`;

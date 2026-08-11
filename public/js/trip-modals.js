@@ -492,10 +492,39 @@ const TripModals = (() => {
   }
 
   // =================================================================
-  //  BUDGET MODAL
+  //  BUDGET PAGE
+  //  A full page, not a modal: it rides the URL hash (#budget /
+  //  #budget-settings) so the browser and phone back buttons walk out
+  //  of it naturally — and settings is a sub-page, not an inline div.
   // =================================================================
 
   const budgetView = { mode: 'shared', view: 'plan', filter: null, openDays: new Set(), showSettings: false, skippedSetup: false };
+  let budgetRender = null; // the open page's render(), so popstate can repaint it
+
+  // stroke icons for the page controls — inherit currentColor like every .ic
+  const BICON = {
+    back: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
+    gear: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
+    users: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+    lock: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
+  };
+
+  // hash → screen: the back buttons only ever call history.back(); this listener
+  // is the single place that opens, closes and repaints the page afterwards
+  window.addEventListener('popstate', () => {
+    const page = document.getElementById('budget-page');
+    if (!page || !budgetRender) return;
+    if (location.hash === '#budget' || location.hash === '#budget-settings') {
+      budgetView.showSettings = location.hash === '#budget-settings';
+      page.classList.add('open');
+      document.body.classList.add('budget-open');
+      budgetRender();
+      page.scrollTop = 0;
+    } else {
+      page.classList.remove('open');
+      document.body.classList.remove('budget-open');
+    }
+  });
 
   const personalKey = (state) => 'tripi_personal_budget_' + state.trip.share_code;
   function loadPersonal(state) {
@@ -535,30 +564,71 @@ const TripModals = (() => {
 
   function openBudget(ctx) {
     const { state } = ctx;
-    const wrap = shell('budget-modal', '💰 התקציב של הטיול', '');
-    const body = wrap.querySelector('.mw-body');
-    const controls = wrap.querySelector('.mw-controls');
+    let page = document.getElementById('budget-page');
+    if (!page) {
+      page = document.createElement('div');
+      page.id = 'budget-page';
+      page.className = 'budget-page';
+      page.innerHTML = `
+        <div class="bp-head">
+          <button type="button" class="bp-back" aria-label="חזרה">${BICON.back}<span>חזרה</span></button>
+          <h2 class="bp-title"></h2>
+        </div>
+        <div class="bp-inner">
+          <div class="bp-controls"></div>
+          <div class="bp-body"></div>
+        </div>`;
+      document.body.appendChild(page);
+      page.querySelector('.bp-back').onclick = () => history.back();
+    }
+    const body = page.querySelector('.bp-body');
+    const controls = page.querySelector('.bp-controls');
+
+    budgetView.showSettings = false;
+    page.classList.add('open');
+    document.body.classList.add('budget-open');
+    page.scrollTop = 0;
+    // one clean history entry per open — a reload that kept the hash is normalized first
+    if (location.hash === '#budget' || location.hash === '#budget-settings') {
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+    history.pushState(null, '', '#budget');
+
     const dToday = currentTripDay(state);
     if (dToday && !budgetView.openDays.size) budgetView.openDays.add(dToday);
+
+    function openSettings() {
+      budgetView.showSettings = true;
+      history.pushState(null, '', '#budget-settings');
+      render();
+      page.scrollTop = 0;
+    }
 
     function render() {
       const cur = curOf(state);
       const personal = loadPersonal(state);
       const isPersonal = budgetView.mode === 'personal';
+      // a draft is all planning — there's no "בפועל" yet, so that view (and the
+      // toggle to reach it) only exists once the trip is published
+      const isDraft = !!state.trip.is_draft;
+      if (isDraft) budgetView.view = 'plan';
       const isActual = budgetView.view === 'actual';
+      page.querySelector('.bp-title').textContent = budgetView.showSettings ? 'הגדרות תקציב' : '💰 התקציב של הטיול';
+      if (budgetView.showSettings) { renderSettings(cur, personal, isPersonal); return; }
       const planned = plannedTotals(state);
       const travelers = (state.budget && state.budget.travelers) || 1;
 
       controls.innerHTML = `
         <div class="seg bm-mode">
-          <button type="button" data-v="shared" class="${!isPersonal ? 'active' : ''}">👥 משותף</button>
-          <button type="button" data-v="personal" class="${isPersonal ? 'active' : ''}">🔒 אישי</button>
+          <button type="button" data-v="shared" class="${!isPersonal ? 'active' : ''}">${BICON.users} משותף</button>
+          <button type="button" data-v="personal" class="${isPersonal ? 'active' : ''}">${BICON.lock} אישי</button>
         </div>
         <div class="mode-hint">${isPersonal ? 'נשמר רק בדפדפן הזה — רק אתם רואים' : 'כל משתתפי הטיול רואים ועורכים'}</div>
+        ${isDraft ? '' : `
         <div class="seg bm-view">
           <button type="button" data-v="plan" class="${budgetView.view === 'plan' ? 'active' : ''}">תכנון</button>
           <button type="button" data-v="actual" class="${budgetView.view === 'actual' ? 'active' : ''}">בפועל</button>
-        </div>`;
+        </div>`}`;
       controls.querySelectorAll('.bm-mode button').forEach((b) => {
         b.onclick = () => { budgetView.mode = b.dataset.v; render(); };
       });
@@ -573,10 +643,14 @@ const TripModals = (() => {
             <h3>כמה הטיול הזה הולך לעלות? 🤔</h3>
             <p>קבעו תקציב, פזרו הערכות על הימים, ותדעו לפני כולם.</p>
             <div class="form-grid">
-              <div class="field"><label>תקציב כולל</label><input type="number" min="0" class="bs-total" placeholder="10,000"></div>
-              <div class="field"><label>מטבע</label><select class="bs-cur">
-                ${Object.keys(CURRENCIES).map((c) => `<option value="${c}"${c === 'ILS' ? ' selected' : ''}>${CURRENCIES[c]} ${c}</option>`).join('')}
-              </select></div>
+              <div class="field span-2"><label>תקציב כולל</label>
+                <div class="money-field">
+                  <input type="number" min="0" class="bs-total" placeholder="10,000">
+                  <select class="bs-cur" aria-label="מטבע">
+                    ${Object.keys(CURRENCIES).map((c) => `<option value="${c}"${c === 'ILS' ? ' selected' : ''}>${CURRENCIES[c]} ${c}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
               <div class="field span-2"><label>כמה מטיילים?</label>
                 <div class="stepper"><button type="button" class="step-btn bs-minus">−</button>
                 <input type="number" class="bs-trav" value="2" min="1" max="50">
@@ -657,9 +731,8 @@ const TripModals = (() => {
         <div class="ring-section">
           ${ringSvg(cap ? pct : (value > 0 ? 1 : 0), color, fmt(value, cur), caption)}
           ${!isPersonal && travelers > 1 && value > 0 ? `<div class="per-person">≈ ${fmt(value / travelers, cur)} לאדם <button type="button" class="pp-edit">(${travelers} מטיילים)</button></div>` : ''}
-          <button type="button" class="bm-settings-btn" title="הגדרות תקציב">⚙️</button>
+          <button type="button" class="bm-settings-btn" title="הגדרות תקציב" aria-label="הגדרות תקציב">${BICON.gear}</button>
         </div>
-        ${budgetView.showSettings ? settingsHtml(cur, personal, isPersonal) : ''}
         ${hasCosts ? `<div class="cat-bars">${CATS.map((c) => {
           const v = catTotals[c.key] || 0;
           if (!v) return '';
@@ -688,14 +761,12 @@ const TripModals = (() => {
       `;
 
       // ---- wiring ----
-      body.querySelector('.bm-settings-btn').onclick = () => { budgetView.showSettings = !budgetView.showSettings; render(); };
-      body.querySelector('.pp-edit')?.addEventListener('click', () => { budgetView.showSettings = true; render(); });
+      body.querySelector('.bm-settings-btn').onclick = openSettings;
+      body.querySelector('.pp-edit')?.addEventListener('click', openSettings);
       body.querySelectorAll('.cat-bar').forEach((b) => {
         b.onclick = () => { budgetView.filter = budgetView.filter === b.dataset.cat ? null : b.dataset.cat; render(); };
       });
       body.querySelector('.clear-filter')?.addEventListener('click', () => { budgetView.filter = null; render(); });
-
-      if (budgetView.showSettings) wireSettings(cur, personal, isPersonal);
 
       const qaAdd = body.querySelector('.qa-add');
       if (qaAdd) qaAdd.onclick = async (e) => {
@@ -732,49 +803,69 @@ const TripModals = (() => {
       wireLists(cur, personal, isPersonal);
     }
 
-    function settingsHtml(cur, personal, isPersonal) {
-      if (isPersonal) {
-        return `
-        <div class="bm-settings glass">
-          <div class="field"><label>התקציב האישי שלי (${sym(cur)})</label>
-            <input type="number" min="0" class="st-ptotal" value="${personal.total || ''}"></div>
-          <button type="button" class="btn btn-amber st-save" style="width:100%;justify-content:center">שמירה</button>
+    // settings sub-page: swaps the whole screen (back = history.back(), like the
+    // page itself) — holds the total+currency form and the "אפס תקציב" action
+    function renderSettings(cur, personal, isPersonal) {
+      controls.innerHTML = '';
+      const resetRow = (hint) => `
+        <div class="bp-danger">
+          <button type="button" class="btn btn-danger st-reset">אפס תקציב</button>
+          <span class="bp-danger-hint">${hint}</span>
         </div>`;
-      }
-      const b = state.budget || { total: null, currency: 'ILS', travelers: 2 };
-      return `
-      <div class="bm-settings glass">
-        <div class="form-grid">
-          <div class="field"><label>תקציב כולל</label><input type="number" min="0" class="st-total" value="${b.total ? Math.round(+b.total) : ''}" placeholder="בלי תקרה"></div>
-          <div class="field"><label>מטבע</label><select class="st-cur">
-            ${Object.keys(CURRENCIES).map((c) => `<option value="${c}"${c === b.currency ? ' selected' : ''}>${CURRENCIES[c]} ${c}</option>`).join('')}
-          </select></div>
-          <div class="field span-2"><label>כמה מטיילים?</label>
-            <div class="stepper"><button type="button" class="step-btn st-minus">−</button>
-            <input type="number" class="st-trav" value="${b.travelers}" min="1" max="50">
-            <button type="button" class="step-btn st-plus">+</button></div></div>
-        </div>
-        <div class="form-error st-err"></div>
-        <button type="button" class="btn btn-amber st-save" style="width:100%;justify-content:center">שמירת הגדרות</button>
-      </div>`;
-    }
-
-    function wireSettings(cur, personal, isPersonal) {
-      const save = body.querySelector('.st-save');
-      if (!save) return;
-      if (isPersonal) {
-        save.onclick = () => {
-          const v = +body.querySelector('.st-ptotal').value || null;
-          savePersonal(state, { ...personal, total: v });
-          budgetView.showSettings = false;
-          render();
+      const wireReset = (confirmMsg, doReset) => {
+        body.querySelector('.st-reset').onclick = async (e) => {
+          const btn = e.currentTarget;
+          if (btn.disabled || !confirm(confirmMsg)) return;
+          btn.disabled = true;
+          try { await doReset(); }
+          catch (err) { alert(err.message); btn.disabled = false; }
         };
+      };
+
+      if (isPersonal) {
+        body.innerHTML = `
+          <div class="bm-settings glass">
+            <div class="field"><label>התקציב האישי שלי (${sym(cur)})</label>
+              <input type="number" min="0" class="st-ptotal" value="${personal.total || ''}"></div>
+            <button type="button" class="btn btn-amber st-save" style="width:100%;justify-content:center">שמירה</button>
+          </div>
+          ${resetRow('מוחק את התקציב וההוצאות האישיות ששמורים בדפדפן הזה')}`;
+        body.querySelector('.st-save').onclick = () => {
+          savePersonal(state, { ...personal, total: +body.querySelector('.st-ptotal').value || null });
+          history.back();
+        };
+        wireReset('לאפס את התקציב האישי? גם ההוצאות האישיות יימחקו', async () => {
+          try { localStorage.removeItem(personalKey(state)); } catch { /* private mode */ }
+          history.back();
+        });
         return;
       }
+
+      const b = state.budget || { total: null, currency: 'ILS', travelers: 2 };
+      body.innerHTML = `
+        <div class="bm-settings glass">
+          <div class="form-grid">
+            <div class="field span-2"><label>תקציב כולל</label>
+              <div class="money-field">
+                <input type="number" min="0" class="st-total" value="${b.total ? Math.round(+b.total) : ''}" placeholder="בלי תקרה">
+                <select class="st-cur" aria-label="מטבע">
+                  ${Object.keys(CURRENCIES).map((c) => `<option value="${c}"${c === b.currency ? ' selected' : ''}>${CURRENCIES[c]} ${c}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div class="field span-2"><label>כמה מטיילים?</label>
+              <div class="stepper"><button type="button" class="step-btn st-minus">−</button>
+              <input type="number" class="st-trav" value="${b.travelers}" min="1" max="50">
+              <button type="button" class="step-btn st-plus">+</button></div></div>
+          </div>
+          <div class="form-error st-err"></div>
+          <button type="button" class="btn btn-amber st-save" style="width:100%;justify-content:center">שמירת הגדרות</button>
+        </div>
+        ${resetRow('מוחק את התקרה, המטבע ומספר המטיילים — ההערכות על התחנות וההוצאות נשארות')}`;
       const trav = body.querySelector('.st-trav');
       body.querySelector('.st-minus').onclick = () => { trav.value = Math.max(+trav.value - 1, 1); };
       body.querySelector('.st-plus').onclick = () => { trav.value = Math.min(+trav.value + 1, 50); };
-      save.onclick = async () => {
+      body.querySelector('.st-save').onclick = async () => {
         const newCur = body.querySelector('.st-cur').value;
         if (state.budget && newCur !== state.budget.currency &&
             !confirm('שימו לב: הסכומים לא יומרו, רק המטבע יתחלף. להמשיך?')) return;
@@ -785,10 +876,19 @@ const TripModals = (() => {
             method: 'PUT', headers,
             body: JSON.stringify({ total: body.querySelector('.st-total').value || null, currency: newCur, travelers: +trav.value }),
           });
-          budgetView.showSettings = false;
-          render(); ctx.refresh();
+          ctx.refresh();
+          history.back();
         } catch (e) { body.querySelector('.st-err').textContent = e.message; }
       };
+      wireReset('לאפס את התקציב המשותף? התקרה, המטבע ומספר המטיילים יימחקו לכולם', async () => {
+        const headers = await ctx.ensureEdit();
+        if (!headers) return;
+        await TRIPI.api(`/api/trips/code/${state.trip.share_code}/budget`, { method: 'DELETE', headers });
+        state.budget = null;
+        budgetView.skippedSetup = false;
+        ctx.refresh();
+        history.back();
+      });
     }
 
     function personalListHtml(personal, cur) {
@@ -880,7 +980,7 @@ const TripModals = (() => {
         };
       });
       body.querySelectorAll('[data-open-hotels]').forEach((b) => {
-        b.onclick = () => { wrap.classList.remove('open'); openHotels(ctx); };
+        b.onclick = () => { history.back(); openHotels(ctx); }; // leave the page, open hotels on the trip
       });
       // inline planned-cost editing (save on change/blur)
       body.querySelectorAll('.cost-input').forEach((inp) => {
@@ -916,6 +1016,7 @@ const TripModals = (() => {
       });
     }
 
+    budgetRender = render;
     render();
   }
 

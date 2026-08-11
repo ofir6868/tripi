@@ -4,6 +4,26 @@
 
   const heDate = (d) => d ? new Date(d).toLocaleDateString('he-IL', { day: 'numeric', month: 'long' }) : null;
 
+  // on a phone the description clamps to 2 lines (CSS) so the itinerary is visible
+  // without scrolling on first paint; the toggle only appears if text actually overflows
+  function setupDescToggle() {
+    const textEl = document.getElementById('trip-desc-text');
+    const toggleEl = document.getElementById('trip-desc-toggle');
+    if (!textEl || !toggleEl) return;
+    const sync = () => {
+      textEl.classList.remove('expanded');
+      toggleEl.textContent = 'הצג עוד';
+      const overflows = textEl.scrollHeight > textEl.clientHeight + 1;
+      toggleEl.classList.toggle('show', overflows);
+    };
+    toggleEl.onclick = () => {
+      const expanded = textEl.classList.toggle('expanded');
+      toggleEl.textContent = expanded ? 'הצג פחות' : 'הצג עוד';
+    };
+    sync();
+    window.addEventListener('resize', sync);
+  }
+
   // edit rights: trip participants (owner included). A ?join=TOKEN invite link makes
   // a visitor a participant-in-waiting — the token is stashed per-trip so it survives
   // the register/login round trip, and is redeemed the moment there's a logged-in user.
@@ -101,6 +121,7 @@
     } catch {
       hideTripLoader();
       document.querySelector('.trip-hero').style.display = 'none';
+      document.querySelector('.action-bar').style.display = 'none';
       document.getElementById('trip-layout').style.display = 'none';
       document.getElementById('not-found').style.display = '';
       return;
@@ -134,14 +155,20 @@
       const range = trip.end_date ? `${heDate(trip.start_date)} – ${heDate(trip.end_date)}` : heDate(trip.start_date);
       meta.push(`<span class="chip"><span class="dot">●</span> ${range}</span>`);
     }
-    meta.push(`<span class="chip copyable" dir="ltr" title="לחיצה מעתיקה את קוד הטיול"
+    // both chips render; applyDraftState() shows exactly one of them — the code is
+    // minted at creation but only revealed once planning is finished
+    meta.push(`<span class="chip copyable" id="code-chip" dir="ltr" title="לחיצה מעתיקה את קוד הטיול"
       data-copy="${trip.share_code}" style="letter-spacing:.2em;color:var(--amber)">#${trip.share_code}</span>`);
+    meta.push(`<span class="chip draft-chip" id="draft-chip" style="display:none">🚧 בתכנון</span>`);
     document.getElementById('trip-meta').innerHTML = meta.join('');
 
     document.getElementById('trip-layout').style.display = '';
-    document.getElementById('trip-desc').innerHTML = trip.description
-      ? TRIPI.esc(trip.description)
-      : 'עוד אין תיאור לטיול הזה — אבל המסלול מדבר בעד עצמו 🙂';
+    document.getElementById('trip-desc').innerHTML =
+      `<div class="trip-desc-text" id="trip-desc-text">${
+        trip.description ? TRIPI.esc(trip.description) : 'עוד אין תיאור לטיול הזה — אבל המסלול מדבר בעד עצמו 🙂'
+      }</div>` +
+      `<button type="button" class="trip-desc-toggle" id="trip-desc-toggle" hidden>הצג עוד</button>`;
+    setupDescToggle();
 
     // itinerary grouped by day (weatherByDate is filled by loadWeather when dates align)
     let tripItems = items.slice();
@@ -308,10 +335,12 @@
                 <div class="item-top">
                   ${it.time_label ? `<span class="item-time">${TRIPI.esc(it.time_label)}</span>` : ''}
                   <span class="item-title">${TRIPI.esc(it.title)}</span>
-                  ${+it.cost > 0 ? `<span class="item-cost">${TripModals.fmt(it.cost, TripModals.curOf(state))}</span>` : ''}
-                  ${multiDest() && it.area ? `<span class="item-area">📍 ${TRIPI.esc(it.area)}</span>` : ''}
-                  ${it.category ? `<span class="item-cat">${TRIPI.esc(it.category)}</span>` : ''}
-                  ${editMode ? `<button class="item-del" data-id="${it.id}" title="מחיקת תחנה">✕</button>` : ''}
+                  <span class="item-badges">
+                    ${+it.cost > 0 ? `<span class="item-cost">${TripModals.fmt(it.cost, TripModals.curOf(state))}</span>` : ''}
+                    ${multiDest() && it.area ? `<span class="item-area">📍 ${TRIPI.esc(it.area)}</span>` : ''}
+                    ${it.category ? `<span class="item-cat">${TRIPI.esc(it.category)}</span>` : ''}
+                    ${editMode ? `<button class="item-del" data-id="${it.id}" title="מחיקת תחנה">✕</button>` : ''}
+                  </span>
                 </div>
                 ${it.note ? `<div class="item-note">${TRIPI.esc(it.note)}</div>` : ''}
                 ${expandable ? `
@@ -496,6 +525,18 @@
       participants.length > 1 ? `${participants.length} משתתפים` : 'משתתפים';
     participantsBtn.onclick = () => (canEdit ? openParticipants() : requireSignup());
 
+    // hero badge next to the "X ימים" chip: pull co-planners in from the top of
+    // the page — clicking opens the participants screen
+    if (privileged) {
+      const pChip = document.createElement('button');
+      pChip.type = 'button';
+      pChip.id = 'participants-chip';
+      pChip.className = 'chip chip-action';
+      pChip.innerHTML = `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg> הוספת משתתפים`;
+      document.getElementById('trip-meta').appendChild(pChip);
+      pChip.onclick = () => (canEdit ? openParticipants() : requireSignup());
+    }
+
     const inviteLink = () => `${location.origin}/trip/${trip.share_code}?join=${trip.invite_token}`;
 
     // stroke icons for the participants modal — currentColor keeps them in step
@@ -541,6 +582,8 @@
       });
     }
 
+    let syncPushSection = null; // set when the modal is first built
+
     function openParticipants() {
       let wrap = document.getElementById('participants-modal');
       if (!wrap) {
@@ -584,6 +627,22 @@
                   <span class="pm-quiet-hint">קישורים שכבר נשלחו יפסיקו לעבוד</span>
                 </div>
               </section>
+
+              <!-- notifications live next to the invite: the moment you send one is
+                   exactly when you want to know whether anyone walked through it -->
+              <section class="pm-sec pm-notif" id="push-sec" style="display:none">
+                <label class="pm-setting" for="push-toggle">
+                  <span class="pm-setting-ic">${PUSH_BELL}</span>
+                  <span class="pm-setting-text">
+                    <span class="pm-setting-title">התראות על הטיול</span>
+                    <span class="pm-setting-desc" id="push-desc">שנדע לכם כשחבר מצטרף לתכנון או משנה משהו במסלול</span>
+                  </span>
+                  <span class="pm-switch">
+                    <input type="checkbox" id="push-toggle">
+                    <span class="pm-switch-track" aria-hidden="true"><span class="pm-switch-knob"></span></span>
+                  </span>
+                </label>
+              </section>
             </div>
           </div>`;
         document.body.appendChild(wrap);
@@ -614,10 +673,52 @@
           } catch (err) { alert(err.message); }
           btn.disabled = false;
         };
+
+        // the switch reflects the browser's real subscription state, not a stored
+        // preference — permission can be revoked in site settings at any time
+        const pushSec = wrap.querySelector('#push-sec');
+        const pushToggle = wrap.querySelector('#push-toggle');
+        const pushDesc = wrap.querySelector('#push-desc');
+        syncPushSection = async () => {
+          const st = await TRIPI_PUSH.state();
+          if (st === 'unavailable' && !TRIPI_PUSH.needsInstall) { pushSec.style.display = 'none'; return; }
+          pushSec.style.display = '';
+          if (TRIPI_PUSH.needsInstall) {
+            pushToggle.checked = false;
+            pushToggle.disabled = true;
+            pushDesc.textContent = 'באייפון צריך קודם להוסיף את TRIP MAKER למסך הבית — ואז אפשר להפעיל התראות';
+            return;
+          }
+          if (st === 'blocked') {
+            pushToggle.checked = false;
+            pushToggle.disabled = true;
+            pushDesc.textContent = 'ההתראות חסומות בהגדרות הדפדפן לאתר הזה';
+            return;
+          }
+          pushToggle.disabled = false;
+          pushToggle.checked = st === 'on';
+          pushDesc.textContent = 'שנדע לכם כשחבר מצטרף לתכנון או משנה משהו במסלול';
+        };
+        pushToggle.onchange = async () => {
+          pushToggle.disabled = true;
+          try {
+            if (pushToggle.checked) await TRIPI_PUSH.enable();
+            else await TRIPI_PUSH.disable();
+            localStorage.setItem('tm_push_asked', '1'); // decided here — don't ask again elsewhere
+          } catch (err) {
+            pushDesc.textContent = err.message;
+          }
+          await syncPushSection();
+        };
       }
       renderParticipantsList(wrap);
+      syncPushSection?.();
       wrap.classList.add('open');
     }
+
+    // co-planners get asked once, from a card of ours, whether to be told when
+    // someone joins — never a bare browser prompt on load
+    if (canEdit) offerPushOptIn(document.querySelector('.action-bar'));
 
     // bottom banner for invite holders who aren't signed in yet: they can look
     // around freely, and one quick signup makes them a participant
@@ -637,8 +738,36 @@
     const aiBtn = document.getElementById('ai-edit-btn');
     const aiCount = document.getElementById('ai-edit-count');
     const aiResult = document.getElementById('ai-edit-result');
-    function showAiEditCard() { aiCard.style.display = ''; }
+    function showAiEditCard() {
+      aiCard.style.display = '';
+      // the extra card shoves the itinerary further below the fold on a phone —
+      // shrink the hero a touch so some of the itinerary still peeks through
+      document.querySelector('.trip-hero').classList.add('compact');
+    }
     if (canEditHeaders) showAiEditCard();
+
+    // area + day-range scope (multi-destination trips only) — same controls the
+    // plan wizard had; the server enforces the range on every op it applies
+    const aiArea = document.getElementById('trip-ai-area');
+    const aiRange = document.getElementById('trip-ai-range');
+    // picking an area reveals its day range, pre-filled with where that area sits today
+    function syncAiScopeRange() {
+      const area = aiArea.value;
+      aiRange.style.display = area ? '' : 'none';
+      if (!area) return;
+      const fromInp = document.getElementById('trip-ai-from');
+      const toInp = document.getElementById('trip-ai-to');
+      fromInp.max = toInp.max = trip.days;
+      const areaDays = tripItems.filter((it) => it.area === area).map((it) => it.day_number);
+      fromInp.value = areaDays.length ? Math.min(...areaDays) : 1;
+      toInp.value = areaDays.length ? Math.min(Math.max(...areaDays), trip.days) : trip.days;
+    }
+    if (multiDest()) {
+      document.getElementById('trip-ai-scope').style.display = '';
+      aiArea.innerHTML = '<option value="">כל הטיול</option>' +
+        tripDests.map((d) => `<option>${TRIPI.esc(d.name)}</option>`).join('');
+      aiArea.onchange = syncAiScopeRange;
+    }
     aiInput.addEventListener('input', () => { aiCount.textContent = `${aiInput.value.length}/200`; });
     document.getElementById('ai-edit-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -651,12 +780,18 @@
       aiResult.hidden = true;
       aiResult.className = 'ai-edit-result';
       try {
+        const scope = aiArea.value
+          ? { area: aiArea.value,
+              day_from: +document.getElementById('trip-ai-from').value || 1,
+              day_to: +document.getElementById('trip-ai-to').value || trip.days }
+          : {};
         const r = await TRIPI.api(`/api/trips/code/${trip.share_code}/ai-edit`, {
           method: 'POST', headers: canEditHeaders || {},
-          body: JSON.stringify({ prompt }),
+          body: JSON.stringify({ prompt, ...scope }),
         });
         tripItems = r.items;
         renderItinerary();
+        syncAiScopeRange(); // the area's day span may have moved
         const changed = r.added + r.updated + r.removed > 0;
         aiResult.classList.add(changed ? 'ok' : 'info');
         aiResult.textContent = r.summary;
@@ -672,21 +807,28 @@
       }
     });
 
-    // ---- clone button: published trips can be copied into my account ----
+    // ---- clone button: anyone holding the code can copy the trip into their account ----
+    // (the API has never gated this on is_public — the share code already grants a
+    // full read, so hiding the button only stranded viewers with no next step)
     const cloneBtn = document.getElementById('clone-btn');
-    async function doClone() {
+    // `from` is whichever control was pressed — the action-bar button or the end-cap
+    // CTA — so the wait shows up where the finger actually landed
+    async function doClone(from) {
       if (cloneBtn.disabled) return;
       cloneBtn.disabled = true;
-      const cloneLabel = document.getElementById('clone-label');
-      const prevLabel = cloneLabel.textContent;
-      cloneLabel.textContent = 'משכפלים…';
+      const busy = from instanceof HTMLElement ? from : cloneBtn;
+      const label = busy === cloneBtn ? document.getElementById('clone-label') : busy;
+      const prevLabel = label.innerHTML;
+      busy.disabled = true;
+      label.textContent = 'משכפלים…';
       try {
         const copy = await TRIPI.api(`/api/trips/code/${trip.share_code}/clone`, { method: 'POST' });
         location.href = '/trip/' + copy.share_code;
       } catch (e) {
         alert(e.message);
         cloneBtn.disabled = false;
-        cloneLabel.textContent = prevLabel;
+        busy.disabled = false;
+        label.innerHTML = prevLabel;
       }
     }
     cloneBtn.onclick = () => {
@@ -701,13 +843,44 @@
     const likeCount = document.getElementById('like-count');
     likeCount.textContent = trip.likes || 0;
 
-    // likes and cloning are gallery features — they appear only on published trips
-    // (and follow the publish toggle live)
+    // likes are a gallery feature — they follow the publish toggle live. Cloning is
+    // not: it's the only thing a plain viewer can *do* here, and hiding it on
+    // unpublished trips (nearly all of them) left every shared link a dead end.
     function syncPublicUI() {
       likeBtn.style.display = trip.is_public ? '' : 'none';
-      cloneBtn.style.display = trip.is_public ? '' : 'none';
+      cloneBtn.style.display = '';
+    }
+    // participants already own the trip — for them this is "make me a variant";
+    // for a viewer it's the takeaway, so it says so
+    if (!canEdit) {
+      document.getElementById('clone-label').textContent = 'העתקה לעצמי';
+      cloneBtn.title = 'יוצר עותק אישי בחשבון שלכם — אפשר לשנות בו הכל';
     }
     syncPublicUI();
+
+    // ---- end-cap: the viewer finished reading the itinerary, and until now that
+    // was the end of the road. This is the highest-intent spot on the page. ----
+    if (!privileged) {
+      const endcap = document.createElement('section');
+      endcap.className = 'trip-endcap glass';
+      endcap.innerHTML = `
+        <span class="te-emoji">🧳</span>
+        <h3 class="te-title">אהבתם את המסלול?</h3>
+        <p class="te-sub">קחו אותו לעצמכם — התחנות, המלונות והתאריכים עוברים לחשבון שלכם,
+          ומשם אפשר לשנות הכל ולתכנן אותו עם מי שנוסע איתכם.</p>
+        <button type="button" class="btn btn-amber btn-lg te-cta">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          העתקת הטיול אליי
+        </button>
+        <span class="te-note">חינם · נשמר ב"הטיולים שלי" · אפשר לשתף הלאה</span>`;
+      document.getElementById('days-container').insertAdjacentElement('afterend', endcap);
+      const teCta = endcap.querySelector('.te-cta');
+      teCta.onclick = () => {
+        // no account yet? register first — that signup is the whole point of this card
+        if (!TRIPI.user) { openAuthModal(() => doClone(teCta), 'register'); return; }
+        doClone(teCta);
+      };
+    }
 
     // publishing lives on the TRIPI PASS card — it's a sharing decision, next to
     // the public code and the share buttons. Participants only.
@@ -796,6 +969,11 @@
     }
     updateAmbient();
 
+    // a /trip/CODE#budget link (or a reload mid-budget) lands straight on the budget page
+    if ((location.hash === '#budget' || location.hash === '#budget-settings') && canEdit) {
+      TripModals.openBudget(modalCtx);
+    }
+
     // ---- print / WhatsApp ----
     // the PDF is always the full list, whatever view is on screen — swap the
     // calendar out before the print snapshot and put it back after
@@ -812,10 +990,116 @@
       renderItinerary();
     });
     document.getElementById('print-btn').onclick = () => window.print();
+
+    // ---- share: the invite leads ----
+    // this trip is something people build together, so a participant's big button
+    // hands out the invite link — one signup and the friend is a co-planner — and
+    // the view-only link steps down to a quiet third row. Same order the wizard's
+    // last step uses. A viewer has no invite to give, so they share what they see.
+    const feedback = document.getElementById('copy-feedback');
+    const flash = (msg) => { feedback.textContent = msg; setTimeout(() => { feedback.textContent = ''; }, 2200); };
+    const tripLink = () => `${location.origin}/trip/${trip.share_code}`;
+    // the server backfills a token for every participant, but a share that quietly
+    // links to `undefined` is worse than one that only offers the view link
+    const shareInvite = canEdit && !!trip.invite_token;
+    if (shareInvite) {
+      document.getElementById('wa-share-label').textContent = 'הזמנה לתכנון בוואטסאפ';
+      document.getElementById('copy-link-label').textContent = 'העתקת קישור הזמנה';
+      document.getElementById('view-link-row').style.display = '';
+      document.getElementById('copy-view-link').onclick = async () => {
+        await TRIPI.copy(tripLink());
+        flash('קישור הצפייה הועתק! ✓');
+      };
+    }
     document.getElementById('wa-share').onclick = () => {
-      const text = `${trip.emoji || '🧭'} ${trip.title}\n${trip.destination} · ${trip.days} ימים\nקוד טיול: ${trip.share_code}\n${location.href}`;
+      const text = shareInvite
+        ? `${trip.emoji || '🧭'} בואו לתכנן איתי את "${trip.title}"!\nנכנסים לקישור, נרשמים בשנייה — ועורכים את הטיול יחד:\n${inviteLink()}`
+        : `${trip.emoji || '🧭'} ${trip.title}\n${trip.destination} · ${trip.days} ימים\nקוד טיול: ${trip.share_code}\n${tripLink()}`;
       window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
     };
+    document.getElementById('copy-link').onclick = async () => {
+      await TRIPI.copy(shareInvite ? inviteLink() : tripLink());
+      flash(shareInvite ? 'קישור ההזמנה הועתק! ✓' : 'הקישור הועתק! ✓');
+    };
+
+    // ---- draft state: the trip exists from the moment it was built; "סיום תכנון"
+    // is the ceremony that reveals the code and the sharing surfaces. One function
+    // owns every toggle so publishing can transition in place, no reload. ----
+    const finishBtn = document.getElementById('finish-btn');
+    const draftCard = document.getElementById('draft-card');
+    function applyDraftState() {
+      const isDraft = !!trip.is_draft;
+      document.querySelector('.ticket').style.display = isDraft ? 'none' : '';
+      draftCard.style.display = isDraft && canEdit ? '' : 'none';
+      finishBtn.style.display = isDraft && (isOwner || isAdmin) ? '' : 'none';
+      document.getElementById('code-chip').style.display = isDraft ? 'none' : '';
+      document.getElementById('draft-chip').style.display = isDraft ? '' : 'none';
+      // no cloning something half-planned — the button (and the viewer end-cap
+      // that fronts it) come back the moment planning is finished
+      cloneBtn.style.display = isDraft ? 'none' : '';
+      const endcap = document.querySelector('.trip-endcap');
+      if (endcap) endcap.style.display = isDraft ? 'none' : '';
+    }
+    applyDraftState();
+
+    let publishing = false;
+    async function publishTrip() {
+      if (publishing) return;
+      publishing = true;
+      try {
+        const updated = await TRIPI.api(`/api/trips/code/${trip.share_code}/publish`, {
+          method: 'POST', headers: canEditHeaders || {},
+        });
+        Object.assign(trip, updated); // no invite_token in the response — the loaded one survives
+        applyDraftState();
+        openCelebration();
+      } catch (e) {
+        alert('⚠️ ' + e.message);
+      }
+      publishing = false;
+    }
+    finishBtn.onclick = publishTrip;
+    document.getElementById('draft-finish-btn').onclick = publishTrip;
+
+    // the celebration: the reveal of the TRIP MAKER PASS. The ticket behind the
+    // modal is already visible, so closing it lands on the updated page.
+    function openCelebration() {
+      const wrap = document.createElement('div');
+      wrap.className = 'modal-backdrop open';
+      wrap.innerHTML = `
+        <div class="modal glass celebrate">
+          <div class="big-emoji">🎉</div>
+          <h2>הטיול מוכן לדרך!</h2>
+          <p class="modal-sub">זה קוד הטיול שלכם — משתפים אותו עם מי שרוצים, ושולחים לחברים קישור הזמנה לתכנון משותף</p>
+          <div class="ticket glass" style="max-width:340px;margin:0 auto">
+            <div class="ticket-label">✈ TRIP MAKER PASS ✈</div>
+            <div class="code copyable" data-copy="${trip.share_code}" title="לחיצה מעתיקה את קוד הטיול">${trip.share_code}</div>
+            <div class="ticket-sub">${TRIPI.esc(trip.title)}</div>
+            <hr class="divider">
+            <button class="btn btn-amber" id="cele-wa" style="width:100%;justify-content:center">
+              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/></svg>
+              ${shareInvite ? 'הזמנה לתכנון בוואטסאפ' : 'שיתוף בוואטסאפ'}</button>
+            <button class="btn btn-ghost" id="cele-copy" style="width:100%;justify-content:center;margin-top:8px">
+              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              ${shareInvite ? 'העתקת קישור הזמנה' : 'העתקת קישור'}</button>
+            <div class="copy-feedback" id="cele-feedback"></div>
+          </div>
+          <button class="btn btn-ghost" id="cele-close" style="margin-top:16px">לטיול ›</button>
+        </div>`;
+      document.body.appendChild(wrap);
+      const celeFlash = (msg) => {
+        const f = wrap.querySelector('#cele-feedback');
+        f.textContent = msg;
+        setTimeout(() => { f.textContent = ''; }, 2200);
+      };
+      wrap.querySelector('#cele-wa').onclick = () => document.getElementById('wa-share').onclick();
+      wrap.querySelector('#cele-copy').onclick = async () => {
+        await TRIPI.copy(shareInvite ? inviteLink() : tripLink());
+        celeFlash(shareInvite ? 'קישור ההזמנה הועתק! ✓' : 'הקישור הועתק! ✓');
+      };
+      wrap.querySelector('#cele-close').onclick = () => wrap.remove();
+      wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
+    }
 
     // ---- destinations: map, weather, hotels (with a switcher for multi-city trips) ----
     let dests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
@@ -849,6 +1133,7 @@
 
     async function loadWeather(d) {
       const card = document.getElementById('weather-card');
+      card.classList.remove('wx-trip');
       if (d.lat == null) { card.style.display = 'none'; return; }
       card.style.display = '';
       document.getElementById('weather-row').innerHTML = `
@@ -864,6 +1149,13 @@
           for (const w of days) weatherByDate[w.date] = w;
           renderItinerary(); // stamp each day header with its own forecast
         }
+        // the strip is always a forecast from today, so it only says something
+        // about *this trip* when the horizon actually reaches the trip's days.
+        // A trip six months out would otherwise carry "the coming week at the
+        // destination" into the printed sheet as if it were the trip's weather.
+        card.classList.toggle('wx-trip', wantDates && Array.from(
+          { length: trip.days }, (_, i) => dayDate(i + 1),
+        ).some((d2) => d2 && weatherByDate[d2.toISOString().slice(0, 10)]));
         document.getElementById('weather-row').innerHTML = days.slice(0, 7).map((w) => `
           <div class="weather-day" title="${GEO.weatherLabel(w.code)}">
             <div class="wd-name">${new Date(w.date + 'T00:00').toLocaleDateString('he-IL', { weekday: 'short' })}</div>
@@ -879,13 +1171,6 @@
     ticketCode.textContent = trip.share_code;
     ticketCode.classList.add('copyable');
     ticketCode.title = 'לחיצה מעתיקה את קוד הטיול';
-
-    const feedback = document.getElementById('copy-feedback');
-    const flash = (msg) => { feedback.textContent = msg; setTimeout(() => { feedback.textContent = ''; }, 2200); };
-    document.getElementById('copy-link').addEventListener('click', async () => {
-      await TRIPI.copy(location.href);
-      flash('הקישור הועתק! ✓');
-    });
   }
 
   load();

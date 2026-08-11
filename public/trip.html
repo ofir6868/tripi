@@ -9,6 +9,14 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Suez+One&family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
   <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="apple-touch-icon" sizes="167x167" href="/apple-touch-icon-167.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152.png">
+  <link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon-120.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TRIP MAKER">
   <meta name="theme-color" content="#0a1512">
   <link rel="stylesheet" href="/css/style.css">
 </head>
@@ -54,6 +62,10 @@
 
   <div class="action-bar glass">
     <div class="action-row" id="action-row">
+      <button class="action-btn finish" id="finish-btn" style="display:none" title="סיום התכנון — הטיול מקבל קוד שיתוף">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+        <span class="ab-label">סיום תכנון</span>
+      </button>
       <button class="action-btn" id="like-btn" style="display:none" title="אהבתי את הטיול">
         <svg class="ic ic-heart" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.51 4.04 3 5.5l7 7Z"/></svg>
         <span class="ab-label" id="like-count">0</span>
@@ -95,6 +107,14 @@
           <input type="text" id="ai-edit-input" maxlength="200" placeholder="מה לשנות בטיול?" autocomplete="off">
           <button type="submit" class="btn btn-amber" id="ai-edit-btn">בצעו ✨</button>
         </form>
+        <div class="ai-edit-scope" id="trip-ai-scope" style="display:none">
+          <label for="trip-ai-area">איפה להחיל?</label>
+          <select id="trip-ai-area"><option value="">כל הטיול</option></select>
+          <span class="range-row" id="trip-ai-range" style="display:none">
+            ימים <input id="trip-ai-from" type="number" min="1" value="1" inputmode="numeric"> עד
+            <input id="trip-ai-to" type="number" min="1" value="2" inputmode="numeric">
+          </span>
+        </div>
         <div class="ai-edit-foot"><span id="ai-edit-count">0/200</span></div>
         <div class="ai-edit-result" id="ai-edit-result" hidden></div>
       </div>
@@ -156,10 +176,17 @@
         <div class="code" id="ticket-code"><span class="skl skl-code"></span></div>
         <div class="ticket-sub">קוד צפייה ציבורי — משתפים אותו וכולם רואים את המסלול</div>
         <hr class="divider">
-        <button class="btn btn-amber" id="wa-share" style="width:100%;justify-content:center"><svg class="wa-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"/></svg> שיתוף בוואטסאפ</button>
+        <button class="btn btn-amber" id="wa-share" style="width:100%;justify-content:center"><svg class="wa-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"/></svg> <span id="wa-share-label">שיתוף בוואטסאפ</span></button>
         <button class="btn btn-ghost" id="copy-link" style="width:100%;justify-content:center;margin-top:8px">
           <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-          העתקת קישור</button>
+          <span id="copy-link-label">העתקת קישור</span></button>
+        <!-- participants only: the view-only link stays available, one step quieter
+             than the invite — trip.js reveals this row when there's an invite to give -->
+        <div class="pm-quiet-row" id="view-link-row" style="justify-content:center;margin-top:8px;display:none">
+          <button type="button" class="pm-quiet" id="copy-view-link">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+            העתקת קישור לצפייה בלבד</button>
+        </div>
         <div class="copy-feedback" id="copy-feedback"></div>
         <div class="ticket-setting" id="publish-row" style="display:none">
           <hr class="divider">
@@ -177,6 +204,15 @@
             </span>
           </label>
         </div>
+      </div>
+      <!-- shown instead of the ticket while the trip is a draft: the code exists but
+           is only revealed by the "finish planning" ceremony -->
+      <div class="side-card glass draft-card" id="draft-card" style="display:none">
+        <div class="side-card-title">🚧 הטיול במצב תכנון</div>
+        <p class="draft-card-sub">עורכים בחופשיות — וכשמסיימים, הטיול מקבל קוד שיתוף וקישורי הזמנה לחברים</p>
+        <button class="btn btn-amber" id="draft-finish-btn" style="width:100%;justify-content:center">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+          סיום תכנון</button>
       </div>
       <div class="dest-switcher" id="dest-switcher" style="display:none"></div>
       <div class="side-card glass" id="weather-card" style="display:none">
@@ -207,6 +243,7 @@
   <script src="/js/common.js"></script>
   <script src="/js/geo.js"></script>
   <script src="/js/countries.js"></script>
+  <script src="/js/push.js"></script>
   <script src="/js/trip-modals.js"></script>
   <script src="/js/trip-calendar.js"></script>
   <script src="/js/trip.js"></script>

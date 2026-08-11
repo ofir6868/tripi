@@ -9,6 +9,14 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Suez+One&family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
   <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="apple-touch-icon" sizes="167x167" href="/apple-touch-icon-167.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152.png">
+  <link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon-120.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TRIP MAKER">
   <meta name="theme-color" content="#0a1512">
   <link rel="stylesheet" href="/css/style.css">
 </head>
@@ -30,8 +38,6 @@
       <div class="wp-step active" data-step="1"><span class="wp-n">1</span> יעדים</div>
       <div class="wp-step" data-step="2"><span class="wp-n">2</span> תאריכים</div>
       <div class="wp-step" data-step="3"><span class="wp-n">3</span> סגנון</div>
-      <div class="wp-step" data-step="4"><span class="wp-n">4</span> מסלול</div>
-      <div class="wp-step" data-step="5"><span class="wp-n">5</span> שיתוף</div>
     </div>
 
     <!-- step 1: destinations -->
@@ -80,9 +86,14 @@
       </div>
     </div>
 
-    <!-- step 3: style + the AI-first CTA -->
+    <!-- step 3: style + the AI-first CTA. The build IS the creation — the trip
+         lands on its own page as a draft the moment it's ready -->
     <div class="wizard-panel glass" id="panel-3" style="display:none">
       <h2>מה הסגנון שלכם? ✨</h2>
+      <div class="field" style="margin-bottom:14px">
+        <label for="f-title">שם הטיול <small>(לא חובה — נמלא לבד)</small> <span class="title-flags" id="title-flags"></span></label>
+        <input id="f-title" type="text" maxlength="80" placeholder="נמלא לבד לפי היעד — או תנו שם משלכם">
+      </div>
       <div class="ai-prefs">
         <label class="ai-prefs-label">מה מעניין אתכם? <small>(לא חובה — כמה שרוצים)</small></label>
         <div class="interest-row" id="interest-row"></div>
@@ -92,127 +103,11 @@
       <div class="ai-status" id="ai-status"></div>
       <div class="wizard-nav">
         <button class="btn btn-ghost" id="back-to-2">‹ חזרה</button>
-        <button class="btn btn-amber btn-lg" id="ai-full">✨ תבנו לי את הטיול</button>
+        <button class="btn btn-amber btn-lg" id="ai-full">✨ בונים ויוצרים את הטיול</button>
       </div>
-      <button type="button" class="manual-link" id="go-manual">אני מעדיף לבנות את המסלול ידנית ›</button>
+      <button type="button" class="manual-link" id="go-manual">בלי AI — יוצרים טיול ריק ובונים אותו ידנית ›</button>
     </div>
 
-    <!-- step 4: itinerary review / manual build -->
-    <div class="wizard-panel glass" id="panel-4" style="display:none">
-      <h2>המסלול שלכם 🗺️</h2>
-      <div class="form-grid">
-        <div class="field span-2">
-          <label for="f-title">שם הטיול <span class="title-flags" id="title-flags"></span></label>
-          <input id="f-title" type="text" maxlength="80" placeholder="נמלא לבד לפי היעד — או תנו שם משלכם">
-        </div>
-        <!-- the AI still writes a description behind the scenes; it shows on the trip page, not here -->
-        <div class="field span-2" style="display:none">
-          <label for="f-desc">תיאור קצר</label>
-          <textarea id="f-desc" maxlength="500" rows="2"></textarea>
-        </div>
-      </div>
-
-      <div class="ai-panel" id="ai-panel">
-        <div class="ai-head">
-          <span class="ai-title">✨ שינוי חכם עם AI</span>
-          <span class="ai-sub">כותבים מה לשנות במסלול — למשל "תוסיף אוכל רחוב ביום 2" או "קצב רגוע יותר"</span>
-        </div>
-        <form class="ai-edit-row" id="plan-ai-form">
-          <input type="text" id="plan-ai-input" maxlength="200" placeholder="מה לשנות במסלול?" autocomplete="off">
-          <button type="submit" class="btn btn-amber" id="plan-ai-btn">בצעו ✨</button>
-        </form>
-        <div class="ai-edit-scope" id="plan-ai-scope" style="display:none">
-          <label for="plan-ai-area">איפה להחיל?</label>
-          <select id="plan-ai-area"><option value="">כל הטיול</option></select>
-          <span class="range-row" id="plan-ai-range" style="display:none">
-            ימים <input id="plan-ai-from" type="number" min="1" value="1" inputmode="numeric"> עד
-            <input id="plan-ai-to" type="number" min="1" value="2" inputmode="numeric">
-          </span>
-        </div>
-        <div class="ai-edit-foot"><span id="plan-ai-count">0/200</span></div>
-        <div class="ai-edit-result" id="plan-ai-result" hidden></div>
-      </div>
-
-      <div class="day-tabs" id="day-tabs"></div>
-      <button type="button" class="manual-toggle" id="manual-toggle">➕ הוספת תחנה ידנית</button>
-      <div id="manual-form-wrap" style="display:none">
-      <div class="form-grid">
-        <div class="field">
-          <label for="i-time">שעה (לא חובה)</label>
-          <input id="i-time" type="time">
-        </div>
-        <div class="field">
-          <label for="i-cat">קטגוריה</label>
-          <select id="i-cat">
-            <option>אטרקציה</option><option>אוכל</option><option>טבע</option><option>ים</option>
-            <option>תרבות</option><option>קניות</option><option>לינה</option><option>נוף</option>
-            <option>חיי לילה</option><option>נסיעה</option>
-          </select>
-        </div>
-        <div class="field span-2" id="i-area-field" style="display:none">
-          <label for="i-area">באיזה אזור?</label>
-          <select id="i-area"></select>
-        </div>
-        <div class="field span-2">
-          <label for="i-title">מה עושים?</label>
-          <input id="i-title" type="text" maxlength="120" placeholder="למשל: שקיעה בנקודת התצפית">
-        </div>
-        <div class="field span-2">
-          <label for="i-place">מיקום (לא חובה) — הקלידו ובחרו מהרשימה</label>
-          <input id="i-place" type="text" maxlength="120" placeholder="מסעדה, מוזיאון, חוף…" autocomplete="off">
-        </div>
-        <div class="field span-2">
-          <label for="i-note">הערה (לא חובה)</label>
-          <input id="i-note" type="text" maxlength="200" placeholder="טיפ קטן לעצמכם">
-        </div>
-      </div>
-      <button class="btn btn-ghost" id="add-item" style="width:100%;justify-content:center">+ הוספה ליום הנבחר</button>
-      </div>
-      <div class="added-items" id="added-items"></div>
-      <div class="form-error" id="err-2"></div>
-      <!-- the itinerary above looks "done", so the bar must say out loud that it isn't -->
-      <div class="wizard-nav create-bar">
-        <div class="create-hint">
-          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-          הטיול עוד לא נשמר — נשארה לחיצה אחת
-        </div>
-        <div class="create-row">
-          <button class="btn btn-ghost" id="back-to-3">‹ חזרה</button>
-          <button class="btn btn-amber btn-lg" id="create-trip">
-            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 6v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-6Z"/><path d="M13 5v2M13 11v2M13 17v2"/></svg>
-            יוצרים את הטיול</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- step 5: share ticket -->
-    <div class="wizard-panel glass" id="panel-5" style="display:none">
-      <div class="success-wrap">
-        <div class="big-emoji">🎉</div>
-        <h2 style="font-family:var(--font-display);font-size:1.7rem">הטיול נוצר!</h2>
-        <p class="success-sub">שולחים לחברים קישור עריכה — נרשמים בשנייה ומתכננים את הטיול יחד</p>
-        <div class="ticket glass" style="max-width:340px;margin:0 auto">
-          <div class="ticket-label">✈ TRIP MAKER PASS ✈</div>
-          <div class="code" id="new-code"></div>
-          <div class="ticket-sub" id="new-title"></div>
-          <hr class="divider">
-          <button class="btn btn-amber" id="wa-share-new" style="width:100%;justify-content:center"><svg class="wa-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"/></svg> הזמנה לתכנון בוואטסאפ</button>
-          <button class="btn btn-ghost" id="copy-new-link" style="width:100%;justify-content:center;margin-top:8px">
-            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-            העתקת קישור עריכה</button>
-          <div class="pm-quiet-row" style="justify-content:center;margin-top:8px">
-            <button type="button" class="pm-quiet" id="copy-view-link">
-              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-              העתקת קישור לצפייה בלבד</button>
-          </div>
-          <div class="copy-feedback" id="new-feedback"></div>
-        </div>
-        <div class="success-actions">
-          <a class="btn btn-amber btn-lg" id="view-trip" href="#">צפייה בטיול</a>
-          <a class="btn btn-ghost btn-lg" href="/my">לכל הטיולים שלי</a>
-        </div>
-      </div>
-    </div>
   </div>
 
   <!-- full-screen AI planning overlay: breathing amber edge-glow + blur -->

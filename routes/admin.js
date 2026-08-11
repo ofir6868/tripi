@@ -47,7 +47,7 @@ router.get('/api/admin/trips', authRequired, adminRequired, async (req, res) => 
     const q = (req.query.q || '').trim();
     const { rows } = await pool.query(
       `SELECT t.id, t.title, t.destination, t.country, t.days, t.share_code,
-              t.is_public, t.likes, t.emoji, t.created_at, t.owner_id,
+              t.is_public, t.is_draft, t.likes, t.emoji, t.created_at, t.owner_id,
               u.name AS owner_name, u.email AS owner_email,
               (SELECT count(*) FROM trip_items i WHERE i.trip_id = t.id)::int AS item_count
        FROM trips t LEFT JOIN users u ON u.id = t.owner_id

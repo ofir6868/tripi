@@ -9,6 +9,14 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Suez+One&family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
   <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="apple-touch-icon" sizes="167x167" href="/apple-touch-icon-167.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152.png">
+  <link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon-120.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TRIP MAKER">
   <meta name="theme-color" content="#0a1512">
   <link rel="stylesheet" href="/css/style.css">
 </head>
@@ -17,8 +25,10 @@
   <div class="page-shell" style="width:min(1120px,calc(100% - 32px))">
     <h1>הטיולים <span style="color:var(--amber)">שלי</span> 🧳</h1>
     <p class="page-sub">המסלולים שיצרתם והטיולים שהצטרפתם אליהם, במקום אחד</p>
-    <div class="my-grid" id="my-grid">
-      <span class="skl skl-tripcard"></span><span class="skl skl-tripcard"></span><span class="skl skl-tripcard"></span>
+    <div id="my-wrap">
+      <div class="my-grid" id="my-grid">
+        <span class="skl skl-tripcard"></span><span class="skl skl-tripcard"></span><span class="skl skl-tripcard"></span>
+      </div>
     </div>
     <div class="empty-state glass" id="empty" style="display:none;border-radius:var(--radius)">
       <div class="big">🗺️</div>
@@ -35,18 +45,18 @@
   <script src="/js/common.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', async () => {
+      const wrap = document.getElementById('my-wrap');
       const grid = document.getElementById('my-grid');
       if (!TRIPI.user) { grid.innerHTML = ''; openAuthModal(() => location.reload()); return; }
-      try {
-        const trips = await TRIPI.api('/api/my-trips');
-        if (!trips.length) { grid.innerHTML = ''; document.getElementById('empty').style.display = ''; return; }
-        grid.innerHTML = trips.map((t) => `
+      // a draft card shows a "בתכנון" tag where the (not yet revealed) code chip
+      // would be; everything else — cover, delete, link — behaves the same
+      const card = (t) => `
           <a class="trip-card" href="/trip/${t.share_code}">
             <div class="tc-media">
               <img class="tc-img" src="${TRIPI.esc(t.cover_image || '')}" alt="" loading="lazy" onerror="this.removeAttribute('src')">
               <span class="tc-emoji">${t.emoji || '🧭'}</span>
               <span class="tc-days">${t.days} ימים</span>
-              ${t.is_mine ? '' : '<span class="tc-role">משתתף</span>'}
+              ${t.is_draft ? '<span class="tc-role draft">✍️ בתכנון</span>' : (t.is_mine ? '' : '<span class="tc-role">משתתף</span>')}
               ${!t.is_mine ? '' : `<button class="tc-delete" data-id="${t.id}" title="מחיקת הטיול" aria-label="מחיקת הטיול">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -55,15 +65,31 @@
                   <path d="M10.3 10.4v5.9M13.7 10.4v5.9"/>
                 </svg>
               </button>`}
-              <span class="tc-code-chip copyable" data-copy="${t.share_code}" title="לחיצה מעתיקה את קוד הטיול">#${t.share_code}</span>
+              ${t.is_draft ? '' : `<span class="tc-code-chip copyable" data-copy="${t.share_code}" title="לחיצה מעתיקה את קוד הטיול">#${t.share_code}</span>`}
               <div class="tc-body">
                 <div class="tc-country">${TRIPI.esc(t.country || '')}</div>
                 <div class="tc-title">${TRIPI.esc(t.title)}</div>
                 <div class="tc-dest">${TRIPI.esc(t.destination)}</div>
               </div>
             </div>
-          </a>`).join('');
-        grid.querySelectorAll('.tc-delete').forEach((b) => {
+          </a>`;
+      try {
+        const trips = await TRIPI.api('/api/my-trips');
+        if (!trips.length) { grid.innerHTML = ''; document.getElementById('empty').style.display = ''; return; }
+        const drafts = trips.filter((t) => t.is_draft);
+        const rest = trips.filter((t) => !t.is_draft);
+        if (drafts.length) {
+          wrap.innerHTML = `
+            <h2 class="my-sec">✍️ בתכנון</h2>
+            <div class="my-grid">${drafts.map(card).join('')}</div>
+            <h2 class="my-sec">🧳 הטיולים שלי</h2>
+            ${rest.length
+              ? `<div class="my-grid">${rest.map(card).join('')}</div>`
+              : '<div class="my-sec-hint">כשמסיימים לתכנן טיוטה — הטיול עובר לכאן, עם קוד שיתוף</div>'}`;
+        } else {
+          grid.innerHTML = rest.map(card).join('');
+        }
+        wrap.querySelectorAll('.tc-delete').forEach((b) => {
           b.addEventListener('click', async (e) => {
             e.preventDefault(); e.stopPropagation();
             if (b.disabled) return;

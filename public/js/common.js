@@ -108,16 +108,24 @@ const TRIPI = {
 };
 
 // ---------- header ----------
+// nav icons (lucide strokes, not emoji): currentColor keeps them in step with
+// each button's hover and state tints
+const NAV_ICON = {
+  gear: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
+  luggage: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2"/><path d="M8 18V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v14"/><path d="M10 20h4"/><circle cx="16" cy="20" r="2"/><circle cx="8" cy="20" r="2"/></svg>',
+  plus: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>',
+};
+
 function renderHeader() {
   document.querySelector('.site-header')?.remove(); // re-render after refreshUser()
   const el = document.createElement('header');
   el.className = 'site-header glass';
   const adminPart = TRIPI.user && TRIPI.user.is_admin
-    ? `<a class="btn btn-ghost nav-admin" href="/admin" title="ניהול">⚙️<span class="nav-label"> ניהול</span></a>`
+    ? `<a class="btn btn-ghost nav-admin" href="/admin" title="ניהול">${NAV_ICON.gear}<span class="nav-label">ניהול</span></a>`
     : '';
   const authPart = TRIPI.user
     ? `${adminPart}
-       <a class="btn btn-ghost" href="/my" title="הטיולים שלי">🧳<span class="nav-label"> הטיולים של ${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</span></a>
+       <a class="btn btn-ghost" href="/my" title="הטיולים שלי">${NAV_ICON.luggage}<span class="nav-label">הטיולים של ${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</span></a>
        <button class="btn btn-ghost nav-logout" id="nav-logout" title="התנתקות">יציאה</button>`
     : `<button class="btn btn-ghost" id="nav-login">התחברות</button>`;
   el.innerHTML = `
@@ -130,7 +138,7 @@ function renderHeader() {
     </a>
     <nav class="nav-actions">
       ${authPart}
-      <a class="btn btn-amber" href="/plan">+ טיול חדש</a>
+      <a class="btn btn-amber" href="/plan">${NAV_ICON.plus}טיול חדש</a>
     </nav>`;
   document.body.prepend(el);
   el.querySelector('#nav-login')?.addEventListener('click', () => openAuthModal());

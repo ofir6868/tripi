@@ -6,6 +6,7 @@ const {
   numOrNull, moneyOrNull, cleanDestinations,
 } = require('../lib/trips');
 const { rateLimiter } = require('../lib/rate-limit');
+const { notifyTripAsync } = require('../lib/push');
 
 const router = express.Router();
 
@@ -18,7 +19,7 @@ const CODE_MISS_ERROR = 'יותר מדי קודים שגויים — נסו שו
 router.get('/api/trips/suggested', async (_req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${tripFields} FROM trips WHERE is_public = true ORDER BY likes DESC, id LIMIT 16`
+      `SELECT ${tripFields} FROM trips WHERE is_public = true AND NOT is_draft ORDER BY likes DESC, id LIMIT 16`
     );
     res.json(rows);
   } catch (err) {
@@ -39,7 +40,7 @@ router.get('/api/trips/search', async (req, res) => {
     }
     const { rows } = await pool.query(
       `SELECT ${tripFields} FROM trips
-       WHERE is_public = true AND (title ILIKE $1 OR destination ILIKE $1 OR country ILIKE $1)
+       WHERE is_public = true AND NOT is_draft AND (title ILIKE $1 OR destination ILIKE $1 OR country ILIKE $1)
        ORDER BY id LIMIT 12`,
       [`%${q}%`]
     );
@@ -116,10 +117,15 @@ router.post('/api/trips/code/:code/join', authRequired, async (req, res) => {
       return res.status(403).json({ error: 'קישור ההזמנה כבר לא בתוקף — בקשו מהמארגנים קישור חדש' });
     }
     if (req.user.id !== trip.owner_id) {
-      await pool.query(
+      const { rowCount } = await pool.query(
         'INSERT INTO trip_participants (trip_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
         [trip.id, req.user.id]
       );
+      // only a genuinely new participant is news — reopening an invite link you
+      // already redeemed must not re-ping everyone
+      if (rowCount) {
+        notifyTripAsync(trip.id, { actorId: req.user.id, actorName: req.user.name, kind: 'join' });
+      }
     }
     res.json({ ok: true });
   } catch (err) {
@@ -157,6 +163,28 @@ router.post('/api/trips/code/:code/invite/regenerate', authOptional, async (req,
   }
 });
 
+// the "finish planning" ceremony: one-way draft → published. The share code was
+// minted at creation — publishing only reveals it (and the share surfaces) in the UI.
+router.post('/api/trips/code/:code/publish', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const { rows } = await pool.query(
+      `UPDATE trips SET is_draft = false WHERE id = $1 RETURNING ${tripFields}`, [trip.id]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// every itinerary change tells the other co-planners the same thing ("come see
+// what moved"), so they share one throttled notification — lib/push collapses a
+// burst of edits into a single ping per person per trip
+const pingEdit = (req, trip) =>
+  notifyTripAsync(trip.id, { actorId: req.user.id, actorName: req.user.name, kind: 'edit' });
+
 router.post('/api/trips/code/:code/items', authOptional, async (req, res) => {
   try {
     const trip = await tripWithEditAuth(req, res);
@@ -172,6 +200,7 @@ router.post('/api/trips/code/:code/items', authOptional, async (req, res) => {
        it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null,
        numOrNull(it.lat), numOrNull(it.lon), moneyOrNull(it.cost)]
     );
+    pingEdit(req, trip);
     res.json(rows[0]);
   } catch (err) {
     console.error(err);
@@ -209,6 +238,7 @@ router.patch('/api/trips/code/:code/items/:itemId', authOptional, async (req, re
       vals
     );
     if (!rows[0]) return res.status(404).json({ error: 'התחנה לא נמצאה' });
+    pingEdit(req, trip);
     res.json(rows[0]);
   } catch (err) {
     console.error(err);
@@ -221,6 +251,7 @@ router.delete('/api/trips/code/:code/items/:itemId', authOptional, async (req, r
     const trip = await tripWithEditAuth(req, res);
     if (!trip) return;
     await pool.query('DELETE FROM trip_items WHERE id = $1 AND trip_id = $2', [req.params.itemId, trip.id]);
+    pingEdit(req, trip);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -249,6 +280,20 @@ router.put('/api/trips/code/:code/budget', authOptional, async (req, res) => {
       [trip.id, total, currency, travelers]
     );
     res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// resetting the budget removes only the frame (cap, currency, travelers) —
+// stop estimates and the expense log belong to the itinerary and stay put
+router.delete('/api/trips/code/:code/budget', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    await pool.query('DELETE FROM trip_budgets WHERE trip_id = $1', [trip.id]);
+    res.json({ ok: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
@@ -436,9 +481,10 @@ router.patch('/api/trips/:id', authRequired, async (req, res) => {
   try {
     const { is_public } = req.body || {};
     const admin = await isAdmin(req);
-    // publishing moved to the participants screen — any participant may toggle it
+    // publishing moved to the participants screen — any participant may toggle it.
+    // NOT is_draft: a trip still in planning can never enter the public gallery
     const { rows } = await pool.query(
-      `UPDATE trips SET is_public = $1 WHERE id = $2 AND ($4 OR owner_id = $3
+      `UPDATE trips SET is_public = $1 WHERE id = $2 AND NOT is_draft AND ($4 OR owner_id = $3
          OR EXISTS (SELECT 1 FROM trip_participants p WHERE p.trip_id = $2 AND p.user_id = $3))
        RETURNING ${tripFields}`,
       [!!is_public, req.params.id, req.user.id, admin]
@@ -470,7 +516,7 @@ router.get('/api/my-trips', authRequired, async (req, res) => {
 router.post('/api/trips', authRequired, async (req, res) => {
   const client = await pool.connect();
   try {
-    const { title, destination, country, description, cover_image, start_date, end_date, days, emoji, items, destinations } = req.body || {};
+    const { title, destination, country, description, cover_image, start_date, end_date, days, emoji, items, destinations, draft } = req.body || {};
     const dests = cleanDestinations(destinations);
     // destination display text: explicit field, or derived from the destinations list
     const destText = (destination || dests.map((d) => d.name).join(' · ')).trim();
@@ -480,11 +526,11 @@ router.post('/api/trips', authRequired, async (req, res) => {
     const code = await uniqueShareCode(client);
     const nDays = Math.min(Math.max(parseInt(days, 10) || 1, 1), 60);
     const { rows } = await client.query(
-      `INSERT INTO trips (owner_id, title, destination, country, description, cover_image, start_date, end_date, days, share_code, emoji, destinations, invite_token)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING ${tripFields}, invite_token`,
+      `INSERT INTO trips (owner_id, title, destination, country, description, cover_image, start_date, end_date, days, share_code, emoji, destinations, invite_token, is_draft)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING ${tripFields}, invite_token`,
       [req.user.id, title.trim(), destText.slice(0, 160), countryText, description || null,
        cover_image || null, start_date || null, end_date || null, nDays, code, emoji || null,
-       JSON.stringify(dests), newInviteToken()]
+       JSON.stringify(dests), newInviteToken(), !!draft]
     );
     const trip = rows[0];
     // one multi-row insert — an AI-built trip arrives with a hundred-plus stops,
@@ -499,13 +545,13 @@ router.post('/api/trips', authRequired, async (req, res) => {
           trip.id, Math.min(Math.max(parseInt(it.day_number, 10) || 1, 1), nDays),
           it.time_label || null, String(it.title).slice(0, 200), it.note || null,
           it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null,
-          numOrNull(it.lat), numOrNull(it.lon), i
+          numOrNull(it.lat), numOrNull(it.lon), moneyOrNull(it.cost), i
         );
-        const base = vals.length - 11;
-        return `(${Array.from({ length: 11 }, (_, k) => '$' + (base + k + 1)).join(',')})`;
+        const base = vals.length - 12;
+        return `(${Array.from({ length: 12 }, (_, k) => '$' + (base + k + 1)).join(',')})`;
       });
       await client.query(
-        `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, sort_order)
+        `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, cost, sort_order)
          VALUES ${tuples.join(',')}`,
         vals
       );

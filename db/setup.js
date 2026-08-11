@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS trips (
   days INT DEFAULT 1,
   share_code CHAR(6) UNIQUE NOT NULL,
   is_public BOOLEAN DEFAULT false,
+  is_draft BOOLEAN NOT NULL DEFAULT false,
   emoji TEXT,
   destinations JSONB NOT NULL DEFAULT '[]',
   invite_token TEXT,
@@ -101,6 +102,7 @@ CREATE TABLE IF NOT EXISTS trip_expenses (
 
 CREATE INDEX IF NOT EXISTS idx_trips_share_code ON trips(share_code);
 CREATE INDEX IF NOT EXISTS idx_trips_public ON trips(is_public);
+CREATE INDEX IF NOT EXISTS idx_trips_owner ON trips(owner_id);
 CREATE INDEX IF NOT EXISTS idx_items_trip ON trip_items(trip_id);
 CREATE INDEX IF NOT EXISTS idx_hotels_trip ON trip_hotels(trip_id);
 CREATE INDEX IF NOT EXISTS idx_expenses_trip ON trip_expenses(trip_id);
