@@ -131,7 +131,7 @@ function renderHeader() {
     : '';
   const authPart = TRIPI.user
     ? `${adminPart}
-       <a class="btn btn-ghost" href="/my" title="הטיולים שלי">${NAV_ICON.map}<span class="nav-label">הטיולים של ${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</span></a>
+       <a class="btn btn-ghost" href="/my" title="הטיולים שלי">${NAV_ICON.map}<span class="nav-label ph-mask">הטיולים של ${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</span></a>
        <button class="btn btn-ghost nav-logout" id="nav-logout" title="התנתקות">יציאה</button>`
     : `<button class="btn btn-ghost" id="nav-login">התחברות</button>`;
   el.innerHTML = `
@@ -179,7 +179,7 @@ function renderAuthModal() {
       <button class="modal-close" aria-label="סגירה">✕</button>
       <h2 id="auth-title">ברוכים השבים</h2>
       <p class="modal-sub" id="auth-sub">מתחברים וממשיכים לתכנן</p>
-      <form id="auth-form">
+      <form id="auth-form" class="ph-no-capture">
         <div class="field" id="auth-name-field" style="display:none">
           <label for="auth-name">שם מלא</label>
           <input id="auth-name" type="text" autocomplete="name" placeholder="למשל: דנה לוי">
