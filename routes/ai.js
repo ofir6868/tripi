@@ -506,7 +506,7 @@ const clampDay = (d, days, dflt = 1) => Math.min(Math.max(parseInt(d, 10) || dfl
 // re-pacing a trip costs one update per moved stop, so the cap has to clear a
 // whole-trip reshuffle — at 30 the tail of a reorganization was silently dropped,
 // which by itself left days empty
-async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNote = '', opsCap = 80 }) {
+async function aiEditOps({ title, destText, dests, days, items, prompt, description = '', scopeNote = '', opsCap = 80 }) {
   const areaNames = dests.map((d) => d.name);
   const itemLines = items.map((it) =>
     `#${it.id} | יום ${it.day_number} | ${it.time_label || '--:--'} | [${it.category || 'כללי'}] ${it.title}` +
@@ -528,6 +528,7 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNot
     `הטיול: "${title}" — ${dests.length ? destDescFull(dests) : destText}, ${days} ימים (1 עד ${days}).` +
     `\nהמסלול הנוכחי (כל שורה: #מזהה | יום | שעה | [קטגוריה] כותרת | מקום):\n${itemLines.join('\n') || '(המסלול עדיין ריק)'}` +
     loadLine + spanLine +
+    `\nתיאור הטיול הקיים: ${description ? `"${description}"` : '(אין תיאור)'}` +
     (scopeNote ? `\n${scopeNote}` : '') +
     `\n\nבקשת השינוי של המטיילים: "${prompt}"`;
 
@@ -547,6 +548,11 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNot
       'בקשה מעורבת — בצע רק את חלק התחנות וציין ב-summary מה נשאר מחוץ לתחום. ' +
       'החזר ops ריק רק בשני מקרים: (1) הבקשה עוסקת אך ורק בדברים שמחוץ לתחום — ואז הסבר ב-summary בעדינות שכאן משנים רק את תחנות המסלול; (2) אי אפשר להבין מהבקשה שום כוונה — ואז שאל שאלת הבהרה קצרה ב-summary. ' +
       'שנה רק את מה שנוגע לבקשה ואל תיגע בשאר התחנות. ' +
+      // the description is the one thing outside the stop list that can start lying
+      // after an edit — but rewriting it on every tweak is noise, so null is the default
+      'שדה description: ברירת המחדל היא null — התיאור הקיים נשאר כמו שהוא. החזר תיאור חדש רק אם השינוי שביצעת הפך את התיאור הקיים ללא נכון: הוא מזכיר עיר, אזור, אתר או סוג חוויה שכבר אינם בטיול; הוא מבטיח דגש שירד ממנו (למשל "טיול מוזיאונים" אחרי שהמוזיאונים נמחקו); או שהוא נוקב במספר ימים או ערים שכבר אינו נכון. ' +
+      'ניסוח יפה יותר, סגנון או תוספת פרטים אינם סיבה להחליף תיאור, ותיאור שנשאר נכון גם אחרי השינוי נשאר על כנו. אם אין תיאור כלל — החזר null; כתיבת תיאור מאפס אינה חלק מהעריכה. ' +
+      'תיאור חדש: 1-2 משפטים בעברית שמתארים בפועל מה יש בטיול — אילו יעדים ואיזה סוג חוויות — בלי סופרלטיבים ומילים נפוחות ("קסום", "מרהיב", "בלתי נשכח", "חלומי"), בלי אמוג\'ים ובלי לועזית מוטמעת בעברית. אם החלפת תיאור, ציין זאת במשפט קצר ב-summary. ' +
       'update/delete חייבים id של תחנה קיימת; ב-update החזר null בכל שדה שלא משתנה. ' +
       'add חייב title קצר בעברית; note טיפ פרקטי קצר בעברית; time_label בפורמט HH:MM; ' +
       'place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan"), ורק למקום אמיתי וספציפי שניתן למצוא בגוגל מפות — לתחנה כללית (כמו "ארוחת ערב" בלי מקום מוגדר) החזר null; ' +
@@ -560,9 +566,10 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNot
     schema: {
       type: 'object',
       additionalProperties: false,
-      required: ['summary', 'ops'],
+      required: ['summary', 'description', 'ops'],
       properties: {
         summary: { type: 'string' },
+        description: { type: ['string', 'null'] }, // null = the existing one still holds
         ops: {
           type: 'array',
           items: {
@@ -589,6 +596,7 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNot
   if (!parsed) return null;
   return {
     summary: String(parsed.summary || '').slice(0, 300),
+    description: parsed.description ? String(parsed.description).slice(0, 500).trim() || null : null,
     ops: Array.isArray(parsed.ops) ? parsed.ops.slice(0, opsCap) : [],
   };
 }
@@ -641,6 +649,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
       days: trip.days,
       items,
       prompt,
+      description: trip.description || '',
       scopeNote,
     });
     if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לעבד את הבקשה — נסו שוב עוד רגע' });
@@ -700,6 +709,13 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
         added++;
       }
     }
+
+    // the description only follows the itinerary: an edit that changed nothing can't
+    // have made it wrong, so it never gets rewritten on a no-op
+    const changedItinerary = added + updated + removed > 0;
+    const newDesc = changedItinerary && result.description
+      && result.description !== (trip.description || '').trim() ? result.description : null;
+    if (newDesc) await client.query('UPDATE trips SET description = $1 WHERE id = $2', [newDesc, trip.id]);
     await client.query('COMMIT');
 
     const fresh = await pool.query(
@@ -718,6 +734,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
       summary,
       added, updated, removed,
       items: fresh.rows,
+      description: newDesc, // null = unchanged, so the client leaves it alone
       remaining: admin ? null : AI_EDIT_DAILY_LIMIT - used - 1, // null = unlimited (admin)
     });
   } catch (err) {

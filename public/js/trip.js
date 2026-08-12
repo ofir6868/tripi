@@ -163,12 +163,16 @@
     document.getElementById('trip-meta').innerHTML = meta.join('');
 
     document.getElementById('trip-layout').style.display = '';
-    document.getElementById('trip-desc').innerHTML =
-      `<div class="trip-desc-text" id="trip-desc-text">${
-        trip.description ? TRIPI.esc(trip.description) : 'עוד אין תיאור לטיול הזה — אבל המסלול מדבר בעד עצמו 🙂'
-      }</div>` +
-      `<button type="button" class="trip-desc-toggle" id="trip-desc-toggle" hidden>הצג עוד</button>`;
-    setupDescToggle();
+    // re-rendered when an AI edit rewrites a description the change made untrue
+    function renderDesc() {
+      document.getElementById('trip-desc').innerHTML =
+        `<div class="trip-desc-text" id="trip-desc-text">${
+          trip.description ? TRIPI.esc(trip.description) : 'עוד אין תיאור לטיול הזה — אבל המסלול מדבר בעד עצמו 🙂'
+        }</div>` +
+        `<button type="button" class="trip-desc-toggle" id="trip-desc-toggle" hidden>הצג עוד</button>`;
+      setupDescToggle();
+    }
+    renderDesc();
 
     // itinerary grouped by day (weatherByDate is filled by loadWeather when dates align)
     let tripItems = items.slice();
@@ -792,6 +796,7 @@
         tripItems = r.items;
         renderItinerary();
         syncAiScopeRange(); // the area's day span may have moved
+        if (r.description) { trip.description = r.description; renderDesc(); }
         const changed = r.added + r.updated + r.removed > 0;
         aiResult.classList.add(changed ? 'ok' : 'info');
         aiResult.textContent = r.summary;
