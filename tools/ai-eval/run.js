@@ -4,8 +4,9 @@
 //
 //   node tools/ai-eval/run.js                 # the cheap clarifying-round cases
 //   node tools/ai-eval/run.js --build         # those plus the full itinerary builds
+//   node tools/ai-eval/run.js --edit          # those plus the smart-edit cases
 //   node tools/ai-eval/run.js japan-14-country rome-florence-answered
-//   node tools/ai-eval/run.js --port 3000 --runs 2
+//   node tools/ai-eval/run.js --edit --model gpt-4o    # same edits on a different model
 //
 // A FAIL means an invariant broke. The questions and plans are printed in full because
 // the half that matters most — are these good options for this trip? — is a human call.
@@ -25,7 +26,14 @@ const flag = (name, dflt) => {
 const PORT = flag('port', process.env.PORT || 3000);
 const RUNS = Math.max(1, parseInt(flag('runs', 1), 10) || 1);
 const WITH_BUILD = argv.includes('--build');
-const ids = argv.filter((a) => !a.startsWith('--') && !/^\d+$/.test(a));
+const WITH_EDIT = argv.includes('--edit');
+// edits run in-process, so a model override here compares tiers on identical input
+const EDIT_MODEL = flag('model', null);
+const ids = argv.filter((a) => !a.startsWith('--') && !/^\d+$/.test(a) && a !== EDIT_MODEL);
+// the edit path is a function call, not a request — see the edit cases in cases.js
+if (EDIT_MODEL) process.env.AI_MODEL_WEAK = EDIT_MODEL;
+const { aiEditOps } = require('../../routes/ai');
+const loadFixture = (name) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', `${name}.json`), 'utf8'));
 
 // an eval run is not a user — mint a throwaway token rather than borrowing someone's.
 // The build never writes to the DB, so the id not existing there costs nothing.
@@ -129,7 +137,87 @@ function checkBuild(res, expect, body) {
   return bad;
 }
 
+// ---------- the smart edit ----------
+// Apply the ops to the fixture the way the route does, then check the itinerary that
+// comes out. The edit prompt asks the model to verify these itself ("no empty day, each
+// area still contiguous") — asking is what makes them worth checking.
+function applyOps(items, ops) {
+  const out = items.map((it) => ({ ...it }));
+  for (const op of ops) {
+    if (op.action === 'delete') {
+      const i = out.findIndex((it) => it.id === op.id);
+      if (i !== -1) out.splice(i, 1);
+    } else if (op.action === 'update') {
+      const it = out.find((x) => x.id === op.id);
+      if (it) for (const k of ['day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area', 'cost']) {
+        if (op[k] !== null && op[k] !== undefined) it[k] = op[k];
+      }
+    } else if (op.action === 'add') {
+      out.push({ ...op, id: `new-${out.length}` });
+    }
+  }
+  return out;
+}
+
+function checkEdit(result, expect, fixture) {
+  if (!result) return ['the edit call came back empty'];
+  const bad = [];
+  const ops = result.ops || [];
+  if (expect.noOps && ops.length) bad.push(`expected no ops (out of scope), got ${ops.length}`);
+  if (expect.opsAtLeast && ops.length < expect.opsAtLeast) bad.push(`expected ≥${expect.opsAtLeast} ops, got ${ops.length}`);
+  if (expect.opsAtMost && ops.length > expect.opsAtMost) bad.push(`expected ≤${expect.opsAtMost} ops, got ${ops.length}`);
+  if (expect.onlyActions) {
+    const stray = [...new Set(ops.map((o) => o.action))].filter((a) => !expect.onlyActions.includes(a));
+    if (stray.length) bad.push(`unexpected op kind(s): ${stray.join(', ')}`);
+  }
+  if (expect.onlyTouchesDays) {
+    const [lo, hi] = expect.onlyTouchesDays;
+    const byId = new Map(fixture.items.map((it) => [it.id, it]));
+    const touched = new Set();
+    for (const op of ops) {
+      if (op.day_number != null) touched.add(op.day_number);
+      const before = byId.get(op.id); // an update also touches the day it moved OFF
+      if (before) touched.add(before.day_number);
+    }
+    const outside = [...touched].filter((d) => d < lo || d > hi).sort((a, b) => a - b);
+    if (outside.length) bad.push(`the request named days ${lo}-${hi}, ops touch day(s) ${outside.join(', ')}`);
+  }
+  if (ops.length && (expect.noEmptyDays || expect.areasContiguous)) {
+    const after = applyOps(fixture.items, ops);
+    if (expect.noEmptyDays) {
+      const empty = [];
+      for (let d = 1; d <= fixture.days; d++) if (!after.some((it) => it.day_number === d)) empty.push(d);
+      if (empty.length) bad.push(`edit leaves day(s) ${empty.join(', ')} with no stops`);
+    }
+    if (expect.areasContiguous) {
+      for (const area of [...new Set(after.map((it) => it.area).filter(Boolean))]) {
+        const days = [...new Set(after.filter((it) => it.area === area).map((it) => it.day_number))].sort((a, b) => a - b);
+        if (days.length && days[days.length - 1] - days[0] + 1 !== days.length) {
+          bad.push(`"${area}" is no longer one stretch of days (${days.join(',')})`);
+        }
+      }
+    }
+  }
+  return bad;
+}
+
 // ---------- reporting ----------
+function describeEdit(result, fixture) {
+  if (!result) return ['    (no result)'];
+  const ops = result.ops || [];
+  const counts = ops.reduce((a, o) => ({ ...a, [o.action]: (a[o.action] || 0) + 1 }), {});
+  const out = [`    ${ops.length} ops  ${Object.entries(counts).map(([k, v]) => `${k}×${v}`).join(' ')}`];
+  if (result.summary) out.push(`    "${result.summary}"`);
+  if (ops.length) {
+    const after = applyOps(fixture.items, ops);
+    const before = fixture.items;
+    const line = (arr) => Array.from({ length: fixture.days }, (_, i) => arr.filter((it) => it.day_number === i + 1).length).join(' ');
+    out.push(`    לפני: ${line(before)}`);
+    out.push(`    אחרי: ${line(after)}`);
+  }
+  return out;
+}
+
 function describe(res, body) {
   const out = [];
   if (res.questions) {
@@ -164,8 +252,8 @@ async function callApi(body) {
 }
 
 (async () => {
-  let cases = CASES.filter((c) => (WITH_BUILD ? true : c.phase === 'ask'));
-  if (ids.length) cases = CASES.filter((c) => ids.includes(c.id));
+  const wanted = (c) => (c.phase === 'ask') || (c.phase === 'build' && WITH_BUILD) || (c.phase === 'edit' && WITH_EDIT);
+  let cases = ids.length ? CASES.filter((c) => ids.includes(c.id)) : CASES.filter(wanted);
   if (!cases.length) {
     console.error(`no cases matched. known ids:\n  ${CASES.map((c) => c.id).join('\n  ')}`);
     process.exit(1);
@@ -173,21 +261,44 @@ async function callApi(body) {
 
   const builds = cases.filter((c) => c.phase === 'build').length * RUNS;
   console.log(`\nai-eval · ${cases.length} case(s) × ${RUNS} run(s) against localhost:${PORT}`);
-  console.log(`${builds} of them build a full itinerary — real OpenAI calls, several per build.\n`);
+  console.log(`${builds} of them build a full itinerary — real OpenAI calls, several per build.`);
+  if (EDIT_MODEL) console.log(`edit cases forced onto ${EDIT_MODEL}`);
+  console.log('');
 
   const results = [];
   for (const c of cases) {
     for (let run = 1; run <= RUNS; run++) {
       const label = RUNS > 1 ? `${c.id} #${run}` : c.id;
-      const { status, secs, json } = await callApi(c.body);
-      let bad;
-      if (status !== 200) bad = [`HTTP ${status} ${json.error || ''}`.trim()];
-      else if (json.questions) bad = checkQuestions(json, c.expect);
-      else bad = [...checkQuestions(json, c.expect), ...checkBuild(json, c.expect, c.body)];
+      let bad, secs, payload, lines;
 
-      results.push({ id: c.id, run, ok: !bad.length, secs, failures: bad, response: json });
+      if (c.phase === 'edit') {
+        const fixture = loadFixture(c.fixture);
+        const t0 = Date.now();
+        const result = await aiEditOps({
+          title: fixture.title,
+          destText: fixture.destinations.map((d) => d.name).join(', '),
+          dests: fixture.destinations,
+          days: fixture.days,
+          items: fixture.items,
+          description: fixture.description || '',
+          prompt: c.prompt,
+        }).catch((e) => ({ __error: e.message }));
+        secs = ((Date.now() - t0) / 1000).toFixed(1);
+        bad = result && result.__error ? [`edit threw: ${result.__error}`] : checkEdit(result, c.expect, fixture);
+        payload = result;
+        lines = [`    ← "${c.prompt}"`, ...describeEdit(result, fixture)];
+      } else {
+        const r = await callApi(c.body);
+        secs = r.secs;
+        payload = r.json;
+        if (r.status !== 200) bad = [`HTTP ${r.status} ${r.json.error || ''}`.trim()];
+        else bad = [...checkQuestions(r.json, c.expect), ...checkBuild(r.json, c.expect, c.body)];
+        lines = describe(r.json, c.body);
+      }
+
+      results.push({ id: c.id, run, ok: !bad.length, secs, failures: bad, response: payload });
       console.log(`${bad.length ? '✗' : '✓'} ${label}  (${secs}s)`);
-      describe(json, c.body).forEach((l) => console.log(l));
+      lines.forEach((l) => console.log(l));
       bad.forEach((f) => console.log(`      ↳ ${f}`));
       console.log('');
     }

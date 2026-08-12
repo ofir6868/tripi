@@ -1014,3 +1014,6 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
 });
 
 module.exports = router;
+// the edit route can only run on a trip that already exists in the DB, so tools/ai-eval
+// reaches the model through this instead — everything it measures happens in here
+module.exports.aiEditOps = aiEditOps;

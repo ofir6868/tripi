@@ -1,0 +1,527 @@
+{
+ "title": "טיול ליפן",
+ "days": 14,
+ "destinations": [
+  {
+   "name": "אזור טוקיו",
+   "country": "יפן"
+  },
+  {
+   "name": "אזור קיוטו",
+   "country": "יפן"
+  },
+  {
+   "name": "הירושימה",
+   "country": "יפן"
+  }
+ ],
+ "description": "שבועיים ביפן בין טוקיו, קיוטו והירושימה — מקדשים, שווקים ואוכל מקומי.",
+ "items": [
+  {
+   "id": 100,
+   "day_number": 1,
+   "time_label": "09:00",
+   "title": "מקדש מייג'י",
+   "note": "כדאי לבוא בבוקר לשקט ולהשקיף על הארכיטקטורה היפנית. לא לפספס את הליכה ביער סביב המקדש.",
+   "place_query": "Meiji Shrine, Shibuya, Tokyo, Japan",
+   "category": "תרבות",
+   "area": "אזור טוקיו",
+   "cost": null
+  },
+  {
+   "id": 101,
+   "day_number": 1,
+   "time_label": "12:00",
+   "title": "שוק טוקיו (Tsukiji Outer Market)",
+   "note": "שוק אוכל מגוונים - תשקלו טעימות וגם ארוחת צהריים - מצויין!",
+   "place_query": "Tsukiji Outer Market, Chuo City, Tokyo, Japan",
+   "category": "אוכל",
+   "area": "אזור טוקיו",
+   "cost": 80
+  },
+  {
+   "id": 102,
+   "day_number": 1,
+   "time_label": "15:00",
+   "title": "מרכז התרבות של טוקיו (Tokyo Cultural Center)",
+   "note": "תצוגות אמנות מתחלפות - יש לדעת על אירועים מיוחדים. הכניסה חינם.",
+   "place_query": "Tokyo Cultural Center, Chiyoda, Tokyo, Japan",
+   "category": "תרבות",
+   "area": "אזור טוקיו",
+   "cost": null
+  },
+  {
+   "id": 103,
+   "day_number": 2,
+   "time_label": "09:30",
+   "title": "מקדש סנסוג'י",
+   "note": "לצלם את gate האדום המפורסם ולבקר במקדש עצמו - לא לפספס את החנויות הקטנות שמסביב.",
+   "place_query": "Sensoji Temple, Asakusa, Tokyo, Japan",
+   "category": "תרבות",
+   "area": "אזור טוקיו",
+   "cost": null
+  },
+  {
+   "id": 104,
+   "day_number": 2,
+   "time_label": "12:30",
+   "title": "הגן הלאומי אואנו",
+   "note": "גן יפהפה עם אגם ומוזיאונים. כיתת התרבות היפנית כאן פתוחה למבקרים.",
+   "place_query": "Ueno Park, Taito, Tokyo, Japan",
+   "category": "תרבות",
+   "area": "אזור טוקיו",
+   "cost": null
+  },
+  {
+   "id": 105,
+   "day_number": 2,
+   "time_label": "15:30",
+   "title": "המרכז האומנויות ביאיוורי (Yanaka)",
+   "note": "ניתן לראות אמנות מודרנית ולפגוש אמנים מקומיים. מומלץ לסיים קפה באחת הקפיטריות.",
+   "place_query": "Yanaka, Taito, Tokyo, Japan",
+   "category": "תרבות",
+   "area": "אזור טוקיו",
+   "cost": 60
+  },
+  {
+   "id": 106,
+   "day_number": 3,
+   "time_label": "10:00",
+   "title": "נהר הסומידה",
+   "note": "שייט קצר בסירה על נהר הסומידה - נהדר לראות את טוקיו מנקודת מבט שונה.",
+   "place_query": "Sumida River, Tokyo, Japan",
+   "category": "אטרקציה",
+   "area": "אזור טוקיו",
+   "cost": 100
+  },
+  {
+   "id": 107,
+   "day_number": 3,
+   "time_label": "12:00",
+   "title": "מוזיאון האומנות של טוקיו",
+   "note": "מוזיאון גדול עם אוספים מגוונים - ודאו לבדוק תערוכות מנחות.",
+   "place_query": "Tokyo National Museum, Taito, Tokyo, Japan",
+   "category": "תרבות",
+   "area": "אזור טוקיו",
+   "cost": 100
+  },
+  {
+   "id": 108,
+   "day_number": 3,
+   "time_label": "15:00",
+   "title": "שיטוט בשכונת שיבויה",
+   "note": "לטייל בין חנויות בוטיק ולחוות את התרבות הצעירה של טוקיו.",
+   "place_query": "Shibuya, Tokyo, Japan",
+   "category": "תרבות",
+   "area": "אזור טוקיו",
+   "cost": null
+  },
+  {
+   "id": 109,
+   "day_number": 4,
+   "time_label": "09:00",
+   "title": "המקדש היפני שוקולודו",
+   "note": "תיהנו מהעיצוב היפני המיוחד ולראות ניסיונות מסורתיים.",
+   "place_query": "Hōkō-ji Temple, Shinjuku, Tokyo, Japan",
+   "category": "תרבות",
+   "area": "אזור טוקיו",
+   "cost": null
+  },
+  {
+   "id": 110,
+   "day_number": 4,
+   "time_label": "12:00",
+   "title": "השווקים העירוניים של שינג'וקו",
+   "note": "שוק פריטים טריים וטעימים - אל תשכחו לנסות מנות רחוב.",
+   "place_query": "Shinjuku, Tokyo, Japan",
+   "category": "אוכל",
+   "area": "אזור טוקיו",
+   "cost": 70
+  },
+  {
+   "id": 111,
+   "day_number": 4,
+   "time_label": "14:00",
+   "title": "ראו את טוקיו מגובה רב (Tokyo Metropolitan Government Building)",
+   "note": "תצפית מדהימה על העיר - הכניסה חינם!",
+   "place_query": "Tokyo Metropolitan Government Building, Shinjuku, Tokyo, Japan",
+   "category": "אטרקציה",
+   "area": "אזור טוקיו",
+   "cost": null
+  },
+  {
+   "id": 112,
+   "day_number": 5,
+   "time_label": "10:00",
+   "title": "בתי הקפה המסורתיים של אודקיו",
+   "note": "קפה בשטח יפני מסורתי - מומלץ להזמין כיסאות מראש.",
+   "place_query": "Kagurazaka, Bunkyo, Tokyo, Japan",
+   "category": "אוכל",
+   "area": "אזור טוקיו",
+   "cost": 80
+  },
+  {
+   "id": 113,
+   "day_number": 5,
+   "time_label": "12:00",
+   "title": "גן היפני של שיבויה (Shubun Garden)",
+   "note": "גן יפני יפהפה עם בריכות ודגים, מקום נפלא להירגע בו.",
+   "place_query": "Shubun Garden, Shibuya, Tokyo, Japan",
+   "category": "תרבות",
+   "area": "אזור טוקיו",
+   "cost": null
+  },
+  {
+   "id": 114,
+   "day_number": 5,
+   "time_label": "15:00",
+   "title": "מרכז התרבות והאמנות של טוקיו (TTG)",
+   "note": "סיורים מודרכים בחינם - מספקת פלטפורמה לאמנים מקומיים.",
+   "place_query": "Tokyo Art Center, Chiyoda, Tokyo, Japan",
+   "category": "תרבות",
+   "area": "אזור טוקיו",
+   "cost": null
+  },
+  {
+   "id": 115,
+   "day_number": 6,
+   "time_label": "08:00",
+   "title": "נסיעה ברכבת מאזור טוקיו לאזור קיוטו",
+   "note": "הנסיעה ברכבת שינקנסן אורכת כ-2.5 שעות. מומלץ להזמין כרטיסים מראש.",
+   "place_query": "Shinkansen Train, Tokyo, Japan",
+   "category": "נסיעה",
+   "area": "אזור קיוטו",
+   "cost": null
+  },
+  {
+   "id": 116,
+   "day_number": 6,
+   "time_label": "11:00",
+   "title": "מקדש קיומיזו דרה",
+   "note": "אל תשכחו לבקש את התפילה המסורתית ולטפס לתצפית על קיוטו.",
+   "place_query": "Kiyomizu-dera Temple, Kyoto, Japan",
+   "category": "תרבות",
+   "area": "אזור קיוטו",
+   "cost": 400
+  },
+  {
+   "id": 117,
+   "day_number": 6,
+   "time_label": "13:00",
+   "title": "ארוחת צהריים ברחוב שיגארה",
+   "note": "מומלץ לנסות את המאכלים המקומיים כמו אודון וסושי. יש מסעדות רבות לאורך הרחוב.",
+   "place_query": "Shiga Street, Kyoto, Japan",
+   "category": "אוכל",
+   "area": "אזור קיוטו",
+   "cost": 1500
+  },
+  {
+   "id": 118,
+   "day_number": 6,
+   "time_label": "15:00",
+   "title": "הליכה בשכונת גיון",
+   "note": "שכונת גיון ידועה בגרמי מדרגות ציוריים ואווירה יפנית מסורתית.",
+   "place_query": "Gion District, Kyoto, Japan",
+   "category": "תרבות",
+   "area": "אזור קיוטו",
+   "cost": null
+  },
+  {
+   "id": 119,
+   "day_number": 7,
+   "time_label": "09:00",
+   "title": "מקדש פושימי אינארי",
+   "note": "ההליכה בין עמודי טורי האדומים מדהימה, כדאי להתחיל מוקדם כדי להימנע מההמונים.",
+   "place_query": "Fushimi Inari Taisha, Kyoto, Japan",
+   "category": "תרבות",
+   "area": "אזור קיוטו",
+   "cost": null
+  },
+  {
+   "id": 120,
+   "day_number": 7,
+   "time_label": "12:00",
+   "title": "ארוחת צהריים באיזור המקדש",
+   "note": "יש מספר מסעדות טובות ממוקמות בסמוך למקדש, מומלץ לנסות את המזון המקומי.",
+   "place_query": "Inariyama, Kyoto, Japan",
+   "category": "אוכל",
+   "area": "אזור קיוטו",
+   "cost": 1200
+  },
+  {
+   "id": 121,
+   "day_number": 7,
+   "time_label": "14:00",
+   "title": "גן הארמון הקיסרי בקיוטו",
+   "note": "גן פתוח ויפהפה, מקום אידיאלי להירגע בסיום היום.",
+   "place_query": "Kyoto Imperial Palace Park, Kyoto, Japan",
+   "category": "נוף",
+   "area": "אזור קיוטו",
+   "cost": null
+  },
+  {
+   "id": 122,
+   "day_number": 8,
+   "time_label": "10:00",
+   "title": "פארק נארה",
+   "note": "בפארק מסתובבים איילים חופשיים, חוויה מיוחדת לילדים ומבוגרים כאחד.",
+   "place_query": "Nara Park, Nara, Japan",
+   "category": "נוף",
+   "area": "אזור קיוטו",
+   "cost": null
+  },
+  {
+   "id": 123,
+   "day_number": 8,
+   "time_label": "12:00",
+   "title": "מקדש טודאי-ג'י",
+   "note": "הכניסה למקדש מסמלת את עושרו של התרבות היפנית, אל תפספסו את פסל הבודהה הגדול.",
+   "place_query": "Todai-ji Temple, Nara, Japan",
+   "category": "תרבות",
+   "area": "אזור קיוטו",
+   "cost": 600
+  },
+  {
+   "id": 124,
+   "day_number": 8,
+   "time_label": "14:00",
+   "title": "ארוחת צהריים בשוק נארה",
+   "note": "שוק עם מגוון רחב של מאכלים יפניים וטעימים.",
+   "place_query": "Naramachi, Nara, Japan",
+   "category": "אוכל",
+   "area": "אזור קיוטו",
+   "cost": 1000
+  },
+  {
+   "id": 125,
+   "day_number": 9,
+   "time_label": "09:00",
+   "title": "מקדש קונפוציוס בקיוטו",
+   "note": "הליכה במקדש מעניקה הזדמנות להכיר את ההיסטוריה והתרבות הסינית היפנית.",
+   "place_query": "Confucius Temple, Kyoto, Japan",
+   "category": "תרבות",
+   "area": "אזור קיוטו",
+   "cost": 400
+  },
+  {
+   "id": 126,
+   "day_number": 9,
+   "time_label": "12:00",
+   "title": "טיול באזור פיקניק ליד נהר קאמוגאווה",
+   "note": "אזור פסטורלי אידיאלי לפיקניק, מומלץ להביא אוכל מהשוק המקומי.",
+   "place_query": "Kamo River, Kyoto, Japan",
+   "category": "נוף",
+   "area": "אזור קיוטו",
+   "cost": null
+  },
+  {
+   "id": 127,
+   "day_number": 9,
+   "time_label": "14:30",
+   "title": "מוזיאון קיוטו לאומנויות",
+   "note": "מוזיאון מציג מגוון רחב של יצירות אמנות מסורתיות ומודרניות.",
+   "place_query": "Kyoto Municipal Museum of Art, Kyoto, Japan",
+   "category": "תרבות",
+   "area": "אזור קיוטו",
+   "cost": 1000
+  },
+  {
+   "id": 128,
+   "day_number": 10,
+   "time_label": "10:00",
+   "title": "שוק ניקיאי",
+   "note": "שוק מקומי עם הרבה דוכנים שמציגים אוכל והרבה פריקות ברוח היפנית.",
+   "place_query": "Nishiki Market, Kyoto, Japan",
+   "category": "אוכל",
+   "area": "אזור קיוטו",
+   "cost": null
+  },
+  {
+   "id": 129,
+   "day_number": 10,
+   "time_label": "12:00",
+   "title": "טיול בגני הכניסה למקדש קיושושין",
+   "note": "גן לאומי מרהיב עם מסלולי טיול בין עצים מרהיבים.",
+   "place_query": "Kiyos Shin Shrine Garden, Kyoto, Japan",
+   "category": "נוף",
+   "area": "אזור קיוטו",
+   "cost": null
+  },
+  {
+   "id": 130,
+   "day_number": 10,
+   "time_label": "15:00",
+   "title": "בהופעה מסורתית של גיישות",
+   "note": "חוויה מעשירה ומרתקת, יש להזמין כרטיסים מראש.",
+   "place_query": "Gion Corner, Kyoto, Japan",
+   "category": "תרבות",
+   "area": "אזור קיוטו",
+   "cost": 2000
+  },
+  {
+   "id": 131,
+   "day_number": 11,
+   "time_label": "09:00",
+   "title": "נסיעה ברכבת מאזור קיוטו להירושימה",
+   "note": "נסיעה ברכבת שינקנסן (המהירה). זמן נסיעה משוער: 1.5 שעות.",
+   "place_query": "Shinkansen, Kyoto, Japan",
+   "category": "נסיעה",
+   "area": "הירושימה",
+   "cost": null
+  },
+  {
+   "id": 132,
+   "day_number": 11,
+   "time_label": "10:30",
+   "title": "פארק המונומנט לשלום של הירושימה",
+   "note": "פארק גדול ומושקע שמוקדש לזכר korbanי הפצצה העירונית. מומלץ לטייל בין הפסלים והאנדרטאות.",
+   "place_query": "Hiroshima Peace Memorial Park, Hiroshima, Japan",
+   "category": "תרבות",
+   "area": "הירושימה",
+   "cost": null
+  },
+  {
+   "id": 133,
+   "day_number": 11,
+   "time_label": "12:30",
+   "title": "ארוחת צהריים - אוקונומיאקי",
+   "note": "אל תפספסו את המומחיות המקומית של הירושימה - אוקונומיאקי, פנקייק יפני עם תוספות שונות.",
+   "place_query": "Okonomiyaki, Hiroshima, Japan",
+   "category": "אוכל",
+   "area": "הירושימה",
+   "cost": 60
+  },
+  {
+   "id": 134,
+   "day_number": 11,
+   "time_label": "14:00",
+   "title": "המוזיאון להיסטוריה של הירושימה",
+   "note": "מוזיאון המספר את סיפור הפצצה ואת השפעתה על העיר והאוכלוסייה המקומית.",
+   "place_query": "Hiroshima Peace Memorial Museum, Hiroshima, Japan",
+   "category": "תרבות",
+   "area": "הירושימה",
+   "cost": 200
+  },
+  {
+   "id": 135,
+   "day_number": 12,
+   "time_label": "09:00",
+   "title": "נסיעה במעבורת למיאג'ימה",
+   "note": "לאחר ארוחת הבוקר, לכו למעבורת שתחבר אתכם לאי המהמם מיאג'ימה.",
+   "place_query": "Miyajima Ferry Terminal, Hiroshima, Japan",
+   "category": "נסיעה",
+   "area": "הירושימה",
+   "cost": 20
+  },
+  {
+   "id": 136,
+   "day_number": 12,
+   "time_label": "10:00",
+   "title": "מקדש איצוקושימה",
+   "note": "מקדש יפני מפורסם המוקף במים, מרשים ויפהפה. אל תשכחו לצלם!",
+   "place_query": "Itsukushima Shrine, Miyajima, Hiroshima, Japan",
+   "category": "תרבות",
+   "area": "הירושימה",
+   "cost": 300
+  },
+  {
+   "id": 137,
+   "day_number": 12,
+   "time_label": "12:00",
+   "title": "החוף של מיאג'ימה",
+   "note": "נשארו לכם כמה שעות? תיהנו מהחול הרך והנוף המרהיב של האי.",
+   "place_query": "Miyajima Beach, Miyajima, Hiroshima, Japan",
+   "category": "טבע",
+   "area": "הירושימה",
+   "cost": null
+  },
+  {
+   "id": 138,
+   "day_number": 12,
+   "time_label": "14:00",
+   "title": "נסיעה חזרה להירושימה",
+   "note": "חזרה במעבורת והסעה חזרה למקום הלינה.",
+   "place_query": "Miyajima Ferry Terminal, Hiroshima, Japan",
+   "category": "נסיעה",
+   "area": "הירושימה",
+   "cost": 20
+  },
+  {
+   "id": 139,
+   "day_number": 13,
+   "time_label": "09:00",
+   "title": "תצפית על העיר ממצודת הירושימה",
+   "note": "מצודה היסטורית עם נוף יפה של העיר, כדאי לטייל במתחם הסביבות.",
+   "place_query": "Hiroshima Castle, Hiroshima, Japan",
+   "category": "תרבות",
+   "area": "הירושימה",
+   "cost": 200
+  },
+  {
+   "id": 140,
+   "day_number": 13,
+   "time_label": "11:00",
+   "title": "ביקור במוזיאון לאמנות של הירושימה",
+   "note": "מוזיאון אמנות המאגד יצירות יפניות וכן עבודות של אמנים מערביים.",
+   "place_query": "Hiroshima Museum of Art, Hiroshima, Japan",
+   "category": "תרבות",
+   "area": "הירושימה",
+   "cost": 300
+  },
+  {
+   "id": 141,
+   "day_number": 13,
+   "time_label": "13:00",
+   "title": "ארוחת צהריים - ממלכת התה של הירושימה",
+   "note": "חוויה יפנית מסורתית הכוללת טקס תה ייחודי.",
+   "place_query": "Hiroshima Tea Ceremony, Hiroshima, Japan",
+   "category": "אוכל",
+   "area": "הירושימה",
+   "cost": 150
+  },
+  {
+   "id": 142,
+   "day_number": 13,
+   "time_label": "15:00",
+   "title": "חוויה מסורתית - סדנת אוריגמי",
+   "note": "למדו ליצור יצירות אוריגמי עם מקומיים, חוויה מהנה ומלמדת.",
+   "place_query": "Origami Workshop, Hiroshima, Japan",
+   "category": "תרבות",
+   "area": "הירושימה",
+   "cost": 100
+  },
+  {
+   "id": 143,
+   "day_number": 14,
+   "time_label": "10:00",
+   "title": "ביקור במוזיאון פצצת האטום של הירושימה",
+   "note": "מרכז חינוכי חשוב שמשקף את האירועים שהתרחשו בעיר במלחמת העולם השנייה.",
+   "place_query": "Hiroshima Atomic Bomb Museum, Hiroshima, Japan",
+   "category": "תרבות",
+   "area": "הירושימה",
+   "cost": 200
+  },
+  {
+   "id": 144,
+   "day_number": 14,
+   "time_label": "12:00",
+   "title": "קנייה בשוק המקומי - שוק הירושימה",
+   "note": "מקום מצוין לקנות מזכרות ולנסות מאכלים מקומיים.",
+   "place_query": "Hiroshima Market, Hiroshima, Japan",
+   "category": "אוכל",
+   "area": "הירושימה",
+   "cost": null
+  },
+  {
+   "id": 145,
+   "day_number": 14,
+   "time_label": "14:00",
+   "title": "גבעת אוטודומה",
+   "note": "גבעה מפורסמת עם נוף מרהיב של העיר, מיטב מקומיים נהנים לחפש כאן שלווה.",
+   "place_query": "Otodome Hill, Hiroshima, Japan",
+   "category": "טבע",
+   "area": "הירושימה",
+   "cost": null
+  }
+ ]
+}

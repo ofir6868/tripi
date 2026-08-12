@@ -163,6 +163,49 @@ module.exports = [
     },
     expect: { areas: [2, 2], transferStops: true },
   },
+  // ---------- the smart edit ----------
+  // These reach aiEditOps directly: the HTTP route can only edit a trip that already
+  // exists in the DB, and everything worth measuring happens inside that function.
+  // They run against a fixture — a real 14-day, 46-stop itinerary the builder produced —
+  // so the same request is judged against the same trip every time.
+  {
+    id: 'edit-repace-crowded',
+    phase: 'edit',
+    fixture: 'japan-14',
+    prompt: 'הטיול צפוף מדי, תפרסו אותו יותר רגוע',
+    why: 'The request the edit prompt was largely written against: "too crowded" answered '
+      + 'with mass deletions leaves a few packed days and a tail of empty ones. Spreading '
+      + 'is the right answer, emptying days is not.',
+    expect: { opsAtLeast: 1, noEmptyDays: true, areasContiguous: true },
+  },
+  {
+    id: 'edit-targeted-delete',
+    phase: 'edit',
+    fixture: 'japan-14',
+    prompt: 'תמחקו את התחנה הראשונה ביום 1',
+    why: 'The narrowest request there is — one named stop, one operation. Touching '
+      + 'anything else means the model rewrote a trip nobody asked it to rewrite.',
+    expect: { opsAtMost: 2, onlyActions: ['delete', 'update'], onlyTouchesDays: [1, 1] },
+  },
+  {
+    id: 'edit-add-food-range',
+    phase: 'edit',
+    fixture: 'japan-14',
+    prompt: 'תוסיפו יותר אוכל רחוב בימים 6-10',
+    why: 'A scoped addition. The days are named in the sentence and nowhere else — this '
+      + 'is what tells us whether a free-text scope is respected without a day picker.',
+    expect: { opsAtLeast: 1, onlyTouchesDays: [6, 10], noEmptyDays: true },
+  },
+  {
+    id: 'edit-out-of-scope',
+    phase: 'edit',
+    fixture: 'japan-14',
+    prompt: 'תזיזו את הטיול לאוגוסט במקום ביולי',
+    why: 'Dates are explicitly outside what the editor may touch. It should say so rather '
+      + 'than simulate the move by shuffling stops between days.',
+    expect: { noOps: true },
+  },
+
   {
     id: 'berlin-4-city-break',
     phase: 'build',

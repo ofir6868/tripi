@@ -21,10 +21,23 @@ node tools/ai-eval/run.js
 ```bash
 node tools/ai-eval/run.js                    # רק סבב ההבהרה — זול ומהיר
 node tools/ai-eval/run.js --build            # גם בניית מסלולים מלאה — יקר
+node tools/ai-eval/run.js --edit             # גם תרחישי שינוי חכם
+node tools/ai-eval/run.js --edit --model gpt-4o   # אותן עריכות על מודל אחר
 node tools/ai-eval/run.js japan-14-country   # תרחיש מסוים לפי id
 node tools/ai-eval/run.js --runs 3           # כמה פעמים כל תרחיש
 node tools/ai-eval/run.js --port 3000        # ברירת מחדל: PORT או 3000
 ```
+
+תרחישי העריכה קוראים ל-`aiEditOps` ישירות ולא דרך HTTP: ראוט העריכה יודע לעבוד רק על
+טיול ששמור ב-DB, וכל מה שנמדד כאן קורה בתוך הפונקציה. הם רצים מול
+[fixtures/japan-14.json](fixtures/japan-14.json) — מסלול אמיתי בן 14 ימים ו-46 תחנות
+שהבנאי ייצר — כדי שאותה בקשה תישפט מול אותו טיול בכל פעם. הבדיקה מיישמת את ה-ops
+בפועל ובוחנת את המסלול שיצא: אין יום שהתרוקן, כל אזור נשאר רצף אחד, ורק הימים
+שהבקשה נקבה בהם נגעו.
+
+**הערה על הרשת:** הקריאה הראשונה אחרי דקות של שקט נוטה ליפול על
+`UND_ERR_CONNECT_TIMEOUT` (10 שניות לחיבור חדש). זה לא כשל של המודל — הריצה השנייה
+תעבור. אם תרחיש נפל בדיוק אחרי ~10.7 שניות, זו הסיבה.
 
 צריך שרת שרץ (`preview_start`, או `npm start`) עם `OPENAI_API_KEY` ב-`.env`.
 הטוקן נוצר בריצה מ-`JWT_SECRET` — אין צורך במשתמש אמיתי, והבנייה לא כותבת ל-DB.
