@@ -56,6 +56,14 @@ function checkQuestions(res, expect) {
   if (expect.optionsAtLeast && first.options.length < expect.optionsAtLeast) {
     bad.push(`expected ≥${expect.optionsAtLeast} options, got ${first.options.length}`);
   }
+  // the wording has to match what the modal will let them do: a pick-one that asks
+  // "אילו אזורים" invites ticking three and allows one
+  if (expect.multi === false && /אילו אזורים/.test(first.question)) {
+    bad.push('single-select question is phrased as a multi-pick ("אילו אזורים")');
+  }
+  if (expect.multi === true && /באיזה אזור/.test(first.question)) {
+    bad.push('multi-select question is phrased as a pick-one ("באיזה אזור")');
+  }
   // a region option carries the cities that place it — "קנסאי (קיוטו, אוסקה)"
   if (expect.regionOptions) {
     const named = first.options.filter((o) => /\(.+\)/.test(o)).length;
@@ -194,5 +202,7 @@ async function callApi(body) {
   const file = path.join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
   fs.writeFileSync(file, JSON.stringify({ port: PORT, runs: RUNS, results }, null, 2));
   console.log(`full output → ${path.relative(process.cwd(), file)}`);
-  process.exit(failed.length ? 1 : 0);
+  // exitCode rather than exit(): tearing the process down while fetch's keep-alive
+  // sockets are still closing makes libuv print an assertion after a clean run
+  process.exitCode = failed.length ? 1 : 0;
 })();

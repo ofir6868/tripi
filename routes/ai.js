@@ -135,9 +135,18 @@ function allocateDays(orderedDests, from, to) {
   }).filter((b) => b.to >= b.from);
 }
 
-// destinations as "עיר (מדינה)" — the country ALWAYS travels with the city name
+// destinations as "עיר (מדינה)" — the country ALWAYS travels with the city name.
+// An area carries the cities that place it too: "אזור קיוטו (יפן: קיוטו, נארה)". Without
+// them the AI is ordering opaque labels, and it put Hiroshima between Tokyo and Kyoto —
+// straight past Kyoto and back again.
 function destDescFull(dests) {
-  return dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ');
+  return dests.map((d) => {
+    const inside = [
+      d.country && d.country !== d.name ? d.country : null,
+      (d.cities || []).length ? d.cities.join(', ') : null,
+    ].filter(Boolean);
+    return inside.length ? `${d.name} (${inside.join(': ')})` : d.name;
+  }).join(', ');
 }
 
 // rough air distances between destinations, so the AI reasons about real travel
@@ -274,8 +283,13 @@ async function aiClarify({ dests, from, to, interestList, freeText, ph }) {
     `ברירת המחדל היא להחזיר רשימה ריקה — כל שאלה חייבת להיות על מבנה המסלול עצמו (איזה אזור, סדר האזורים, חלוקת הימים או המעברים ביניהם), ` +
     `לכל היותר 2 שאלות קצרות בעברית, סוג "choice" עם options קצרות (עדיף) או "text" בלי options.` +
     (broadSingle
-      ? `\nהפרט היחיד שחסר כאן הוא אילו אזורים ייכנסו למסלול — שאלה אחת בלבד: ` +
-        (combine ? `אילו אזורים לשלב ב-${days} הימים.` : `באיזה אזור להתמקד ב-${days} הימים.`) +
+      ? `\nהפרט היחיד שחסר כאן הוא אילו אזורים ייכנסו למסלול — שאלה אחת בלבד, ` +
+        // the traveller can tick one option or several, and the question has to read
+        // like the thing they're about to do — a single-select that opens with
+        // "אילו אזורים" invites a multi-pick the modal won't allow
+        (combine
+          ? `שנפתחת במילים "אילו אזורים" ושואלת אילו אזורים לשלב ב-${days} הימים (המטיילים יסמנו כמה).`
+          : `שנפתחת במילים "באיזה אזור" ושואלת באיזה אזור להתמקד ב-${days} הימים (המטיילים יסמנו אחד בלבד).`) +
         ` כל option בעברית בפורמט "שם האזור (עיר, עיר)": אזור גיאוגרפי אחד שמשתרע על כמה ערים, ובסוגריים רק שמות ערים שנמצאות בו — 3–4 אזורים נפרדים שאינם חופפים.`
       : `\nהפרטים שחסרים כאן בדרך כלל: באיזו עיר נוחתים וממריאים כשהיעדים פרוסים על מדינה גדולה, ` +
         `ואיך עוברים בין יעדים רחוקים זה מזה — מתוך טיסה פנימית / רכבת / אוטובוס / רכב שכור / שיט, רק האפשרויות שהגיוניות למרחק שצוין למעלה.`);
@@ -679,7 +693,9 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
       : null;
     const regionCities = new Map((regions || []).map((r) => [r.name, r.cities]));
     const buildDests = regions
-      ? regions.map((r) => ({ name: r.name, country: dests[0].country || dests[0].name, lat: null, lon: null }))
+      ? regions.map((r) => ({
+        name: r.name, country: dests[0].country || dests[0].name, lat: null, lon: null, cities: r.cities,
+      }))
       : dests;
 
     // build the per-area blocks: a single requested area, or an AI-decided
