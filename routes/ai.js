@@ -6,7 +6,16 @@ const { tripWithEditAuth, cleanDestinations } = require('../lib/trips');
 
 const router = express.Router();
 
-const AI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+// two tiers, named by capability rather than any one vendor's model family — swapping
+// in e.g. Gemini later is a matter of changing these two env vars, nothing else.
+const AI_MODEL_WEAK = process.env.AI_MODEL_WEAK || 'gpt-4o-mini'; // cheap, fast — the default for most calls
+const AI_MODEL_STRONG = process.env.AI_MODEL_STRONG || 'gpt-4o'; // used where the weak model demonstrably drifts
+// from this many days on, a single broad destination is asked which regions to
+// COMBINE (multi-select) rather than which one to focus on
+const COMBINE_REGIONS_FROM_DAYS = 10;
+// a block (or single-area trip) longer than this needs the strong model — past this
+// length the weak model starts thinning out days or repeating stops
+const STRONG_MODEL_FROM_DAYS = 8;
 const AI_CATEGORIES = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבות', 'קניות', 'לינה', 'נוף', 'חיי לילה', 'נסיעה', 'היסטוריה', 'אמנות', 'עיר'];
 // cost estimates arrive as loose model output — keep only positive, sane integers
 const cleanCost = (v) => (Number.isFinite(+v) && +v > 0 ? Math.min(Math.round(+v), 999999999) : null);
@@ -17,7 +26,7 @@ const AI_DAILY_LIMIT = 20;
 // Returns the parsed object, or null on any failure (HTTP error, timeout, bad
 // JSON) — unless `required`, which rethrows so the route can distinguish an
 // aborted call (timeout message) from the rest.
-async function aiJson({ system, user, schemaName, schema, maxTokens, timeoutMs = 30000, required = false }) {
+async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_MODEL_WEAK, timeoutMs = 30000, required = false }) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -26,7 +35,7 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, timeoutMs =
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
       signal: ctrl.signal,
       body: JSON.stringify({
-        model: AI_MODEL,
+        model,
         max_completion_tokens: maxTokens,
         messages: [
           { role: 'system', content: system },
@@ -110,6 +119,27 @@ function distancesText(dests) {
   return pairs.length ? `\nמרחקים אוויריים משוערים בין היעדים: ${pairs.join(' | ')}.` : '';
 }
 
+// When the traveller ticked several regions of one country, those regions ARE the
+// trip's areas: promoting them to destinations hands them to the same day-allocation
+// and transfer-stop machinery a real multi-city trip uses, so the days come out
+// contiguous per region instead of ping-ponging. The trip itself still belongs to
+// the country the traveller picked — only the build sees the regions.
+// Only ticked options count (`picked`), never the answer text: free text with commas
+// in it ("אוהבים אוכל רחוב, קצב רגוע") would otherwise become three imaginary areas.
+function combinedRegionDests(dests, answerList) {
+  if (dests.length !== 1 || !answerList) return null;
+  const base = dests[0];
+  const combined = answerList.find((a) => a.picked.length >= 2);
+  if (!combined) return null;
+  const names = [...new Set(
+    combined.picked
+      .map((p) => p.replace(/\s*\([^)]*\)\s*$/, '').trim()) // drop the "(city, city)" hint
+      .filter((n) => n && n !== base.name)
+  )];
+  if (names.length < 2) return null;
+  return names.slice(0, 5).map((name) => ({ name, country: base.country || base.name, lat: null, lon: null }));
+}
+
 // shared trip-context suffix for AI prompts
 function tripPrefsText({ interestList, freeText, answers }) {
   let s = '';
@@ -122,25 +152,40 @@ function tripPrefsText({ interestList, freeText, answers }) {
 }
 
 // pre-flight: the AI decides whether it's missing information that would
-// materially change the trip STRUCTURE (e.g. landing city on a multi-city trip).
-// Strongly encouraged to ask nothing; max 2 questions, fixed component types.
+// materially change the trip STRUCTURE (which region, landing city, how to move
+// between far-apart areas). Default is to ask nothing; max 2 questions, fixed types.
 async function aiClarify({ dests, from, to, interestList, freeText }) {
+  const days = to - from + 1;
+  // the caller only sends two shapes here: one broad destination (a country pick, or
+  // free text we can't classify), or several destinations. Each shape has its own
+  // structural unknown, so each branch names only that one — last in the message,
+  // which is where this model actually follows an instruction.
+  const broadSingle = dests.length === 1 && (!dests[0].country || dests[0].country === dests[0].name);
+  // roughly a region per 5–7 days: below that the trip has room for one area and the
+  // question is "which one", above it the question is "which to combine". Pure day
+  // arithmetic, so the server decides it — asked to judge this, the model answered
+  // "combine" for a 3-day Malta trip.
+  const combine = broadSingle && days >= COMBINE_REGIONS_FROM_DAYS;
   const userMsg =
-    `מתכננים טיול לימים ${from} עד ${to} (${to - from + 1} ימים) שמכסה את האזורים: ${destDescFull(dests)}.` +
+    `מתכננים טיול של ${days} ימים (ימים ${from} עד ${to}) ב: ${destDescFull(dests)}.` +
     distancesText(dests) +
     tripPrefsText({ interestList, freeText }) +
-    `\nלפני חלוקת הימים בין האזורים: האם חסר לך פרט שבאמת ישנה את מבנה הטיול (סדר האזורים, חלוקת הימים או ימי המעבר)? ` +
-    `דוגמאות לפרט קריטי: באיזו עיר נוחתים וממריאים בטיול מרובה ערים במדינה גדולה; ` +
-    `וכשהיעדים רחוקים מאוד זה מזה (מאות ק"מ או מדינות שונות) — איך מעדיפים לעבור ביניהם (למשל options: טיסה פנימית / רכבת או אוטובוס / שיט / רכב שכור עם עצירות בדרך). ` +
-    `דוגמה נגדית: במדינה קטנה שבה נקודת הנחיתה כמעט לא משנה — אל תשאל. ` +
-    `ברירת המחדל החזקה היא לא לשאול כלום ולהחזיר רשימה ריקה. שאל רק אם התשובה תשנה את התוכנית מהותית, ולכל היותר 2 שאלות קצרות בעברית. ` +
-    `סוג שאלה: "choice" עם options קצרות (העדף את זה), או "text" לתשובה חופשית (options ריק).`;
+    `\nלפני שמחלקים את הימים בין האזורים: חסר לך פרט שבלעדיו החלוקה עלולה לצאת שגויה? ` +
+    `ברירת המחדל היא להחזיר רשימה ריקה — כל שאלה חייבת להיות על מבנה המסלול עצמו (איזה אזור, סדר האזורים, חלוקת הימים או המעברים ביניהם), ` +
+    `לכל היותר 2 שאלות קצרות בעברית, סוג "choice" עם options קצרות (עדיף) או "text" בלי options.` +
+    (broadSingle
+      ? `\nהפרט היחיד שחסר כאן הוא אילו אזורים ייכנסו למסלול — שאלה אחת בלבד: ` +
+        (combine ? `אילו אזורים לשלב ב-${days} הימים.` : `באיזה אזור להתמקד ב-${days} הימים.`) +
+        ` כל option בעברית בפורמט "שם האזור (עיר, עיר)": אזור גיאוגרפי אחד שמשתרע על כמה ערים, ובסוגריים רק שמות ערים שנמצאות בו — 3–4 אזורים נפרדים שאינם חופפים.`
+      : `\nהפרטים שחסרים כאן בדרך כלל: באיזו עיר נוחתים וממריאים כשהיעדים פרוסים על מדינה גדולה, ` +
+        `ואיך עוברים בין יעדים רחוקים זה מזה — מתוך טיסה פנימית / רכבת / אוטובוס / רכב שכור / שיט, רק האפשרויות שהגיוניות למרחק שצוין למעלה.`);
 
   const parsed = await aiJson({
     system: 'אתה מתכנן טיולים מומחה. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
     user: userMsg,
     schemaName: 'clarifying_questions',
     maxTokens: 400,
+    model: AI_MODEL_STRONG,
     schema: {
       type: 'object',
       additionalProperties: false,
@@ -162,29 +207,62 @@ async function aiClarify({ dests, from, to, interestList, freeText }) {
       },
     },
   });
-  return ((parsed && parsed.questions) || [])
+  const questions = ((parsed && parsed.questions) || [])
     .slice(0, 2)
     .map((q) => ({
       type: q.type === 'choice' && Array.isArray(q.options) && q.options.length ? 'choice' : 'text',
       question: String(q.question || '').slice(0, 160),
       options: (q.options || []).slice(0, 6).map((o) => String(o).slice(0, 60)),
+      multi: false,
     }))
     .filter((q) => q.question);
+  // the combine round is the only multi-select, and only when it came back as the
+  // single region question we asked for — never spread it over a stray second one
+  if (combine && questions.length === 1 && questions[0].type === 'choice') questions[0].multi = true;
+  return questions;
 }
 
 // trip meta: description + emoji + cover image. The AI sees only the NAMES of
 // the cover photos (token-cheap) and picks one; the server maps name → URL.
 const TRIP_EMOJIS = ['🧭', '🏖️', '🏔️', '🏛️', '🌸', '🎡', '🍜', '🚐', '🤿', '🎿', '🐫', '🦁', '🗼', '🚋', '🥥', '🗽', '🥐', '⛰️'];
 const COVER_U = (id) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=1200&q=80`;
+// soft cap: ~40 covers — beyond that, pre-filter by destination tags before the
+// model call so the enum stays small. Every URL was eyeballed against its name
+// before landing here — a mislabeled landmark is worse than a generic beach.
 const COVER_OPTIONS = [
   { name: 'כביש מדברי בשקיעה', url: COVER_U('photo-1469854523086-cc02fe5d8800') },
   { name: 'חוף טרופי עם מים צלולים', url: COVER_U('photo-1507525428034-b723cf961d3e') },
   { name: 'פסגות הרים מושלגות', url: COVER_U('photo-1464822759023-fed622ff2c3b') },
+  { name: 'קאנו על אגם בין הרים', url: COVER_U('photo-1476514525535-07fb3b4ae5f1') },
   { name: 'הקולוסיאום ורומא העתיקה', url: COVER_U('photo-1552832230-c0197dd311b5') },
   { name: 'רחוב ניאון יפני בלילה', url: COVER_U('photo-1540959733332-eab4deabeeaf') },
   { name: 'מגדל אייפל ופריז', url: COVER_U('photo-1502602898657-3e91760cbb34') },
   { name: 'סנטוריני — בתים לבנים וים', url: COVER_U('photo-1613395877344-13d4a8e0d49e') },
-  { name: 'קאנו על אגם בין הרים', url: COVER_U('photo-1476514525535-07fb3b4ae5f1') },
+  { name: 'סירות תאילנדיות על חוף טרופי', url: COVER_U('photo-1552465011-b4e21bf6e79a') },
+  { name: 'ניו יורק — טיימס סקוור', url: COVER_U('photo-1496442226666-8d4d0e62e6e9') },
+  { name: 'לונדון — גשר המצודה והתמזה', url: COVER_U('photo-1513635269975-59663e0ac1ad') },
+  { name: 'ברצלונה מלמעלה — סגרדה פמיליה', url: COVER_U('photo-1583422409516-2895a77efded') },
+  { name: 'תעלות אמסטרדם', url: COVER_U('photo-1534351590666-13e3e96b5017') },
+  { name: 'קו הרקיע של דובאי', url: COVER_U('photo-1512453979798-5ea266f8880c') },
+  { name: 'חשמלית צהובה בליסבון', url: COVER_U('photo-1585208798174-6cedd86e019a') },
+  { name: 'מפרץ הא לונג — סלעים וסירות', url: COVER_U('photo-1528127269322-539801943592') },
+  { name: 'טביליסי בשקיעה', url: COVER_U('photo-1565008576549-57569a49371d') },
+  { name: 'בודפשט והדנובה מלמעלה', url: COVER_U('photo-1551867633-194f125bddfa') },
+  { name: 'פראג — גשר קארל והטירה', url: COVER_U('photo-1519677100203-a0e668c92439') },
+  { name: 'ברלין — שער ברנדנבורג', url: COVER_U('photo-1560969184-10fe8719e047') },
+  { name: 'סוואנה אפריקאית בשקיעה', url: COVER_U('photo-1547471080-7cc2caa01a7e') },
+  { name: 'ירושלים — כיפת הסלע', url: COVER_U('photo-1552423314-cf29ab68ad73') },
+  { name: 'וינה — קתדרלת שטפן', url: COVER_U('photo-1516550893923-42d28e5677af') },
+  { name: 'באלי — מקדש על המים', url: COVER_U('photo-1537996194471-e657df975ab4') },
+  { name: 'קסבה מרוקאית ונאות דקלים', url: COVER_U('photo-1489749798305-4fea3ae63d43') },
+  { name: 'קניון ירוק באיסלנד', url: COVER_U('photo-1504893524553-b855bce32c67') },
+  { name: 'רכבת בין ג׳ונגלים בסרי לנקה', url: COVER_U('photo-1566296314736-6eaac1ca0cb9') },
+  { name: 'האקרופוליס באתונה', url: COVER_U('photo-1555993539-1732b0258235') },
+  { name: 'מאצ׳ו פיצ׳ו בעננים', url: COVER_U('photo-1526392060635-9d6019884377') },
+  { name: 'הטאג׳ מהאל', url: COVER_U('photo-1564507592333-c60657eea523') },
+  { name: 'כדורים פורחים בקפדוקיה', url: COVER_U('photo-1641128324972-af3212f0f6bd') },
+  { name: 'שונית אלמוגים וצוללנים', url: COVER_U('photo-1544551763-46a013bb70d5') },
+  { name: 'גבעות ירוקות בערפל', url: COVER_U('photo-1470071459604-3b5ec3a7fe05') },
 ];
 
 // location-specific covers may only be used when the trip actually goes there
@@ -193,6 +271,34 @@ const COVER_TAGS = {
   'רחוב ניאון יפני בלילה': ['יפן', 'טוקיו', 'אוסקה', 'קיוטו', 'japan', 'tokyo'],
   'מגדל אייפל ופריז': ['פריז', 'צרפת', 'paris', 'france'],
   'סנטוריני — בתים לבנים וים': ['סנטוריני', 'יוון', 'santorini', 'greece'],
+  'סירות תאילנדיות על חוף טרופי': ['תאילנד', 'פוקט', 'קראבי', 'קו פנגן', 'קוסמוי', 'בנגקוק', 'thailand'],
+  'ניו יורק — טיימס סקוור': ['ניו יורק', 'ניו-יורק', 'ארה"ב', 'new york', 'usa'],
+  'לונדון — גשר המצודה והתמזה': ['לונדון', 'אנגליה', 'בריטניה', 'london', 'england'],
+  'ברצלונה מלמעלה — סגרדה פמיליה': ['ברצלונה', 'ספרד', 'barcelona', 'spain'],
+  'תעלות אמסטרדם': ['אמסטרדם', 'הולנד', 'amsterdam', 'netherlands'],
+  'קו הרקיע של דובאי': ['דובאי', 'איחוד האמירויות', 'dubai'],
+  // the same yellow trams run in Porto, so the whole country qualifies
+  'חשמלית צהובה בליסבון': ['ליסבון', 'פורטו', 'פורטוגל', 'lisbon', 'porto', 'portugal'],
+  'מפרץ הא לונג — סלעים וסירות': ['וייטנאם', 'האנוי', 'הא לונג', 'vietnam', 'hanoi'],
+  'טביליסי בשקיעה': ['גיאורגיה', 'טביליסי', 'בטומי', 'georgia', 'tbilisi'],
+  'בודפשט והדנובה מלמעלה': ['בודפשט', 'הונגריה', 'budapest', 'hungary'],
+  'פראג — גשר קארל והטירה': ['פראג', "צ'כיה", 'צכיה', 'prague', 'czech'],
+  'ברלין — שער ברנדנבורג': ['ברלין', 'גרמניה', 'berlin', 'germany'],
+  'סוואנה אפריקאית בשקיעה': ['טנזניה', 'קניה', 'זנזיבר', 'דרום אפריקה', 'נמיביה', 'אוגנדה', 'ספארי', 'tanzania', 'kenya', 'safari', 'africa'],
+  'ירושלים — כיפת הסלע': ['ישראל', 'ירושלים', 'israel', 'jerusalem'],
+  'וינה — קתדרלת שטפן': ['וינה', 'אוסטריה', 'vienna', 'austria'],
+  'באלי — מקדש על המים': ['באלי', 'אינדונזיה', 'bali', 'indonesia'],
+  'קסבה מרוקאית ונאות דקלים': ['מרוקו', 'מרקש', 'morocco', 'marrakesh'],
+  'קניון ירוק באיסלנד': ['איסלנד', 'רייקיאוויק', 'iceland'],
+  'רכבת בין ג׳ונגלים בסרי לנקה': ['סרי לנקה', 'סרי-לנקה', 'sri lanka'],
+  'האקרופוליס באתונה': ['אתונה', 'יוון', 'athens', 'greece'],
+  'מאצ׳ו פיצ׳ו בעננים': ["מאצ'ו", 'מאצו', 'פרו', 'קוסקו', 'peru', 'machu'],
+  'הטאג׳ מהאל': ['הודו', 'אגרה', 'דלהי', 'india', 'agra', 'delhi'],
+  'כדורים פורחים בקפדוקיה': ['קפדוקיה', 'טורקיה', 'תורכיה', 'cappadocia', 'turkey'],
+  // named by what they show, targeted by tags: the reef serves the Red Sea trips,
+  // the green hills serve the Israeli north (Golan/Galilee) — no false place claims
+  'שונית אלמוגים וצוללנים': ['אילת', 'ים סוף', 'סיני', 'טאבה', 'eilat', 'sinai'],
+  'גבעות ירוקות בערפל': ['רמת הגולן', 'גולן', 'גליל', 'כנרת', 'טבריה', 'צפת', 'חרמון', 'ישראל', 'israel', 'golan', 'galilee'],
 };
 function validateCoverChoice(chosenName, dests) {
   const hay = dests.map((d) => `${d.name} ${d.country || ''}`).join(' ').toLowerCase();
@@ -294,6 +400,10 @@ async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers }
 
 // one OpenAI call for ONE area and a fixed day range — the shape that stays coherent
 async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, answers, transferFrom }) {
+  // a long block asks the model to hold 9+ days of a single area coherent in one
+  // generation — the weak model starts thinning out days or repeating stops there
+  const blockDays = to - from + 1;
+  const model = blockDays > STRONG_MODEL_FROM_DAYS ? AI_MODEL_STRONG : AI_MODEL_WEAK;
   let userMsg =
     `בנה מסלול טיול מפורט לימים ${from} עד ${to} (כולל) באזור "${area}" בלבד, מתוך טיול שכולל את: ${destDescFull(dests)}. ` +
     `כל התחנות חייבות להיות באזור "${area}" ובשדה area לכתוב בדיוק "${area}". ` +
@@ -332,6 +442,7 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
     schemaName: 'itinerary',
     maxTokens: 10000,
     timeoutMs: 90000,
+    model,
     required: true, // the itinerary is the product — a failed block fails the build
     schema: {
       type: 'object',
@@ -425,19 +536,29 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
     const areaNames = dests.map((d) => d.name);
     if (area && !areaNames.includes(area)) return res.status(400).json({ error: 'אזור לא מוכר' });
 
-    // clarifying-questions round: only for full multi-area builds, only when the
-    // client hasn't been through it yet (answers absent, even as an empty array).
-    // Doesn't consume the daily quota.
+    // clarifying-questions round: for full multi-area builds, or for a single broad
+    // destination — a country pick (name === country) or unclassified free text —
+    // where the days may not stretch across it. Only when the client hasn't been
+    // through it yet (answers absent, even as an empty array). No daily quota cost.
     const answerList = Array.isArray(answers)
       ? answers.slice(0, 4).map((a) => ({
           question: String(a?.question || '').slice(0, 160),
-          answer: String(a?.answer || '').slice(0, 160),
+          answer: String(a?.answer || '').slice(0, 240), // a multi answer carries several regions
+          // the options actually ticked, so the build can tell them from typed text
+          picked: (Array.isArray(a?.picked) ? a.picked : [])
+            .slice(0, 5).map((p) => String(p).slice(0, 60).trim()).filter(Boolean),
         })).filter((a) => a.question && a.answer)
       : null;
-    if (!area && dests.length >= 2 && answerList === null) {
+    const broadSingle = dests.length === 1 && (!dests[0].country || dests[0].country === dests[0].name);
+    if (!area && (dests.length >= 2 || broadSingle) && answerList === null) {
       const questions = await aiClarify({ dests, from, to, interestList, freeText });
       if (questions.length) return res.json({ questions });
     }
+
+    // regions the traveller chose to combine stand in for destinations while building,
+    // so a one-country trip gets the same contiguous blocks and transfer stops as a
+    // multi-city one. The trip's own destination list is untouched.
+    const buildDests = (broadSingle && !area && combinedRegionDests(dests, answerList)) || dests;
 
     // build the per-area blocks: a single requested area, or an AI-decided
     // allocation (order + days per city). The AI plans; the server only verifies
@@ -445,11 +566,11 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
     let blocks;
     if (area) {
       blocks = [{ dest: dests.find((d) => d.name === area), from, to }];
-    } else if (dests.length === 1) {
-      blocks = [{ dest: dests[0], from, to }];
+    } else if (buildDests.length === 1) {
+      blocks = [{ dest: buildDests[0], from, to }];
     } else {
-      blocks = await aiPlanBlocks({ dests, from, to, interestList, freeText, answers: answerList })
-        || allocateDays(orderByProximity(dests), from, to);
+      blocks = await aiPlanBlocks({ dests: buildDests, from, to, interestList, freeText, answers: answerList })
+        || allocateDays(orderByProximity(buildDests), from, to);
     }
 
     const wantMeta = want_description || req.body.want_meta;
@@ -460,7 +581,7 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
     const [results, meta] = await Promise.all([
       Promise.all(blocks.map((b, i) =>
         aiGenerateBlock({
-          dests,
+          dests: buildDests,
           area: b.dest.name,
           from: b.from,
           to: b.to,

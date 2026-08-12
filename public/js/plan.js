@@ -310,8 +310,8 @@
         <h2>שאלה קטנה לפני שבונים 🧭</h2>
         <p class="modal-sub">התשובה תעזור ל-AI לסדר את הטיול נכון — ואפשר גם לדלג</p>
         ${questions.map((q, i) => `
-          <div class="field aiq" data-i="${i}" data-q="${TRIPI.esc(q.question)}">
-            <label>${TRIPI.esc(q.question)}</label>
+          <div class="field aiq" data-i="${i}" data-q="${TRIPI.esc(q.question)}"${q.multi ? ' data-multi="1"' : ''}>
+            <label>${TRIPI.esc(q.question)}${q.multi ? ' <small>(אפשר לבחור כמה)</small>' : ''}</label>
             ${q.type === 'choice'
               ? `<div class="aiq-opts">${q.options.map((o) => `<button type="button" class="day-tab aiq-opt">${TRIPI.esc(o)}</button>`).join('')}<button type="button" class="day-tab aiq-opt aiq-other">אחר…</button></div>
                  <input type="text" class="aiq-text aiq-other-text" maxlength="120" placeholder="ספרו במילים שלכם (עד 15 מילים)…" hidden>`
@@ -330,26 +330,38 @@
     };
     wrap.querySelectorAll('.aiq-text').forEach((inp) => inp.addEventListener('input', () => clampWords(inp)));
     wrap.querySelectorAll('.aiq-opts').forEach((opts) => {
-      const otherText = opts.parentElement.querySelector('.aiq-other-text');
+      const field = opts.parentElement;
+      const otherText = field.querySelector('.aiq-other-text');
+      // "which regions to combine" lets several chips stay lit; every other
+      // question is a pick-one, where a new choice replaces the previous
+      const multi = field.dataset.multi === '1';
       opts.querySelectorAll('.aiq-opt').forEach((b) => {
         b.onclick = () => {
-          opts.querySelectorAll('.aiq-opt').forEach((x) => x.classList.remove('active'));
-          b.classList.add('active');
-          // "אחר" opens a free-text field; picking a regular option tucks it away
-          const isOther = b.classList.contains('aiq-other');
-          otherText.hidden = !isOther;
-          if (isOther) otherText.focus();
+          if (multi) b.classList.toggle('active');
+          else {
+            opts.querySelectorAll('.aiq-opt').forEach((x) => x.classList.remove('active'));
+            b.classList.add('active');
+          }
+          // "אחר" opens a free-text field; dropping it tucks the field away again
+          const other = opts.querySelector('.aiq-other');
+          otherText.hidden = !other.classList.contains('active');
+          if (!otherText.hidden && b === other) otherText.focus();
         };
       });
     });
     const finish = (collect) => {
       const answers = collect
         ? [...wrap.querySelectorAll('.aiq')].map((f) => {
-            const act = f.querySelector('.aiq-opt.active');
-            const answer = act?.classList.contains('aiq-other')
-              ? f.querySelector('.aiq-other-text').value.trim()
-              : act?.textContent || f.querySelector('.aiq-text:not([hidden])')?.value.trim() || '';
-            return { question: f.dataset.q, answer };
+            // a multi question can contribute several chips plus the "אחר" text;
+            // a single one has at most one chip, so the same join covers both
+            const picked = [...f.querySelectorAll('.aiq-opt.active:not(.aiq-other)')].map((b) => b.textContent);
+            const parts = [...picked];
+            if (f.querySelector('.aiq-other.active')) parts.push(f.querySelector('.aiq-other-text').value.trim());
+            const answer = parts.filter(Boolean).join(', ')
+              || f.querySelector('.aiq-text:not(.aiq-other-text)')?.value.trim() || '';
+            // `picked` stays separate from the answer text: the server splits a trip
+            // into areas by the options ticked, and typed text is never an area
+            return { question: f.dataset.q, answer, picked };
           }).filter((a) => a.answer)
         : [];
       wrap.remove();
@@ -390,7 +402,11 @@
           if (res.meta.emoji) aiMeta.emoji = res.meta.emoji;
           if (res.meta.cover_image) aiMeta.cover_image = res.meta.cover_image;
         }
+        // title FIRST, off the destination the traveller actually typed ("טיול ליפן") —
+        // the region swap below would otherwise retitle the trip after its own areas
         if (!titleInput.value.trim()) autoTitle();
+        const regions = await regionDestinations(res.plan, payload.answers);
+        if (regions) { destinations = regions; renderChips(); }
         // the build IS the creation: persist as a draft and land on the real trip
         // page in edit mode. The overlay stays up through the save + navigation.
         document.getElementById('ai-overlay-sub').textContent = 'שומרים את הטיול… ✈️';
@@ -413,6 +429,36 @@
   document.getElementById('ai-full').onclick = fullBuild; // step 3 primary CTA
 
   // ---- create (as a draft) ----
+
+  // A one-country trip the traveller split into regions is really a trip to those
+  // regions: promoting them to destinations is what makes the trip page show area
+  // badges and scope its per-area AI edits. Order follows the AI's plan, not the
+  // order the chips were ticked. Coordinates come from the first city in each
+  // option's "(city, city)" hint — the region label itself geocodes to nothing, or
+  // worse: "קנטו" resolves to Cork, Ireland.
+  async function regionDestinations(plan, answers) {
+    if (destinations.length !== 1 || !Array.isArray(plan) || plan.length < 2) return null;
+    const picked = (answers || []).find((a) => (a.picked || []).length >= 2)?.picked;
+    if (!picked) return null;
+    const base = destinations[0];
+    const bare = (s) => s.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    const out = [];
+    for (const b of plan) {
+      const label = picked.find((p) => bare(p) === b.area);
+      if (!label) return null; // the plan named an area nobody ticked — leave it alone
+      const city = (label.match(/\(([^)]*)\)\s*$/)?.[1] || '').split(',')[0].trim();
+      const hit = city ? (await GEO.searchPlaces(city).catch(() => []))[0] : null;
+      out.push({
+        name: b.area,
+        country: base.country || base.name,
+        lat: hit ? hit.lat : base.lat, // the country centroid still beats no map at all
+        lon: hit ? hit.lon : base.lon,
+        cc: base.cc,
+      });
+    }
+    return out;
+  }
+
   function buildTripPayload(builtItems) {
     const days = +daysSel.value;
     const start = startInput.value || null;
