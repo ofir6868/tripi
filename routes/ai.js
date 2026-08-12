@@ -598,12 +598,14 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
         `אם התבקשה בנייה מחדש — החלף את כל התחנות בטווח (מחיקות + הוספות), 3-4 תחנות ליום בסדר כרונולוגי.`;
     }
 
-    // 3 AI edits a day per user (editing requires login, so req.user is always set here)
+    // 3 AI edits a day per user (editing requires login, so req.user is always set here).
+    // admins still get counted, but are never capped — same rule as /api/ai/itinerary
     const quotaKey = 'u' + req.user.id;
     const today = new Date().toISOString().slice(0, 10);
     const usage = aiEditUsage.get(quotaKey);
     const used = usage && usage.date === today ? usage.count : 0;
-    if (used >= AI_EDIT_DAILY_LIMIT) {
+    const admin = await isAdmin(req);
+    if (used >= AI_EDIT_DAILY_LIMIT && !admin) {
       return res.status(429).json({ error: 'ניצלתם את שלושת שינויי ה-AI להיום — אפשר להמשיך לערוך ידנית, או לנסות שוב מחר' });
     }
 
@@ -686,7 +688,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
       summary: result.summary || 'בוצע',
       added, updated, removed,
       items: fresh.rows,
-      remaining: AI_EDIT_DAILY_LIMIT - used - 1,
+      remaining: admin ? null : AI_EDIT_DAILY_LIMIT - used - 1, // null = unlimited (admin)
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
