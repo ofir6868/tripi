@@ -405,7 +405,7 @@
         // title FIRST, off the destination the traveller actually typed ("טיול ליפן") —
         // the region swap below would otherwise retitle the trip after its own areas
         if (!titleInput.value.trim()) autoTitle();
-        const regions = await regionDestinations(res.plan, payload.answers);
+        const regions = await regionDestinations(res.plan);
         if (regions) { destinations = regions; renderChips(); }
         // the build IS the creation: persist as a draft and land on the real trip
         // page in edit mode. The overlay stays up through the save + navigation.
@@ -430,23 +430,19 @@
 
   // ---- create (as a draft) ----
 
-  // A one-country trip the traveller split into regions is really a trip to those
-  // regions: promoting them to destinations is what makes the trip page show area
-  // badges and scope its per-area AI edits. Order follows the AI's plan, not the
-  // order the chips were ticked. Coordinates come from the first city in each
-  // option's "(city, city)" hint — the region label itself geocodes to nothing, or
-  // worse: "קנטו" resolves to Cork, Ireland.
-  async function regionDestinations(plan, answers) {
+  // A one-country trip is built as areas — the ones the traveller ticked, or the ones
+  // the AI broke the country into — and those areas ARE the trip: promoting them to
+  // destinations is what gives the trip page its area badges and per-area AI scope.
+  // The server reports them in `plan`, already ordered. Coordinates come from the
+  // cities it names alongside each one: a region label on its own geocodes to nothing,
+  // or worse — "קנטו" resolves to Cork, Ireland.
+  async function regionDestinations(plan) {
     if (destinations.length !== 1 || !Array.isArray(plan) || plan.length < 2) return null;
-    const picked = (answers || []).find((a) => (a.picked || []).length >= 2)?.picked;
-    if (!picked) return null;
     const base = destinations[0];
-    const bare = (s) => s.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    if (plan.every((b) => b.area === base.name)) return null;
     const out = [];
     for (const b of plan) {
-      const label = picked.find((p) => bare(p) === b.area);
-      if (!label) return null; // the plan named an area nobody ticked — leave it alone
-      const city = (label.match(/\(([^)]*)\)\s*$/)?.[1] || '').split(',')[0].trim();
+      const city = (b.cities || [])[0];
       const hit = city ? (await GEO.searchPlaces(city).catch(() => []))[0] : null;
       out.push({
         name: b.area,

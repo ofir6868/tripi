@@ -13,6 +13,9 @@ const AI_MODEL_STRONG = process.env.AI_MODEL_STRONG || 'gpt-4o'; // used where t
 // from this many days on, a single broad destination is asked which regions to
 // COMBINE (multi-select) rather than which one to focus on
 const COMBINE_REGIONS_FROM_DAYS = 10;
+// how many days one area is worth when the server splits a country by itself —
+// keeps a short trip in one place and a long one moving at a human pace
+const DAYS_PER_REGION = 5;
 // a block (or single-area trip) at least this long needs the strong model — from this
 // length on the weak model starts thinning out days or repeating stops
 const STRONG_MODEL_FROM_DAYS = 6;
@@ -56,6 +59,9 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
     const data = await aiRes.json();
     return JSON.parse(data.choices[0].message.content);
   } catch (err) {
+    // a silent null here is hard to tell apart from "the AI had nothing to say" —
+    // a transient `fetch failed` once cost an hour of blaming the prompt
+    console.error(`OpenAI ${schemaName} failed`, err.name, err.cause ? (err.cause.code || err.cause.message) : err.message);
     if (required) throw err;
     return null;
   } finally {
@@ -119,25 +125,78 @@ function distancesText(dests) {
   return pairs.length ? `\nמרחקים אוויריים משוערים בין היעדים: ${pairs.join(' | ')}.` : '';
 }
 
-// When the traveller ticked several regions of one country, those regions ARE the
-// trip's areas: promoting them to destinations hands them to the same day-allocation
-// and transfer-stop machinery a real multi-city trip uses, so the days come out
-// contiguous per region instead of ping-ponging. The trip itself still belongs to
-// the country the traveller picked — only the build sees the regions.
-// Only ticked options count (`picked`), never the answer text: free text with commas
-// in it ("אוהבים אוכל רחוב, קצב רגוע") would otherwise become three imaginary areas.
-function combinedRegionDests(dests, answerList) {
-  if (dests.length !== 1 || !answerList) return null;
-  const base = dests[0];
-  const combined = answerList.find((a) => a.picked.length >= 2);
-  if (!combined) return null;
-  const names = [...new Set(
-    combined.picked
-      .map((p) => p.replace(/\s*\([^)]*\)\s*$/, '').trim()) // drop the "(city, city)" hint
-      .filter((n) => n && n !== base.name)
-  )];
-  if (names.length < 2) return null;
-  return names.slice(0, 5).map((name) => ({ name, country: base.country || base.name, lat: null, lon: null }));
+// A country trip is always built as areas, never as one undivided country. Areas are
+// what the day allocation, the transfer stops and the calendar's day headers hang on,
+// and each area is its own generation call — a 22-day country built in one call thins
+// out and repeats itself. One area is a legitimate answer for a short trip.
+// Regions come from the traveller when they picked some, and from the AI when they
+// skipped the question or never saw it.
+
+// the ticked options, split into name + the cities the option named. Only `picked`
+// counts, never the answer text: free text with commas in it ("אוהבים אוכל רחוב,
+// קצב רגוע") would otherwise become three imaginary areas with train rides between.
+function regionsFromPicked(base, answerList) {
+  const answer = (answerList || []).find((a) => a.picked.length);
+  if (!answer) return null;
+  const seen = new Set();
+  const regions = [];
+  for (const label of answer.picked) {
+    const name = label.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    if (!name || name === base.name || seen.has(name)) continue;
+    seen.add(name);
+    const hint = label.match(/\(([^)]*)\)\s*$/)?.[1] || '';
+    regions.push({ name, cities: hint.split(',').map((c) => c.trim()).filter(Boolean).slice(0, 3) });
+  }
+  return regions.length ? regions.slice(0, 5) : null;
+}
+
+// the fallback: the AI names the areas for a country nobody split by hand. HOW MANY
+// is the server's call — roughly a region per 5 days — because the model doesn't
+// weigh it sanely on its own: asked to split 4 days in Japan it returned Kyoto, Kobe
+// and Osaka, a move a day, which is the very thing areas exist to prevent.
+async function aiCountryRegions({ dest, from, to, interestList, freeText, answers }) {
+  const days = to - from + 1;
+  const want = Math.min(5, Math.max(1, Math.floor(days / DAYS_PER_REGION)));
+  const call = () => aiJson({
+    system: 'אתה מתכנן טיולים מומחה. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
+    user:
+      `טיול של ${days} ימים ב${destDescFull([dest])}.` +
+      tripPrefsText({ interestList, freeText, answers }) +
+      `\nחלק את הטיול ל-${want} ${want === 1 ? 'אזור גיאוגרפי' : 'אזורים גיאוגרפיים'} בדיוק, לפי סדר ביקור הגיוני. ` +
+      `לכל אזור שם מוכר בעברית ו-2–3 ערים מרכזיות שנמצאות בו${want === 1 ? ' — האזור שהכי שווה לראות ב-' + days + ' ימים' : ''}.`,
+    schemaName: 'trip_regions',
+    maxTokens: 400,
+    model: AI_MODEL_STRONG, // region names in Hebrew are exactly where the weak model invents places
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['regions'],
+      properties: {
+        regions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['name', 'cities'],
+            properties: {
+              name: { type: 'string' },
+              cities: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+      },
+    },
+  });
+  // one retry: this call decides whether a long trip is built area-by-area or as one
+  // sprawling block, and a transient network blip is a poor reason to lose that
+  const parsed = (await call()) || (await call());
+  const regions = ((parsed && parsed.regions) || [])
+    .map((r) => ({
+      name: String(r.name || '').slice(0, 60).trim(),
+      cities: (r.cities || []).slice(0, 3).map((c) => String(c).slice(0, 60).trim()).filter(Boolean),
+    }))
+    .filter((r) => r.name);
+  return regions.length ? regions.slice(0, want) : null;
 }
 
 // shared trip-context suffix for AI prompts
@@ -555,10 +614,19 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
       if (questions.length) return res.json({ questions });
     }
 
-    // regions the traveller chose to combine stand in for destinations while building,
-    // so a one-country trip gets the same contiguous blocks and transfer stops as a
-    // multi-city one. The trip's own destination list is untouched.
-    const buildDests = (broadSingle && !area && combinedRegionDests(dests, answerList)) || dests;
+    // a country is always built as areas: the ones the traveller ticked, or — when they
+    // skipped the question or never saw it — the ones the AI breaks it into. They stand
+    // in for destinations while building, so a one-country trip gets the same contiguous
+    // blocks and transfer stops as a multi-city one. The trip's own destination list
+    // is untouched; only the response's `plan` reports the areas back.
+    const regions = broadSingle && !area
+      ? (regionsFromPicked(dests[0], answerList)
+        || await aiCountryRegions({ dest: dests[0], from, to, interestList, freeText, answers: answerList }))
+      : null;
+    const regionCities = new Map((regions || []).map((r) => [r.name, r.cities]));
+    const buildDests = regions
+      ? regions.map((r) => ({ name: r.name, country: dests[0].country || dests[0].name, lat: null, lon: null }))
+      : dests;
 
     // build the per-area blocks: a single requested area, or an AI-decided
     // allocation (order + days per city). The AI plans; the server only verifies
@@ -601,7 +669,11 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
     aiUsage.set(req.user.id, { date: today, count: used + 1 });
     res.json({
       items,
-      plan: blocks.map((b) => ({ area: b.dest.name, from: b.from, to: b.to })),
+      // cities ride along so the client can place an area on the map — a region name
+      // on its own geocodes to nothing, or to the wrong continent
+      plan: blocks.map((b) => ({
+        area: b.dest.name, from: b.from, to: b.to, cities: regionCities.get(b.dest.name) || [],
+      })),
       meta,
       description: meta ? meta.description : null, // back-compat
     });
