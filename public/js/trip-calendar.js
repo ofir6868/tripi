@@ -568,5 +568,7 @@ const TripCalendar = (() => {
     ((focusSel && body.querySelector(focusSel)) || body.querySelector('.se-title')).focus();
   }
 
-  return { render, exitFull };
+  // openStop/openNewStop are shared with the list view — the stop sheet is the ONE
+  // details/edit surface for a stop, whichever view it was tapped in
+  return { render, exitFull, openStop, openNewStop };
 })();

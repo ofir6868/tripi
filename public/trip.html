@@ -98,26 +98,6 @@
       <div class="trip-desc glass" id="trip-desc">
         <div class="skl-desc"><span class="skl"></span><span class="skl short"></span></div>
       </div>
-      <div class="ai-edit-card glass" id="ai-edit-card" style="display:none">
-        <div class="ai-edit-head">
-          <span class="ai-edit-title">✨ שינוי חכם במסלול</span>
-        </div>
-        <p class="ai-edit-sub">כותבים מה לשנות — וה-AI מעדכן את התחנות. למשל: "תוסיף אוכל רחוב ביום 2" או "תוריד את המוזיאונים"</p>
-        <form class="ai-edit-row" id="ai-edit-form">
-          <input type="text" id="ai-edit-input" maxlength="200" placeholder="מה לשנות בטיול?" autocomplete="off">
-          <button type="submit" class="btn btn-amber" id="ai-edit-btn">בצעו ✨</button>
-        </form>
-        <div class="ai-edit-scope" id="trip-ai-scope" style="display:none">
-          <label for="trip-ai-area">איפה להחיל?</label>
-          <select id="trip-ai-area"><option value="">כל הטיול</option></select>
-          <span class="range-row" id="trip-ai-range" style="display:none">
-            ימים <input id="trip-ai-from" type="number" min="1" value="1" inputmode="numeric"> עד
-            <input id="trip-ai-to" type="number" min="1" value="2" inputmode="numeric">
-          </span>
-        </div>
-        <div class="ai-edit-foot"><span id="ai-edit-count">0/200</span></div>
-        <div class="ai-edit-result" id="ai-edit-result" hidden></div>
-      </div>
       <!-- list / calendar switch — short trips only; a long trip is calendar-only -->
       <div class="view-toggle" id="view-toggle" style="display:none"></div>
       <!-- itinerary placeholder: the real day / timeline / stop shapes, so the
@@ -168,6 +148,28 @@
             </div>
           </div>
         </div>
+      </div>
+      <!-- the AI editor sits BELOW the itinerary: first you read what was built,
+           then you say what to change. The 3-day list fold keeps it within reach. -->
+      <div class="ai-edit-card glass" id="ai-edit-card" style="display:none">
+        <div class="ai-edit-head">
+          <span class="ai-edit-title">✨ שינוי חכם במסלול</span>
+        </div>
+        <p class="ai-edit-sub">כותבים מה לשנות — וה-AI מעדכן את התחנות. למשל: "תוסיף אוכל רחוב ביום 2" או "תוריד את המוזיאונים"</p>
+        <form class="ai-edit-row" id="ai-edit-form">
+          <input type="text" id="ai-edit-input" maxlength="200" placeholder="מה לשנות בטיול?" autocomplete="off">
+          <button type="submit" class="btn btn-amber" id="ai-edit-btn">בצעו ✨</button>
+        </form>
+        <div class="ai-edit-scope" id="trip-ai-scope" style="display:none">
+          <label for="trip-ai-area">איפה להחיל?</label>
+          <select id="trip-ai-area"><option value="">כל הטיול</option></select>
+          <span class="range-row" id="trip-ai-range" style="display:none">
+            ימים <input id="trip-ai-from" type="number" min="1" value="1" inputmode="numeric"> עד
+            <input id="trip-ai-to" type="number" min="1" value="2" inputmode="numeric">
+          </span>
+        </div>
+        <div class="ai-edit-foot"><span id="ai-edit-count">0/200</span></div>
+        <div class="ai-edit-result" id="ai-edit-result" hidden></div>
       </div>
     </main>
     <aside class="trip-side">
@@ -245,6 +247,8 @@
   <script src="/js/geo.js"></script>
   <script src="/js/countries.js"></script>
   <script src="/js/push.js"></script>
+  <script src="/js/webmcp.js"></script>
+  <script src="/js/webmcp-tools.js"></script>
   <script src="/js/trip-modals.js"></script>
   <script src="/js/trip-calendar.js"></script>
   <script src="/js/trip.js"></script>

@@ -565,6 +565,26 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 }
 
 .day-block { margin-top: 26px; }
+
+/* list fold: trips over 3 days open on a 3-day teaser — day 3 melts out and a
+   reveal button brings the rest, keeping the AI editor below within easy reach */
+.day-folded { display: none; }
+.day-fade {
+  mask-image: linear-gradient(to bottom, #000 40%, transparent 96%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 40%, transparent 96%);
+}
+.show-rest-btn {
+  display: block; width: 100%; margin-top: 4px; padding: 13px;
+  background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
+  color: var(--amber); font-family: var(--font-body); font-weight: 700; font-size: .95rem;
+  cursor: pointer; transition: background .15s ease, border-color .15s ease;
+}
+.show-rest-btn:hover { background: var(--glass-strong); border-color: rgba(255, 180, 95, .45); }
+@media print {
+  .day-folded { display: block; }
+  .day-fade { mask-image: none; -webkit-mask-image: none; }
+  .show-rest-btn { display: none; }
+}
 .day-title {
   font-family: var(--font-display); font-size: 1.4rem;
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
@@ -926,55 +946,13 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 .ai-status.error { color: var(--danger); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 
-/* expandable stops: chevron + details + exact mini map */
-/* ---------- expandable stop card ---------- */
+/* ---------- stop cards + the shared stop sheet ---------- */
 
-.item-chevron {
-  color: var(--paper-dim); font-size: .85rem; cursor: pointer; user-select: none;
-  transition: transform .25s ease; margin-inline-start: 4px;
-}
-.expanded .item-chevron, .item-card.expanded .item-chevron { transform: rotate(180deg); color: var(--amber); }
 .item-top > .item-del { margin-inline-start: 0; }
-.item-card.expandable .item-top { cursor: pointer; }
-.item-card.expandable { transition: border-color .25s ease, background .25s ease; }
-.item-card.expandable:hover { border-color: rgba(255, 180, 95, .28); }
-.item-card.expanded { border-color: rgba(255, 180, 95, .42); background: rgba(255, 180, 95, .045); }
-.item-card.expanded::before { box-shadow: 0 0 0 5px rgba(255, 180, 95, .26); }
+/* the whole card is one tap target — it opens the stop sheet (same as the calendar) */
+.item-card.tappable { cursor: pointer; transition: border-color .25s ease, background .25s ease; }
+.item-card.tappable:hover { border-color: rgba(255, 180, 95, .28); }
 
-/* the affordance line — reads as a hint when closed, a close action when open */
-.item-expand-btn {
-  display: flex; align-items: center; gap: 7px; width: 100%; margin-top: 10px; padding: 7px 0 0;
-  background: none; border: none; border-top: 1px solid var(--glass-border);
-  color: var(--paper-dim); font-family: var(--font-body); font-size: .84rem; font-weight: 700;
-  cursor: pointer; text-align: start; transition: color .2s ease;
-}
-.item-expand-btn::before { content: '🗺'; font-size: .95rem; filter: grayscale(.4); transition: filter .2s ease; }
-.item-card.expandable:hover .item-expand-btn,
-.item-card.expanded .item-expand-btn { color: var(--amber); }
-.item-card.expandable:hover .item-expand-btn::before,
-.item-card.expanded .item-expand-btn::before { filter: none; }
-.item-card.expanded .item-expand-btn::before { content: '✕'; font-size: .8rem; }
-/* caret lives inside the button, so it never competes with the row's controls */
-.ieb-caret {
-  margin-inline-start: auto; font-size: .7rem; line-height: 1; color: inherit;
-  transition: transform .28s cubic-bezier(.2, .8, .3, 1);
-}
-.item-card.expanded .ieb-caret { transform: rotate(180deg); }
-
-/* smooth open/close: 0fr → 1fr animates to the content's natural height */
-.item-more-wrap {
-  display: grid; grid-template-rows: 0fr;
-  transition: grid-template-rows .32s cubic-bezier(.2, .8, .3, 1);
-}
-.item-card.expanded .item-more-wrap { grid-template-rows: 1fr; }
-.item-more-wrap > .item-more { overflow: hidden; min-height: 0; }
-.item-more {
-  padding: 12px 14px; border: 1px solid var(--glass-border); border-top: none;
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm); background: rgba(6, 13, 11, .4);
-  animation: pop .25s cubic-bezier(.2, .9, .3, 1.1);
-}
-.item-card .item-more { border: none; background: transparent; padding: 0; animation: none; }
-.item-card.expanded .item-more { padding: 12px 0 2px; }
 .item-more-place {
   display: flex; align-items: flex-start; gap: 7px; margin-bottom: 10px;
   padding: 8px 11px; border-radius: 10px;
@@ -1059,14 +1037,6 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 .skl-stop-cat { width: 54px; height: 25px; border-radius: 999px; }
 .skl-stop-note { width: 78%; height: 13px; }
 .skl-stop-note.short { width: 52%; }
-/* mirrors .item-expand-btn's border, padding, font and line box, minus the icon */
-.skl-expand {
-  display: block; margin-top: 10px; padding-top: 7px;
-  font-size: .84rem; line-height: 20px; /* the real button's line box, set by its 🗺 icon */
-  border-top: 1px solid var(--glass-border);
-}
-.skl-expand .skl { width: 104px; height: .72em; }
-
 /* calendar placeholder (long trips): the real toolbar, month grid and cell metrics */
 .skl-cal-seg { width: 201px; height: 45px; border-radius: 999px; }
 .skl-cal-title { width: 168px; height: 15px; }
@@ -1403,7 +1373,7 @@ body:has(.join-banner) { padding-bottom: 92px; }
   body::after, .atmosphere, .site-header, .site-footer, .action-bar, .ticket .divider ~ button,
   #wa-share, #copy-code, #copy-link, .copy-feedback, .join-banner, .dest-switcher, #publish-row,
   .map-card, .add-item-inline, .item-del, .inline-item-form,
-  .modal-backdrop, .budget-page, .hero-bg, .hero-veil, .item-expand-btn, .ai-edit-card,
+  .modal-backdrop, .budget-page, .hero-bg, .hero-veil, .ai-edit-card,
   .view-toggle, .cal-toolbar, .cal-day-strip, .cal-hint,
   /* the draft card is an invitation to press "סיום תכנון" — it has no business
      on paper, where nothing can be pressed */
@@ -1448,9 +1418,6 @@ body:has(.join-banner) { padding-bottom: 92px; }
 @media (max-width: 640px) {
   .site-header { top: 10px; right: 10px; left: 10px; padding: 8px 12px; }
   .trip-hero { min-height: 48vh; padding: 100px 16px 28px; }
-  /* edit mode inserts the AI-edit card below, shoving the itinerary further down —
-     shave a bit off the hero so there's a small peek of what's below the fold */
-  .trip-hero.compact { min-height: 38vh; padding-bottom: 18px; }
   .trip-layout { width: calc(100% - 24px); margin-top: 24px; }
   /* keep the description to 2 lines so the itinerary below it is visible without
      scrolling on first paint — "הצג עוד" (below) reveals the rest on demand */

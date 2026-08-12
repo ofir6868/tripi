@@ -277,24 +277,47 @@
       updateAmbient();
     }
 
+    registerTripTools({ trip, state, canEdit, addItem, saveItem, deleteItem, items: () => tripItems });
+
+    // one context for the calendar AND for the stop sheet the list view opens —
+    // the sheet is the single details/edit surface for a stop in both views
+    const calCtx = {
+      trip, state, dayDate, weather: () => weatherByDate,
+      canEdit: editMode,
+      // a stop's own coordinates beat the trip's, so the picker searches near it
+      bias: (it) => ({ lat: it?.lat ?? dests[0]?.lat, lon: it?.lon ?? dests[0]?.lon }),
+      defaultArea: (day) => (multiDest() ? defaultAreaForDay(day) : tripDests[0]?.name || null),
+      saveItem, addItem, deleteItem,
+    };
+
     // every existing call site funnels through here, so both views stay fresh
     function renderItinerary() {
       if (!longTrip) {
         viewToggle.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === viewMode));
       }
       if (viewMode === 'calendar') {
-        TripCalendar.render(container, {
-          trip, state, dayDate, weather: () => weatherByDate,
-          canEdit: editMode,
-          // a stop's own coordinates beat the trip's, so the picker searches near it
-          bias: (it) => ({ lat: it?.lat ?? dests[0]?.lat, lon: it?.lon ?? dests[0]?.lon }),
-          defaultArea: (day) => (multiDest() ? defaultAreaForDay(day) : tripDests[0]?.name || null),
-          saveItem, addItem, deleteItem,
-        });
+        TripCalendar.render(container, calCtx);
         return;
       }
       TripCalendar.exitFull(); // the list can't live inside the fullscreen calendar
       renderListView();
+    }
+
+    // lists longer than 2 days start folded — day 2 fades out into a reveal
+    // button — so the page ends near the AI editor instead of ten screens down
+    let listExpanded = false;
+    function applyListCollapse() {
+      const blocks = [...container.querySelectorAll('.day-block')];
+      if (listExpanded || blocks.length <= 2) return;
+      blocks.slice(2).forEach((b) => b.classList.add('day-folded'));
+      blocks[1].classList.add('day-fade');
+      const rest = blocks.length - 2;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'show-rest-btn';
+      btn.textContent = rest === 1 ? '▾ לכל המסלול — עוד יום אחד' : `▾ לכל המסלול — עוד ${rest} ימים`;
+      btn.onclick = () => { listExpanded = true; renderItinerary(); };
+      container.appendChild(btn);
     }
 
     function renderListView() {
@@ -330,12 +353,11 @@
             `<span class="day-hotel ${l.cls}">${l.html}</span>`).join('')}</div>` : ''}
           <div class="timeline">
             ${byDay.get(day).map((it) => {
-              const hasMap = !!(it.place_query || (it.lat != null && it.lon != null));
-              const expandable = hasMap || editMode; // edit mode: every stop opens, to edit its location
               const isTravel = it.category === 'נסיעה';
               return `
-              <div class="item-card glass${expandable ? ' expandable' : ''}${isTravel ? ' travel' : ''}"
-                ${isTravel ? `data-ticon="${TripModals.travelIcon(it)}"` : ''} data-item-id="${it.id}">
+              <div class="item-card glass tappable${isTravel ? ' travel' : ''}"
+                ${isTravel ? `data-ticon="${TripModals.travelIcon(it)}"` : ''} data-item-id="${it.id}"
+                role="button" tabindex="0" title="לחיצה לפרטי התחנה">
                 <div class="item-top">
                   ${it.time_label ? `<span class="item-time">${TRIPI.esc(it.time_label)}</span>` : ''}
                   <span class="item-title">${TRIPI.esc(it.title)}</span>
@@ -347,12 +369,6 @@
                   </span>
                 </div>
                 ${it.note ? `<div class="item-note">${TRIPI.esc(it.note)}</div>` : ''}
-                ${expandable ? `
-                  <button type="button" class="item-expand-btn" aria-expanded="false">
-                    <span class="ieb-text">${editMode ? 'פרטים ועריכת מיקום' : 'מפה ותמונות'}</span>
-                    <span class="ieb-caret" aria-hidden="true">▾</span>
-                  </button>
-                  <div class="item-more-wrap"><div class="item-more"></div></div>` : ''}
               </div>`;
             }).join('')}
             ${byDay.get(day).length === 0 && editMode ? '<div class="empty-day">יום פנוי — מוסיפים תחנה למטה ↓</div>' : ''}
@@ -361,73 +377,17 @@
         </div>`;
       }).join('');
 
-      // click to expand: lazy-load an exact-location mini map inside the card
-      container.querySelectorAll('.item-card.expandable').forEach((card) => {
-        const toggle = (e) => {
+      // a tap anywhere on the card opens the stop sheet — the same details/edit
+      // popover the calendar uses. One surface for a stop, whichever view it's in.
+      container.querySelectorAll('.item-card.tappable').forEach((card) => {
+        const open = (e) => {
           if (e.target.closest('.item-del') || e.target.closest('a')) return;
-          const it = tripItems.find((x) => x.id === +card.dataset.itemId);
-          const more = card.querySelector('.item-more');
-          const btn = card.querySelector('.item-expand-btn');
-          if (card.classList.contains('expanded')) {
-            card.classList.remove('expanded');
-            btn.setAttribute('aria-expanded', 'false');
-            btn.querySelector('.ieb-text').textContent = editMode ? 'פרטים ועריכת מיקום' : 'מפה ותמונות';
-            return;
-          }
-          if (!more.dataset.loaded) {
-            const hasMap = !!(it.place_query || (it.lat != null && it.lon != null));
-            more.innerHTML = `
-              ${it.place_query ? `<div class="item-more-place"><span class="imp-pin">📍</span><span class="imp-text">${TRIPI.esc(it.place_query)}</span></div>` : ''}
-              ${hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPI.mapsEmbedUrlExact(it)}"></iframe>` : ''}
-              ${it.place_query ? '<div class="stop-gallery"></div>' : ''}
-              ${editMode ? `
-                <button type="button" class="edit-loc-btn">📍 ${it.place_query ? 'שינוי מיקום' : 'הוספת מיקום'}</button>
-                <div class="edit-loc-form" hidden>
-                  <input type="text" class="edit-loc-input" maxlength="120" placeholder="הקלידו ובחרו מהרשימה…" autocomplete="off" value="${TRIPI.esc(it.place_query || '')}">
-                  <div style="display:flex;gap:8px;margin-top:8px">
-                    <button type="button" class="btn btn-amber edit-loc-save" style="flex:1;justify-content:center">שמירה</button>
-                    <button type="button" class="btn btn-ghost edit-loc-cancel">ביטול</button>
-                  </div>
-                  <div class="form-error edit-loc-err"></div>
-                </div>` : ''}`;
-            more.dataset.loaded = '1';
-            const gal = more.querySelector('.stop-gallery');
-            if (gal) GEO.renderGallery(gal, it.place_query);
-
-            const locBtn = more.querySelector('.edit-loc-btn');
-            if (locBtn) {
-              const locForm = more.querySelector('.edit-loc-form');
-              const locInput = more.querySelector('.edit-loc-input');
-              const locPicker = GEO.attachPlaceAutocomplete(locInput, {
-                getBias: () => ({ lat: it.lat ?? dests[0]?.lat, lon: it.lon ?? dests[0]?.lon }),
-              });
-              locBtn.onclick = (e) => { e.stopPropagation(); locForm.hidden = false; locBtn.hidden = true; locInput.focus(); };
-              more.querySelector('.edit-loc-cancel').onclick = (e) => { e.stopPropagation(); locForm.hidden = true; locBtn.hidden = false; };
-              more.querySelector('.edit-loc-save').onclick = async (e) => {
-                e.stopPropagation();
-                const saveBtn = e.currentTarget;
-                if (saveBtn.disabled) return;
-                saveBtn.disabled = true;
-                const picked = locPicker.getPicked();
-                try {
-                  await saveItem(it, {
-                    place_query: locInput.value.trim() || null,
-                    lat: picked ? picked.lat : null,
-                    lon: picked ? picked.lon : null,
-                  });
-                } catch (err) {
-                  more.querySelector('.edit-loc-err').textContent = err.message;
-                  saveBtn.disabled = false;
-                }
-              };
-            }
-          }
-          card.classList.add('expanded');
-          btn.setAttribute('aria-expanded', 'true');
-          btn.querySelector('.ieb-text').textContent = 'סגירה';
+          TripCalendar.openStop(calCtx, +card.dataset.itemId);
         };
-        card.querySelector('.item-top').addEventListener('click', toggle);
-        card.querySelector('.item-expand-btn').addEventListener('click', toggle);
+        card.addEventListener('click', open);
+        card.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(e); }
+        });
       });
 
       if (editMode) {
@@ -442,63 +402,10 @@
           };
         });
         container.querySelectorAll('.add-item-inline').forEach((b) => {
-          b.onclick = () => openAddItemForm(+b.dataset.day, b);
+          b.onclick = () => TripCalendar.openNewStop(calCtx, +b.dataset.day);
         });
       }
-    }
-
-    function openAddItemForm(day, anchorBtn) {
-      document.querySelector('.inline-item-form')?.remove();
-      const form = document.createElement('div');
-      form.className = 'inline-item-form glass';
-      form.innerHTML = `
-        <div class="form-grid">
-          <div class="field"><label>שעה</label><input type="time" class="iif-time"></div>
-          <div class="field"><label>קטגוריה</label><select class="iif-cat">
-            <option>אטרקציה</option><option>אוכל</option><option>טבע</option><option>ים</option>
-            <option>תרבות</option><option>קניות</option><option>לינה</option><option>נוף</option>
-            <option>חיי לילה</option><option>נסיעה</option></select></div>
-          <div class="field span-2"><label>מה עושים? *</label><input type="text" class="iif-title" maxlength="120" placeholder="למשל: ארוחת ערב על הגג"></div>
-          ${multiDest() ? `<div class="field span-2"><label>באיזה אזור?</label><select class="iif-area">
-            ${tripDests.map((d) => `<option${d.name === defaultAreaForDay(day) ? ' selected' : ''}>${TRIPI.esc(d.name)}</option>`).join('')}
-          </select></div>` : ''}
-          <div class="field span-2"><label>מיקום (חיפוש מקומות)</label><input type="text" class="iif-place" maxlength="120" placeholder="הקלידו ותבחרו מהרשימה…" autocomplete="off"></div>
-          <div class="field span-2"><label>עלות משוערת (לא חובה)</label><input type="number" min="0" class="iif-cost" placeholder="נכנסת ישר לתקציב"></div>
-        </div>
-        <div class="form-error iif-err"></div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-amber iif-save" style="flex:1;justify-content:center">הוספה</button>
-          <button class="btn btn-ghost iif-cancel">ביטול</button>
-        </div>`;
-      anchorBtn.parentNode.insertBefore(form, anchorBtn);
-      const placeInput = form.querySelector('.iif-place');
-      const picker = GEO.attachPlaceAutocomplete(placeInput, {
-        getBias: () => ({ lat: dests[0]?.lat, lon: dests[0]?.lon }),
-      });
-      form.querySelector('.iif-cancel').onclick = () => form.remove();
-      form.querySelector('.iif-save').onclick = async (ev) => {
-        const saveBtn = ev.currentTarget;
-        if (saveBtn.disabled) return; // double-tap → one stop, not two
-        const title = form.querySelector('.iif-title').value.trim();
-        if (!title) { form.querySelector('.iif-err').textContent = 'צריך לכתוב מה עושים'; return; }
-        saveBtn.disabled = true;
-        try {
-          await addItem({
-            day_number: day,
-            time_label: form.querySelector('.iif-time').value || null,
-            title,
-            category: form.querySelector('.iif-cat').value,
-            place_query: placeInput.value.trim() || null,
-            area: form.querySelector('.iif-area')?.value || tripDests[0]?.name || null,
-            lat: picker.getPicked()?.lat ?? null,
-            lon: picker.getPicked()?.lon ?? null,
-            cost: form.querySelector('.iif-cost').value || null,
-          });
-        } catch (e) {
-          form.querySelector('.iif-err').textContent = e.message;
-          saveBtn.disabled = false;
-        }
-      };
+      applyListCollapse();
     }
 
     renderItinerary();
@@ -742,13 +649,9 @@
     const aiBtn = document.getElementById('ai-edit-btn');
     const aiCount = document.getElementById('ai-edit-count');
     const aiResult = document.getElementById('ai-edit-result');
-    function showAiEditCard() {
-      aiCard.style.display = '';
-      // the extra card shoves the itinerary further below the fold on a phone —
-      // shrink the hero a touch so some of the itinerary still peeks through
-      document.querySelector('.trip-hero').classList.add('compact');
-    }
-    if (canEditHeaders) showAiEditCard();
+    // the card lives below the itinerary now, so it no longer needs the compact
+    // hero it used to force when it sat above the fold
+    if (canEditHeaders) aiCard.style.display = '';
 
     // area + day-range scope (multi-destination trips only) — same controls the
     // plan wizard had; the server enforces the range on every op it applies
@@ -1182,6 +1085,149 @@
     ticketCode.textContent = trip.share_code;
     ticketCode.classList.add('copyable');
     ticketCode.title = 'לחיצה מעתיקה את קוד הטיול';
+  }
+
+  // ---------- WebMCP: the tools that only exist while a trip is open ----------
+  // These go through the page's own addItem/saveItem/deleteItem rather than calling the
+  // API directly, so an agent's edit lands in both views and the ambient UI exactly as a
+  // human's would. A tool that wrote straight to the server would leave the open page
+  // showing an itinerary that no longer exists.
+  function registerTripTools(ctx) {
+    if (typeof TRIPI === 'undefined' || !TRIPI.mcp || !TRIPI.mcp.stopProps) return;
+    const { register, ok, fail } = TRIPI.mcp;
+    const stopProps = TRIPI.mcp.stopProps;
+    const { trip, state, canEdit, addItem, saveItem, deleteItem, items } = ctx;
+
+    // stop ids come from tripmaker_current_trip / tripmaker_get_trip; resolving here
+    // means a stale id is a readable tool error instead of a crash
+    const findStop = (id) => items().find((it) => String(it.id) === String(id));
+    const readOnly = () => fail(
+      'This trip is read-only for the current user. Only the owner and trip participants can edit it — a participant joins through an invite link.'
+    );
+    const publicStop = (it) => ({
+      id: it.id,
+      day_number: it.day_number,
+      title: it.title,
+      time_label: it.time_label || null,
+      category: it.category || null,
+      area: it.area || null,
+      note: it.note || null,
+      place_query: it.place_query || null,
+      lat: it.lat ?? null,
+      lon: it.lon ?? null,
+      cost: it.cost ?? null,
+    });
+    // only the fields the API accepts on a stop, and only the ones actually supplied —
+    // the PATCH endpoint treats a present key as an instruction to write it, so passing
+    // undefined through would blank out fields the agent never mentioned
+    const pickStopFields = (input) => {
+      const out = {};
+      for (const key of Object.keys(stopProps)) {
+        if (input[key] !== undefined) out[key] = input[key];
+      }
+      return out;
+    };
+
+    register({
+      name: 'tripmaker_current_trip',
+      title: 'The trip on screen',
+      description: 'The trip currently open in the browser, with every stop and its id, straight from the page state. Use this instead of tripmaker_get_trip while a trip page is open — it reflects unsaved-to-your-view edits made moments ago.',
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      inputSchema: { type: 'object', properties: {} },
+      execute: async () => {
+        const byDay = new Map();
+        for (const it of items()) {
+          if (!byDay.has(it.day_number)) byDay.set(it.day_number, []);
+          byDay.get(it.day_number).push(publicStop(it));
+        }
+        return ok({
+          code: trip.share_code,
+          url: location.origin + '/trip/' + trip.share_code,
+          title: trip.title,
+          destination: trip.destination,
+          destinations: Array.isArray(trip.destinations) ? trip.destinations : [],
+          days: trip.days,
+          start_date: trip.start_date || null,
+          end_date: trip.end_date || null,
+          is_draft: !!trip.is_draft,
+          can_edit: !!canEdit,
+          stop_count: items().length,
+          itinerary: Array.from({ length: trip.days }, (_, i) => i + 1)
+            .map((day) => ({ day, stops: byDay.get(day) || [] })),
+          hotels: state.hotels || [],
+          budget: state.budget || null,
+        });
+      },
+    });
+
+    register({
+      name: 'tripmaker_add_stop',
+      title: 'Add a stop',
+      description: 'Add one stop to a day of the open trip. The page repaints immediately. Adding many stops means many calls — to build a whole itinerary at once, use tripmaker_create_trip with its items array instead.',
+      annotations: { readOnlyHint: false },
+      inputSchema: {
+        type: 'object',
+        properties: stopProps,
+        required: ['day_number', 'title'],
+      },
+      execute: async (input) => {
+        if (!canEdit) return readOnly();
+        if (!String(input.title || '').trim()) return fail('title is required');
+        const day = parseInt(input.day_number, 10);
+        if (!(day >= 1 && day <= trip.days)) return fail(`day_number must be between 1 and ${trip.days}`);
+        const item = await addItem({ ...pickStopFields(input), day_number: day });
+        return ok({ added: true, stop: publicStop(item) });
+      },
+    });
+
+    register({
+      name: 'tripmaker_update_stop',
+      title: 'Edit a stop',
+      description: 'Change fields on an existing stop of the open trip. Only the fields you pass are touched — everything else keeps its value. Pass day_number to move a stop to a different day.',
+      annotations: { readOnlyHint: false },
+      inputSchema: {
+        type: 'object',
+        properties: {
+          stop_id: { type: 'integer', description: 'id of the stop, from tripmaker_current_trip.' },
+          ...stopProps,
+        },
+        required: ['stop_id'],
+      },
+      execute: async (input) => {
+        if (!canEdit) return readOnly();
+        const item = findStop(input.stop_id);
+        if (!item) return fail('no stop with id ' + input.stop_id + ' in this trip');
+        const patch = pickStopFields(input);
+        if (!Object.keys(patch).length) return fail('nothing to update — pass at least one field besides stop_id');
+        if (patch.day_number !== undefined) {
+          const day = parseInt(patch.day_number, 10);
+          if (!(day >= 1 && day <= trip.days)) return fail(`day_number must be between 1 and ${trip.days}`);
+          patch.day_number = day;
+        }
+        const updated = await saveItem(item, patch);
+        return ok({ updated: true, stop: publicStop(updated) });
+      },
+    });
+
+    register({
+      name: 'tripmaker_delete_stop',
+      title: 'Delete a stop',
+      description: 'Remove a stop from the open trip. This cannot be undone — read the stop with tripmaker_current_trip and confirm it is the right one before calling.',
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      inputSchema: {
+        type: 'object',
+        properties: { stop_id: { type: 'integer', description: 'id of the stop, from tripmaker_current_trip.' } },
+        required: ['stop_id'],
+      },
+      execute: async ({ stop_id }) => {
+        if (!canEdit) return readOnly();
+        const item = findStop(stop_id);
+        if (!item) return fail('no stop with id ' + stop_id + ' in this trip');
+        const removed = publicStop(item);
+        await deleteItem(item);
+        return ok({ deleted: true, stop: removed });
+      },
+    });
   }
 
   load();
