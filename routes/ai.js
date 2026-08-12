@@ -503,16 +503,31 @@ const aiEditUsage = new Map(); // 'u<userId>' → {date, count}
 const cleanTime = (t) => (/^\d{1,2}:\d{2}$/.test(t || '') ? t : null);
 const clampDay = (d, days, dflt = 1) => Math.min(Math.max(parseInt(d, 10) || dflt, 1), days);
 
-async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNote = '', opsCap = 30 }) {
+// re-pacing a trip costs one update per moved stop, so the cap has to clear a
+// whole-trip reshuffle — at 30 the tail of a reorganization was silently dropped,
+// which by itself left days empty
+async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNote = '', opsCap = 80 }) {
   const areaNames = dests.map((d) => d.name);
   const itemLines = items.map((it) =>
     `#${it.id} | יום ${it.day_number} | ${it.time_label || '--:--'} | [${it.category || 'כללי'}] ${it.title}` +
     (areaNames.length > 1 && it.area ? ` | אזור: ${it.area}` : '') +
     (it.place_query ? ` | ${it.place_query}` : '') +
     (+it.cost > 0 ? ` | עלות משוערת: ${Math.round(+it.cost)}` : ''));
+  // an explicit density + area-span picture: the raw stop list alone lets the model
+  // delete "the extra places" without noticing it emptied half the trip
+  const perDay = [];
+  for (let d = 1; d <= days; d++) perDay.push(items.filter((it) => it.day_number === d).length);
+  const loadLine = `\nעומס נוכחי (תחנות ליום): ${perDay.map((c, i) => `יום ${i + 1}: ${c}`).join(' | ')}.`;
+  const spanLine = areaNames.length > 1
+    ? `\nפריסת האזורים כיום: ${areaNames.map((name) => {
+        const ds = items.filter((it) => it.area === name).map((it) => it.day_number);
+        return ds.length ? `${name}: ימים ${Math.min(...ds)}-${Math.max(...ds)}` : `${name}: אין תחנות`;
+      }).join(' | ')}.`
+    : '';
   const userMsg =
     `הטיול: "${title}" — ${dests.length ? destDescFull(dests) : destText}, ${days} ימים (1 עד ${days}).` +
     `\nהמסלול הנוכחי (כל שורה: #מזהה | יום | שעה | [קטגוריה] כותרת | מקום):\n${itemLines.join('\n') || '(המסלול עדיין ריק)'}` +
+    loadLine + spanLine +
     (scopeNote ? `\n${scopeNote}` : '') +
     `\n\nבקשת השינוי של המטיילים: "${prompt}"`;
 
@@ -521,6 +536,13 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNot
       'התפקיד שלך הוא לבצע את הבקשה בפועל דרך פעולות על תחנות המסלול: add (הוספה), update (עדכון — כולל העברה ליום או שעה אחרים), delete (מחיקה). ' +
       'כמעט כל בקשה ניתנת למימוש דרך תחנות, גם אם לא נאמרה בהן המילה "תחנה": "יום רגוע יותר" = לדלל או להזיז תחנות; "עוד אוכל מקומי" = להוסיף תחנות אוכל; "להחליף את יום 3" = מחיקות והוספות באותו יום; "להתחיל מאוחר יותר" = לעדכן שעות; וכן הלאה. ' +
       'ברירת המחדל שלך היא לבצע: אל תחזיר ops ריק אם אפשר לממש את הבקשה, ולו חלקית, באמצעות פעולות על תחנות. בקשה כללית או עמומה — קבל החלטות סבירות בעצמך ותאר אותן ב-summary, במקום לשאול. ' +
+      // the failure this guards against: "too crowded" answered with mass deletions,
+      // leaving a few packed days and a tail of empty ones
+      'מספר ימי הטיול קבוע ואינו משתנה בעריכה, ולכן אסור להשאיר יום ריק בתוך הטווח שאתה נוגע בו: בסוף העריכה לכל יום 2-4 תחנות (ביום מעבר בין ערים או ביום שהמטיילים ביקשו במפורש להשאיר פנוי — פחות). ' +
+      'בקשות על קצב ועומס — "צפוף מדי", "פחות מקומות", "יותר רגוע", "יותר נינוח" — הן בקשות לפרוס מחדש, לא למחוק בכמות: המטיילים רוצים את אותו טיול בקצב נוח, על פני אותם ימים. סדר הפעולות הוא קודם פריסה ואחר כך מחיקה: הזז תחנות (update של day_number ו-time_label) מהימים העמוסים לימים הדלילים או הריקים, הרחב כל אזור לרצף ימים ארוך יותר עד שכל ימי הטיול מנוצלים, ורק את מה שנשאר עודף באמת — מחק. ' +
+      'עריכה שמרוקנת ימים שלמים ומשאירה את שאר הימים עמוסים היא כישלון, גם אם מחקת בדיוק את מה שהתבקש. ' +
+      'שמור על המבנה הגיאוגרפי: כל אזור תופס רצף ימים אחד ורציף, בלי לקפוץ הלוך ושוב בין ערים. אם אזור יורד מהטיול או מתכווץ — הרחב את שאר האזורים כך שיכסו יחד את כל ימי הטיול. בכל תחנה שהעברת ליום אחר עדכן גם את שדה area לאזור שיושב על אותו יום; ביום שבו מתחלף האזור תשב תחנת נסיעה אחת (קטגוריה: נסיעה) שמתארת את המעבר — הוסף אותה אם חסרה, ומחק תחנות נסיעה שכבר לא מתאימות לפריסה החדשה. ' +
+      'לפני שאתה מחזיר, בדוק את עצמך: אין יום ריק בטווח שנגעת בו, כל אזור עדיין רצוף, והתחנות בכל יום מסודרות כרונולוגית לפי time_label. אם שינית את פריסת הימים או האזורים — תאר את החלוקה החדשה ב-summary. ' +
       'מחוץ לתחום שלך: תאריכי הטיול, תקציב, מלונות ותמונת הנושא. אל תדמה שינוי כזה דרך תחנות — הזזת הטיול כולו לתאריכים אחרים, למשל, אינה הזזת תחנות בין ימים (הימים ממוספרים 1 עד N ללא תלות בתאריך). ' +
       'בקשה מעורבת — בצע רק את חלק התחנות וציין ב-summary מה נשאר מחוץ לתחום. ' +
       'החזר ops ריק רק בשני מקרים: (1) הבקשה עוסקת אך ורק בדברים שמחוץ לתחום — ואז הסבר ב-summary בעדינות שכאן משנים רק את תחנות המסלול; (2) אי אפשר להבין מהבקשה שום כוונה — ואז שאל שאלת הבהרה קצרה ב-summary. ' +
@@ -533,8 +555,8 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, scopeNot
       (areaNames.length > 1 ? `; area מתוך: ${areaNames.join(', ')}.` : '.'),
     user: userMsg,
     schemaName: 'trip_edit',
-    maxTokens: 5000,
-    timeoutMs: 60000,
+    maxTokens: 12000, // a full re-pacing is dozens of ops — a short budget truncates the JSON
+    timeoutMs: 90000,
     schema: {
       type: 'object',
       additionalProperties: false,
@@ -620,7 +642,6 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
       items,
       prompt,
       scopeNote,
-      opsCap: area ? 60 : 30, // scoped rebuilds legitimately delete + re-add several days
     });
     if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לעבד את הבקשה — נסו שוב עוד רגע' });
     aiEditUsage.set(quotaKey, { date: today, count: used + 1 }); // the model call is the budgeted resource
@@ -684,8 +705,17 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
     const fresh = await pool.query(
       'SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
     );
+    // a day that had stops and lost all of them is almost always an edit gone wrong
+    // (a "thin it out" answered with deletions) — say so instead of leaving the
+    // traveller to scroll down and find the hole
+    const hasNow = new Set(fresh.rows.map((it) => it.day_number));
+    const emptied = [...new Set(items.map((it) => it.day_number))]
+      .filter((d) => !hasNow.has(d)).sort((a, b) => a - b);
+    const summary = (result.summary || 'בוצע') +
+      (emptied.length ? ` (שימו לב: ${emptied.length > 1 ? 'ימים' : 'יום'} ${emptied.join(', ')} נשארו בלי תחנות — אפשר לבקש לפרוס מחדש את הטיול על כל הימים)` : '');
+
     res.json({
-      summary: result.summary || 'בוצע',
+      summary,
       added, updated, removed,
       items: fresh.rows,
       remaining: admin ? null : AI_EDIT_DAILY_LIMIT - used - 1, // null = unlimited (admin)
