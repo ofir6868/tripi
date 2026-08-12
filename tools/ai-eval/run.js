@@ -32,7 +32,7 @@ const EDIT_MODEL = flag('model', null);
 const ids = argv.filter((a) => !a.startsWith('--') && !/^\d+$/.test(a) && a !== EDIT_MODEL);
 // the edit path is a function call, not a request — see the edit cases in cases.js
 if (EDIT_MODEL) process.env.AI_MODEL_WEAK = EDIT_MODEL;
-const { aiEditOps } = require('../../routes/ai');
+const { aiEditOps, editViolations, applyOps } = require('../../routes/ai');
 const loadFixture = (name) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', `${name}.json`), 'utf8'));
 
 // an eval run is not a user — mint a throwaway token rather than borrowing someone's.
@@ -138,27 +138,9 @@ function checkBuild(res, expect, body) {
 }
 
 // ---------- the smart edit ----------
-// Apply the ops to the fixture the way the route does, then check the itinerary that
-// comes out. The edit prompt asks the model to verify these itself ("no empty day, each
-// area still contiguous") — asking is what makes them worth checking.
-function applyOps(items, ops) {
-  const out = items.map((it) => ({ ...it }));
-  for (const op of ops) {
-    if (op.action === 'delete') {
-      const i = out.findIndex((it) => it.id === op.id);
-      if (i !== -1) out.splice(i, 1);
-    } else if (op.action === 'update') {
-      const it = out.find((x) => x.id === op.id);
-      if (it) for (const k of ['day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area', 'cost']) {
-        if (op[k] !== null && op[k] !== undefined) it[k] = op[k];
-      }
-    } else if (op.action === 'add') {
-      out.push({ ...op, id: `new-${out.length}` });
-    }
-  }
-  return out;
-}
-
+// The empty-day and contiguity rules come from routes/ai.js, which is also what the
+// repair pass enforces before returning an edit — the eval must not have its own idea
+// of what a valid trip is.
 function checkEdit(result, expect, fixture) {
   if (!result) return ['the edit call came back empty'];
   const bad = [];
@@ -183,20 +165,7 @@ function checkEdit(result, expect, fixture) {
     if (outside.length) bad.push(`the request named days ${lo}-${hi}, ops touch day(s) ${outside.join(', ')}`);
   }
   if (ops.length && (expect.noEmptyDays || expect.areasContiguous)) {
-    const after = applyOps(fixture.items, ops);
-    if (expect.noEmptyDays) {
-      const empty = [];
-      for (let d = 1; d <= fixture.days; d++) if (!after.some((it) => it.day_number === d)) empty.push(d);
-      if (empty.length) bad.push(`edit leaves day(s) ${empty.join(', ')} with no stops`);
-    }
-    if (expect.areasContiguous) {
-      for (const area of [...new Set(after.map((it) => it.area).filter(Boolean))]) {
-        const days = [...new Set(after.filter((it) => it.area === area).map((it) => it.day_number))].sort((a, b) => a - b);
-        if (days.length && days[days.length - 1] - days[0] + 1 !== days.length) {
-          bad.push(`"${area}" is no longer one stretch of days (${days.join(',')})`);
-        }
-      }
-    }
+    bad.push(...editViolations(fixture.items, ops, fixture.days).problems);
   }
   return bad;
 }
@@ -242,13 +211,21 @@ function describe(res, body) {
 
 async function callApi(body) {
   const t0 = Date.now();
-  const r = await fetch(`http://localhost:${PORT}/api/ai/itinerary`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
-    body: JSON.stringify(body),
-  });
+  const secs = () => ((Date.now() - t0) / 1000).toFixed(1);
+  let r;
+  try {
+    r = await fetch(`http://localhost:${PORT}/api/ai/itinerary`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    // no server is a setup mistake, not a finding — say so instead of dumping a stack
+    const why = e.cause && e.cause.code === 'ECONNREFUSED' ? `nothing listening on :${PORT} — start the dev server` : e.message;
+    return { status: 0, secs: secs(), json: { error: why } };
+  }
   const json = await r.json().catch(() => ({}));
-  return { status: r.status, secs: ((Date.now() - t0) / 1000).toFixed(1), json };
+  return { status: r.status, secs: secs(), json };
 }
 
 (async () => {
@@ -292,6 +269,7 @@ async function callApi(body) {
         secs = r.secs;
         payload = r.json;
         if (r.status !== 200) bad = [`HTTP ${r.status} ${r.json.error || ''}`.trim()];
+        else if (r.json.questions) bad = checkQuestions(r.json, c.expect); // asked, so there is no build to check
         else bad = [...checkQuestions(r.json, c.expect), ...checkBuild(r.json, c.expect, c.body)];
         lines = describe(r.json, c.body);
       }

@@ -767,6 +767,57 @@ const aiEditUsage = new Map(); // 'u<userId>' → {date, count}
 const cleanTime = (t) => (/^\d{1,2}:\d{2}$/.test(t || '') ? t : null);
 const clampDay = (d, days, dflt = 1) => Math.min(Math.max(parseInt(d, 10) || dflt, 1), days);
 
+// the itinerary a set of ops would produce, so the rules below can be checked against
+// the trip itself rather than against the list of operations
+function applyOps(items, ops) {
+  const out = items.map((it) => ({ ...it }));
+  for (const op of ops) {
+    if (op.action === 'delete') {
+      const i = out.findIndex((it) => it.id === op.id);
+      if (i !== -1) out.splice(i, 1);
+    } else if (op.action === 'update') {
+      const it = out.find((x) => x.id === op.id);
+      if (it) for (const k of ['day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area', 'cost']) {
+        if (op[k] !== null && op[k] !== undefined) it[k] = op[k];
+      }
+    } else if (op.action === 'add') {
+      out.push({ ...op, id: `new-${out.length}` });
+    }
+  }
+  return out;
+}
+
+// The two rules the edit prompt states in prose and asks the model to verify about
+// itself — which is the least reliable way to enforce anything. Both models break them
+// on a re-pacing request: the weak one empties a day outright, the strong one splits an
+// area across non-adjacent days while its summary describes a clean layout. Stated as
+// text because a failed edit is handed straight back as a diagnosis.
+function editViolations(items, ops, days) {
+  const after = applyOps(items, ops);
+  const problems = [];
+  const empty = [];
+  const count = (arr, d) => arr.filter((it) => it.day_number === d).length;
+  const crowded = [];
+  for (let d = 1; d <= days; d++) {
+    const now = count(after, d);
+    if (!now) empty.push(d);
+    // the prompt asks for 2-4 stops a day, but a fifth is what "add more food on days
+    // 6-10" literally asks for — flagging that would fight the request. Six is where the
+    // model stops adding and starts dumping. Only days this edit made worse count: a
+    // trip that arrived crowded is not this edit's fault.
+    if (now > 5 && now > count(items, d)) crowded.push(`${d} (${now})`);
+  }
+  if (empty.length) problems.push(`ימים שנשארו בלי אף תחנה: ${empty.join(', ')}`);
+  if (crowded.length) problems.push(`ימים שנעשו עמוסים מדי (מעל 5 תחנות): ${crowded.join(', ')}`);
+  for (const area of [...new Set(after.map((it) => it.area).filter(Boolean))]) {
+    const ds = [...new Set(after.filter((it) => it.area === area).map((it) => it.day_number))].sort((a, b) => a - b);
+    if (ds.length && ds[ds.length - 1] - ds[0] + 1 !== ds.length) {
+      problems.push(`האזור "${area}" יושב על ימים לא רצופים: ${ds.join(', ')}`);
+    }
+  }
+  return { problems, after };
+}
+
 // re-pacing a trip costs one update per moved stop, so the cap has to clear a
 // whole-trip reshuffle — at 30 the tail of a reorganization was silently dropped,
 // which by itself left days empty
@@ -796,7 +847,7 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, descript
     (scopeNote ? `\n${scopeNote}` : '') +
     `\n\nבקשת השינוי של המטיילים: "${prompt}"`;
 
-  const parsed = await aiJson({
+  const askModel = (fixNote) => aiJson({
     system: 'אתה עורך מסלולי טיולים. מקבל מסלול קיים ובקשת שינוי קצרה, ומחזיר אך ורק JSON לפי הסכמה: ops (רשימת פעולות) ו-summary (סיכום קצר וידידותי בעברית של מה שביצעת). ' +
       'התפקיד שלך הוא לבצע את הבקשה בפועל דרך פעולות על תחנות המסלול: add (הוספה), update (עדכון — כולל העברה ליום או שעה אחרים), delete (מחיקה). ' +
       'כמעט כל בקשה ניתנת למימוש דרך תחנות, גם אם לא נאמרה בהן המילה "תחנה": "יום רגוע יותר" = לדלל או להזיז תחנות; "עוד אוכל מקומי" = להוסיף תחנות אוכל; "להחליף את יום 3" = מחיקות והוספות באותו יום; "להתחיל מאוחר יותר" = לעדכן שעות; וכן הלאה. ' +
@@ -823,7 +874,7 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, descript
       'cost הוא הערכת עלות לאדם במטבע התקציב (מספר שלם) — מלא אותו בהוספת תחנה עם עלות אופיינית, והחזר null לתחנה חינמית או כשאין שינוי; ' +
       `category מתוך: ${AI_CATEGORIES.join(', ')}` +
       (areaNames.length > 1 ? `; area מתוך: ${areaNames.join(', ')}.` : '.'),
-    user: userMsg,
+    user: userMsg + (fixNote || ''),
     schemaName: 'trip_edit',
     maxTokens: 12000, // a full re-pacing is dozens of ops — a short budget truncates the JSON
     timeoutMs: 90000,
@@ -858,12 +909,37 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, descript
       },
     },
   });
+  const shape = (p) => ({
+    summary: String(p.summary || '').slice(0, 300),
+    description: p.description ? String(p.description).slice(0, 500).trim() || null : null,
+    ops: Array.isArray(p.ops) ? p.ops.slice(0, opsCap) : [],
+  });
+
+  const parsed = await askModel();
   if (!parsed) return null;
-  return {
-    summary: String(parsed.summary || '').slice(0, 300),
-    description: parsed.description ? String(parsed.description).slice(0, 500).trim() || null : null,
-    ops: Array.isArray(parsed.ops) ? parsed.ops.slice(0, opsCap) : [],
-  };
+  const first = shape(parsed);
+  if (!first.ops.length) return first;
+
+  // Checking the trip the ops produce is the only reliable enforcement of the two rules
+  // above, and a violation is worth one more call: the model gets told exactly what
+  // broke, which is something it could not work out on its own. A repair costs one weak
+  // call, where the alternative — running every edit on the strong model — costs 15x and
+  // does not fix this case anyway.
+  const { problems } = editViolations(items, first.ops, days);
+  if (!problems.length) return first;
+  const repaired = await askModel(
+    `\n\nניסיון קודם שלך לבצע את הבקשה הזו יצר את הבעיות הבאות: ${problems.join(' | ')}. ` +
+    `החזר סט ops מלא ומתוקן שמבצע את אותה בקשה בלי הבעיות האלה — כל יום בטווח הטיול עם 2-4 תחנות, וכל אזור על רצף ימים אחד.`
+  );
+  if (!repaired) return first;
+  const second = shape(repaired);
+  if (!second.ops.length) return first; // an empty retry is a worse answer than a flawed one
+  const after = editViolations(items, second.ops, days);
+  if (after.problems.length) {
+    console.warn('trip_edit repair still violates:', after.problems.join(' | '));
+    return after.problems.length < problems.length ? second : first;
+  }
+  return second;
 }
 
 router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
@@ -1017,3 +1093,7 @@ module.exports = router;
 // the edit route can only run on a trip that already exists in the DB, so tools/ai-eval
 // reaches the model through this instead — everything it measures happens in here
 module.exports.aiEditOps = aiEditOps;
+// the eval checks edits against the same rules the repair pass enforces — one definition,
+// so a tool that passes cannot mean something different from a trip that is valid
+module.exports.editViolations = editViolations;
+module.exports.applyOps = applyOps;
