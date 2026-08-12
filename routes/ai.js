@@ -27,25 +27,32 @@ const cleanCost = (v) => (Number.isFinite(+v) && +v > 0 ? Math.min(Math.round(+v
 const aiUsage = new Map(); // userId → {date, count}
 const AI_DAILY_LIMIT = 20;
 
+// Never reaching OpenAI is not the same as OpenAI answering badly, and it is worth
+// exactly one more try: opening a fresh TLS connection to api.openai.com intermittently
+// exceeds undici's 10s connect timeout, and the call that pays for it is whichever one
+// comes first after an idle stretch. Left alone it silently drops a clarifying round or
+// fails a whole build. A model that answered — even with an error status — is not retried.
+const CONNECTION_ERRORS = new Set([
+  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET', 'ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN',
+]);
+const isConnectionError = (err) => err && err.name !== 'AbortError'
+  && CONNECTION_ERRORS.has(err.cause && err.cause.code);
+
 // the one OpenAI caller: chat completion forced into a strict JSON schema.
 // Returns the parsed object, or null on any failure (HTTP error, timeout, bad
 // JSON) — unless `required`, which rethrows so the route can distinguish an
 // aborted call (timeout message) from the rest.
 async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_MODEL_WEAK, timeoutMs = 30000, required = false, ph = null }) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   const messages = [
     { role: 'system', content: system },
     { role: 'user', content: user },
   ];
   // PostHog LLM analytics: one $ai_generation per OpenAI call, full input/output
   // included — cost is computed on their side from model + token counts, and
-  // ph.traceId groups the calls of a single build/edit into one trace
-  const started = Date.now();
-  let reported = false;
-  const aiEvent = (extra) => {
-    if (!ph || reported) return;
-    reported = true;
+  // ph.traceId groups the calls of a single build/edit into one trace. A retried call
+  // reports twice on purpose: the failure is part of what the trace should show.
+  const aiEvent = (started, extra) => {
+    if (!ph) return;
     posthog.capture('$ai_generation', ph.distinctId, {
       $ai_trace_id: ph.traceId,
       $ai_span_name: schemaName,
@@ -57,50 +64,65 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
       ...extra,
     });
   };
-  try {
-    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        model,
-        max_completion_tokens: maxTokens,
-        messages,
-        response_format: {
-          type: 'json_schema',
-          json_schema: { name: schemaName, strict: true, schema },
-        },
-      }),
-    });
-    if (!aiRes.ok) {
-      const errBody = await aiRes.text().catch(() => '');
-      console.error(`OpenAI ${schemaName} error`, aiRes.status, errBody.slice(0, 300));
-      aiEvent({ $ai_http_status: aiRes.status, $ai_is_error: true, $ai_error: errBody.slice(0, 300) });
-      if (required) throw new Error('openai failed');
-      return null;
+
+  // each attempt gets its own controller — reusing an aborted signal would fail the
+  // retry before it left the process
+  const attempt = async () => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const started = Date.now();
+    try {
+      const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + process.env.OPENAI_API_KEY },
+        signal: ctrl.signal,
+        body: JSON.stringify({
+          model,
+          max_completion_tokens: maxTokens,
+          messages,
+          response_format: {
+            type: 'json_schema',
+            json_schema: { name: schemaName, strict: true, schema },
+          },
+        }),
+      });
+      if (!aiRes.ok) {
+        const errBody = await aiRes.text().catch(() => '');
+        console.error(`OpenAI ${schemaName} error`, aiRes.status, errBody.slice(0, 300));
+        aiEvent(started, { $ai_http_status: aiRes.status, $ai_is_error: true, $ai_error: errBody.slice(0, 300) });
+        return { failed: true };
+      }
+      const data = await aiRes.json();
+      const content = data.choices[0].message.content;
+      aiEvent(started, {
+        $ai_http_status: aiRes.status,
+        $ai_output_choices: [{ role: 'assistant', content }],
+        $ai_input_tokens: data.usage?.prompt_tokens ?? null,
+        $ai_output_tokens: data.usage?.completion_tokens ?? null,
+      });
+      return { value: JSON.parse(content) };
+    } catch (err) {
+      // a silent null here is hard to tell apart from "the AI had nothing to say" —
+      // a transient `fetch failed` once cost an hour of blaming the prompt
+      console.error(`OpenAI ${schemaName} failed`, err.name, err.cause ? (err.cause.code || err.cause.message) : err.message);
+      aiEvent(started, {
+        $ai_is_error: true,
+        $ai_error: err.name === 'AbortError' ? `aborted after ${timeoutMs}ms timeout` : String(err.message || err).slice(0, 300),
+      });
+      return { failed: true, err };
+    } finally {
+      clearTimeout(timer);
     }
-    const data = await aiRes.json();
-    const content = data.choices[0].message.content;
-    aiEvent({
-      $ai_http_status: aiRes.status,
-      $ai_output_choices: [{ role: 'assistant', content }],
-      $ai_input_tokens: data.usage?.prompt_tokens ?? null,
-      $ai_output_tokens: data.usage?.completion_tokens ?? null,
-    });
-    return JSON.parse(content);
-  } catch (err) {
-    // a silent null here is hard to tell apart from "the AI had nothing to say" —
-    // a transient `fetch failed` once cost an hour of blaming the prompt
-    console.error(`OpenAI ${schemaName} failed`, err.name, err.cause ? (err.cause.code || err.cause.message) : err.message);
-    aiEvent({
-      $ai_is_error: true,
-      $ai_error: err.name === 'AbortError' ? `aborted after ${timeoutMs}ms timeout` : String(err.message || err).slice(0, 300),
-    });
-    if (required) throw err;
-    return null;
-  } finally {
-    clearTimeout(timer);
+  };
+
+  let res = await attempt();
+  if (res.failed && isConnectionError(res.err)) {
+    console.warn(`OpenAI ${schemaName} retrying after ${res.err.cause.code}`);
+    res = await attempt();
   }
+  if (!res.failed) return res.value;
+  if (required) throw (res.err || new Error('openai failed'));
+  return null;
 }
 
 // nearest-neighbor ordering by coordinates, starting from the first destination —
@@ -237,9 +259,7 @@ async function aiCountryRegions({ dest, from, to, interestList, freeText, answer
       },
     },
   });
-  // one retry: this call decides whether a long trip is built area-by-area or as one
-  // sprawling block, and a transient network blip is a poor reason to lose that
-  const parsed = (await call()) || (await call());
+  const parsed = await call(); // aiJson retries a connection failure on its own
   const regions = ((parsed && parsed.regions) || [])
     .map((r) => ({
       name: String(r.name || '').slice(0, 60).trim(),
