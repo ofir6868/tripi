@@ -1,8 +1,10 @@
 // AI itinerary builder + trip editor (OpenAI, server-side — the key never reaches the client)
 const express = require('express');
+const { randomUUID } = require('crypto');
 const { pool } = require('../lib/db');
 const { authRequired, authOptional, isAdmin } = require('../lib/auth');
 const { tripWithEditAuth, cleanDestinations } = require('../lib/trips');
+const posthog = require('../lib/posthog');
 
 const router = express.Router();
 
@@ -29,9 +31,32 @@ const AI_DAILY_LIMIT = 20;
 // Returns the parsed object, or null on any failure (HTTP error, timeout, bad
 // JSON) — unless `required`, which rethrows so the route can distinguish an
 // aborted call (timeout message) from the rest.
-async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_MODEL_WEAK, timeoutMs = 30000, required = false }) {
+async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_MODEL_WEAK, timeoutMs = 30000, required = false, ph = null }) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const messages = [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
+  // PostHog LLM analytics: one $ai_generation per OpenAI call, full input/output
+  // included — cost is computed on their side from model + token counts, and
+  // ph.traceId groups the calls of a single build/edit into one trace
+  const started = Date.now();
+  let reported = false;
+  const aiEvent = (extra) => {
+    if (!ph || reported) return;
+    reported = true;
+    posthog.capture('$ai_generation', ph.distinctId, {
+      $ai_trace_id: ph.traceId,
+      $ai_span_name: schemaName,
+      $ai_provider: 'openai',
+      $ai_model: model,
+      $ai_base_url: 'https://api.openai.com/v1',
+      $ai_input: messages,
+      $ai_latency: (Date.now() - started) / 1000,
+      ...extra,
+    });
+  };
   try {
     const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -40,10 +65,7 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
       body: JSON.stringify({
         model,
         max_completion_tokens: maxTokens,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
+        messages,
         response_format: {
           type: 'json_schema',
           json_schema: { name: schemaName, strict: true, schema },
@@ -53,15 +75,27 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
     if (!aiRes.ok) {
       const errBody = await aiRes.text().catch(() => '');
       console.error(`OpenAI ${schemaName} error`, aiRes.status, errBody.slice(0, 300));
+      aiEvent({ $ai_http_status: aiRes.status, $ai_is_error: true, $ai_error: errBody.slice(0, 300) });
       if (required) throw new Error('openai failed');
       return null;
     }
     const data = await aiRes.json();
-    return JSON.parse(data.choices[0].message.content);
+    const content = data.choices[0].message.content;
+    aiEvent({
+      $ai_http_status: aiRes.status,
+      $ai_output_choices: [{ role: 'assistant', content }],
+      $ai_input_tokens: data.usage?.prompt_tokens ?? null,
+      $ai_output_tokens: data.usage?.completion_tokens ?? null,
+    });
+    return JSON.parse(content);
   } catch (err) {
     // a silent null here is hard to tell apart from "the AI had nothing to say" —
     // a transient `fetch failed` once cost an hour of blaming the prompt
     console.error(`OpenAI ${schemaName} failed`, err.name, err.cause ? (err.cause.code || err.cause.message) : err.message);
+    aiEvent({
+      $ai_is_error: true,
+      $ai_error: err.name === 'AbortError' ? `aborted after ${timeoutMs}ms timeout` : String(err.message || err).slice(0, 300),
+    });
     if (required) throw err;
     return null;
   } finally {
@@ -154,7 +188,7 @@ function regionsFromPicked(base, answerList) {
 // is the server's call — roughly a region per 5 days — because the model doesn't
 // weigh it sanely on its own: asked to split 4 days in Japan it returned Kyoto, Kobe
 // and Osaka, a move a day, which is the very thing areas exist to prevent.
-async function aiCountryRegions({ dest, from, to, interestList, freeText, answers }) {
+async function aiCountryRegions({ dest, from, to, interestList, freeText, answers, ph }) {
   const days = to - from + 1;
   const want = Math.min(5, Math.max(1, Math.floor(days / DAYS_PER_REGION)));
   const call = () => aiJson({
@@ -166,6 +200,7 @@ async function aiCountryRegions({ dest, from, to, interestList, freeText, answer
       `לכל אזור שם מוכר בעברית ו-2–3 ערים מרכזיות שנמצאות בו${want === 1 ? ' — האזור שהכי שווה לראות ב-' + days + ' ימים' : ''}.`,
     schemaName: 'trip_regions',
     maxTokens: 400,
+    ph,
     model: AI_MODEL_STRONG, // region names in Hebrew are exactly where the weak model invents places
     schema: {
       type: 'object',
@@ -213,7 +248,7 @@ function tripPrefsText({ interestList, freeText, answers }) {
 // pre-flight: the AI decides whether it's missing information that would
 // materially change the trip STRUCTURE (which region, landing city, how to move
 // between far-apart areas). Default is to ask nothing; max 2 questions, fixed types.
-async function aiClarify({ dests, from, to, interestList, freeText }) {
+async function aiClarify({ dests, from, to, interestList, freeText, ph }) {
   const days = to - from + 1;
   // the caller only sends two shapes here: one broad destination (a country pick, or
   // free text we can't classify), or several destinations. Each shape has its own
@@ -244,6 +279,7 @@ async function aiClarify({ dests, from, to, interestList, freeText }) {
     user: userMsg,
     schemaName: 'clarifying_questions',
     maxTokens: 400,
+    ph,
     model: AI_MODEL_STRONG,
     schema: {
       type: 'object',
@@ -371,7 +407,7 @@ function validateCoverChoice(chosenName, dests) {
   return COVER_OPTIONS[0].name;
 }
 
-async function aiTripMeta({ dests, from, to, interestList, freeText, answers }) {
+async function aiTripMeta({ dests, from, to, interestList, freeText, answers, ph }) {
   const meta = await aiJson({
     system: 'אתה קופירייטר של טיולים. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
     user:
@@ -383,6 +419,7 @@ async function aiTripMeta({ dests, from, to, interestList, freeText, answers }) 
       `חשוב: תמונה של עיר או אתר מסוים מותרת רק אם הטיול באמת מבקר שם — לטיול במקום אחר בחר תמונה כללית (נוף, חוף, הרים, כביש).`,
     schemaName: 'trip_meta',
     maxTokens: 350,
+    ph,
     schema: {
       type: 'object', additionalProperties: false,
       required: ['description', 'emoji', 'cover'],
@@ -404,7 +441,7 @@ async function aiTripMeta({ dests, from, to, interestList, freeText, answers }) 
 
 // stage 1: the AI itself decides city order and how many days each deserves —
 // a small, cheap call whose output is easy to validate structurally
-async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers }) {
+async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers, ph }) {
   const areaNames = dests.map((d) => d.name);
   let userMsg =
     `טיול לימים ${from} עד ${to} (כולל, סה"כ ${to - from + 1} ימים) שמכסה את האזורים: ${destDescFull(dests)}. ` +
@@ -420,6 +457,7 @@ async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers }
     schemaName: 'day_allocation',
     maxTokens: 600,
     timeoutMs: 45000,
+    ph,
     schema: {
       type: 'object',
       additionalProperties: false,
@@ -458,7 +496,7 @@ async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers }
 }
 
 // one OpenAI call for ONE area and a fixed day range — the shape that stays coherent
-async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, answers, transferFrom }) {
+async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, answers, transferFrom, ph }) {
   // a long block asks the model to hold many days of a single area coherent in one
   // generation — the weak model starts thinning out days or repeating stops there
   const blockDays = to - from + 1;
@@ -502,6 +540,7 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
     maxTokens: 10000,
     timeoutMs: 90000,
     model,
+    ph,
     required: true, // the itinerary is the product — a failed block fails the build
     schema: {
       type: 'object',
@@ -595,6 +634,10 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
     const areaNames = dests.map((d) => d.name);
     if (area && !areaNames.includes(area)) return res.status(400).json({ error: 'אזור לא מוכר' });
 
+    // one trace per build request — every OpenAI call it spawns shares this id,
+    // attributed to the same pseudonymous identity the client-side analytics uses
+    const ph = { distinctId: 'user_' + req.user.id, traceId: randomUUID() };
+
     // clarifying-questions round: for full multi-area builds, or for a single broad
     // destination — a country pick (name === country) or unclassified free text —
     // where the days may not stretch across it. Only when the client hasn't been
@@ -610,7 +653,7 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
       : null;
     const broadSingle = dests.length === 1 && (!dests[0].country || dests[0].country === dests[0].name);
     if (!area && (dests.length >= 2 || broadSingle) && answerList === null) {
-      const questions = await aiClarify({ dests, from, to, interestList, freeText });
+      const questions = await aiClarify({ dests, from, to, interestList, freeText, ph });
       if (questions.length) return res.json({ questions });
     }
 
@@ -621,7 +664,7 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
     // is untouched; only the response's `plan` reports the areas back.
     const regions = broadSingle && !area
       ? (regionsFromPicked(dests[0], answerList)
-        || await aiCountryRegions({ dest: dests[0], from, to, interestList, freeText, answers: answerList }))
+        || await aiCountryRegions({ dest: dests[0], from, to, interestList, freeText, answers: answerList, ph }))
       : null;
     const regionCities = new Map((regions || []).map((r) => [r.name, r.cities]));
     const buildDests = regions
@@ -637,13 +680,13 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
     } else if (buildDests.length === 1) {
       blocks = [{ dest: buildDests[0], from, to }];
     } else {
-      blocks = await aiPlanBlocks({ dests: buildDests, from, to, interestList, freeText, answers: answerList })
+      blocks = await aiPlanBlocks({ dests: buildDests, from, to, interestList, freeText, answers: answerList, ph })
         || allocateDays(orderByProximity(buildDests), from, to);
     }
 
     const wantMeta = want_description || req.body.want_meta;
     const descPromise = wantMeta
-      ? aiTripMeta({ dests, from, to, interestList, freeText, answers: answerList })
+      ? aiTripMeta({ dests, from, to, interestList, freeText, answers: answerList, ph })
       : Promise.resolve(null);
 
     const [results, meta] = await Promise.all([
@@ -657,6 +700,7 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
           freeText,
           answers: answerList,
           transferFrom: i > 0 ? blocks[i - 1].dest.name : null,
+          ph,
         })
       )),
       descPromise,
@@ -699,7 +743,7 @@ const clampDay = (d, days, dflt = 1) => Math.min(Math.max(parseInt(d, 10) || dfl
 // re-pacing a trip costs one update per moved stop, so the cap has to clear a
 // whole-trip reshuffle — at 30 the tail of a reorganization was silently dropped,
 // which by itself left days empty
-async function aiEditOps({ title, destText, dests, days, items, prompt, description = '', scopeNote = '', opsCap = 80 }) {
+async function aiEditOps({ title, destText, dests, days, items, prompt, description = '', scopeNote = '', opsCap = 80, ph }) {
   const areaNames = dests.map((d) => d.name);
   const itemLines = items.map((it) =>
     `#${it.id} | יום ${it.day_number} | ${it.time_label || '--:--'} | [${it.category || 'כללי'}] ${it.title}` +
@@ -756,6 +800,7 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, descript
     schemaName: 'trip_edit',
     maxTokens: 12000, // a full re-pacing is dozens of ops — a short budget truncates the JSON
     timeoutMs: 90000,
+    ph,
     schema: {
       type: 'object',
       additionalProperties: false,
@@ -844,6 +889,8 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
       prompt,
       description: trip.description || '',
       scopeNote,
+      // edits are single-call traces, but the id still ties retries apart in the UI
+      ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
     if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לעבד את הבקשה — נסו שוב עוד רגע' });
     aiEditUsage.set(quotaKey, { date: today, count: used + 1 }); // the model call is the budgeted resource
