@@ -15,9 +15,9 @@ const AI_MODEL_STRONG = process.env.AI_MODEL_STRONG || 'gpt-4o'; // used where t
 // from this many days on, a single broad destination is asked which regions to
 // COMBINE (multi-select) rather than which one to focus on
 const COMBINE_REGIONS_FROM_DAYS = 10;
-// how many days one area is worth when the server splits a country by itself —
-// keeps a short trip in one place and a long one moving at a human pace
-const DAYS_PER_REGION = 5;
+// how many areas one build may span — a guard against a runaway list, not a pacing
+// rule: how long each area is worth is the model's judgement, never a fixed ratio
+const MAX_REGIONS = 6;
 // a block (or single-area trip) at least this long needs the strong model — from this
 // length on the weak model starts thinning out days or repeating stops
 const STRONG_MODEL_FROM_DAYS = 6;
@@ -181,23 +181,29 @@ function regionsFromPicked(base, answerList) {
     const hint = label.match(/\(([^)]*)\)\s*$/)?.[1] || '';
     regions.push({ name, cities: hint.split(',').map((c) => c.trim()).filter(Boolean).slice(0, 3) });
   }
-  return regions.length ? regions.slice(0, 5) : null;
+  return regions.length ? regions.slice(0, MAX_REGIONS) : null;
 }
 
-// the fallback: the AI names the areas for a country nobody split by hand. HOW MANY
-// is the server's call — roughly a region per 5 days — because the model doesn't
-// weigh it sanely on its own: asked to split 4 days in Japan it returned Kyoto, Kobe
-// and Osaka, a move a day, which is the very thing areas exist to prevent.
+// the fallback: the AI names the areas for a country nobody split by hand — how many
+// of them, and which, is its call. What a region is worth depends on what these
+// travellers came for and on what the region actually holds, so no days-per-region
+// ratio is imposed here. The one pacing rule the prompt states is the one that keeps
+// a short trip from becoming a move a day.
 async function aiCountryRegions({ dest, from, to, interestList, freeText, answers, ph }) {
   const days = to - from + 1;
-  const want = Math.min(5, Math.max(1, Math.floor(days / DAYS_PER_REGION)));
   const call = () => aiJson({
-    system: 'אתה מתכנן טיולים מומחה. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
+    system: 'אתה מתכנן טיולים מומחה. מספר האזורים בטיול ואורך השהות בכל אחד נגזרים ממה שיש בו לראות ולעשות ' +
+      'עבור המטיילים האלה ומקצב סביר — לא מחלוקה שווה של הימים ולא מיחס קבוע של ימים לאזור. ' +
+      'אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
     user:
       `טיול של ${days} ימים ב${destDescFull([dest])}.` +
       tripPrefsText({ interestList, freeText, answers }) +
-      `\nחלק את הטיול ל-${want} ${want === 1 ? 'אזור גיאוגרפי' : 'אזורים גיאוגרפיים'} בדיוק, לפי סדר ביקור הגיוני. ` +
-      `לכל אזור שם מוכר בעברית ו-2–3 ערים מרכזיות שנמצאות בו${want === 1 ? ' — האזור שהכי שווה לראות ב-' + days + ' ימים' : ''}.`,
+      `\nלאילו אזורים גיאוגרפיים לחלק את הטיול, לפי סדר ביקור הגיוני? ` +
+      `קבע את מספרם לפי כמה ימים כל אזור מצדיק עבור המטיילים האלה — אזור שיש בו הרבה ממה שמעניין אותם מחזיק יותר ימים. ` +
+      `שקלל את מחיר המעבר: כל מעבר בין אזורים אוכל חצי יום עד יום מ-${days} הימים (אריזה, נסיעה, צ'ק-אין), ` +
+      `ולכן אזור נכנס לרשימה רק אם נשארים בו לפחות יומיים-שלושה רצופים — אחרת הימים שלו שווים יותר באזור שכבר ברשימה. ` +
+      `אם ${days} הימים מצדיקים מקום אחד, החזר אזור אחד. ` +
+      `לכל אזור שם מוכר בעברית ו-2–3 ערים מרכזיות שנמצאות בו.`,
     schemaName: 'trip_regions',
     maxTokens: 400,
     ph,
@@ -231,7 +237,7 @@ async function aiCountryRegions({ dest, from, to, interestList, freeText, answer
       cities: (r.cities || []).slice(0, 3).map((c) => String(c).slice(0, 60).trim()).filter(Boolean),
     }))
     .filter((r) => r.name);
-  return regions.length ? regions.slice(0, want) : null;
+  return regions.length ? regions.slice(0, MAX_REGIONS) : null;
 }
 
 // shared trip-context suffix for AI prompts
@@ -443,16 +449,21 @@ async function aiTripMeta({ dests, from, to, interestList, freeText, answers, ph
 // a small, cheap call whose output is easy to validate structurally
 async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers, ph }) {
   const areaNames = dests.map((d) => d.name);
+  // the preferences come BEFORE the instruction, so "for these travellers" points at
+  // something already on the page — and the allocation rule lands last, which is where
+  // this model actually follows one
   let userMsg =
     `טיול לימים ${from} עד ${to} (כולל, סה"כ ${to - from + 1} ימים) שמכסה את האזורים: ${destDescFull(dests)}. ` +
     distancesText(dests) +
-    `\nחלק את הימים בין האזורים: קבע סדר ביקור גיאוגרפי הגיוני, והקצה לכל אזור כמות ימים לפי כמה שיש בו לראות ולעשות עבור המטיילים האלה — לא בהכרח שווה בשווה. ` +
+    tripPrefsText({ interestList, freeText, answers }) +
+    `\nחלק את הימים בין האזורים: קבע סדר ביקור גיאוגרפי הגיוני, והקצה לכל אזור ימים לפי כמה שיש בו לראות ולעשות עבור המטיילים האלה — ` +
+    `אזור עמוס במה שמעניין אותם מקבל יותר ימים, ואזור שרואים בו את העיקר ביומיים מקבל יומיים. חלוקה שווה היא סימן שלא שקלת את התוכן. ` +
     `קח בחשבון זמני נסיעה: מעבר בין אזורים רחוקים (מאות ק"מ, טיסה או נסיעה ארוכה) גוזל חצי יום עד יום — שקלל את זה בהקצאת הימים של האזור שאליו מגיעים. ` +
-    `כל אזור מופיע פעם אחת בדיוק, הבלוקים רצופים ומכסים את כל טווח הימים בלי חורים ובלי חפיפות.` +
-    tripPrefsText({ interestList, freeText, answers });
+    `כל אזור מופיע פעם אחת בדיוק, הבלוקים רצופים ומכסים את כל טווח הימים בלי חורים ובלי חפיפות.`;
 
   const parsed = await aiJson({
-    system: 'אתה מתכנן טיולים מומחה. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
+    system: 'אתה מתכנן טיולים מומחה. אורך השהות בכל אזור נגזר ממה שיש בו לראות ולעשות עבור המטיילים האלה ' +
+      'ומזמני המעבר — לא מחלוקה שווה של הימים. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
     user: userMsg,
     schemaName: 'day_allocation',
     maxTokens: 600,
