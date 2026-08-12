@@ -13,9 +13,9 @@ const AI_MODEL_STRONG = process.env.AI_MODEL_STRONG || 'gpt-4o'; // used where t
 // from this many days on, a single broad destination is asked which regions to
 // COMBINE (multi-select) rather than which one to focus on
 const COMBINE_REGIONS_FROM_DAYS = 10;
-// a block (or single-area trip) longer than this needs the strong model — past this
-// length the weak model starts thinning out days or repeating stops
-const STRONG_MODEL_FROM_DAYS = 8;
+// a block (or single-area trip) at least this long needs the strong model — from this
+// length on the weak model starts thinning out days or repeating stops
+const STRONG_MODEL_FROM_DAYS = 6;
 const AI_CATEGORIES = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבות', 'קניות', 'לינה', 'נוף', 'חיי לילה', 'נסיעה', 'היסטוריה', 'אמנות', 'עיר'];
 // cost estimates arrive as loose model output — keep only positive, sane integers
 const cleanCost = (v) => (Number.isFinite(+v) && +v > 0 ? Math.min(Math.round(+v), 999999999) : null);
@@ -400,10 +400,10 @@ async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers }
 
 // one OpenAI call for ONE area and a fixed day range — the shape that stays coherent
 async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, answers, transferFrom }) {
-  // a long block asks the model to hold 9+ days of a single area coherent in one
+  // a long block asks the model to hold many days of a single area coherent in one
   // generation — the weak model starts thinning out days or repeating stops there
   const blockDays = to - from + 1;
-  const model = blockDays > STRONG_MODEL_FROM_DAYS ? AI_MODEL_STRONG : AI_MODEL_WEAK;
+  const model = blockDays >= STRONG_MODEL_FROM_DAYS ? AI_MODEL_STRONG : AI_MODEL_WEAK;
   let userMsg =
     `בנה מסלול טיול מפורט לימים ${from} עד ${to} (כולל) באזור "${area}" בלבד, מתוך טיול שכולל את: ${destDescFull(dests)}. ` +
     `כל התחנות חייבות להיות באזור "${area}" ובשדה area לכתוב בדיוק "${area}". ` +
