@@ -31,6 +31,11 @@
       },
     });
 
+    // init runs after the window load event (config fetch + async script), and in
+    // 'history_change' mode the SDK only fires pageviews on history API changes —
+    // which a multi-page site never makes. Capture the load's pageview explicitly.
+    posthog.capture('$pageview');
+
     const identify = () => {
       if (TRIPI.user && TRIPI.user.id != null) posthog.identify('user_' + TRIPI.user.id);
     };
