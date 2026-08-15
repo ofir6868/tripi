@@ -1188,7 +1188,6 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 }
 
 /* draft state: the hero chip + the sidebar card that stands in for the ticket */
-.draft-chip { color: var(--amber); border-color: rgba(255, 180, 95, .45); background: rgba(255, 180, 95, .1); }
 .draft-card { text-align: center; }
 .draft-card-sub { color: var(--paper-dim); font-weight: 300; font-size: .9rem; line-height: 1.5; margin: 0 0 14px; }
 .modal.celebrate { text-align: center; }
@@ -1375,7 +1374,7 @@ body:has(.join-banner) { padding-bottom: 92px; }
   .map-card, .add-item-inline, .item-del, .inline-item-form,
   .modal-backdrop, .budget-page, .hero-bg, .hero-veil, .ai-edit-card,
   .view-toggle, .cal-toolbar, .cal-day-strip, .cal-hint,
-  /* the draft card is an invitation to press "סיום תכנון" — it has no business
+  /* the draft card is an invitation to press "שמירת הטיול" — it has no business
      on paper, where nothing can be pressed */
   #draft-card { display: none !important; }
   /* the forecast prints only when it reaches the trip's own days (.wx-trip);
@@ -2426,3 +2425,41 @@ body.cal-full-open { overflow: hidden; }
 }
 
 @media print { .push-ask { display: none; } }
+
+/* ============================================================
+   Travel legs (OSRM) + stop votes (experimental group mode)
+   ============================================================ */
+
+/* the drive between two consecutive stops, injected once routing resolves */
+.travel-leg {
+  display: flex; align-items: center; gap: 7px; padding: 2px 6px;
+  color: var(--paper-dim); font-size: .78rem; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.travel-leg .ic { width: 14px; height: 14px; opacity: .8; color: var(--mint); }
+
+/* day-header chip: total driving time, shown only when the day is drive-heavy */
+.day-load {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-body); font-size: .82rem; font-weight: 700;
+  padding: 4px 11px; border-radius: 999px; font-variant-numeric: tabular-nums;
+  background: rgba(255, 122, 110, .12); color: var(--danger);
+  border: 1px solid rgba(255, 122, 110, .32);
+}
+.day-load .ic { width: 14px; height: 14px; }
+
+/* thumbs on a stop card — one vote per participant, tap the same thumb to take it back */
+.stop-votes { display: inline-flex; gap: 3px; }
+.vote-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: transparent; border: 1px solid var(--glass-border); border-radius: 999px;
+  color: var(--paper-dim); cursor: pointer; padding: 3px 8px;
+  font-family: var(--font-body); font-size: .74rem; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.vote-btn .ic { width: 13px; height: 13px; }
+.vote-btn:hover { color: var(--paper); border-color: var(--glass-highlight); }
+.vote-btn.on { background: rgba(143, 216, 196, .14); color: var(--mint); border-color: rgba(143, 216, 196, .4); }
+.vote-btn.down.on { background: rgba(255, 122, 110, .12); color: var(--danger); border-color: rgba(255, 122, 110, .35); }
+@media print { .stop-votes { display: none; } }

@@ -88,6 +88,15 @@ CREATE TABLE IF NOT EXISTS trip_hotels (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- experimental group mode: one thumbs-up/down per participant per stop
+CREATE TABLE IF NOT EXISTS trip_stop_votes (
+  item_id INT NOT NULL REFERENCES trip_items(id) ON DELETE CASCADE,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  vote SMALLINT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  PRIMARY KEY (item_id, user_id)
+);
+
 -- actual spending log (quick-add) — planned estimates live on trip_items.cost
 CREATE TABLE IF NOT EXISTS trip_expenses (
   id SERIAL PRIMARY KEY,

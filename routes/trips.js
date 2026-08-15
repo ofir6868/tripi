@@ -259,6 +259,58 @@ router.delete('/api/trips/code/:code/items/:itemId', authOptional, async (req, r
   }
 });
 
+// ---- stop votes (experimental group mode: thumbs per stop, participants only) ----
+// deliberately thin — no push, no presence, list-view UI only; may be reshaped later
+
+const voteTally = (itemFilter) => `
+  SELECT v.item_id,
+         COUNT(*) FILTER (WHERE v.vote = 1)::int  AS up,
+         COUNT(*) FILTER (WHERE v.vote = -1)::int AS down,
+         COALESCE(MAX(v.vote) FILTER (WHERE v.user_id = $2), 0)::int AS my_vote
+  FROM trip_stop_votes v
+  JOIN trip_items i ON i.id = v.item_id
+  WHERE i.trip_id = $1 ${itemFilter}
+  GROUP BY v.item_id`;
+
+router.get('/api/trips/code/:code/votes', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const { rows } = await pool.query(voteTally(''), [trip.id, req.user.id]);
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// vote: 1 = בעד, -1 = נגד, 0 = הסרת ההצבעה; returns the stop's fresh tally
+router.put('/api/trips/code/:code/items/:itemId/vote', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const vote = parseInt((req.body || {}).vote, 10);
+    if (![-1, 0, 1].includes(vote)) return res.status(400).json({ error: 'הצבעה לא תקינה' });
+    const itemId = parseInt(req.params.itemId, 10);
+    const item = await pool.query('SELECT 1 FROM trip_items WHERE id = $1 AND trip_id = $2', [itemId, trip.id]);
+    if (!item.rowCount) return res.status(404).json({ error: 'התחנה לא נמצאה' });
+    if (vote === 0) {
+      await pool.query('DELETE FROM trip_stop_votes WHERE item_id = $1 AND user_id = $2', [itemId, req.user.id]);
+    } else {
+      await pool.query(
+        `INSERT INTO trip_stop_votes (item_id, user_id, vote) VALUES ($1, $2, $3)
+         ON CONFLICT (item_id, user_id) DO UPDATE SET vote = $3`,
+        [itemId, req.user.id, vote]
+      );
+    }
+    const { rows } = await pool.query(voteTally('AND v.item_id = $3'), [trip.id, req.user.id, itemId]);
+    res.json(rows[0] || { item_id: itemId, up: 0, down: 0, my_vote: 0 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
 // ---- shared budget (one row per trip) ----
 
 const BUDGET_CURRENCIES = ['ILS', 'USD', 'EUR', 'GBP', 'JPY', 'THB', 'CHF'];

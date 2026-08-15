@@ -62,9 +62,9 @@
 
   <div class="action-bar glass">
     <div class="action-row" id="action-row">
-      <button class="action-btn finish" id="finish-btn" style="display:none" title="סיום התכנון — הטיול מקבל קוד שיתוף">
-        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-        <span class="ab-label">סיום תכנון</span>
+      <button class="action-btn finish" id="finish-btn" style="display:none" title="שמירת הטיול — הטיול מקבל קוד שיתוף">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        <span class="ab-label">שמירת הטיול</span>
       </button>
       <button class="action-btn" id="like-btn" style="display:none" title="אהבתי את הטיול">
         <svg class="ic ic-heart" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.51 4.04 3 5.5l7 7Z"/></svg>
@@ -210,11 +210,11 @@
       <!-- shown instead of the ticket while the trip is a draft: the code exists but
            is only revealed by the "finish planning" ceremony -->
       <div class="side-card glass draft-card" id="draft-card" style="display:none">
-        <div class="side-card-title">🚧 הטיול במצב תכנון</div>
-        <p class="draft-card-sub">עורכים בחופשיות — וכשמסיימים, הטיול מקבל קוד שיתוף וקישורי הזמנה לחברים</p>
+        <div class="side-card-title">🚧 טיוטת טיול</div>
+        <p class="draft-card-sub">עורכים בחופשיות — בשמירה הטיול מקבל קוד שיתוף וקישורי הזמנה לחברים</p>
         <button class="btn btn-amber" id="draft-finish-btn" style="width:100%;justify-content:center">
-          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-          סיום תכנון</button>
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          שמירת הטיול</button>
       </div>
       <div class="dest-switcher" id="dest-switcher" style="display:none"></div>
       <div class="side-card glass" id="weather-card" style="display:none">

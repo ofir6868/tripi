@@ -1,6 +1,6 @@
 // AI-first plan wizard: destinations → dates → style → the AI builds, and the trip
 // is CREATED on the spot — saved to the server as a draft and opened on its own
-// page (/trip/CODE) in edit mode. Publishing ("סיום תכנון") happens over there.
+// page (/trip/CODE) in edit mode. Publishing ("שמירת הטיול") happens over there.
 (() => {
   const DEFAULT_COVER = 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1200&q=80';
 

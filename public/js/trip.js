@@ -155,11 +155,10 @@
       const range = trip.end_date ? `${heDate(trip.start_date)} – ${heDate(trip.end_date)}` : heDate(trip.start_date);
       meta.push(`<span class="chip"><span class="dot">●</span> ${range}</span>`);
     }
-    // both chips render; applyDraftState() shows exactly one of them — the code is
-    // minted at creation but only revealed once planning is finished
+    // the code is minted at creation but only revealed once planning is finished —
+    // applyDraftState() keeps this chip hidden until then
     meta.push(`<span class="chip copyable" id="code-chip" dir="ltr" title="לחיצה מעתיקה את קוד הטיול"
       data-copy="${trip.share_code}" style="letter-spacing:.2em;color:var(--amber)">#${trip.share_code}</span>`);
-    meta.push(`<span class="chip draft-chip" id="draft-chip" style="display:none">🚧 בתכנון</span>`);
     document.getElementById('trip-meta').innerHTML = meta.join('');
 
     document.getElementById('trip-layout').style.display = '';
@@ -177,6 +176,17 @@
     // itinerary grouped by day (weatherByDate is filled by loadWeather when dates align)
     let tripItems = items.slice();
     let weatherByDate = {};
+
+    // ---- stop votes (experimental group mode): one thumbs-up/down per participant
+    // per stop. Solo planners never see it — a ballot with one voter is noise. ----
+    const votesOn = canEdit && participants.length > 1;
+    let votesByItem = {}; // item_id → {up, down, my_vote}
+    if (votesOn) {
+      TRIPI.api(`/api/trips/code/${trip.share_code}/votes`).then((rows) => {
+        votesByItem = Object.fromEntries(rows.map((r) => [r.item_id, r]));
+        if (rows.length) renderItinerary();
+      }).catch(() => {});
+    }
 
     // shared state for the hotels/budget modals (trip-modals.js) and the ambient UI
     const state = {
@@ -320,6 +330,69 @@
       container.appendChild(btn);
     }
 
+    // lucide thumbs — stroke icons, currentColor, same convention as every control
+    const VOTE_ICONS = {
+      up: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg>',
+      down: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg>',
+    };
+    const voteHtml = (it) => {
+      if (!votesOn) return '';
+      const v = votesByItem[it.id] || { up: 0, down: 0, my_vote: 0 };
+      return `<span class="stop-votes">
+        <button type="button" class="vote-btn${v.my_vote === 1 ? ' on' : ''}" data-id="${it.id}" data-v="1"
+          title="בעד התחנה" aria-label="בעד התחנה">${VOTE_ICONS.up}${v.up ? `<b>${v.up}</b>` : ''}</button>
+        <button type="button" class="vote-btn down${v.my_vote === -1 ? ' on' : ''}" data-id="${it.id}" data-v="-1"
+          title="נגד התחנה" aria-label="נגד התחנה">${VOTE_ICONS.down}${v.down ? `<b>${v.down}</b>` : ''}</button>
+      </span>`;
+    };
+
+    // ---- travel legs: real driving times between consecutive stops (OSRM) ----
+    // injected into the rendered list once routing resolves, so the itinerary never
+    // waits on the network; GEO caches per chain, so re-renders land instantly
+    const carIcon = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>';
+    const fmtDrive = (min) => (min < 60 ? `${min} דק׳` : `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')} שע׳`);
+    async function annotateTravel(byDay) {
+      for (const [day, stops] of byDay) {
+        // consecutive runs of stops with coordinates — a coordless stop breaks the chain
+        const runs = [];
+        let run = [];
+        for (const it of stops) {
+          if (it.lat != null && it.lon != null) run.push(it);
+          else { if (run.length > 1) runs.push(run); run = []; }
+        }
+        if (run.length > 1) runs.push(run);
+        if (!runs.length) continue;
+        let totalMin = 0;
+        await Promise.all(runs.map(async (r) => {
+          const legs = await GEO.routeLegs(r).catch(() => null);
+          if (!legs) return;
+          legs.forEach((leg, i) => {
+            totalMin += leg.minutes;
+            if (leg.minutes < 3) return; // a hop across the street isn't worth a row
+            const card = container.querySelector(`.item-card[data-item-id="${r[i].id}"]`);
+            // the list may have re-rendered since this fetch began — the fresh pass
+            // annotates the new cards; the sibling check stops a double insert
+            if (!card || card.nextElementSibling?.classList.contains('travel-leg')) return;
+            const el = document.createElement('div');
+            el.className = 'travel-leg';
+            el.innerHTML = `${carIcon} ${fmtDrive(leg.minutes)} · ${leg.km} ק״מ`;
+            card.insertAdjacentElement('afterend', el);
+          });
+        }));
+        // three hours behind the wheel is where a day out becomes a road day
+        if (totalMin >= 180) {
+          const title = container.querySelector(`.day-block[data-day="${day}"] .day-title`);
+          if (title && !title.querySelector('.day-load')) {
+            const chip = document.createElement('span');
+            chip.className = 'day-load';
+            chip.title = 'יום עמוס בנסיעות — אולי שווה לפצל אותו';
+            chip.innerHTML = `${carIcon} ${fmtDrive(totalMin)} נסיעה`;
+            title.appendChild(chip);
+          }
+        }
+      }
+    }
+
     function renderListView() {
       const byDay = new Map();
       for (let d = 1; d <= (editMode ? trip.days : 0); d++) byDay.set(d, []); // edit mode shows all days
@@ -340,7 +413,7 @@
         const hotelLines = TripModals.dayHotelLines(state, day);
         const routeUrl = TRIPI.mapsRouteUrl(byDay.get(day));
         return `
-        <div class="day-block">
+        <div class="day-block" data-day="${day}">
           <div class="day-title">
             <span class="day-badge">יום ${day}</span>
             ${date ? `<span class="day-date">${date.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}</span>` : ''}
@@ -362,6 +435,7 @@
                   ${it.time_label ? `<span class="item-time">${TRIPI.esc(it.time_label)}</span>` : ''}
                   <span class="item-title">${TRIPI.esc(it.title)}</span>
                   <span class="item-badges">
+                    ${voteHtml(it)}
                     ${+it.cost > 0 ? `<span class="item-cost">${TripModals.fmt(it.cost, TripModals.curOf(state))}</span>` : ''}
                     ${multiDest() && it.area ? `<span class="item-area">📍 ${TRIPI.esc(it.area)}</span>` : ''}
                     ${it.category ? `<span class="item-cat">${TRIPI.esc(it.category)}</span>` : ''}
@@ -381,13 +455,31 @@
       // popover the calendar uses. One surface for a stop, whichever view it's in.
       container.querySelectorAll('.item-card.tappable').forEach((card) => {
         const open = (e) => {
-          if (e.target.closest('.item-del') || e.target.closest('a')) return;
+          if (e.target.closest('.item-del') || e.target.closest('.stop-votes') || e.target.closest('a')) return;
           TripCalendar.openStop(calCtx, +card.dataset.itemId);
         };
         card.addEventListener('click', open);
         card.addEventListener('keydown', (e) => {
           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(e); }
         });
+      });
+
+      // vote taps: same vote again takes it back; the server answers with the
+      // stop's fresh tally, and the repaint folds it in
+      container.querySelectorAll('.vote-btn').forEach((b) => {
+        b.onclick = async () => {
+          if (b.disabled) return;
+          b.disabled = true;
+          const id = +b.dataset.id;
+          const mine = (votesByItem[id] || {}).my_vote || 0;
+          const next = mine === +b.dataset.v ? 0 : +b.dataset.v;
+          try {
+            votesByItem[id] = await TRIPI.api(`/api/trips/code/${trip.share_code}/items/${id}/vote`, {
+              method: 'PUT', headers: canEditHeaders || {}, body: JSON.stringify({ vote: next }),
+            });
+            renderItinerary();
+          } catch (err) { alert(err.message); b.disabled = false; }
+        };
       });
 
       if (editMode) {
@@ -406,6 +498,7 @@
         });
       }
       applyListCollapse();
+      annotateTravel(byDay);
     }
 
     renderItinerary();
@@ -853,7 +946,9 @@
           chipEl = document.createElement('span');
           chipEl.id = 'budget-chip';
           chipEl.className = 'chip budget-chip';
-          document.getElementById('trip-meta').appendChild(chipEl);
+          // the participants chip stays last in the hero row; insertBefore(null) appends
+          document.getElementById('trip-meta')
+            .insertBefore(chipEl, document.getElementById('participants-chip'));
           chipEl.onclick = () => TripModals.openBudget(modalCtx);
         }
         chipEl.textContent = chipText;
@@ -930,7 +1025,7 @@
       flash(shareInvite ? 'קישור ההזמנה הועתק! ✓' : 'הקישור הועתק! ✓');
     };
 
-    // ---- draft state: the trip exists from the moment it was built; "סיום תכנון"
+    // ---- draft state: the trip exists from the moment it was built; "שמירת הטיול"
     // is the ceremony that reveals the code and the sharing surfaces. One function
     // owns every toggle so publishing can transition in place, no reload. ----
     const finishBtn = document.getElementById('finish-btn');
@@ -941,7 +1036,6 @@
       draftCard.style.display = isDraft && canEdit ? '' : 'none';
       finishBtn.style.display = isDraft && (isOwner || isAdmin) ? '' : 'none';
       document.getElementById('code-chip').style.display = isDraft ? 'none' : '';
-      document.getElementById('draft-chip').style.display = isDraft ? '' : 'none';
       // no cloning something half-planned — the button (and the viewer end-cap
       // that fronts it) come back the moment planning is finished
       cloneBtn.style.display = isDraft ? 'none' : '';

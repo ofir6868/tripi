@@ -838,6 +838,171 @@ function editViolations(items, ops, days) {
   return { problems, after };
 }
 
+// Deterministic last resort, used when the model's repair attempt still breaks the
+// rules above. The model already decided WHAT the trip contains; this only fixes WHERE
+// stops sit: stops whose area label disagrees with the day they landed on are moved
+// into their area's days (or adopt the day's area when that block is full), empty days
+// are refilled from the fullest ones, and days an op overfilled are thinned back. It
+// amends the ops themselves — an added stop has no id yet, so its add op is edited in
+// place; everything else becomes one more update op — and unlike another model call,
+// it terminates with the rules holding.
+function rebalanceEdit(items, ops, days, areaNames) {
+  const clamp = (d, dflt) => Math.min(Math.max(parseInt(d, 10) || dflt, 1), days);
+  // replay like applyOps, but remember which op created each added stop and what the
+  // ops alone would leave behind (day0/area0), so only real corrections are emitted
+  const entries = items.map((it) => ({
+    id: it.id, day: it.day_number, area: it.area || null,
+    time: it.time_label || '', category: it.category, touched: false, addOp: null,
+  }));
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  for (const op of ops) {
+    if (op.action === 'delete') {
+      const e = byId.get(op.id);
+      if (e) { entries.splice(entries.indexOf(e), 1); byId.delete(op.id); }
+    } else if (op.action === 'update') {
+      const e = byId.get(op.id);
+      if (!e) continue;
+      e.touched = true;
+      if (op.day_number != null) e.day = clamp(op.day_number, e.day);
+      if (op.area != null) e.area = op.area;
+      if (op.time_label != null) e.time = op.time_label;
+      if (op.category != null) e.category = op.category;
+    } else if (op.action === 'add') {
+      entries.push({
+        id: null, day: clamp(op.day_number, 1), area: op.area || null,
+        time: op.time_label || '', category: op.category, touched: true, addOp: op,
+      });
+    }
+  }
+  for (const e of entries) { e.day0 = e.day; e.area0 = e.area; }
+
+  const count = Array(days + 1).fill(0);
+  for (const e of entries) count[e.day]++;
+  const move = (e, d, area) => {
+    count[e.day]--; e.day = d; count[d]++;
+    if (area !== undefined) e.area = area;
+  };
+
+  // which area owns each day: a monotone partition (areas in their current day order,
+  // each on one contiguous block) chosen to agree with as many stops as possible
+  let dayArea = null;
+  if (areaNames.length > 1) {
+    const minDay = (n) => {
+      const ds = entries.filter((e) => e.area === n).map((e) => e.day);
+      return ds.length ? Math.min(...ds) : Infinity;
+    };
+    const order = [...areaNames].sort((a, b) => minDay(a) - minDay(b));
+    const votes = Array.from({ length: days + 1 }, () => order.map(() => 0));
+    for (const e of entries) {
+      const j = order.indexOf(e.area);
+      if (j !== -1) votes[e.day][j]++;
+    }
+    const dp = Array.from({ length: days + 1 }, () => order.map(() => 0));
+    const prev = Array.from({ length: days + 1 }, () => order.map(() => 0));
+    for (let j = 0; j < order.length; j++) dp[1][j] = votes[1][j];
+    for (let d = 2; d <= days; d++) {
+      for (let j = 0; j < order.length; j++) {
+        let best = j; // a tie stays in the same area — fewer boundary flips
+        for (let i = 0; i < j; i++) if (dp[d - 1][i] > dp[d - 1][best]) best = i;
+        dp[d][j] = votes[d][j] + dp[d - 1][best];
+        prev[d][j] = best;
+      }
+    }
+    let j = 0;
+    for (let i = 1; i < order.length; i++) if (dp[days][i] > dp[days][j]) j = i;
+    dayArea = Array(days + 1).fill(null);
+    for (let d = days; d >= 1; d--) { dayArea[d] = order[j]; j = prev[d][j]; }
+  }
+
+  // stops whose label disagrees with the day they sit on: move them into their own
+  // area's days when there is room, otherwise adopt the day's area
+  if (dayArea) {
+    for (const e of entries) {
+      if (!e.area) { if (e.addOp) e.area = dayArea[e.day]; continue; }
+      if (e.area === dayArea[e.day]) continue;
+      const block = [];
+      for (let d = 1; d <= days; d++) if (dayArea[d] === e.area) block.push(d);
+      const target = block.length ? block.reduce((a, b) => (count[b] < count[a] ? b : a)) : null;
+      if (target != null && count[target] < 5) move(e, target);
+      else e.area = dayArea[e.day];
+    }
+  }
+
+  // a stop the ops already moved is the least anchored to its day; a travel stop is
+  // the most — it IS the day's structure — so it goes last
+  const pick = (d) => entries.filter((e) => e.day === d).sort((a, b) =>
+    (a.category === 'נסיעה') - (b.category === 'נסיעה')
+    || b.touched - a.touched
+    || (b.time || '').localeCompare(a.time || '')
+    || (b.id || 0) - (a.id || 0))[0];
+
+  // refill empty days from the fullest ones, same-area days first
+  for (let d = 1; d <= days; d++) {
+    if (count[d] > 0) continue;
+    while (count[d] < 2) {
+      const donors = [];
+      for (let x = 1; x <= days; x++) if (x !== d && count[x] >= 3) donors.push(x);
+      if (!donors.length) break;
+      donors.sort((a, b) =>
+        (dayArea ? (dayArea[b] === dayArea[d]) - (dayArea[a] === dayArea[d]) : 0)
+        || count[b] - count[a] || a - b);
+      move(pick(donors[0]), d, dayArea ? dayArea[d] : undefined);
+    }
+  }
+
+  // thin days an op overfilled — the same crowding rule editViolations flags
+  const before = Array(days + 1).fill(0);
+  for (const it of items) if (it.day_number >= 1 && it.day_number <= days) before[it.day_number]++;
+  const extraDeletes = [];
+  const droppedAdds = new Set();
+  for (let d = 1; d <= days; d++) {
+    while (count[d] > 5 && count[d] > before[d]) {
+      const e = pick(d);
+      const sameBlock = [];
+      const anyDay = [];
+      for (let x = 1; x <= days; x++) {
+        if (x === d || count[x] >= 5) continue;
+        anyDay.push(x);
+        if (!dayArea || dayArea[x] === e.area) sameBlock.push(x);
+      }
+      const least = (arr) => arr.reduce((a, b) => (count[b] < count[a] ? b : a));
+      if (sameBlock.length) move(e, least(sameBlock));
+      else if (anyDay.length) {
+        const t = least(anyDay);
+        move(e, t, dayArea ? dayArea[t] : undefined);
+      } else { // nowhere with room — this stop really is the excess
+        entries.splice(entries.indexOf(e), 1);
+        count[d]--;
+        if (e.addOp) droppedAdds.add(e.addOp);
+        else extraDeletes.push(e.id);
+      }
+    }
+  }
+
+  let changed = droppedAdds.size > 0;
+  const out = ops.filter((op) => !droppedAdds.has(op));
+  for (const e of entries) {
+    if (e.addOp) {
+      if (e.addOp.day_number !== e.day || (e.addOp.area || null) !== e.area) {
+        e.addOp.day_number = e.day;
+        e.addOp.area = e.area;
+        changed = true;
+      }
+      continue;
+    }
+    const dayFix = e.day !== e.day0 ? e.day : null;
+    const areaFix = (e.area || null) !== (e.area0 || null) ? e.area : null;
+    if (dayFix == null && areaFix == null) continue;
+    changed = true;
+    out.push({
+      action: 'update', id: e.id, day_number: dayFix, time_label: null, title: null,
+      note: null, place_query: null, category: null, area: areaFix, cost: null,
+    });
+  }
+  for (const id of extraDeletes) out.push({ action: 'delete', id });
+  return changed || extraDeletes.length ? out : null;
+}
+
 // re-pacing a trip costs one update per moved stop, so the cap has to clear a
 // whole-trip reshuffle — at 30 the tail of a reorganization was silently dropped,
 // which by itself left days empty
@@ -929,10 +1094,19 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, descript
       },
     },
   });
+  // the model occasionally invents a variant of a real area name ("אזור הירושימה" for
+  // "הירושימה"), which then counts as a separate area sitting on scattered days — fold
+  // those back onto the trip's own names before anything judges the ops
+  const canonArea = (a) => {
+    if (!a || areaNames.includes(a)) return a || null;
+    return areaNames.find((n) => a.includes(n) || n.includes(a)) || a;
+  };
   const shape = (p) => ({
     summary: String(p.summary || '').slice(0, 300),
     description: p.description ? String(p.description).slice(0, 500).trim() || null : null,
-    ops: Array.isArray(p.ops) ? p.ops.slice(0, opsCap) : [],
+    ops: Array.isArray(p.ops)
+      ? p.ops.slice(0, opsCap).map((op) => (op && op.area ? { ...op, area: canonArea(op.area) } : op))
+      : [],
   });
 
   const parsed = await askModel();
@@ -949,17 +1123,29 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, descript
   if (!problems.length) return first;
   const repaired = await askModel(
     `\n\nניסיון קודם שלך לבצע את הבקשה הזו יצר את הבעיות הבאות: ${problems.join(' | ')}. ` +
-    `החזר סט ops מלא ומתוקן שמבצע את אותה בקשה בלי הבעיות האלה — כל יום בטווח הטיול עם 2-4 תחנות, וכל אזור על רצף ימים אחד.`
+    `החזר סט ops מלא ומתוקן שמבצע את אותה בקשה בלי הבעיות האלה — כל יום בטווח הטיול עם 2-4 תחנות, וכל אזור על רצף ימים אחד. ` +
+    `אל תעביר ואל תוסיף תחנות ליום שכבר יש בו 4 תחנות או יותר.`
   );
-  if (!repaired) return first;
-  const second = shape(repaired);
-  if (!second.ops.length) return first; // an empty retry is a worse answer than a flawed one
-  const after = editViolations(items, second.ops, days);
-  if (after.problems.length) {
-    console.warn('trip_edit repair still violates:', after.problems.join(' | '));
-    return after.problems.length < problems.length ? second : first;
+  let best = first;
+  let bestProblems = problems;
+  if (repaired) {
+    const second = shape(repaired);
+    if (second.ops.length) { // an empty retry is a worse answer than a flawed one
+      const after = editViolations(items, second.ops, days);
+      if (!after.problems.length) return second;
+      if (after.problems.length < bestProblems.length) { best = second; bestProblems = after.problems; }
+    }
   }
-  return second;
+  // the model got its diagnosis and still broke a rule — from here the fix is
+  // mechanical, and mechanical actually converges
+  const fixed = rebalanceEdit(items, best.ops, days, areaNames);
+  if (fixed) {
+    const check = editViolations(items, fixed, days);
+    if (!check.problems.length) return { ...best, ops: fixed };
+    if (check.problems.length < bestProblems.length) { best = { ...best, ops: fixed }; bestProblems = check.problems; }
+  }
+  console.warn('trip_edit repair still violates:', bestProblems.join(' | '));
+  return best;
 }
 
 router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {

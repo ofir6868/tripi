@@ -58,6 +58,27 @@ const GEO = {
     return 'סופות';
   },
 
+  // driving legs between consecutive points, via the public OSRM server (keyless).
+  // The in-flight promise is cached per coordinate chain, so a re-render reuses the
+  // same answer (and two racing renders share one request); failures aren't kept.
+  routeCache: new Map(),
+  async routeLegs(points) {
+    const chain = points.map((p) => `${(+p.lon).toFixed(5)},${(+p.lat).toFixed(5)}`).join(';');
+    if (this.routeCache.has(chain)) return this.routeCache.get(chain);
+    const promise = (async () => {
+      const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${chain}?overview=false`);
+      if (!res.ok) throw new Error('routing unavailable');
+      const legs = (await res.json()).routes?.[0]?.legs;
+      if (!legs) throw new Error('no route');
+      return legs.map((l) => ({
+        minutes: Math.round(l.duration / 60),
+        km: l.distance >= 9500 ? Math.round(l.distance / 1000) : +(l.distance / 1000).toFixed(1),
+      }));
+    })();
+    this.routeCache.set(chain, promise);
+    try { return await promise; } catch (err) { this.routeCache.delete(chain); throw err; }
+  },
+
   async hotelsNear(lat, lon) {
     const res = await fetch(`/api/hotels?lat=${lat}&lon=${lon}`);
     if (!res.ok) throw new Error('hotels unavailable');

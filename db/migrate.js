@@ -144,6 +144,16 @@ async function main() {
     )`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id)`);
 
+  console.log('Migration 11: stop votes (experimental group mode)...');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trip_stop_votes (
+      item_id INT NOT NULL REFERENCES trip_items(id) ON DELETE CASCADE,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      vote SMALLINT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      PRIMARY KEY (item_id, user_id)
+    )`);
+
   console.log('Done.');
   await pool.end();
 }
