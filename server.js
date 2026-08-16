@@ -33,4 +33,19 @@ app.use(require('./routes/analytics'));
 app.use(require('./routes/health'));
 app.use(require('./routes/pages'));
 
-app.listen(PORT, () => console.log(`TRIPI running on http://localhost:${PORT}`));
+// Boot order matters after a database rotation: first re-discover the live
+// instance if DATABASE_URL points at a deleted one (needs RENDER_API_KEY),
+// then self-restore from the escrow dump if the instance is brand-new/empty,
+// and only then serve traffic. See tools/db-rotation-runbook.md.
+const { ensureDatabase } = require('./lib/db');
+const { bootRestore } = require('./lib/restore');
+
+(async () => {
+  try {
+    await ensureDatabase();
+    await bootRestore(require('./lib/db').pool);
+  } catch (err) {
+    console.error('boot: database unavailable, serving anyway:', err.message);
+  }
+  app.listen(PORT, () => console.log(`TRIPI running on http://localhost:${PORT}`));
+})();

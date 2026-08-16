@@ -1,17 +1,18 @@
 // Free-tier database rotation: Render deletes free Postgres instances 30 days
-// after creation, so shortly before each expiry an operator (a scheduled Claude
-// session — see tools/db-rotation-runbook.md) dumps everything through this
-// router, a fresh database is created, DATABASE_URL is re-pointed, and the dump
-// is restored. These endpoints are the only write path into the database from
-// outside Render, so they answer to a dedicated bearer token, not user JWTs.
+// after creation, so the data moves to a fresh instance every month — see
+// tools/db-rotation-runbook.md. The heavy lifting (schema rebuild, ordered
+// inserts, sequence fixup, boot-time self-restore) lives in lib/restore.js;
+// these endpoints expose dump/restore for manual operation from a machine that
+// can reach the app (scheduled Claude sessions cannot — their egress policy
+// blocks this host, which is why boot-time self-restore exists). They answer
+// to a dedicated bearer token, not user JWTs.
 const express = require('express');
 const crypto = require('crypto');
 const { pool } = require('../lib/db');
-const { SCHEMA, TABLES } = require('../db/schema');
+const { TABLES } = require('../db/schema');
+const { DUMP_FORMAT, restoreDump, isEmpty } = require('../lib/restore');
 
 const router = express.Router();
-
-const DUMP_FORMAT = 1;
 
 function rotationAuth(req, res, next) {
   const token = process.env.ROTATION_TOKEN;
@@ -66,55 +67,19 @@ router.get('/api/rotation/dump', rotationAuth, async (_req, res) => {
   }
 });
 
-// Rebuilds schema + data into the *empty* database DATABASE_URL currently points
-// at. Refuses to touch a database that already has users or trips — a restore
-// can only ever fill a fresh instance, never overwrite the live one.
+// Fills the *empty* database DATABASE_URL currently points at. Refuses one that
+// already has users or trips — a restore can only ever fill a fresh instance.
 router.post('/api/rotation/restore', rotationAuth, async (req, res) => {
-  const dump = req.body;
-  if (!dump || dump.format !== DUMP_FORMAT || !dump.tables) {
-    return res.status(400).json({ error: `expected a format-${DUMP_FORMAT} dump` });
-  }
-  const client = await pool.connect();
   try {
-    const { rows: reg } = await client.query(`SELECT to_regclass('public.users') AS t`);
-    if (reg[0].t) {
-      const { rows } = await client.query(
-        'SELECT (SELECT count(*) FROM users)::int + (SELECT count(*) FROM trips)::int AS n');
-      if (rows[0].n > 0) {
-        return res.status(409).json({ error: 'refusing to restore into a non-empty database' });
-      }
+    if (!(await isEmpty(pool))) {
+      return res.status(409).json({ error: 'refusing to restore into a non-empty database' });
     }
-
-    await client.query('BEGIN');
-    await client.query(SCHEMA);
-    const restored = {};
-    for (const t of TABLES) {
-      const rows = dump.tables[t.name] || [];
-      for (const row of rows) {
-        const values = t.cols.map((c) =>
-          (t.jsonb || []).includes(c) && row[c] !== null ? JSON.stringify(row[c]) : row[c]
-        );
-        const params = t.cols.map((_, i) => `$${i + 1}`).join(', ');
-        await client.query(
-          `INSERT INTO ${t.name} (${t.cols.join(', ')}) VALUES (${params})`, values
-        );
-      }
-      restored[t.name] = rows.length;
-      if (t.serial) {
-        await client.query(
-          `SELECT setval(pg_get_serial_sequence('${t.name}', 'id'),
-                         COALESCE((SELECT MAX(id) FROM ${t.name}), 0) + 1, false)`
-        );
-      }
-    }
-    await client.query('COMMIT');
-    res.json({ ok: true, restored, counts: await tableCounts(client) });
+    const restored = await restoreDump(pool, req.body);
+    res.json({ ok: true, restored, counts: await tableCounts(pool) });
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
     console.error(err);
-    res.status(500).json({ error: 'restore failed', detail: err.message });
-  } finally {
-    client.release();
+    const code = /expected a format/.test(err.message) ? 400 : 500;
+    res.status(code).json({ error: 'restore failed', detail: err.message });
   }
 });
 
