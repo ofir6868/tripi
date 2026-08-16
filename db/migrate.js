@@ -5,7 +5,10 @@ const { Pool } = require('pg');
 const url = process.env.DATABASE_URL ||
   (() => { try { return require('fs').readFileSync(require('path').join(__dirname, '..', '.env'), 'utf8').match(/DATABASE_URL=(.*)/)[1].trim(); } catch { return null; } })();
 
-const pool = new Pool({ connectionString: url, ssl: { rejectUnauthorized: false } });
+const pool = new Pool({
+  connectionString: url,
+  ssl: (url || '').includes('sslmode=disable') ? false : { rejectUnauthorized: false },
+});
 
 // coordinates for the seeded suggested trips (share_code → [{name, country, lat, lon}])
 const SEED_DESTS = {

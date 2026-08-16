@@ -10,6 +10,11 @@ const PORT = process.env.PORT || 3000;
 // limiters key on) would be the proxy's address, one shared bucket for everyone
 app.set('trust proxy', 1);
 
+// The rotation restore body is a whole-database dump, far over express.json()'s
+// 100kb default — its router mounts ahead of the global parser with its own limit.
+app.use('/api/rotation', express.json({ limit: '20mb' }));
+app.use(require('./routes/rotation'));
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
