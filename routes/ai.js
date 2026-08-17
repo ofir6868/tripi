@@ -553,6 +553,8 @@ async function verifyBlockPlaces(items, { area, ph }) {
     const unfound = (q) => { const r = results.get(q); return r && (r.verdict === 'mismatch' || r.verdict === 'none'); };
     const failing = items.filter((it) => it.place_query && unfound(it.place_query));
     if (!failing.length) return;
+    console.log(`place verification: ${failing.length}/${queries.length} unfound in "${area}":`,
+      failing.map((it) => it.place_query).join(' | '));
 
     const parsed = await aiJson({
       system: 'אתה בודק עובדות של מסלולי טיולים. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
@@ -597,10 +599,13 @@ async function verifyBlockPlaces(items, { area, ph }) {
     const replacements = [...new Set([...fixByIndex.values()].filter(Boolean))];
     const recheck = replacements.length ? await verifyPlaces(replacements) : new Map();
     const stands = (q) => { const r = recheck.get(q); return r && (r.verdict === 'ok' || r.verdict === 'skipped'); };
+    let repaired = 0;
     failing.forEach((it, i) => {
       const fix = fixByIndex.get(i) || null;
       it.place_query = fix && stands(fix) ? fix : null;
+      if (it.place_query) repaired++;
     });
+    console.log(`place verification: ${repaired} repaired, ${failing.length - repaired} dropped in "${area}"`);
   } catch (err) {
     console.warn('place verification skipped:', err.message); // never the build's problem
   }
