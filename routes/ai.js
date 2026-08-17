@@ -4,6 +4,7 @@ const { randomUUID } = require('crypto');
 const { pool } = require('../lib/db');
 const { authRequired, authOptional, isAdmin } = require('../lib/auth');
 const { tripWithEditAuth, cleanDestinations } = require('../lib/trips');
+const { verifyPlaces } = require('../lib/places');
 const posthog = require('../lib/posthog');
 
 const router = express.Router();
@@ -540,6 +541,74 @@ async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers, 
   return blocks;
 }
 
+// Every place the model proposed gets geocoded (lib/places.js, keyless OSM) before the
+// block is returned — the 2026-08 places audit measured ~5% of stops naming places that
+// do not exist ("Vanora", "Kyuushu Castle"), clustered in restaurants and secondary
+// regions. What the geocoder can't find goes back to the model once, listed, for a
+// correction; whatever still fails loses its place_query — a stop without a pin beats a
+// pin on a place that isn't there, even at the cost of the occasional real hole-in-the-
+// wall OSM doesn't know. Geocoder trouble ('skipped') fails open: no verdict, no change.
+async function verifyBlockPlaces(items, { area, ph }) {
+  try {
+    const queries = [...new Set(items.map((it) => it.place_query).filter(Boolean))];
+    if (!queries.length) return;
+    const results = await verifyPlaces(queries);
+    const unfound = (q) => { const r = results.get(q); return r && (r.verdict === 'mismatch' || r.verdict === 'none'); };
+    const failing = items.filter((it) => it.place_query && unfound(it.place_query));
+    if (!failing.length) return;
+
+    const parsed = await aiJson({
+      system: 'אתה בודק עובדות של מסלולי טיולים. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
+      user:
+        `במסלול טיול באזור "${area}" יש תחנות שהמקום שלהן לא נמצא במפה — השם שגוי, לא מדויק, או שהמקום לא קיים:\n` +
+        failing.map((it, i) => `${i}. "${it.title}" — place_query: "${it.place_query}"`).join('\n') +
+        `\nהחזר לכל תחנה (לפי index) אחת משתיים: place_query מתוקן — מקום אמיתי, מוכר וקיים באזור "${area}" שמשרת את כוונת התחנה, באנגלית ובפורמט "Name, City, Country"; ` +
+        `או null אם לתחנה אין מקום ספציפי אמיתי (ארוחה כללית, סיור חופשי). אל תמציא: אם אינך בטוח שהמקום קיים — החזר null.`,
+      schemaName: 'place_fixes',
+      maxTokens: 1500,
+      model: AI_MODEL_STRONG,
+      ph,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['fixes'],
+        properties: {
+          fixes: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['index', 'place_query'],
+              properties: {
+                index: { type: 'integer' },
+                place_query: { type: ['string', 'null'] },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!parsed) return; // the corrector failing is not a reason to fail the build
+
+    const fixByIndex = new Map();
+    for (const f of parsed.fixes || []) {
+      if (!Number.isInteger(f.index) || f.index < 0 || f.index >= failing.length) continue;
+      fixByIndex.set(f.index, typeof f.place_query === 'string' && f.place_query.trim() ? f.place_query.slice(0, 120).trim() : null);
+    }
+    // the replacements get the same check — a second invented name is how this loop
+    // would otherwise reintroduce the exact failure it exists to stop
+    const replacements = [...new Set([...fixByIndex.values()].filter(Boolean))];
+    const recheck = replacements.length ? await verifyPlaces(replacements) : new Map();
+    const stands = (q) => { const r = recheck.get(q); return r && (r.verdict === 'ok' || r.verdict === 'skipped'); };
+    failing.forEach((it, i) => {
+      const fix = fixByIndex.get(i) || null;
+      it.place_query = fix && stands(fix) ? fix : null;
+    });
+  } catch (err) {
+    console.warn('place verification skipped:', err.message); // never the build's problem
+  }
+}
+
 // one OpenAI call for ONE area and a fixed day range — the shape that stays coherent
 async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, answers, transferFrom, ph }) {
   // a long block asks the model to hold many days of a single area coherent in one
@@ -652,6 +721,7 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
       cost: null,
     });
   }
+  await verifyBlockPlaces(cleaned, { area, ph });
   return cleaned;
 }
 
