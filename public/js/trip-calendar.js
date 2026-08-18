@@ -232,7 +232,7 @@ const TripCalendar = (() => {
       const wf = weatherOf(ctx, d);
       const items = byDay.get(d) || [];
       cols.push(`
-        <div class="cal-wday">
+        <div class="cal-wday" data-day="${d}">
           <button type="button" class="cal-wday-head${d === today ? ' today' : ''}" data-day="${d}" title="לתצוגה היומית">
             <span class="wd-num">יום ${d}</span>
             ${date ? `<span class="wd-date">${DOW[date.getDay()]} ${date.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}</span>` : ''}
@@ -267,6 +267,15 @@ const TripCalendar = (() => {
     });
     body.querySelectorAll('.cal-wevt').forEach((b) => {
       b.onclick = () => openStop(ctx, +b.dataset.item);
+    });
+    // long-press a stop → jiggle & drag: onto a stop to swap, onto a day column to move
+    if (ctx.canEdit && ctx.swapItems) TripArrange.attach(body, {
+      canEdit: true,
+      cards: '.cal-wevt',
+      idOf: (el) => +el.dataset.item,
+      dayTargets: [{ selector: '.cal-wday', getDay: (el) => +el.dataset.day }],
+      swap: ctx.swapItems,
+      moveToDay: ctx.moveItemToDay,
     });
   }
 
@@ -334,6 +343,16 @@ const TripCalendar = (() => {
     });
     const addBtn = body.querySelector('.cal-add-stop');
     if (addBtn) addBtn.onclick = () => openNewStop(ctx, d);
+    // long-press a stop → jiggle & drag: onto a stop to swap, onto a strip chip to
+    // move it to that day (the strip is the only other-day surface this view has)
+    if (ctx.canEdit && ctx.swapItems) TripArrange.attach(body, {
+      canEdit: true,
+      cards: '.cal-devt',
+      idOf: (el) => +el.dataset.item,
+      dayTargets: [{ selector: '.cds-btn', getDay: (el) => +el.dataset.day }],
+      swap: ctx.swapItems,
+      moveToDay: ctx.moveItemToDay,
+    });
   }
 
   // ---------- stop details modal (bottom sheet on phones) ----------

@@ -2463,3 +2463,47 @@ body.cal-full-open { overflow: hidden; }
 .vote-btn.on { background: rgba(143, 216, 196, .14); color: var(--mint); border-color: rgba(143, 216, 196, .4); }
 .vote-btn.down.on { background: rgba(255, 122, 110, .12); color: var(--danger); border-color: rgba(255, 122, 110, .35); }
 @media print { .stop-votes { display: none; } }
+
+/* ---- arrange mode: long-press a stop → everything jiggles, drag to swap ---- */
+@keyframes arr-jiggle {
+  0% { transform: rotate(-0.7deg); }
+  50% { transform: rotate(0.7deg); }
+  100% { transform: rotate(-0.7deg); }
+}
+.arrange-mode .jiggle {
+  animation: arr-jiggle 0.3s ease-in-out infinite;
+  animation-delay: var(--jd, 0ms);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: grab;
+}
+@media (prefers-reduced-motion: reduce) {
+  .arrange-mode .jiggle { animation: none; outline: 1px dashed var(--glass-highlight); }
+}
+.drag-ghost {
+  position: fixed;
+  z-index: 2000;
+  margin: 0;
+  pointer-events: none;
+  opacity: 0.95;
+  scale: 1.04;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.4);
+  animation: none;
+}
+.drag-src { opacity: 0.35; }
+.drop-hint {
+  outline: 2px dashed var(--amber);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.arrange-done {
+  position: fixed;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2001;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+}
+.dragging .arrange-done { pointer-events: none; opacity: 0.35; }

@@ -231,6 +231,9 @@ router.patch('/api/trips/code/:code/items/:itemId', authOptional, async (req, re
     if ('lat' in body) add('lat', numOrNull(body.lat));
     if ('lon' in body) add('lon', numOrNull(body.lon));
     if ('cost' in body) add('cost', moneyOrNull(body.cost));
+    // arrange-mode swaps trade sort_order between stops — it breaks ties among
+    // same-day stops that share a time label (or have none)
+    if ('sort_order' in body) add('sort_order', Math.max(parseInt(body.sort_order, 10) || 0, 0));
     if (!sets.length) return res.status(400).json({ error: 'אין מה לעדכן' });
     vals.push(req.params.itemId, trip.id);
     const { rows } = await pool.query(

@@ -250,9 +250,12 @@
       });
     }
 
-    // day order first, then the clock — the order both views read stops in
+    // day order first, then the clock, then the stored slot — the order both views
+    // read stops in. The slot tiebreak matches the server's own ORDER BY, and it is
+    // what makes an arrange-mode swap of two unclocked stops actually visible.
     const sortItems = () => tripItems.sort((a, b) =>
-      a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')));
+      a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || ''))
+      || (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id);
 
     // the one write path for a stop: patch, fold the server's row back into the
     // item both views already hold, and repaint. Throws on failure — callers show it.
@@ -287,6 +290,25 @@
       updateAmbient();
     }
 
+    // arrange-mode swap: the two stops trade places whole — day, hour and slot
+    // together — so the schedule's shape stays put and only the content moves
+    async function swapStops(aId, bId) {
+      const a = tripItems.find((it) => it.id === aId);
+      const b = tripItems.find((it) => it.id === bId);
+      if (!a || !b) return;
+      const slot = (it) => ({ day_number: it.day_number, time_label: it.time_label, sort_order: it.sort_order });
+      const slotA = slot(a), slotB = slot(b);
+      await saveItem(a, slotB);
+      try { await saveItem(b, slotA); }
+      catch (err) { await saveItem(a, slotA).catch(() => {}); throw err; } // undo half a swap
+    }
+
+    async function moveStopToDay(id, day) {
+      const it = tripItems.find((x) => x.id === id);
+      if (!it || it.day_number === day) return;
+      await saveItem(it, { day_number: day });
+    }
+
     registerTripTools({ trip, state, canEdit, addItem, saveItem, deleteItem, items: () => tripItems });
 
     // one context for the calendar AND for the stop sheet the list view opens —
@@ -298,6 +320,8 @@
       bias: (it) => ({ lat: it?.lat ?? dests[0]?.lat, lon: it?.lon ?? dests[0]?.lon }),
       defaultArea: (day) => (multiDest() ? defaultAreaForDay(day) : tripDests[0]?.name || null),
       saveItem, addItem, deleteItem,
+      // arrange mode (long-press drag) — the calendar views hand these to TripArrange
+      swapItems: swapStops, moveItemToDay: moveStopToDay,
     };
 
     // every existing call site funnels through here, so both views stay fresh
@@ -499,6 +523,15 @@
       }
       applyListCollapse();
       annotateTravel(byDay);
+      // long-press a card → jiggle & drag: onto a card to swap, onto a day block to move
+      TripArrange.attach(container, {
+        canEdit: editMode,
+        cards: '.item-card',
+        idOf: (el) => +el.dataset.itemId,
+        dayTargets: [{ selector: '.day-block', getDay: (el) => +el.dataset.day }],
+        swap: swapStops,
+        moveToDay: moveStopToDay,
+      });
     }
 
     renderItinerary();
