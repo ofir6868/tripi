@@ -1,9 +1,11 @@
 // Arrange mode — the iPhone home-screen gesture for stops. A long press on a stop
-// card starts the mode: every card jiggles, and dragging one onto another swaps the
-// two (day, hour and slot trade together), while dropping it on a day target — a
-// day block in the list, a column in the week view, a chip in the day strip — moves
-// it to that day. One mode instance for the whole page; the current view attaches
-// its own cards/targets after every render, so the mode survives repaints.
+// card starts the mode: every card jiggles, and dragging lifts the card while a
+// dashed placeholder marks its slot. The other stops are pushed aside LIVE as the
+// ghost moves over them (Jira/iPhone style) — across days too — and the drop commits
+// exactly the arrangement on screen: each affected day keeps its set of hours and
+// deals them back to its stops in the new order, so the schedule's shape stays put
+// and only the content moves. One mode instance for the whole page; the current view
+// attaches its own cards/containers after every render, so the mode survives repaints.
 //
 // The long press only ENTERS the mode; dragging starts from the next touch. On the
 // activating press the browser has already claimed the gesture for scrolling
@@ -50,11 +52,34 @@ const TripArrange = (() => {
 
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') deactivate(); });
 
+  // FLIP: run a DOM mutation, then let every card glide from where it was to where
+  // it ended up. The jiggle is suspended while dragging (.dragging), so the
+  // transform channel is free for these slides.
+  function flipMove(scope, cardsSel, mutate) {
+    const cards = [...scope.querySelectorAll(cardsSel)];
+    const before = new Map(cards.map((el) => [el, el.getBoundingClientRect()]));
+    mutate();
+    for (const el of cards) {
+      const b = before.get(el);
+      if (!b) continue;
+      const a = el.getBoundingClientRect();
+      const dx = b.left - a.left, dy = b.top - a.top;
+      if (!dx && !dy) continue;
+      el.style.transition = 'none';
+      el.style.transform = `translate(${dx}px, ${dy}px)`;
+      requestAnimationFrame(() => {
+        el.style.transition = 'transform .18s ease';
+        el.style.transform = '';
+      });
+    }
+  }
+
   function clearHints() {
     document.querySelectorAll('.drop-hint').forEach((n) => n.classList.remove('drop-hint'));
   }
 
   function startDrag(card, opts, id, pointerId, x0, y0) {
+    const scope = current.scope;
     const rect = card.getBoundingClientRect();
     const ghost = card.cloneNode(true);
     ghost.classList.add('drag-ghost');
@@ -63,12 +88,13 @@ const TripArrange = (() => {
     ghost.style.left = rect.left + 'px';
     ghost.style.top = rect.top + 'px';
     document.body.appendChild(ghost);
+    // the card itself becomes the dashed placeholder and is MOVED through the DOM
+    // as the live preview — on drop, the DOM order IS the new arrangement
     card.classList.add('drag-src');
+    document.body.classList.add('dragging');
     if (card.setPointerCapture) try { card.setPointerCapture(pointerId); } catch { /* gone mid-gesture */ }
 
-    document.body.classList.add('dragging'); // the done button must not eat the drop
-
-    let target = null; // { kind: 'card', id } | { kind: 'day', day }
+    let chipDay = null; // fallback surface (the day strip) — no live preview there
     // dragging against the viewport edge scrolls the page, iPhone-style — without
     // this, a stop can never travel further than one screenful
     let scrollDir = 0;
@@ -80,6 +106,13 @@ const TripArrange = (() => {
       window.scrollBy({ top: scrollDir, left: 0, behavior: 'instant' });
       scrollRaf = requestAnimationFrame(autoScroll);
     };
+
+    const placeInContainer = (container, beforeEl) => {
+      if (beforeEl ? beforeEl.previousElementSibling === card : container.lastElementChild === card) return;
+      if (beforeEl === card || (beforeEl && beforeEl.previousElementSibling === card)) return;
+      flipMove(scope, opts.cards, () => container.insertBefore(card, beforeEl));
+    };
+
     const onMove = (ev) => {
       if (ev.pointerId !== pointerId) return;
       ev.preventDefault();
@@ -90,12 +123,23 @@ const TripArrange = (() => {
       // the ghost ignores pointer events, so this reads what's underneath it
       const under = document.elementFromPoint(ev.clientX, ev.clientY);
       clearHints();
-      target = null;
+      chipDay = null;
       if (!under) return;
       const overCard = under.closest(opts.cards);
-      if (overCard && overCard !== card && opts.idOf(overCard)) {
-        target = { kind: 'card', id: opts.idOf(overCard) };
-        overCard.classList.add('drop-hint');
+      if (overCard && overCard !== card) {
+        // push aside: the placeholder takes the hovered slot — before or after the
+        // hovered card, by which half of it the pointer is in
+        const r = overCard.getBoundingClientRect();
+        const after = ev.clientY > r.top + r.height / 2;
+        placeInContainer(overCard.parentElement, after ? overCard.nextElementSibling : overCard);
+        return;
+      }
+      const container = opts.containers && under.closest(opts.containers);
+      if (container) {
+        // empty space in a day: the placeholder goes to the end of that day's cards
+        // (in front of trailing non-card furniture like the add-stop button)
+        const cardsIn = [...container.querySelectorAll(opts.cards)].filter((c) => c !== card);
+        placeInContainer(container, cardsIn.length ? cardsIn[cardsIn.length - 1].nextElementSibling : container.firstElementChild);
         return;
       }
       for (const z of opts.dayTargets || []) {
@@ -103,12 +147,13 @@ const TripArrange = (() => {
         if (!zone) continue;
         const day = z.getDay(zone);
         if (day != null && !Number.isNaN(day)) {
-          target = { kind: 'day', day };
+          chipDay = day;
           zone.classList.add('drop-hint');
         }
         return;
       }
     };
+
     const finish = async (ev) => {
       if (ev.pointerId !== pointerId) return;
       document.removeEventListener('pointermove', onMove);
@@ -119,13 +164,22 @@ const TripArrange = (() => {
       document.body.classList.remove('dragging');
       ghost.remove();
       card.classList.remove('drag-src');
-      const t = target;
+      const chip = chipDay;
       clearHints();
-      if (ev.type === 'pointercancel' || !t) return;
+      refresh();
       try {
-        if (t.kind === 'card') await opts.swap(id, t.id);
-        else if (opts.moveToDay) await opts.moveToDay(id, t.day);
+        if (ev.type === 'pointercancel') opts.rerender(); // undo the preview
+        else if (chip != null && opts.moveToDay) await opts.moveToDay(id, chip);
+        else if (opts.containers) {
+          // the DOM as arranged is the truth — hand each visible day's order back
+          const layout = [...scope.querySelectorAll(opts.containers)].map((c) => ({
+            day: opts.dayOf(c),
+            ids: [...c.querySelectorAll(opts.cards)].map((el) => opts.idOf(el)).filter(Boolean),
+          })).filter((l) => l.day != null && !Number.isNaN(l.day));
+          await opts.commit(layout);
+        }
       } catch (err) {
+        opts.rerender();
         alert(err.message || 'ההזזה נכשלה — נסו שוב');
       }
     };
@@ -165,11 +219,14 @@ const TripArrange = (() => {
   }
 
   // A view calls this after every render. opts:
-  //   cards      selector for the draggable stop cards
-  //   idOf(el)   card element → item id
-  //   swap(aId, bId)      persist an a↔b swap
-  //   moveToDay(id, day)  persist a move (optional)
-  //   dayTargets [{ selector, getDay(el) }] drop surfaces that mean a day (optional)
+  //   cards       selector for the draggable stop cards
+  //   idOf(el)    card element → item id
+  //   containers  selector for a day's card container (the live-preview surfaces)
+  //   dayOf(el)   container element → day number
+  //   commit(layout)      persist [{day, ids-in-visual-order}] — the dealt-hours rule
+  //   moveToDay(id, day)  fallback for dayTargets (optional)
+  //   dayTargets  [{ selector, getDay(el) }] drop surfaces with no live preview
+  //   rerender()  repaint the view (drag cancelled or commit failed)
   function attach(scope, opts) {
     if (!opts.canEdit) return;
     current = { scope, opts };

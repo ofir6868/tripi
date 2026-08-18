@@ -290,17 +290,40 @@
       updateAmbient();
     }
 
-    // arrange-mode swap: the two stops trade places whole — day, hour and slot
-    // together — so the schedule's shape stays put and only the content moves
-    async function swapStops(aId, bId) {
-      const a = tripItems.find((it) => it.id === aId);
-      const b = tripItems.find((it) => it.id === bId);
-      if (!a || !b) return;
-      const slot = (it) => ({ day_number: it.day_number, time_label: it.time_label, sort_order: it.sort_order });
-      const slotA = slot(a), slotB = slot(b);
-      await saveItem(a, slotB);
-      try { await saveItem(b, slotA); }
-      catch (err) { await saveItem(a, slotA).catch(() => {}); throw err; } // undo half a swap
+    // arrange-mode commit: the DOM order of each visible day, exactly as the drag
+    // preview left it. Each day keeps its own set of hours and deals them back to
+    // its stops in the new order (nulls first, same comparator as sortItems), so the
+    // schedule's shape survives, only the content moves — and day+time+slot sorting
+    // is guaranteed to reproduce the visual order that was committed.
+    async function applyArrangement(layout) {
+      const cmp = (a, b) => String(a || '').localeCompare(String(b || ''));
+      const jobs = [];
+      for (const { day, ids } of layout) {
+        const stops = ids.map((id) => tripItems.find((it) => it.id === id)).filter(Boolean);
+        const slots = stops.map((s) => s.time_label).sort(cmp);
+        stops.forEach((s, i) => {
+          const patch = {};
+          if (s.day_number !== day) patch.day_number = day;
+          if (cmp(s.time_label, slots[i])) patch.time_label = slots[i];
+          if (s.sort_order !== i) patch.sort_order = i;
+          if (Object.keys(patch).length) jobs.push({ item: s, patch });
+        });
+      }
+      if (!jobs.length) return;
+      // all PATCHes first, ONE repaint after — painting between them would flash the
+      // half-moved arrangement the drag preview has already replaced on screen
+      try {
+        for (const { item, patch } of jobs) {
+          const updated = await TRIPI.api(`/api/trips/code/${trip.share_code}/items/${item.id}`, {
+            method: 'PATCH', headers: canEditHeaders, body: JSON.stringify(patch),
+          });
+          Object.assign(item, updated);
+        }
+      } finally {
+        sortItems();
+        renderItinerary();
+        updateAmbient();
+      }
     }
 
     async function moveStopToDay(id, day) {
@@ -321,7 +344,7 @@
       defaultArea: (day) => (multiDest() ? defaultAreaForDay(day) : tripDests[0]?.name || null),
       saveItem, addItem, deleteItem,
       // arrange mode (long-press drag) — the calendar views hand these to TripArrange
-      swapItems: swapStops, moveItemToDay: moveStopToDay,
+      arrangeCommit: applyArrangement, moveItemToDay: moveStopToDay,
     };
 
     // every existing call site funnels through here, so both views stay fresh
@@ -523,14 +546,18 @@
       }
       applyListCollapse();
       annotateTravel(byDay);
-      // long-press a card → jiggle & drag: onto a card to swap, onto a day block to move
+      // long-press a card → jiggle & live drag; each day's timeline is a preview
+      // surface, the day header still takes a plain drop (→ end of that day)
       TripArrange.attach(container, {
         canEdit: editMode,
         cards: '.item-card',
         idOf: (el) => +el.dataset.itemId,
+        containers: '.day-block .timeline',
+        dayOf: (el) => +(el.closest('.day-block')?.dataset.day),
+        commit: applyArrangement,
         dayTargets: [{ selector: '.day-block', getDay: (el) => +el.dataset.day }],
-        swap: swapStops,
         moveToDay: moveStopToDay,
+        rerender: renderItinerary,
       });
     }
 

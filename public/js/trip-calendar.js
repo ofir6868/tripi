@@ -268,14 +268,18 @@ const TripCalendar = (() => {
     body.querySelectorAll('.cal-wevt').forEach((b) => {
       b.onclick = () => openStop(ctx, +b.dataset.item);
     });
-    // long-press a stop → jiggle & drag: onto a stop to swap, onto a day column to move
-    if (ctx.canEdit && ctx.swapItems) TripArrange.attach(body, {
+    // long-press a stop → jiggle & live drag; each column's stop list is a preview
+    // surface, the column header still takes a plain drop (→ end of that day)
+    if (ctx.canEdit && ctx.arrangeCommit) TripArrange.attach(body, {
       canEdit: true,
       cards: '.cal-wevt',
       idOf: (el) => +el.dataset.item,
+      containers: '.cal-wday-evts',
+      dayOf: (el) => +(el.closest('.cal-wday')?.dataset.day),
+      commit: ctx.arrangeCommit,
       dayTargets: [{ selector: '.cal-wday', getDay: (el) => +el.dataset.day }],
-      swap: ctx.swapItems,
       moveToDay: ctx.moveItemToDay,
+      rerender: () => render(lastContainer, lastCtx),
     });
   }
 
@@ -343,15 +347,18 @@ const TripCalendar = (() => {
     });
     const addBtn = body.querySelector('.cal-add-stop');
     if (addBtn) addBtn.onclick = () => openNewStop(ctx, d);
-    // long-press a stop → jiggle & drag: onto a stop to swap, onto a strip chip to
-    // move it to that day (the strip is the only other-day surface this view has)
-    if (ctx.canEdit && ctx.swapItems) TripArrange.attach(body, {
+    // long-press a stop → jiggle & live drag within the day; a strip chip still
+    // takes a plain drop — it's the only other-day surface this view has
+    if (ctx.canEdit && ctx.arrangeCommit) TripArrange.attach(body, {
       canEdit: true,
       cards: '.cal-devt',
       idOf: (el) => +el.dataset.item,
+      containers: '.cal-day-list',
+      dayOf: () => d,
+      commit: ctx.arrangeCommit,
       dayTargets: [{ selector: '.cds-btn', getDay: (el) => +el.dataset.day }],
-      swap: ctx.swapItems,
       moveToDay: ctx.moveItemToDay,
+      rerender: () => render(lastContainer, lastCtx),
     });
   }
 

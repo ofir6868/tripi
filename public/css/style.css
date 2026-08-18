@@ -2492,7 +2492,20 @@ body.cal-full-open { overflow: hidden; }
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.4);
   animation: none;
 }
-.drag-src { opacity: 0.35; }
+/* the lifted card's slot: a dashed empty space that travels through the list as the
+   live preview — the card element itself, contents hidden so the box keeps its size */
+.drag-src {
+  outline: 2px dashed rgba(255, 180, 95, 0.6);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 180, 95, 0.05) !important;
+}
+.drag-src > * { visibility: hidden; }
+/* while a drag is live: the jiggle lets go of the transform channel so the FLIP
+   slides own it, and between-card furniture (travel legs, empty-day notes) hides —
+   the preview rearranges cards, and stale legs between them would lie */
+.dragging .jiggle { animation: none; }
+.dragging .travel-leg, .dragging .wd-free, .dragging .empty-day { display: none; }
 .drop-hint {
   outline: 2px dashed var(--amber);
   outline-offset: 2px;
