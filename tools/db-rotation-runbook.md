@@ -15,8 +15,11 @@ dashboard (service env vars).
 
 - Workspace: `tea-d9j761cm0tmc73ahjiog` · Web service: `srv-d9qgmoijobas7382hu0g` (`tripi`)
 - App URL: `https://tripi-caw3.onrender.com`
-- Database: the single free Postgres named `tripi-db*` — **discover it via
-  `list_postgres_instances`**, never hard-code the id (it changes every rotation).
+- Database: the workspace's **single free Postgres** — discover it via
+  `list_postgres_instances`, never hard-code the id (it changes every rotation)
+  and don't trust the name alone (the owner renames it: it started as
+  `tripi-db`, became `tripmaker-db`). One instance in the workspace = that's
+  the one. A missing database means *zero* Postgres instances, nothing else.
 - New instances: plan `free`, region `frankfurt`, version `16`, name `tripi-db-YYYYMMDD`.
 - Escrow: branch `db-rotation-backups` of `ofir6868/tripi`,
   `backups/latest.json.enc` (+ a dated copy `backups/tripi-db-YYYYMMDD-HHmm.json.enc`),
