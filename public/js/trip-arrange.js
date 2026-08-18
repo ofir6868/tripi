@@ -96,7 +96,9 @@ const TripArrange = (() => {
 
     let chipDay = null; // fallback surface (the day strip) — no live preview there
     // dragging against the viewport edge scrolls the page, iPhone-style — without
-    // this, a stop can never travel further than one screenful
+    // this, a stop can never travel further than one screenful. Every scrolled frame
+    // re-places the placeholder too: while the finger holds still at the edge, the
+    // list is what moves, and no pointermove will ever fire to say so.
     let scrollDir = 0;
     let scrollRaf = 0;
     const autoScroll = () => {
@@ -104,6 +106,7 @@ const TripArrange = (() => {
       // 'instant', explicitly: the page css sets scroll-behavior smooth, and a smooth
       // scroll restarted every frame animates nowhere at all
       window.scrollBy({ top: scrollDir, left: 0, behavior: 'instant' });
+      evaluate();
       scrollRaf = requestAnimationFrame(autoScroll);
     };
 
@@ -131,51 +134,78 @@ const TripArrange = (() => {
       .filter((el) => el.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING)
       .length;
 
-    const onMove = (ev) => {
-      if (ev.pointerId !== pointerId) return;
-      ev.preventDefault();
-      ghost.style.transform = `translate(${ev.clientX - x0}px, ${ev.clientY - y0}px)`;
-      const EDGE = 80;
-      scrollDir = ev.clientY < EDGE ? -14 : ev.clientY > innerHeight - EDGE ? 14 : 0;
-      if (scrollDir && !scrollRaf) scrollRaf = requestAnimationFrame(autoScroll);
+    // one placement pass, run at most once a frame from wherever the pointer last
+    // was — fast sweeps coalesce into single clean flips instead of a thrash
+    let lastX = x0, lastY = y0;
+    const evaluate = () => {
       clearHints();
       chipDay = null;
-
+      // NEAREST container, not strict containment: a fast drag spends half its life
+      // over the gaps between days (headers, margins), and a placeholder that stops
+      // updating there is the "floating card, nothing moves" bug
       let hit = null;
+      let best = Infinity;
       for (const c of containers) {
         const r = c.getBoundingClientRect();
-        if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top - 8 && ev.clientY <= r.bottom + 8) { hit = c; break; }
+        const dx = lastX < r.left ? r.left - lastX : lastX > r.right ? lastX - r.right : 0;
+        const dy = lastY < r.top ? r.top - lastY : lastY > r.bottom ? lastY - r.bottom : 0;
+        const dist = dx + dy;
+        if (dist < best) { best = dist; hit = c; }
       }
-      if (hit) {
-        const others = [...hit.querySelectorAll(opts.cards)].filter((el) => el !== card);
+      const placeAt = (container) => {
+        const others = [...container.querySelectorAll(opts.cards)].filter((el) => el !== card);
         let idx = others.length;
         for (let i = 0; i < others.length; i++) {
           const { top, height } = layoutTop(others[i]);
-          if (ev.clientY < top + height / 2) { idx = i; break; }
+          if (lastY < top + height / 2) { idx = i; break; }
         }
-        if (hit === lastContainer && idx === lastIdx) return; // settled — no churn
-        lastContainer = hit;
+        if (container === lastContainer && idx === lastIdx) return; // settled — no churn
+        lastContainer = container;
         lastIdx = idx;
         // anchor: the card that should follow the placeholder; past the last card,
         // land right after it (in front of trailing furniture like the add button)
-        const anchor = others[idx] || (others.length ? others[others.length - 1].nextSibling : hit.firstChild);
-        flipMove(scope, opts.cards, () => hit.insertBefore(card, anchor));
-        return;
-      }
-      // outside every container: the placeholder stays where it is; a day chip or
-      // header may still take the drop as a plain move
-      const under = document.elementFromPoint(ev.clientX, ev.clientY);
-      if (!under) return;
-      for (const z of opts.dayTargets || []) {
+        const anchor = others[idx] || (others.length ? others[others.length - 1].nextSibling : container.firstChild);
+        flipMove(scope, opts.cards, () => container.insertBefore(card, anchor));
+      };
+
+      // priority: right at a day's cards → live placement; an explicit drop surface
+      // (strip chip, day/column header) → plain move; anywhere loosely near a day →
+      // live placement again, so the gaps a fast drag crosses never go dead
+      if (hit && best <= 40) { placeAt(hit); return; }
+      const under = document.elementFromPoint(lastX, lastY);
+      for (const z of (under ? opts.dayTargets || [] : [])) {
         const zone = under.closest(z.selector);
         if (!zone) continue;
         const day = z.getDay(zone);
         if (day != null && !Number.isNaN(day)) {
           chipDay = day;
           zone.classList.add('drop-hint');
+          return;
         }
-        return;
       }
+      if (hit && best <= 140) placeAt(hit);
+    };
+
+    // time-based coalescing, not rAF: placement caps at one pass per 16ms with a
+    // trailing call for the last position — a 120Hz touch stream halves, and the
+    // math never starves in environments where frames are throttled
+    let evalTimer = 0;
+    let lastEval = 0;
+    const requestEvaluate = () => {
+      const wait = 16 - (performance.now() - lastEval);
+      if (wait <= 0) { lastEval = performance.now(); evaluate(); }
+      else if (!evalTimer) evalTimer = setTimeout(() => { evalTimer = 0; lastEval = performance.now(); evaluate(); }, wait);
+    };
+    const onMove = (ev) => {
+      if (ev.pointerId !== pointerId) return;
+      ev.preventDefault();
+      lastX = ev.clientX;
+      lastY = ev.clientY;
+      ghost.style.transform = `translate(${lastX - x0}px, ${lastY - y0}px)`;
+      const EDGE = 80;
+      scrollDir = lastY < EDGE ? -14 : lastY > innerHeight - EDGE ? 14 : 0;
+      if (scrollDir && !scrollRaf) scrollRaf = requestAnimationFrame(autoScroll);
+      requestEvaluate();
     };
 
     const finish = async (ev) => {
@@ -185,6 +215,7 @@ const TripArrange = (() => {
       document.removeEventListener('pointercancel', finish);
       scrollDir = 0;
       if (scrollRaf) cancelAnimationFrame(scrollRaf);
+      if (evalTimer) clearTimeout(evalTimer);
       document.body.classList.remove('dragging');
       ghost.remove();
       card.classList.remove('drag-src');
