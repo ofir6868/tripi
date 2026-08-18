@@ -545,25 +545,41 @@ async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers, 
 // correction; whatever still fails loses its place_query — a stop without a pin beats a
 // pin on a place that isn't there, even at the cost of the occasional real hole-in-the-
 // wall OSM doesn't know. Geocoder trouble ('skipped') fails open: no verdict, no change.
-// entries: [{ title, area?, place_query }] — entry.place_query is mutated in place to
-// the corrected query, kept as-is, or null when nothing real could stand behind it.
-async function repairUnfoundPlaces(entries, { where, ph }) {
+//
+// entries: [{ title, area?, place_query }] — mutated in place: place_query becomes the
+// corrected query, stays as-is, or turns null when nothing real could stand behind it,
+// and lat/lon are attached to every place that verified (the geocoder already paid for
+// them; the client and the day-spread check below both live off stored coordinates).
+//
+// opts.flagMore(entries), if given, runs after coordinates are attached and returns
+// additional entries to send for correction even though their place EXISTS — each
+// carrying `reason` (shown to the model) and optionally `near` {lat, lon, km}, a
+// circle an accepted replacement must fall inside.
+async function repairPlaces(entries, { where, ph, flagMore }) {
   try {
     const queries = [...new Set(entries.map((e) => e.place_query).filter(Boolean))];
     if (!queries.length) return;
     const results = await verifyPlaces(queries);
+    const setCoords = (e, r) => {
+      if (r && r.verdict === 'ok' && r.best && r.best.lat != null) { e.lat = r.best.lat; e.lon = r.best.lon; }
+    };
+    for (const e of entries) if (e.place_query) setCoords(e, results.get(e.place_query));
     const unfound = (q) => { const r = results.get(q); return r && (r.verdict === 'mismatch' || r.verdict === 'none'); };
     const failing = entries.filter((e) => e.place_query && unfound(e.place_query));
+    for (const extra of flagMore ? flagMore(entries) : []) {
+      if (!failing.includes(extra)) failing.push(extra);
+    }
     if (!failing.length) return;
-    console.log(`place verification: ${failing.length}/${queries.length} unfound in "${where}":`,
-      failing.map((e) => e.place_query).join(' | '));
+    console.log(`place verification: ${failing.length}/${queries.length} flagged in "${where}":`,
+      failing.map((e) => `${e.place_query}${e.reason ? ` (${e.reason})` : ''}`).join(' | '));
 
     const parsed = await aiJson({
       system: 'אתה בודק עובדות של מסלולי טיולים. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
       user:
-        `במסלול טיול ב"${where}" יש תחנות שהמקום שלהן לא נמצא במפה — השם שגוי, לא מדויק, או שהמקום לא קיים:\n` +
-        failing.map((e, i) => `${i}. "${e.title}"${e.area && e.area !== where ? ` (אזור: ${e.area})` : ''} — place_query: "${e.place_query}"`).join('\n') +
-        `\nהחזר לכל תחנה (לפי index) אחת משתיים: place_query מתוקן — מקום אמיתי, מוכר וקיים באזור התחנה, שמשרת את כוונתה, באנגלית ובפורמט "Name, City, Country"; ` +
+        `במסלול טיול ב"${where}" יש תחנות בעייתיות — המקום לא נמצא במפה (שם שגוי או מקום שלא קיים), או שהוא רחוק מדי משאר תחנות היום שלו:\n` +
+        failing.map((e, i) => `${i}. "${e.title}"${e.area && e.area !== where ? ` (אזור: ${e.area})` : ''} — place_query: "${e.place_query}" — ${e.reason || 'לא נמצא במפה'}`).join('\n') +
+        `\nהחזר לכל תחנה (לפי index) אחת משתיים: place_query מתוקן — מקום אמיתי, מוכר וקיים שמשרת את כוונת התחנה, באנגלית ובפורמט "Name, City, Country"; ` +
+        `לתחנה רחוקה — מקום חלופי מאותו סוג שנמצא ליד שאר תחנות היום. ` +
         `או null אם לתחנה אין מקום ספציפי אמיתי (ארוחה כללית, סיור חופשי). אל תמציא: אם אינך בטוח שהמקום קיים — החזר null.`,
       schemaName: 'place_fixes',
       maxTokens: 1500,
@@ -597,20 +613,70 @@ async function repairUnfoundPlaces(entries, { where, ph }) {
       fixByIndex.set(f.index, typeof f.place_query === 'string' && f.place_query.trim() ? f.place_query.slice(0, 120).trim() : null);
     }
     // the replacements get the same check — a second invented name is how this loop
-    // would otherwise reintroduce the exact failure it exists to stop
+    // would otherwise reintroduce the exact failure it exists to stop — and a
+    // replacement for a far stop must actually land inside its day's circle
     const replacements = [...new Set([...fixByIndex.values()].filter(Boolean))];
     const recheck = replacements.length ? await verifyPlaces(replacements) : new Map();
-    const stands = (q) => { const r = recheck.get(q); return r && (r.verdict === 'ok' || r.verdict === 'skipped'); };
     let repaired = 0;
     failing.forEach((e, i) => {
       const fix = fixByIndex.get(i) || null;
-      e.place_query = fix && stands(fix) ? fix : null;
-      if (e.place_query) repaired++;
+      const r = fix ? recheck.get(fix) : null;
+      let good = r && (r.verdict === 'ok' || r.verdict === 'skipped');
+      if (good && e.near && r.verdict === 'ok' && r.best && r.best.lat != null) {
+        good = haversineKm(e.near, r.best) <= e.near.km;
+      }
+      if (good) {
+        e.place_query = fix;
+        if (r.verdict === 'ok' && r.best && r.best.lat != null) { e.lat = r.best.lat; e.lon = r.best.lon; }
+        else { e.lat = null; e.lon = null; }
+        repaired++;
+      } else {
+        e.place_query = null;
+        e.lat = null;
+        e.lon = null;
+      }
     });
     console.log(`place verification: ${repaired} repaired, ${failing.length - repaired} dropped in "${where}"`);
   } catch (err) {
     console.warn('place verification skipped:', err.message); // never the caller's problem
   }
+}
+
+// The other thing coordinates buy: a day's stops must sit near each other. 150km
+// clears real day-trips (Nikko from Tokyo is ~125) while catching the class the audit
+// saw — a Hokkaido waterfall on an Osaka day, right name, wrong island. A day with a
+// travel stop is exempt: spanning two cities is that day's whole point. The criterion
+// is nearest-neighbor, not distance-to-mean: a misplaced stop is far from ALL its
+// day-mates, while a mean would be dragged toward the outlier and convict the honest
+// stops around it. Under three located stops there's no majority to say where the day
+// is, so nobody gets convicted. Returns the flagged entries with reason + near set.
+const DAY_SPREAD_KM = 150;
+function daySpreadOutliers(items) {
+  const flagged = [];
+  const byDay = new Map();
+  for (const it of items) {
+    if (!byDay.has(it.day_number)) byDay.set(it.day_number, []);
+    byDay.get(it.day_number).push(it);
+  }
+  for (const [, dayItems] of byDay) {
+    if (dayItems.some((it) => it.category === 'נסיעה')) continue;
+    const located = dayItems.filter((it) => it.lat != null && it.lon != null);
+    if (located.length < 3) continue;
+    const minDist = (it) => Math.min(...located.filter((o) => o !== it).map((o) => haversineKm(it, o)));
+    const outliers = located.filter((it) => minDist(it) > DAY_SPREAD_KM);
+    const anchor = located.filter((it) => !outliers.includes(it));
+    if (!outliers.length || anchor.length < 2) continue; // no reliable "rest of the day" to point at
+    const center = {
+      lat: anchor.reduce((s, o) => s + o.lat, 0) / anchor.length,
+      lon: anchor.reduce((s, o) => s + o.lon, 0) / anchor.length,
+    };
+    for (const it of outliers) {
+      it.reason = `נמצא ~${Math.round(haversineKm(it, center))} ק"מ משאר תחנות היום שלו`;
+      it.near = { lat: center.lat, lon: center.lon, km: DAY_SPREAD_KM };
+      flagged.push(it);
+    }
+  }
+  return flagged;
 }
 
 // one OpenAI call for ONE area and a fixed day range — the shape that stays coherent
@@ -726,7 +792,10 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
       cost: null,
     });
   }
-  await repairUnfoundPlaces(cleaned, { where: area, ph });
+  await repairPlaces(cleaned, { where: area, ph, flagMore: daySpreadOutliers });
+  // reason/near were working notes between the flagger and the corrector — the items
+  // now travel to the client and the DB, which have no business seeing them
+  for (const it of cleaned) { delete it.reason; delete it.near; }
   return cleaned;
 }
 
@@ -1246,9 +1315,12 @@ async function aiEditOps(args) {
     }));
   if (!entries.length) return result;
   const where = (args.dests || []).length ? args.dests.map((d) => d.name).join(', ') : args.destText || args.title;
-  await repairUnfoundPlaces(entries, { where, ph: args.ph });
+  await repairPlaces(entries, { where, ph: args.ph });
   for (const e of entries) {
     e.op.place_query = e.place_query != null ? e.place_query : (e.op.action === 'update' ? '' : null);
+    // verified coordinates ride the op into the DB — the map pins without the client
+    // having to re-geocode, and a moved stop can't keep pointing at its old spot
+    if (e.place_query != null && e.lat != null) { e.op.lat = e.lat; e.op.lon = e.lon; }
   }
   return result;
 }
@@ -1333,9 +1405,10 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
         if (op.note != null) add('note', String(op.note).slice(0, 300) || null);
         if (op.place_query != null) {
           add('place_query', String(op.place_query).slice(0, 120) || null);
-          // the stop moved somewhere else — stale coordinates would pin the old spot
-          add('lat', null);
-          add('lon', null);
+          // the stop points somewhere else now — verified coordinates when the place
+          // check produced them, cleared otherwise (stale ones would pin the old spot)
+          add('lat', Number.isFinite(op.lat) ? op.lat : null);
+          add('lon', Number.isFinite(op.lon) ? op.lon : null);
         }
         if (op.category != null && AI_CATEGORIES.includes(op.category)) add('category', op.category);
         if (op.area != null) add('area', String(op.area).slice(0, 80) || null);
@@ -1351,13 +1424,15 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
         const day = clampDay(op.day_number, trip.days, from);
         if (!inScope(day)) continue;
         await client.query(
-          `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, cost, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))`,
+          `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, cost, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))`,
           [trip.id, day, cleanTime(op.time_label), String(op.title).slice(0, 200).trim(),
            op.note ? String(op.note).slice(0, 300) : null,
            op.place_query ? String(op.place_query).slice(0, 120) : null,
            AI_CATEGORIES.includes(op.category) ? op.category : 'אטרקציה',
            op.area ? String(op.area).slice(0, 80) : (area || null),
+           Number.isFinite(op.lat) ? op.lat : null,
+           Number.isFinite(op.lon) ? op.lon : null,
            cleanCost(op.cost)]
         );
         added++;
@@ -1408,3 +1483,4 @@ module.exports.aiEditOps = aiEditOps;
 // so a tool that passes cannot mean something different from a trip that is valid
 module.exports.editViolations = editViolations;
 module.exports.applyOps = applyOps;
+module.exports.daySpreadOutliers = daySpreadOutliers;
