@@ -208,6 +208,26 @@ module.exports = [
     expect: { opsAtLeast: 1, opsAtMost: 2, onlyActions: ['update'], onlyTouchesDays: [1, 2], noEmptyDays: true, areasContiguous: true },
   },
   {
+    id: 'edit-swap-days',
+    phase: 'edit',
+    fixture: 'japan-14',
+    prompt: 'תחליפו בין יום 2 ליום 3 — מה שמתוכנן ליום 2 יעבור ליום 3 ולהפך',
+    why: 'A day swap is bulk movement with an exact right answer: the two days trade '
+      + 'their stops, ids intact. The failure modes are a half-swap that merges the two '
+      + 'days, and delete+add instead of moving.',
+    expect: { opsAtLeast: 4, onlyActions: ['update'], onlyTouchesDays: [2, 3], swapDays: [2, 3], noEmptyDays: true, areasContiguous: true },
+  },
+  {
+    id: 'edit-late-start',
+    phase: 'edit',
+    fixture: 'japan-14',
+    prompt: 'אנחנו קמים מאוחר — תזיזו כל תחנה שמתחילה לפני 10:00 לשעה מאוחרת יותר, בלי לשנות את התחנות עצמן',
+    why: 'A schedule-only request across the whole trip. Times move; nothing else may — '
+      + 'no stop swapped out, none pushed to another day. This is the request most '
+      + 'tempting to answer with a rewrite.',
+    expect: { opsAtLeast: 1, onlyActions: ['update'], noDayMoves: true, minTouchedTime: '10:00', noEmptyDays: true, areasContiguous: true },
+  },
+  {
     id: 'edit-out-of-scope',
     phase: 'edit',
     fixture: 'japan-14',

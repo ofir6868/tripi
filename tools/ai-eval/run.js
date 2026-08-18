@@ -164,6 +164,31 @@ function checkEdit(result, expect, fixture) {
     const outside = [...touched].filter((d) => d < lo || d > hi).sort((a, b) => a - b);
     if (outside.length) bad.push(`the request named days ${lo}-${hi}, ops touch day(s) ${outside.join(', ')}`);
   }
+  // a swap has an exact answer: the two days trade their stops, ids intact — an added
+  // stop gets a synthetic id and correctly fails the comparison
+  if (expect.swapDays && ops.length) {
+    const [a, b] = expect.swapDays;
+    const after = applyOps(fixture.items, ops);
+    const idsOn = (arr, d) => arr.filter((it) => it.day_number === d).map((it) => it.id).sort().join(',');
+    if (idsOn(after, a) !== idsOn(fixture.items, b)) bad.push(`day ${a} should now hold exactly what day ${b} held`);
+    if (idsOn(after, b) !== idsOn(fixture.items, a)) bad.push(`day ${b} should now hold exactly what day ${a} held`);
+  }
+  if (expect.noDayMoves) {
+    const byId = new Map(fixture.items.map((it) => [it.id, it]));
+    const moved = ops.filter((op) => op.action === 'update' && op.day_number != null
+      && byId.get(op.id) && op.day_number !== byId.get(op.id).day_number);
+    if (moved.length) bad.push(`${moved.length} op(s) move stops between days on a schedule-only request`);
+  }
+  // every time an op sets must be at or after this — and something must actually move
+  if (expect.minTouchedTime) {
+    const [minH, minM] = expect.minTouchedTime.split(':').map(Number);
+    const tooEarly = ops.filter((op) => {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(op.time_label || '');
+      return m && +m[1] * 60 + +m[2] < minH * 60 + minM;
+    });
+    if (tooEarly.length) bad.push(`op(s) set times before ${expect.minTouchedTime}: ${tooEarly.map((o) => o.time_label).join(', ')}`);
+    if (!ops.some((op) => op.time_label != null)) bad.push('expected at least one time_label change');
+  }
   if (ops.length && (expect.noEmptyDays || expect.areasContiguous)) {
     bad.push(...editViolations(fixture.items, ops, fixture.days).problems);
   }
