@@ -197,6 +197,17 @@ module.exports = [
     expect: { opsAtLeast: 1, onlyTouchesDays: [6, 10], noEmptyDays: true },
   },
   {
+    id: 'edit-move-stop',
+    phase: 'edit',
+    fixture: 'japan-14',
+    prompt: 'תעבירו את שוק צוקיג\'י מיום 1 ליום 2',
+    why: 'A one-stop move between days, named the way a traveller names it (not by the '
+      + 'exact title). The right shape is a single update changing day_number — the '
+      + 'failure modes are delete+add, which loses the stop\'s identity and notes, and '
+      + 'rewriting both days around a request that named one stop.',
+    expect: { opsAtLeast: 1, opsAtMost: 2, onlyActions: ['update'], onlyTouchesDays: [1, 2], noEmptyDays: true, areasContiguous: true },
+  },
+  {
     id: 'edit-out-of-scope',
     phase: 'edit',
     fixture: 'japan-14',
