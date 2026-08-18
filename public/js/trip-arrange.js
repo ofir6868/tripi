@@ -68,7 +68,7 @@ const TripArrange = (() => {
       el.style.transition = 'none';
       el.style.transform = `translate(${dx}px, ${dy}px)`;
       requestAnimationFrame(() => {
-        el.style.transition = 'transform .18s ease';
+        el.style.transition = 'transform .15s ease';
         el.style.transform = '';
       });
     }
@@ -107,11 +107,29 @@ const TripArrange = (() => {
       scrollRaf = requestAnimationFrame(autoScroll);
     };
 
-    const placeInContainer = (container, beforeEl) => {
-      if (beforeEl ? beforeEl.previousElementSibling === card : container.lastElementChild === card) return;
-      if (beforeEl === card || (beforeEl && beforeEl.previousElementSibling === card)) return;
-      flipMove(scope, opts.cards, () => container.insertBefore(card, beforeEl));
+    // Placement is computed from GEOMETRY, never from elementFromPoint over the
+    // cards: while a FLIP slide is running, the element under the pointer is a card
+    // mid-flight, and chasing it re-triggers moves that re-trigger slides — the
+    // oscillating, incoherent drag this replaced. Instead: hit-test the CONTAINERS
+    // (they never animate), and pick the insertion index by comparing the pointer to
+    // each card's layout midpoint with its in-flight transform subtracted out. The
+    // placeholder only moves when that index actually changes.
+    const containers = opts.containers ? [...scope.querySelectorAll(opts.containers)] : [];
+    const layoutTop = (el) => {
+      const r = el.getBoundingClientRect();
+      const t = getComputedStyle(el).transform;
+      if (t && t !== 'none') {
+        const m = new DOMMatrixReadOnly(t);
+        return { top: r.top - m.m42, height: r.height };
+      }
+      return { top: r.top, height: r.height };
     };
+    let lastContainer = card.parentElement;
+    // the placeholder's starting index = how many sibling cards precede it
+    let lastIdx = [...lastContainer.querySelectorAll(opts.cards)]
+      .filter((el) => el !== card)
+      .filter((el) => el.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .length;
 
     const onMove = (ev) => {
       if (ev.pointerId !== pointerId) return;
@@ -120,28 +138,34 @@ const TripArrange = (() => {
       const EDGE = 80;
       scrollDir = ev.clientY < EDGE ? -14 : ev.clientY > innerHeight - EDGE ? 14 : 0;
       if (scrollDir && !scrollRaf) scrollRaf = requestAnimationFrame(autoScroll);
-      // the ghost ignores pointer events, so this reads what's underneath it
-      const under = document.elementFromPoint(ev.clientX, ev.clientY);
       clearHints();
       chipDay = null;
+
+      let hit = null;
+      for (const c of containers) {
+        const r = c.getBoundingClientRect();
+        if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top - 8 && ev.clientY <= r.bottom + 8) { hit = c; break; }
+      }
+      if (hit) {
+        const others = [...hit.querySelectorAll(opts.cards)].filter((el) => el !== card);
+        let idx = others.length;
+        for (let i = 0; i < others.length; i++) {
+          const { top, height } = layoutTop(others[i]);
+          if (ev.clientY < top + height / 2) { idx = i; break; }
+        }
+        if (hit === lastContainer && idx === lastIdx) return; // settled — no churn
+        lastContainer = hit;
+        lastIdx = idx;
+        // anchor: the card that should follow the placeholder; past the last card,
+        // land right after it (in front of trailing furniture like the add button)
+        const anchor = others[idx] || (others.length ? others[others.length - 1].nextSibling : hit.firstChild);
+        flipMove(scope, opts.cards, () => hit.insertBefore(card, anchor));
+        return;
+      }
+      // outside every container: the placeholder stays where it is; a day chip or
+      // header may still take the drop as a plain move
+      const under = document.elementFromPoint(ev.clientX, ev.clientY);
       if (!under) return;
-      const overCard = under.closest(opts.cards);
-      if (overCard && overCard !== card) {
-        // push aside: the placeholder takes the hovered slot — before or after the
-        // hovered card, by which half of it the pointer is in
-        const r = overCard.getBoundingClientRect();
-        const after = ev.clientY > r.top + r.height / 2;
-        placeInContainer(overCard.parentElement, after ? overCard.nextElementSibling : overCard);
-        return;
-      }
-      const container = opts.containers && under.closest(opts.containers);
-      if (container) {
-        // empty space in a day: the placeholder goes to the end of that day's cards
-        // (in front of trailing non-card furniture like the add-stop button)
-        const cardsIn = [...container.querySelectorAll(opts.cards)].filter((c) => c !== card);
-        placeInContainer(container, cardsIn.length ? cardsIn[cardsIn.length - 1].nextElementSibling : container.firstElementChild);
-        return;
-      }
       for (const z of opts.dayTargets || []) {
         const zone = under.closest(z.selector);
         if (!zone) continue;
