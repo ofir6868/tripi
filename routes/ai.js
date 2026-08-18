@@ -545,23 +545,25 @@ async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers, 
 // correction; whatever still fails loses its place_query — a stop without a pin beats a
 // pin on a place that isn't there, even at the cost of the occasional real hole-in-the-
 // wall OSM doesn't know. Geocoder trouble ('skipped') fails open: no verdict, no change.
-async function verifyBlockPlaces(items, { area, ph }) {
+// entries: [{ title, area?, place_query }] — entry.place_query is mutated in place to
+// the corrected query, kept as-is, or null when nothing real could stand behind it.
+async function repairUnfoundPlaces(entries, { where, ph }) {
   try {
-    const queries = [...new Set(items.map((it) => it.place_query).filter(Boolean))];
+    const queries = [...new Set(entries.map((e) => e.place_query).filter(Boolean))];
     if (!queries.length) return;
     const results = await verifyPlaces(queries);
     const unfound = (q) => { const r = results.get(q); return r && (r.verdict === 'mismatch' || r.verdict === 'none'); };
-    const failing = items.filter((it) => it.place_query && unfound(it.place_query));
+    const failing = entries.filter((e) => e.place_query && unfound(e.place_query));
     if (!failing.length) return;
-    console.log(`place verification: ${failing.length}/${queries.length} unfound in "${area}":`,
-      failing.map((it) => it.place_query).join(' | '));
+    console.log(`place verification: ${failing.length}/${queries.length} unfound in "${where}":`,
+      failing.map((e) => e.place_query).join(' | '));
 
     const parsed = await aiJson({
       system: 'אתה בודק עובדות של מסלולי טיולים. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
       user:
-        `במסלול טיול באזור "${area}" יש תחנות שהמקום שלהן לא נמצא במפה — השם שגוי, לא מדויק, או שהמקום לא קיים:\n` +
-        failing.map((it, i) => `${i}. "${it.title}" — place_query: "${it.place_query}"`).join('\n') +
-        `\nהחזר לכל תחנה (לפי index) אחת משתיים: place_query מתוקן — מקום אמיתי, מוכר וקיים באזור "${area}" שמשרת את כוונת התחנה, באנגלית ובפורמט "Name, City, Country"; ` +
+        `במסלול טיול ב"${where}" יש תחנות שהמקום שלהן לא נמצא במפה — השם שגוי, לא מדויק, או שהמקום לא קיים:\n` +
+        failing.map((e, i) => `${i}. "${e.title}"${e.area && e.area !== where ? ` (אזור: ${e.area})` : ''} — place_query: "${e.place_query}"`).join('\n') +
+        `\nהחזר לכל תחנה (לפי index) אחת משתיים: place_query מתוקן — מקום אמיתי, מוכר וקיים באזור התחנה, שמשרת את כוונתה, באנגלית ובפורמט "Name, City, Country"; ` +
         `או null אם לתחנה אין מקום ספציפי אמיתי (ארוחה כללית, סיור חופשי). אל תמציא: אם אינך בטוח שהמקום קיים — החזר null.`,
       schemaName: 'place_fixes',
       maxTokens: 1500,
@@ -600,14 +602,14 @@ async function verifyBlockPlaces(items, { area, ph }) {
     const recheck = replacements.length ? await verifyPlaces(replacements) : new Map();
     const stands = (q) => { const r = recheck.get(q); return r && (r.verdict === 'ok' || r.verdict === 'skipped'); };
     let repaired = 0;
-    failing.forEach((it, i) => {
+    failing.forEach((e, i) => {
       const fix = fixByIndex.get(i) || null;
-      it.place_query = fix && stands(fix) ? fix : null;
-      if (it.place_query) repaired++;
+      e.place_query = fix && stands(fix) ? fix : null;
+      if (e.place_query) repaired++;
     });
-    console.log(`place verification: ${repaired} repaired, ${failing.length - repaired} dropped in "${area}"`);
+    console.log(`place verification: ${repaired} repaired, ${failing.length - repaired} dropped in "${where}"`);
   } catch (err) {
-    console.warn('place verification skipped:', err.message); // never the build's problem
+    console.warn('place verification skipped:', err.message); // never the caller's problem
   }
 }
 
@@ -724,7 +726,7 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
       cost: null,
     });
   }
-  await verifyBlockPlaces(cleaned, { area, ph });
+  await repairUnfoundPlaces(cleaned, { where: area, ph });
   return cleaned;
 }
 
@@ -1079,7 +1081,7 @@ function rebalanceEdit(items, ops, days, areaNames) {
 // re-pacing a trip costs one update per moved stop, so the cap has to clear a
 // whole-trip reshuffle — at 30 the tail of a reorganization was silently dropped,
 // which by itself left days empty
-async function aiEditOps({ title, destText, dests, days, items, prompt, description = '', scopeNote = '', opsCap = 80, ph }) {
+async function aiEditOpsRaw({ title, destText, dests, days, items, prompt, description = '', scopeNote = '', opsCap = 80, ph }) {
   const areaNames = dests.map((d) => d.name);
   const itemLines = items.map((it) =>
     `#${it.id} | יום ${it.day_number} | ${it.time_label || '--:--'} | [${it.category || 'כללי'}] ${it.title}` +
@@ -1219,6 +1221,36 @@ async function aiEditOps({ title, destText, dests, days, items, prompt, descript
   }
   console.warn('trip_edit repair still violates:', bestProblems.join(' | '));
   return best;
+}
+
+// The edit path proposes places too — the same model that invents "Vanora, Athens" in
+// a build invents it here, straight into the DB. Same deal as the build: geocode every
+// proposed place_query, one correction round, drop what still fails. Runs as a wrapper
+// so every exit path of the raw call is covered, and costs no edit quota — the
+// correction is part of serving the one edit already paid for. One asymmetry: on an
+// `update` op a dropped place becomes '' rather than null, because in an update null
+// means "leave the field alone" — and leaving the OLD pin under a repurposed stop is
+// exactly the wrong-pin problem this exists to stop ('' clears the pin downstream).
+async function aiEditOps(args) {
+  const result = await aiEditOpsRaw(args);
+  if (!result || !Array.isArray(result.ops) || !result.ops.length) return result;
+  const byId = new Map((args.items || []).map((it) => [it.id, it]));
+  const entries = result.ops
+    .filter((op) => (op.action === 'add' || op.action === 'update')
+      && typeof op.place_query === 'string' && op.place_query.trim())
+    .map((op) => ({
+      op,
+      title: op.title || (op.id != null && byId.get(op.id) ? byId.get(op.id).title : '') || '',
+      area: op.area || (op.id != null && byId.get(op.id) ? byId.get(op.id).area : null),
+      place_query: op.place_query,
+    }));
+  if (!entries.length) return result;
+  const where = (args.dests || []).length ? args.dests.map((d) => d.name).join(', ') : args.destText || args.title;
+  await repairUnfoundPlaces(entries, { where, ph: args.ph });
+  for (const e of entries) {
+    e.op.place_query = e.place_query != null ? e.place_query : (e.op.action === 'update' ? '' : null);
+  }
+  return result;
 }
 
 router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
