@@ -113,9 +113,36 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
 // already shows, and it can't touch anything else on the row.
 const LOCATE_BATCH = 25; // ~15s at the geocoder's polite pace — one page-load's worth
 
+// Photon and Overpass both refuse Render's datacenter IPs (measured 2026-08-19: the
+// same eight Eilat stops that geocode from a laptop come back empty from the server),
+// so the page geocodes its own stops from the browser — where the place picker has
+// always reached Photon — and posts the coordinates here. Only someone who may edit
+// the trip may write them, and only over a stop that has none: a pin is cosmetic, but
+// a stranger who knows the share code shouldn't get to move one.
+async function saveLocatedCoords(req, res) {
+  const trip = await tripWithEditAuth(req, res);
+  if (!trip) return;
+  const coords = (Array.isArray(req.body.coords) ? req.body.coords : [])
+    .map((c) => ({ id: parseInt(c && c.id, 10), lat: numOrNull(c && c.lat), lon: numOrNull(c && c.lon) }))
+    .filter((c) => Number.isInteger(c.id) && c.lat != null && c.lon != null &&
+      Math.abs(c.lat) <= 90 && Math.abs(c.lon) <= 180)
+    .slice(0, 200);
+  if (!coords.length) return res.json({ saved: 0 });
+  const { rowCount } = await pool.query(
+    `UPDATE trip_items AS i SET lat = v.lat, lon = v.lon
+       FROM unnest($1::int[], $2::float8[], $3::float8[]) AS v(id, lat, lon)
+      WHERE i.id = v.id AND i.trip_id = $4 AND i.lat IS NULL`,
+    [coords.map((c) => c.id), coords.map((c) => c.lat), coords.map((c) => c.lon), trip.id]
+  );
+  // deliberately no pingEdit: filling in a pin is not an itinerary change anyone
+  // needs a push notification about
+  res.json({ saved: rowCount });
+}
+
 router.post('/api/trips/code/:code/locate', authOptional, async (req, res) => {
   try {
     if (codeMissLimit.blocked(req.ip)) return res.status(429).json({ error: CODE_MISS_ERROR });
+    if (req.body && Array.isArray(req.body.coords)) return await saveLocatedCoords(req, res);
     const { rows } = await pool.query('SELECT id FROM trips WHERE share_code = $1', [req.params.code]);
     if (!rows[0]) {
       codeMissLimit.hit(req.ip); // same enumeration guard the page load itself gets

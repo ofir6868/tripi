@@ -1367,6 +1367,45 @@
     // missed on build day) carry a place name and no pin — the map would open on the
     // destination alone. The server geocodes them a batch at a time and stores what it
     // resolves, so this runs once in a trip's life; the pins appear as the batches land.
+    // How far a geocoder hit may sit from the area it belongs to before it's the wrong
+    // place with the right name — "Benny HaDayag, Eilat" resolves to a Rishon LeZion
+    // branch 250km up the coast. 80km still clears a day-trip's outskirts.
+    const LOCATE_MAX_KM = 80;
+    const kmApart = (a, b) => {
+      const rad = Math.PI / 180;
+      return Math.hypot((a.lat - b.lat) * 111, (a.lon - b.lon) * 111 * Math.cos(b.lat * rad));
+    };
+    const destForItem = (it) =>
+      tripDests.find((d) => d.name === it.area && d.lat != null) ||
+      tripDests.find((d) => d.lat != null) || (currentDest.lat != null ? currentDest : null);
+
+    // Photon refuses Render's datacenter IP, so the server-side pass comes back empty
+    // in production while the very same lookup answers from here — the place picker
+    // has always used it from the browser. A planner's own page does the geocoding
+    // and posts the coordinates back; viewers still get whatever the server can place.
+    async function locateInBrowser() {
+      const todo = tripItems.filter((it) => it.lat == null && it.place_query).slice(0, 120);
+      const found = [];
+      for (const it of todo) {
+        const dest = destForItem(it);
+        const hits = await GEO.searchPois(it.place_query, dest && dest.lat, dest && dest.lon).catch(() => []);
+        // Photon's bias only re-ranks — the distance check is what rejects a same-name
+        // place in another city, and without a located area nothing can be checked
+        const hit = hits.find((h) => Number.isFinite(h.lat) && Number.isFinite(h.lon) &&
+          (!dest || kmApart(h, dest) <= LOCATE_MAX_KM));
+        if (!hit) continue;
+        it.lat = hit.lat; it.lon = hit.lon;
+        found.push({ id: it.id, lat: hit.lat, lon: hit.lon });
+        if (tripMapReady) TripMap.refresh(); else paintMap(currentDest); // pins land one by one
+      }
+      if (!found.length) return;
+      try {
+        await TRIPI.api(`/api/trips/code/${trip.share_code}/locate`, {
+          method: 'POST', headers: canEditHeaders, body: JSON.stringify({ coords: found }),
+        });
+      } catch { /* the map is right for this visit either way; the next load retries */ }
+    }
+
     async function locateStops() {
       let skip = 0; // stops already asked about — a name the geocoder can't place stays null
       for (let round = 0; round < 8; round++) {
@@ -1461,7 +1500,7 @@
     }
 
     showDestination(dests[0]);
-    locateStops();
+    if (canEdit) locateInBrowser(); else locateStops();
     const ticketCode = document.getElementById('ticket-code');
     ticketCode.textContent = trip.share_code;
     ticketCode.classList.add('copyable');
