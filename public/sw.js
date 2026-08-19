@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v17';
+const VERSION = 'v18';
 const SHELL = 'tripi-shell-' + VERSION;
 const RUNTIME = 'tripi-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first
@@ -59,6 +59,11 @@ self.addEventListener('fetch', (e) => {
     }
     return;
   }
+
+  // /api/auth/session hands back a token. The Cache API is shared by every account
+  // that uses this browser, so a credentialed response is never stored — and an
+  // offline replay of one would sign someone back in with a token we can't check.
+  if (url.pathname.startsWith('/api/auth/')) return;
 
   // same-origin: network-first, fall back to cache (keeps last-viewed pages/trips offline)
   e.respondWith(

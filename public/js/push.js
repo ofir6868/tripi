@@ -25,12 +25,18 @@ const TRIPI_PUSH = (() => {
   // 'needs-install' is reported only once push is known to work here at all —
   // otherwise a deployment without VAPID keys would tell iPhone users to install
   // the app to unlock a feature that doesn't exist on it, and then show them
-  // nothing once they had
+  // nothing once they had.
+  //
+  // It is also answered before `supported`, and that order is load-bearing: WebKit
+  // exposes window.Notification only to an installed web app, so on iPhone Safari
+  // `supported` is false — reading it first would hide the very hint that explains
+  // how to make it true.
   const state = async () => {
-    if (!supported || !TRIPI.user) return 'unavailable';
+    if (!TRIPI.user) return 'unavailable';
     const { enabled } = await serverKey();
     if (!enabled) return 'unavailable';
     if (needsInstall) return 'needs-install';
+    if (!supported) return 'unavailable';
     if (Notification.permission === 'denied') return 'blocked';
     const reg = await navigator.serviceWorker.getRegistration();
     const sub = reg && await reg.pushManager.getSubscription();

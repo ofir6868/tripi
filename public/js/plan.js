@@ -271,12 +271,12 @@
       }, 400);
     }, 2400);
     aiOverlay.classList.add('open');
-    document.body.style.overflow = 'hidden';
+    TRIPI.lockScroll();
   }
   function hideAiOverlay() {
     clearInterval(quipTimer);
     aiOverlay.classList.remove('open');
-    document.body.style.overflow = '';
+    TRIPI.unlockScroll();
   }
 
   // ---- AI builder ----

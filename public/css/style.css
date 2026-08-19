@@ -453,6 +453,9 @@ body::after {
   align-items: center; justify-content: center; padding: 20px;
   background: rgba(5, 10, 8, .68);
   -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  /* iOS chains a scroll that reaches the sheet's end onto the page behind it,
+     so the trip drifts away under an open modal — contain keeps it put */
+  overscroll-behavior: contain;
 }
 .modal-backdrop.open { display: flex; }
 .modal {
@@ -2544,3 +2547,15 @@ body.cal-full-open { overflow: hidden; }
 .vote-btn.on { background: rgba(143, 216, 196, .14); color: var(--mint); border-color: rgba(143, 216, 196, .4); }
 .vote-btn.down.on { background: rgba(255, 122, 110, .12); color: var(--danger); border-color: rgba(255, 122, 110, .35); }
 @media print { .stop-votes { display: none; } }
+
+/* iOS zooms the page in on any focused field whose text is under 16px, and never
+   zooms back out — the form is then half off-screen for the rest of the visit. Only
+   the five controls that sit below the threshold are raised, and only on a phone;
+   the desktop scale is deliberate and stays as it was. */
+@media (max-width: 640px) {
+  .ai-edit-scope select,
+  .ai-prefs textarea,
+  .edit-loc-form input,
+  .qa-row input, .qa-row select,
+  .cost-input { font-size: 1rem; }
+}

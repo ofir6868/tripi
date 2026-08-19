@@ -663,8 +663,10 @@
           window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
         };
         wrap.querySelector('#invite-copy').onclick = async () => {
-          await TRIPI.copy(inviteLink());
-          flash('קישור ההזמנה הועתק! ✓');
+          // the clipboard can be refused outright (an insecure context, a locked-down
+          // browser) — saying "הועתק ✓" over an empty clipboard is worse than saying so
+          const ok = await TRIPI.copy(inviteLink());
+          flash(ok ? 'קישור ההזמנה הועתק! ✓' : 'לא הצלחנו להעתיק — אפשר לשתף בוואטסאפ במקום');
         };
         wrap.querySelector('#invite-regen').onclick = async (e) => {
           if (!confirm('לחדש את קישור ההזמנה? מי שקיבל את הקישור הישן ועוד לא נרשם — לא יוכל להצטרף איתו')) return;
@@ -1012,8 +1014,8 @@
       document.getElementById('copy-link-label').textContent = 'העתקת קישור הזמנה';
       document.getElementById('view-link-row').style.display = '';
       document.getElementById('copy-view-link').onclick = async () => {
-        await TRIPI.copy(tripLink());
-        flash('קישור הצפייה הועתק! ✓');
+        const ok = await TRIPI.copy(tripLink());
+        flash(ok ? 'קישור הצפייה הועתק! ✓' : 'לא הצלחנו להעתיק — אפשר לשתף בוואטסאפ במקום');
       };
     }
     document.getElementById('wa-share').onclick = () => {
@@ -1023,7 +1025,8 @@
       window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
     };
     document.getElementById('copy-link').onclick = async () => {
-      await TRIPI.copy(shareInvite ? inviteLink() : tripLink());
+      const ok = await TRIPI.copy(shareInvite ? inviteLink() : tripLink());
+      if (!ok) return flash('לא הצלחנו להעתיק — אפשר לשתף בוואטסאפ במקום');
       flash(shareInvite ? 'קישור ההזמנה הועתק! ✓' : 'הקישור הועתק! ✓');
     };
 
@@ -1098,7 +1101,8 @@
       };
       wrap.querySelector('#cele-wa').onclick = () => document.getElementById('wa-share').onclick();
       wrap.querySelector('#cele-copy').onclick = async () => {
-        await TRIPI.copy(shareInvite ? inviteLink() : tripLink());
+        const ok = await TRIPI.copy(shareInvite ? inviteLink() : tripLink());
+        if (!ok) return celeFlash('לא הצלחנו להעתיק — אפשר לשתף בוואטסאפ במקום');
         celeFlash(shareInvite ? 'קישור ההזמנה הועתק! ✓' : 'הקישור הועתק! ✓');
       };
       wrap.querySelector('#cele-close').onclick = () => wrap.remove();

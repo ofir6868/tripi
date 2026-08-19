@@ -13,8 +13,33 @@ const TRIPI = {
 
   saveAuth(token, user) {
     this.token = token; this.user = user;
-    localStorage.setItem('tripi_token', token);
-    localStorage.setItem('tripi_user', JSON.stringify(user));
+    // private browsing can refuse the write; the session still works for this tab
+    try {
+      localStorage.setItem('tripi_token', token);
+      localStorage.setItem('tripi_user', JSON.stringify(user));
+    } catch { /* in-memory only from here */ }
+  },
+
+  // Safari empties script-written storage after seven days away, so a returning
+  // visitor can look signed out while the server's session cookie is still valid.
+  // One request puts the token back. Tried at most once per tab, and never when a
+  // token is already in hand.
+  async restoreSession() {
+    if (this.token) return false;
+    try {
+      if (sessionStorage.getItem('tripi_restored')) return false;
+      sessionStorage.setItem('tripi_restored', '1');
+    } catch { /* no sessionStorage — the reload guard below still holds the line */ }
+    try {
+      const res = await fetch('/api/auth/session');
+      if (!res.ok) return false;
+      const { token, user } = await res.json();
+      if (!token) return false;
+      this.saveAuth(token, user);
+      return true;
+    } catch {
+      return false; // offline — nothing was lost that a later visit can't recover
+    }
   },
   // the cached user is whatever login returned, possibly months ago — re-read it so
   // an admin promotion (or rename) shows up without forcing a logout/login round
@@ -32,9 +57,15 @@ const TRIPI = {
   },
   logout() {
     this.token = null; this.user = null;
-    localStorage.removeItem('tripi_token');
-    localStorage.removeItem('tripi_user');
-    location.href = '/';
+    try {
+      localStorage.removeItem('tripi_token');
+      localStorage.removeItem('tripi_user');
+    } catch { /* nothing stored to begin with */ }
+    // the cookie has to go too, or the next page load restores the session that was
+    // just ended — keepalive so the request survives the navigation below
+    fetch('/api/auth/logout', { method: 'POST', keepalive: true })
+      .catch(() => {})
+      .finally(() => { location.href = '/'; });
   },
   async api(path, opts = {}) {
     const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
@@ -73,21 +104,67 @@ const TRIPI = {
       + `&origin=${enc(pts[0])}&destination=${enc(pts[pts.length - 1])}`
       + (pts.length > 2 ? `&waypoints=${enc(pts.slice(1, -1).join('|'))}` : '');
   },
-  // clipboard with an execCommand fallback for browsers that block the async API
+  // Pinning the page under a fullscreen overlay. `overflow: hidden` on <body> is
+  // enough on Android and desktop and does nothing whatsoever on iOS Safari, where
+  // the document goes on scrolling behind the overlay — the trip drifts away while
+  // you read the thing covering it. Fixing the body and putting the offset back on
+  // release is the technique that holds everywhere.
+  scrollLockY: null,
+  lockScroll() {
+    if (this.scrollLockY !== null) return;   // already locked — nesting must not stack
+    this.scrollLockY = window.scrollY;
+    Object.assign(document.body.style, {
+      position: 'fixed', top: `-${this.scrollLockY}px`, insetInline: '0',
+      width: '100%', overflow: 'hidden',
+    });
+  },
+  unlockScroll() {
+    if (this.scrollLockY === null) return;
+    const y = this.scrollLockY;
+    this.scrollLockY = null;
+    Object.assign(document.body.style, {
+      position: '', top: '', insetInline: '', width: '', overflow: '',
+    });
+    // 'instant' overrides the page's scroll-behavior: smooth — releasing the lock
+    // must put the page back where it was, not glide there from the top
+    window.scrollTo({ top: y, left: 0, behavior: 'instant' });
+  },
+
+  // Clipboard, with an execCommand fallback for browsers that refuse the async API
+  // (an insecure context, a denied permission). The fallback copies out of a real,
+  // on-screen element rather than a hidden <textarea>: a textarea's value is not a
+  // text node, so a Range over it selects nothing, and iOS ignores select() on an
+  // element it can't see — between them, the usual version silently copies air.
+  // A 1px, near-transparent div holding the text as a node is selectable on every
+  // browser, and the reader never sees it.
   async copy(text) {
     try {
       await navigator.clipboard.writeText(text);
       return true;
-    } catch {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      ta.remove();
-      return ok;
-    }
+    } catch { /* denied, or an insecure context — fall through */ }
+
+    const holder = document.createElement('div');
+    holder.textContent = text;
+    holder.setAttribute('aria-hidden', 'true');
+    holder.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;overflow:hidden;'
+      + 'opacity:.01;white-space:pre;font-size:16px;-webkit-user-select:text;user-select:text';
+    document.body.appendChild(holder);
+
+    const sel = document.getSelection();
+    const previous = sel && sel.rangeCount ? sel.getRangeAt(0) : null;
+    const range = document.createRange();
+    range.selectNodeContents(holder);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch { /* nothing left to try */ }
+
+    sel?.removeAllRanges();
+    holder.remove();
+    // put back whatever the reader had selected before we borrowed the selection
+    if (previous) sel?.addRange(previous);
+    return ok;
   },
   // arrow-key highlight for autocomplete dropdowns
   acMove(list, dir) {
@@ -267,6 +344,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.body.prepend(atm);
   renderHeader();
   renderAuthModal();
-  TRIPI.refreshUser().then((changed) => { if (changed) renderHeader(); });
+  if (TRIPI.token) {
+    TRIPI.refreshUser().then((changed) => { if (changed) renderHeader(); });
+  } else {
+    // the page has already rendered as a signed-out one, so a recovered session has
+    // to start it over. Only reload once the token is provably readable back —
+    // otherwise a browser refusing to store it would reload forever.
+    TRIPI.restoreSession().then((ok) => {
+      if (ok && localStorage.getItem('tripi_token')) location.reload();
+    });
+  }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 });

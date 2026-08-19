@@ -51,6 +51,7 @@ const TripCalendar = (() => {
     view.full = on;
     view.fullEntering = on; // fade in only now — not on every re-render inside fullscreen
     document.body.classList.toggle('cal-full-open', on);
+    if (on) TRIPI.lockScroll(); else TRIPI.unlockScroll();
     render(lastContainer, lastCtx);
   }
 
@@ -58,6 +59,7 @@ const TripCalendar = (() => {
   function exitFull() {
     view.full = false;
     document.body.classList.remove('cal-full-open');
+    TRIPI.unlockScroll();
   }
 
   function currentTripDay(ctx) {
@@ -91,7 +93,7 @@ const TripCalendar = (() => {
     const long = isLongTrip(ctx);
     if (!long && view.mode === 'month') view.mode = 'week';
     const showFull = !phoneMq.matches;
-    if (!showFull && view.full) { view.full = false; document.body.classList.remove('cal-full-open'); }
+    if (!showFull && view.full) { view.full = false; document.body.classList.remove('cal-full-open'); TRIPI.unlockScroll(); }
 
     container.innerHTML = `
       <div class="cal-wrap${view.full ? ' cal-full' : ''}${view.fullEntering ? ' cal-full-in' : ''}">
