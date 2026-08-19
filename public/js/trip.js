@@ -356,6 +356,10 @@
       saveItem, addItem, deleteItem,
       // arrange mode (long-press drag) — the calendar views hand these to TripArrange
       arrangeCommit: applyArrangement, moveItemToDay: moveStopToDay,
+      // the night panel rides along in the calendar's day view too, and it needs
+      // the same edit/repaint hooks the modals use
+      ensureEdit: () => ensureEditRights(),
+      refresh: () => renderItinerary(),
     };
 
     // every existing call site funnels through here, so both views stay fresh
@@ -382,6 +386,16 @@
       if (listExpanded || blocks.length <= 2) return;
       blocks.slice(2).forEach((b) => b.classList.add('day-folded'));
       blocks[1].classList.add('day-fade');
+      // night panels sit between day blocks, not inside them — without this the
+      // ones belonging to the folded days keep rendering under the fade, on
+      // their own, below the last day anyone can see
+      let past = false;
+      for (const el of container.children) {
+        if (el === blocks[1]) { past = true; continue; }
+        if (past && (el.classList.contains('night-card') || el.classList.contains('night-booked'))) {
+          el.classList.add('day-folded');
+        }
+      }
       const rest = blocks.length - 2;
       const btn = document.createElement('button');
       btn.type = 'button';

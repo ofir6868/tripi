@@ -336,7 +336,11 @@ const TripCalendar = (() => {
           </button>`).join('') || `<div class="empty-day" style="border-radius:var(--radius-sm)">${
             ctx.canEdit ? 'יום פנוי — מוסיפים תחנה למטה ↓' : 'יום פנוי — זמן לאלתורים 🌴'}</div>`}
         ${ctx.canEdit ? `<button type="button" class="add-item-inline cal-add-stop">+ הוספת תחנה ליום ${d}</button>` : ''}
-      </div>`;
+      </div>
+      ${TripModals.nightCardHtml(ctx.state, d)}`;
+
+    // night d is the night after day d — the day view ends where the day ends
+    TripModals.mountNightCards(ctx, body);
 
     body.querySelector('.cds-btn.active')?.scrollIntoView({ block: 'nearest', inline: 'center' });
     body.querySelectorAll('.cds-btn').forEach((b) => {

@@ -591,7 +591,23 @@ const TripModals = (() => {
     save: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
     check: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
     search: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
+    chevron: '<svg class="ic nc-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>',
   };
+
+  // A collapsed night stays collapsed — on a two-week trip there are thirteen of
+  // these, and someone who has already decided about a night should not have to
+  // dismiss it again on every visit. Per trip, per night, in localStorage.
+  const collapsedKey = (state) => 'tripi_nights_min_' + state.trip.share_code;
+
+  function collapsedNights(state) {
+    try { return new Set(JSON.parse(localStorage.getItem(collapsedKey(state)) || '[]')); } catch { return new Set(); }
+  }
+
+  function setNightCollapsed(state, night, on) {
+    const s = collapsedNights(state);
+    if (on) s.add(night); else s.delete(night);
+    try { localStorage.setItem(collapsedKey(state), JSON.stringify([...s])); } catch { /* private mode — collapse still works for this visit */ }
+  }
 
   const dm = (iso) => (iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}` : '');
 
@@ -647,13 +663,15 @@ const TripModals = (() => {
       ? `היום מסתיים ב${esc(anchor.after)} — אלה המלונות הקרובים ביותר`
       : `מלונות ב${esc((anchor && anchor.area) || state.trip.destination || '')}`;
 
+    const shut = collapsedNights(state).has(night);
     return `
-      <div class="night-card" data-night="${night}">
-        <div class="nc-head">
+      <div class="night-card${shut ? ' collapsed' : ''}" data-night="${night}">
+        <button type="button" class="nc-head" data-toggle-night="${night}" aria-expanded="${!shut}">
           ${NC_ICON.moon}
           <span class="nc-title">לילה ${night} — איפה ישנים?</span>
           ${anchor && anchor.area ? `<span class="nc-where">${esc(anchor.area)}</span>` : ''}
-        </div>
+          ${NC_ICON.chevron}
+        </button>
         <div class="nc-hint">${hint}</div>
         ${anchor ? `<div class="nc-rail">${'<div class="nc-skel"></div>'.repeat(3)}</div>` : ''}
         ${state.canEdit ? `<div class="nc-foot">
@@ -843,8 +861,22 @@ const TripModals = (() => {
     container.querySelectorAll('[data-open-night]').forEach((b) => {
       b.onclick = () => openHotels(ctx, { addNight: +b.dataset.openNight });
     });
+
+    container.querySelectorAll('[data-toggle-night]').forEach((b) => {
+      b.onclick = () => {
+        const card = b.closest('.night-card');
+        const night = +b.dataset.toggleNight;
+        const shut = card.classList.toggle('collapsed');
+        b.setAttribute('aria-expanded', String(!shut));
+        setNightCollapsed(state, night, shut);
+        if (!shut) fill(card); // opened for the first time — go get the hotels
+        TRIPI.track('night_card_toggle', { trip_id: state.trip.id, night, collapsed: shut });
+      };
+    });
     const fill = async (el) => {
-      if (el.dataset.loaded) return;
+      // a collapsed night costs nothing: no lookup, and no "loaded" mark either,
+      // so opening it later still fetches
+      if (el.classList.contains('collapsed') || el.dataset.loaded) return;
       el.dataset.loaded = '1';
       const night = +el.dataset.night;
       const rail = el.querySelector('.nc-rail');

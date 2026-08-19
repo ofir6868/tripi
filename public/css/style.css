@@ -1666,8 +1666,26 @@ body:has(.join-banner) { padding-bottom: 92px; }
   border: 1px solid var(--glass-border);
   border-inline-start: 3px solid rgba(255, 180, 95, .5);
 }
-.nc-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.nc-head .ic { width: 15px; height: 15px; color: var(--amber); align-self: center; }
+/* the whole header is the collapse control — a chevron alone is a small target
+   on a phone, and the row is doing nothing else */
+.nc-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  width: 100%; background: none; border: none; padding: 0;
+  font: inherit; color: inherit; text-align: start; cursor: pointer;
+}
+.nc-head .ic { width: 15px; height: 15px; color: var(--amber); flex: none; }
+.nc-head .nc-chev {
+  margin-inline-start: auto; color: var(--paper-dim);
+  transition: transform .15s ease;
+}
+.nc-head:hover .nc-chev { color: var(--paper); }
+.night-card.collapsed .nc-chev { transform: rotate(90deg); }
+/* collapsed: the night still announces itself, it just stops taking the room */
+.night-card.collapsed { padding-bottom: 12px; }
+.night-card.collapsed .nc-hint,
+.night-card.collapsed .nc-rail,
+.night-card.collapsed .nc-empty,
+.night-card.collapsed .nc-foot { display: none; }
 .nc-title { font-weight: 700; font-size: .95rem; }
 .nc-where { color: var(--paper-dim); font-size: .86rem; font-weight: 300; }
 .nc-hint {
