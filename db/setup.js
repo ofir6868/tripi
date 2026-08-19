@@ -109,6 +109,17 @@ CREATE TABLE IF NOT EXISTS trip_expenses (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- one row per reminder push actually claimed (trip × kind × Jerusalem date) —
+-- lib/reminders.js inserts here with ON CONFLICT DO NOTHING before sending,
+-- which is what makes its timer ticks idempotent across restarts
+CREATE TABLE IF NOT EXISTS push_log (
+  trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  sent_on DATE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  PRIMARY KEY (trip_id, kind, sent_on)
+);
+
 CREATE INDEX IF NOT EXISTS idx_trips_share_code ON trips(share_code);
 CREATE INDEX IF NOT EXISTS idx_trips_public ON trips(is_public);
 CREATE INDEX IF NOT EXISTS idx_trips_owner ON trips(owner_id);

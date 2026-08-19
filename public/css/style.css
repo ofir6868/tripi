@@ -559,6 +559,14 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 .ai-edit-result.ok { color: var(--mint); }
 .ai-edit-result.info { color: var(--paper-dim); }
 .ai-edit-result.err { color: var(--danger); }
+/* one-tap escape hatch after a smart edit — quiet, sits inside the result line */
+.ai-undo-btn {
+  background: none; border: 1px solid rgba(255, 255, 255, .25); border-radius: 999px;
+  color: var(--paper); font-family: var(--font-body); font-size: .82rem; font-weight: 700;
+  padding: 5px 14px; margin-inline-start: 8px; cursor: pointer; vertical-align: 1px;
+}
+.ai-undo-btn:hover:not(:disabled) { border-color: var(--amber); color: var(--amber); }
+.ai-undo-btn:disabled { opacity: .6; cursor: default; }
 @media (max-width: 560px) {
   .ai-edit-row { flex-direction: column; }
   .ai-edit-row .btn { justify-content: center; }
@@ -647,8 +655,30 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 }
 .trip-side { position: sticky; top: 96px; display: flex; flex-direction: column; gap: 20px; }
 .map-card { overflow: hidden; padding: 0; }
-.map-card iframe { width: 100%; height: 300px; border: 0; display: block; filter: saturate(.85) contrast(1.05); }
+.map-card #trip-map { width: 100%; height: 300px; display: block; background: #0d1a17; }
+.map-card #trip-map iframe { width: 100%; height: 100%; border: 0; display: block; filter: saturate(.85) contrast(1.05); }
 .map-card .map-caption { padding: 13px 18px; font-size: .88rem; color: var(--paper-dim); }
+/* the light OSM tiles get the same gentle grade the old embed had */
+.map-card .leaflet-tile-pane { filter: saturate(.85) contrast(1.05); }
+/* day chips above the map — same .day-tab pills the dest switcher uses */
+.map-days {
+  display: flex; gap: 6px; padding: 10px 12px 0; overflow-x: auto;
+  scrollbar-width: none;
+}
+.map-days::-webkit-scrollbar { display: none; }
+.map-days .day-tab { flex: none; }
+.map-days .day-tab.no-pins { opacity: .55; }
+/* numbered stop pins (divIcon — no image assets) */
+.map-pin-wrap { background: none; border: none; }
+.map-pin {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--amber, #ffb45f); color: #0a1512;
+  font-weight: 800; font-size: .82rem; font-variant-numeric: tabular-nums;
+  border: 2px solid #0a1512; box-shadow: 0 2px 8px rgba(0, 0, 0, .45);
+  cursor: pointer;
+}
+.leaflet-container { font-family: inherit; }
 
 /* boarding-pass ticket */
 /* --ticket-pad drives BOTH the padding and the divider's negative margin, so the
@@ -846,6 +876,8 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 .dest-switcher .side-card-title { width: 100%; margin: 0 0 2px; }
 
 .weather-row { display: flex; gap: 4px; justify-content: space-between; }
+/* the "typical, not a forecast" caption under the title (.wx-est mode) */
+.weather-sub { font-size: .76rem; color: var(--paper-dim); margin: -4px 0 8px; }
 .weather-day { text-align: center; flex: 1; padding: 6px 2px; border-radius: 12px; transition: background .15s ease; }
 .weather-day:hover { background: var(--glass-strong); }
 .wd-name { font-size: .74rem; color: var(--paper-dim); font-weight: 600; }
@@ -1377,10 +1409,11 @@ body:has(.join-banner) { padding-bottom: 92px; }
   /* the draft card is an invitation to press "שמירת הטיול" — it has no business
      on paper, where nothing can be pressed */
   #draft-card { display: none !important; }
-  /* the forecast prints only when it reaches the trip's own days (.wx-trip);
-     otherwise it's just the coming week at the destination, which the sheet
-     would read as the trip's weather */
-  #weather-card:not(.wx-trip) { display: none !important; }
+  /* the forecast prints only when it speaks about the trip's own days — a real
+     one (.wx-trip) or the typical-for-the-dates estimate (.wx-est); otherwise
+     it's just the coming week at the destination, which the sheet would read
+     as the trip's weather */
+  #weather-card:not(.wx-trip):not(.wx-est) { display: none !important; }
   /* printing from fullscreen: the calendar prints as a normal block, not a fixed overlay */
   .cal-wrap.cal-full { position: static !important; padding: 0 !important; background: none !important; }
   .trip-hero { min-height: auto; padding: 20px 0; }
@@ -1610,6 +1643,9 @@ body:has(.join-banner) { padding-bottom: 92px; }
 .hc-actions a { color: var(--mint); text-decoration: none; font-weight: 600; }
 .hc-actions a:hover { text-decoration: underline; }
 .hc-spacer { flex: 1; }
+/* the row's stroke icons ride the text baseline, a notch smaller than .ic's default */
+.hc-actions .ic { width: 14px; height: 14px; vertical-align: -2px; }
+.hc-actions a, .hc-actions button { display: inline-flex; align-items: center; gap: 5px; }
 .hc-actions button {
   background: none; border: none; cursor: pointer; color: var(--paper-dim);
   font-family: var(--font-body); font-size: .86rem; font-weight: 600; padding: 0;

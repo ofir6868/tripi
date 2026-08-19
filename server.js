@@ -28,4 +28,7 @@ app.use(require('./routes/analytics'));
 app.use(require('./routes/health'));
 app.use(require('./routes/pages'));
 
+// trip reminder pushes (countdowns + morning briefs) — in-process, no-op without VAPID keys
+require('./lib/reminders').start();
+
 app.listen(PORT, () => console.log(`TRIPI running on http://localhost:${PORT}`));

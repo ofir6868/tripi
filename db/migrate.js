@@ -154,6 +154,19 @@ async function main() {
       PRIMARY KEY (item_id, user_id)
     )`);
 
+  console.log('Migration 12: push_log (scheduled reminder dedup)...');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS push_log (
+      trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      sent_on DATE NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      PRIMARY KEY (trip_id, kind, sent_on)
+    )`);
+
+  console.log('Migration 13: zero-pad single-digit stop hours (times sort as strings)...');
+  await pool.query(`UPDATE trip_items SET time_label = '0' || time_label WHERE time_label ~ '^\\d:\\d\\d$'`);
+
   console.log('Done.');
   await pool.end();
 }

@@ -176,6 +176,9 @@
     // itinerary grouped by day (weatherByDate is filled by loadWeather when dates align)
     let tripItems = items.slice();
     let weatherByDate = {};
+    // one-level AI-edit undo: {snap, snapDesc} while the last smart edit is reversible.
+    // Any manual mutation clears it — the snapshot no longer describes what's on screen.
+    let aiUndo = null;
 
     // ---- stop votes (experimental group mode): one thumbs-up/down per participant
     // per stop. Solo planners never see it — a ballot with one voter is noise. ----
@@ -256,6 +259,10 @@
     const sortItems = () => tripItems.sort((a, b) =>
       a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || ''))
       || (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id);
+    // the server orders by slot only (day, sort_order, id) — run the clock-first
+    // comparator once on load too, or a stop added at 15:30 yesterday renders
+    // after the 17:00 one today
+    sortItems();
 
     // the one write path for a stop: patch, fold the server's row back into the
     // item both views already hold, and repaint. Throws on failure — callers show it.
@@ -264,6 +271,7 @@
         method: 'PATCH', headers: canEditHeaders, body: JSON.stringify(patch),
       });
       Object.assign(item, updated);
+      aiUndo = null;
       sortItems();
       renderItinerary();
       updateAmbient();
@@ -275,6 +283,7 @@
         method: 'POST', headers: canEditHeaders, body: JSON.stringify(data),
       });
       tripItems.push(item);
+      aiUndo = null;
       sortItems();
       renderItinerary();
       updateAmbient();
@@ -286,6 +295,7 @@
         method: 'DELETE', headers: canEditHeaders,
       });
       tripItems = tripItems.filter((x) => x.id !== item.id);
+      aiUndo = null;
       renderItinerary();
       updateAmbient();
     }
@@ -310,6 +320,7 @@
         });
       }
       if (!jobs.length) return;
+      aiUndo = null;
       // all PATCHes first, ONE repaint after — painting between them would flash the
       // half-moved arrangement the drag preview has already replaced on screen
       try {
@@ -352,6 +363,9 @@
       if (!longTrip) {
         viewToggle.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === viewMode));
       }
+      // the sidebar map lives outside #days-container, so this is its one repaint
+      // hook — add/edit/delete/drag all pass through here (no-op before init)
+      TripMap.refresh();
       if (viewMode === 'calendar') {
         TripCalendar.render(container, calCtx);
         return;
@@ -467,7 +481,7 @@
             ${dayCosts[day] ? `<span class="day-cost" title="עלות משוערת של היום (בלי לינה)">${TripModals.fmt(dayCosts[day], cur)}</span>` : ''}
             ${routeUrl ? `<a class="day-route" target="_blank" rel="noopener" href="${TRIPI.esc(routeUrl)}"
               title="נפתח בגוגל מפות, בחלון חדש">${TRIPI.routeIcon} מסלול בגוגל מפות ${TRIPI.externalIcon}</a>` : ''}
-            ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}">${GEO.weatherIcon(w.code)} ${w.max}°</span>` : ''}
+            ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}${w.est ? ' · ממוצע היסטורי' : ''}">${GEO.weatherIcon(w.code)} ${w.est ? '≈' : ''}${w.max}°</span>` : ''}
           </div>
           ${hotelLines.length ? `<div class="day-hotels">${hotelLines.map((l) =>
             `<span class="day-hotel ${l.cls}">${l.html}</span>`).join('')}</div>` : ''}
@@ -845,18 +859,30 @@
               day_from: +document.getElementById('trip-ai-from').value || 1,
               day_to: +document.getElementById('trip-ai-to').value || trip.days }
           : {};
+        const snapDesc = trip.description; // for the undo — the item inverse comes from the server
         const r = await TRIPI.api(`/api/trips/code/${trip.share_code}/ai-edit`, {
           method: 'POST', headers: canEditHeaders || {},
           body: JSON.stringify({ prompt, ...scope }),
         });
         tripItems = r.items;
+        sortItems(); // the server returns slot order — a stop the AI added mid-day must land at its clock position
         renderItinerary();
         syncAiScopeRange(); // the area's day span may have moved
         if (r.description) { trip.description = r.description; renderDesc(); }
         const changed = r.added + r.updated + r.removed > 0;
         aiResult.classList.add(changed ? 'ok' : 'info');
         aiResult.textContent = r.summary;
-        if (changed) { aiInput.value = ''; aiCount.textContent = '0/200'; }
+        if (changed && r.undo) {
+          aiInput.value = '';
+          aiCount.textContent = '0/200';
+          aiUndo = { ops: r.undo, snapDesc };
+          const undoBtn = document.createElement('button');
+          undoBtn.type = 'button';
+          undoBtn.className = 'ai-undo-btn';
+          undoBtn.textContent = 'ביטול השינוי';
+          undoBtn.onclick = () => undoAiEdit(undoBtn);
+          aiResult.append(' ', undoBtn);
+        }
       } catch (err) {
         aiResult.classList.add('err');
         aiResult.textContent = err.message;
@@ -867,6 +893,81 @@
         aiBtn.textContent = prevLabel;
       }
     });
+
+    // reverse the last smart edit with plain item CRUD — no model call, no quota.
+    // The inverse comes from the server (exactly the rows the edit touched, with
+    // their pre-edit values), so a stop a co-planner added or changed in the
+    // meantime is never confused for the AI's work. Per-op failures are tolerated:
+    // restoring the rest still beats nothing. One level only — re-created stops
+    // get fresh ids, so there is no redo.
+    async function undoAiEdit(btn) {
+      if (btn.disabled) return;
+      if (!aiUndo) {
+        // a manual edit since the AI ran invalidated the undo — say so instead
+        // of a button that silently does nothing
+        btn.remove();
+        aiResult.className = 'ai-edit-result info';
+        aiResult.textContent = 'המסלול השתנה מאז — אי אפשר לבטל את שינוי ה-AI אוטומטית';
+        return;
+      }
+      const { ops, snapDesc } = aiUndo;
+      aiUndo = null;
+      btn.disabled = true;
+      btn.textContent = 'רגע, מחזירים…';
+      const H = canEditHeaders || {};
+      const base = `/api/trips/code/${trip.share_code}`;
+      try {
+        for (const id of ops.added) {
+          await TRIPI.api(`${base}/items/${id}`, { method: 'DELETE', headers: H }).catch(() => {});
+        }
+        for (const u of ops.updated) {
+          // exactly the columns the edit touched, back to their pre-edit values
+          await TRIPI.api(`${base}/items/${u.id}`, {
+            method: 'PATCH', headers: H, body: JSON.stringify(u.fields),
+          }).catch(() => {});
+        }
+        for (const it of ops.deleted) {
+          try {
+            const row = await TRIPI.api(`${base}/items`, {
+              method: 'POST', headers: H,
+              body: JSON.stringify({
+                day_number: it.day_number, time_label: it.time_label, title: it.title,
+                note: it.note, place_query: it.place_query, category: it.category,
+                area: it.area, lat: it.lat, lon: it.lon, cost: it.cost,
+              }),
+            });
+            // POST assigns MAX(sort_order)+1 — pin the original slot back so an
+            // unclocked stop returns to where it stood, not to the day's end
+            if ((row.sort_order ?? 0) !== (it.sort_order ?? 0)) {
+              await TRIPI.api(`${base}/items/${row.id}`, {
+                method: 'PATCH', headers: H, body: JSON.stringify({ sort_order: it.sort_order ?? 0 }),
+              }).catch(() => {});
+            }
+          } catch { /* trip-level failure on one stop — restore the rest */ }
+        }
+        if ((snapDesc ?? '') !== (trip.description ?? '')) {
+          // the AI rewrote the trip description too — restore it server-side
+          await TRIPI.api('/api/trips/' + trip.id, {
+            method: 'PATCH', body: JSON.stringify({ description: snapDesc || null }),
+          }).catch(() => {});
+        }
+      } finally {
+        // one re-fetch is the source of truth after the inverse ops — it also folds
+        // in whatever co-planners changed meanwhile instead of guessing at it
+        try {
+          const fresh = await TRIPI.api(`/api/trips/code/${trip.share_code}`);
+          tripItems = fresh.items;
+          trip.description = fresh.trip.description;
+          renderDesc();
+        } catch { /* offline mid-undo — keep the local state we have */ }
+        sortItems();
+        renderItinerary();
+        updateAmbient();
+        syncAiScopeRange();
+        aiResult.className = 'ai-edit-result info';
+        aiResult.textContent = 'השינוי בוטל — המסלול חזר לקדמותו';
+      }
+    }
 
     // ---- clone button: anyone holding the code can copy the trip into their account ----
     // (the API has never gated this on is_public — the share code already grants a
@@ -1054,6 +1155,36 @@
     });
     document.getElementById('print-btn').onclick = () => window.print();
 
+    // calendar export (.ics) — needs real dates to anchor the events; visible to
+    // viewers too, same as PDF (an itinerary you can read, you can put in a calendar).
+    // Fetched as a blob rather than navigated to: an error answers as JSON, and a
+    // navigation would strand the user on a raw error page (worse in the installed PWA).
+    const icsBtn = document.getElementById('ics-btn');
+    if (trip.start_date) {
+      icsBtn.style.display = '';
+      icsBtn.onclick = async () => {
+        if (icsBtn.disabled) return;
+        icsBtn.disabled = true;
+        TRIPI.track('calendar_export', { trip_id: trip.id });
+        try {
+          const res = await fetch(`/api/trips/code/${trip.share_code}/calendar.ics`);
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || 'הייצוא ליומן נכשל — נסו שוב עוד רגע');
+          }
+          const url = URL.createObjectURL(await res.blob());
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `tripmaker-${trip.share_code}.ics`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 4000);
+        } catch (e) { alert(e.message); }
+        icsBtn.disabled = false;
+      };
+    }
+
     // ---- share: the invite leads ----
     // this trip is something people build together, so a participant's big button
     // hands out the invite link — one signup and the friend is a co-planner — and
@@ -1181,21 +1312,63 @@
       });
     }
 
+    // the trip day "today" falls on, else day 1 — where the map opens
+    const liveTripDay = () => {
+      if (!trip.start_date) return 1;
+      const diff = Math.floor((Date.now() - new Date(trip.start_date).getTime()) / 86400000) + 1;
+      return diff >= 1 && diff <= trip.days ? diff : 1;
+    };
+
+    let currentDest = dests[0];
+    let tripMapReady = false;
+
     async function showDestination(d) {
       // resolve coordinates once if this destination has none (old or free-text trips)
       if (d.lat == null) {
         const found = await GEO.searchPlaces(d.name).catch(() => []);
         if (found[0]) { d.lat = found[0].lat; d.lon = found[0].lon; if (!d.country) d.country = found[0].country; }
       }
+      currentDest = d;
       const mapQuery = `${d.name}${d.country && d.country !== d.name ? ', ' + d.country : ''}`;
-      document.getElementById('trip-map').src = TRIPI.mapsEmbedUrl(mapQuery);
       document.getElementById('map-caption').textContent = `📍 ${mapQuery}`;
+      // a Leaflet map with nothing to frame (unresolvable free-text destination AND
+      // no located stops) is a blank canvas — the name-keyed embed still shows a map
+      const anythingLocated = d.lat != null || tripItems.some((it) => it.lat != null);
+      if (TripMap.available() && (tripMapReady || anythingLocated)) {
+        if (!tripMapReady) {
+          document.getElementById('trip-map').innerHTML = ''; // may hold the iframe fallback
+          tripMapReady = TripMap.init({
+            trip,
+            items: () => tripItems,
+            currentDest: () => currentDest,
+            openStop: (id) => TripCalendar.openStop(calCtx, id),
+            initialDay: liveTripDay(),
+          });
+        } else {
+          TripMap.showDest(d);
+        }
+      } else {
+        // Leaflet didn't load (stale cache, blocked vendor file) or there are no
+        // coordinates anywhere — the old destination embed beats a dead box
+        document.getElementById('trip-map').innerHTML =
+          `<iframe title="מפת היעד" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
+             src="${TRIPI.esc(TRIPI.mapsEmbedUrl(mapQuery))}"></iframe>`;
+      }
       loadWeather(d);
     }
 
+    const weatherDayHtml = (w) => `
+          <div class="weather-day" title="${GEO.weatherLabel(w.code)}${w.est ? ' · ממוצע היסטורי' : ''}">
+            <div class="wd-name">${new Date(w.date + 'T00:00').toLocaleDateString('he-IL', { weekday: 'short' })}</div>
+            <div class="wd-icon">${GEO.weatherIcon(w.code)}</div>
+            <div class="wd-temp">${w.est ? '≈' : ''}${w.max}°<span>${w.min}°</span></div>
+          </div>`;
+
     async function loadWeather(d) {
       const card = document.getElementById('weather-card');
-      card.classList.remove('wx-trip');
+      const sub = document.getElementById('weather-sub');
+      card.classList.remove('wx-trip', 'wx-est');
+      sub.hidden = true;
       if (d.lat == null) { card.style.display = 'none'; return; }
       card.style.display = '';
       document.getElementById('weather-row').innerHTML = `
@@ -1203,6 +1376,28 @@
           <span class="skl skl-wd-name"></span><span class="skl skl-wd-icon"></span><span class="skl skl-wd-temp"></span>
         </div>`.repeat(7);
       try {
+        // beyond the 16-day horizon no forecast can reach the trip — say what the
+        // trip's dates are TYPICALLY like there (last two years, averaged) instead
+        // of showing this week's weather for a trip that starts next month
+        const startD = dayDate(1);
+        const daysUntil = startD
+          ? Math.round((startD - new Date(new Date().setHours(0, 0, 0, 0))) / 86400000) : null;
+        if (daysUntil != null && daysUntil > 15) {
+          const tripDates = Array.from({ length: trip.days }, (_, i) => TRIPI.isoDate(dayDate(i + 1)));
+          const est = await GEO.typicalWeather(d.lat, d.lon, tripDates).catch(() => []);
+          if (est.length) {
+            weatherByDate = {};
+            for (const w of est) weatherByDate[w.date] = w;
+            renderItinerary(); // day headers get their ≈typical badge
+            card.classList.add('wx-est');
+            document.getElementById('weather-title').textContent = '🌤️ מזג האוויר הטיפוסי בימי הטיול';
+            sub.textContent = 'ממוצע השנתיים האחרונות בתאריכים האלה · תחזית אמיתית תופיע כשמתקרבים';
+            sub.hidden = false;
+            document.getElementById('weather-row').innerHTML = est.slice(0, 7).map(weatherDayHtml).join('');
+            return;
+          }
+          // archive unavailable — fall through to the plain forecast strip below
+        }
         // when the trip has dates in the next 16 days, fetch far enough to align per itinerary day
         const wantDates = !!trip.start_date;
         const days = await GEO.forecast(d.lat, d.lon, wantDates ? 16 : 7);
@@ -1224,12 +1419,8 @@
         card.classList.toggle('wx-trip', tripDays.length > 0);
         document.getElementById('weather-title').textContent =
           tripDays.length ? '🌤️ מזג האוויר בימי הטיול' : '🌤️ מזג האוויר בשבוע הקרוב';
-        document.getElementById('weather-row').innerHTML = (tripDays.length ? tripDays : days).slice(0, 7).map((w) => `
-          <div class="weather-day" title="${GEO.weatherLabel(w.code)}">
-            <div class="wd-name">${new Date(w.date + 'T00:00').toLocaleDateString('he-IL', { weekday: 'short' })}</div>
-            <div class="wd-icon">${GEO.weatherIcon(w.code)}</div>
-            <div class="wd-temp">${w.max}°<span>${w.min}°</span></div>
-          </div>`).join('');
+        document.getElementById('weather-row').innerHTML =
+          (tripDays.length ? tripDays : days).slice(0, 7).map(weatherDayHtml).join('');
         card.style.display = '';
       } catch { card.style.display = 'none'; }
     }

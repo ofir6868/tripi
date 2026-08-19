@@ -32,6 +32,59 @@ const GEO = {
     }));
   },
 
+  // typical weather for trip dates beyond the 16-day forecast horizon: the same
+  // date span in the previous two years (Open-Meteo archive, keyless), averaged
+  // and re-keyed to the trip's own dates. Same {date, code, max, min} shape as
+  // forecast() so every badge renderer works unchanged; `est: true` marks the
+  // numbers as historical estimates, not a forecast.
+  async typicalWeather(lat, lon, tripDates) {
+    if (!tripDates || !tripDates.length) return [];
+    const shift = (iso, years) => {
+      const [y, m, d] = iso.split('-').map(Number);
+      const dt = new Date(y - years, m - 1, d); // Feb 29 rolls to Mar 1 — fine for an estimate
+      return TRIPI.isoDate(dt);
+    };
+    const fetchYear = async (years) => {
+      const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}` +
+        `&start_date=${shift(tripDates[0], years)}&end_date=${shift(tripDates[tripDates.length - 1], years)}` +
+        '&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto';
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('archive unavailable');
+      return (await res.json()).daily;
+    };
+    const settled = await Promise.allSettled([fetchYear(1), fetchYear(2)]);
+    const samples = settled
+      .map((r, k) => (r.status === 'fulfilled' ? { years: k + 1, daily: r.value } : null))
+      .filter(Boolean);
+    if (!samples.length) return [];
+    // look each trip date up by ITS OWN shifted date, never by array position —
+    // a span crossing Feb 29 is a day shorter/longer in a non-leap sample year,
+    // and positional pairing would smear every later day onto the wrong sample
+    const at = (s, date) => {
+      const i = (s.daily.time || []).indexOf(shift(date, s.years));
+      return i < 0 ? {} : {
+        max: s.daily.temperature_2m_max?.[i],
+        min: s.daily.temperature_2m_min?.[i],
+        code: s.daily.weather_code?.[i],
+      };
+    };
+    return tripDates.map((date) => {
+      const days = samples.map((s) => at(s, date));
+      const maxs = days.map((d) => d.max).filter(Number.isFinite);
+      const mins = days.map((d) => d.min).filter(Number.isFinite);
+      const codes = days.map((d) => d.code).filter(Number.isFinite);
+      if (!maxs.length || !mins.length) return null;
+      return {
+        date,
+        // the harsher of the sampled codes — for packing, over-warning beats under
+        code: codes.length ? Math.max(...codes) : 1,
+        max: Math.round(maxs.reduce((a, b) => a + b, 0) / maxs.length),
+        min: Math.round(mins.reduce((a, b) => a + b, 0) / mins.length),
+        est: true,
+      };
+    }).filter(Boolean);
+  },
+
   weatherIcon(code) {
     if (code === 0) return '☀️';
     if (code <= 2) return '🌤️';
@@ -88,7 +141,10 @@ const GEO = {
   // POI/address search (Photon — keyless OSM autocomplete; finds restaurants, museums, beaches…)
   async searchPois(q, biasLat, biasLon) {
     if (!q || q.length < 2) return [];
-    let url = 'https://photon.komoot.io/api/?limit=6&q=' + encodeURIComponent(q);
+    // lang=en: Photon's default is the local OSM name — Greek script for Athens,
+    // Kanji for Tokyo. Latin names our travelers can actually read, and the
+    // server-side place verifier (lib/places.js) matches Latin tokens anyway.
+    let url = 'https://photon.komoot.io/api/?limit=6&lang=en&q=' + encodeURIComponent(q);
     if (Number.isFinite(biasLat) && Number.isFinite(biasLon)) url += `&lat=${biasLat}&lon=${biasLon}`;
     const res = await fetch(url);
     if (!res.ok) return [];

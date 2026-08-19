@@ -102,6 +102,103 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
   }
 });
 
+// ---- calendar export: the itinerary as an .ics file ----
+// Timed stops become floating (no-timezone) events — "09:00" means 09:00 wherever
+// the traveler wakes up, which is exactly right for a trip abroad. Unclocked stops
+// become all-day events, plus one all-day banner spanning the whole trip.
+const icsEscape = (s) => String(s)
+  .replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,')
+  // every line-break flavor becomes a literal \n — a bare CR smuggled into a title
+  // would otherwise split the content line and inject ICS properties of its own
+  .replace(/\r\n?|\n/g, '\\n')
+  .replace(/[\x00-\x1f]/g, '');
+// RFC 5545 folding: content lines SHOULD stay within 75 octets — fold on character
+// boundaries (never mid-UTF-8; Hebrew is 2 bytes a letter) with CRLF + space
+function icsFold(line) {
+  const out = [];
+  let cur = '';
+  for (const ch of line) {
+    if (Buffer.byteLength(cur + ch, 'utf8') > 73) { out.push(cur); cur = ' ' + ch; } else cur += ch;
+  }
+  out.push(cur);
+  return out.join('\r\n');
+}
+const icsDate = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+
+router.get('/api/trips/code/:code/calendar.ics', authOptional, async (req, res) => {
+  try {
+    if (codeMissLimit.blocked(req.ip)) return res.status(429).json({ error: CODE_MISS_ERROR });
+    const { rows } = await pool.query(`SELECT ${tripFields} FROM trips WHERE share_code = $1`, [req.params.code]);
+    if (!rows[0]) {
+      codeMissLimit.hit(req.ip);
+      return res.status(404).json({ error: 'לא נמצא טיול עם הקוד הזה' });
+    }
+    const trip = rows[0];
+    if (!trip.start_date) return res.status(400).json({ error: 'לטיול אין תאריך התחלה — קובעים תאריך ואפשר לייצא ליומן' });
+    const { rows: items } = await pool.query(
+      'SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, time_label NULLS FIRST, sort_order, id', [trip.id]
+    );
+
+    const start = new Date(trip.start_date);
+    const dayOf = (n) => { const d = new Date(start); d.setDate(d.getDate() + n - 1); return d; };
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, ''); // UTC basic format
+    const lines = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//TRIP MAKER//trip planner//HE',
+      'CALSCALE:GREGORIAN',
+      `X-WR-CALNAME:${icsEscape(trip.title)}`,
+    ];
+    const pageUrl = `${req.protocol}://${req.get('host')}/trip/${trip.share_code}`;
+
+    // the whole trip as one all-day banner (DTEND is exclusive)
+    const after = new Date(start); after.setDate(after.getDate() + Math.max(trip.days, 1));
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:trip${trip.id}@tripmaker`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${icsDate(start)}`,
+      `DTEND;VALUE=DATE:${icsDate(after)}`,
+      `SUMMARY:${icsEscape(`${trip.emoji || '🧳'} ${trip.title}`)}`,
+      `DESCRIPTION:${icsEscape(pageUrl)}`,
+      'END:VEVENT'
+    );
+
+    for (const it of items) {
+      const d = dayOf(it.day_number);
+      const time = /^([01]?\d|2[0-3]):([0-5]\d)/.exec(String(it.time_label || '').trim());
+      lines.push('BEGIN:VEVENT', `UID:trip${trip.id}-item${it.id}@tripmaker`, `DTSTAMP:${stamp}`);
+      if (time) {
+        const hh = time[1].padStart(2, '0');
+        // stops have no stored duration — an hour marks the slot. DTEND must be
+        // strictly after DTSTART, so a 23:xx stop rolls its end into the next day.
+        const endD = new Date(d);
+        if (+time[1] === 23) endD.setDate(endD.getDate() + 1);
+        lines.push(
+          `DTSTART:${icsDate(d)}T${hh}${time[2]}00`,
+          `DTEND:${icsDate(endD)}T${String((+time[1] + 1) % 24).padStart(2, '0')}${time[2]}00`
+        );
+      } else {
+        const next = new Date(d); next.setDate(next.getDate() + 1);
+        lines.push(`DTSTART;VALUE=DATE:${icsDate(d)}`, `DTEND;VALUE=DATE:${icsDate(next)}`);
+      }
+      lines.push(`SUMMARY:${icsEscape(it.title)}`);
+      if (it.note) lines.push(`DESCRIPTION:${icsEscape(it.note)}`);
+      if (it.place_query) lines.push(`LOCATION:${icsEscape(it.place_query)}`);
+      if (it.lat != null && it.lon != null) lines.push(`GEO:${it.lat};${it.lon}`);
+      lines.push('END:VEVENT');
+    }
+    lines.push('END:VCALENDAR');
+
+    res.set('Content-Type', 'text/calendar; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="tripmaker-${trip.share_code}.ics"`);
+    res.send(lines.map(icsFold).join('\r\n') + '\r\n');
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
 // ---- collaborative editing (trip participants) ----
 
 // redeem an invite link: a logged-in user with the current token becomes a participant
@@ -534,18 +631,42 @@ router.post('/api/trips/:id/like', async (req, res) => {
 
 router.patch('/api/trips/:id', authRequired, async (req, res) => {
   try {
-    const { is_public } = req.body || {};
+    const b = req.body || {};
     const admin = await isAdmin(req);
+    const sets = [];
+    const vals = [];
+    const add = (col, val) => { vals.push(val); sets.push(`${col} = $${vals.length}`); };
     // publishing moved to the participants screen — any participant may toggle it.
     // NOT is_draft: a trip still in planning can never enter the public gallery
+    if (b.is_public !== undefined) add('is_public', !!b.is_public);
+    // description is writable too (the AI-edit undo restores the pre-edit text
+    // through here) — same length cap the AI writer keeps
+    if (b.description !== undefined) {
+      add('description', b.description == null ? null : String(b.description).slice(0, 500).trim() || null);
+    }
+    if (!sets.length) return res.status(400).json({ error: 'אין מה לעדכן' });
+    vals.push(req.params.id, req.user.id, admin);
+    const idP = vals.length - 2, userP = vals.length - 1, adminP = vals.length;
+    // old.is_public rides along so the proofread below fires only on the actual
+    // unpublished→published transition, not on every repeat of the same PATCH
     const { rows } = await pool.query(
-      `UPDATE trips SET is_public = $1 WHERE id = $2 AND NOT is_draft AND ($4 OR owner_id = $3
-         OR EXISTS (SELECT 1 FROM trip_participants p WHERE p.trip_id = $2 AND p.user_id = $3))
-       RETURNING ${tripFields}`,
-      [!!is_public, req.params.id, req.user.id, admin]
+      `UPDATE trips t SET ${sets.join(', ')}
+       FROM (SELECT is_public AS was_public FROM trips WHERE id = $${idP}) old
+       WHERE t.id = $${idP} ${b.is_public !== undefined ? 'AND NOT t.is_draft' : ''}
+         AND ($${adminP} OR t.owner_id = $${userP}
+           OR EXISTS (SELECT 1 FROM trip_participants p WHERE p.trip_id = $${idP} AND p.user_id = $${userP}))
+       RETURNING ${tripFields}, old.was_public`,
+      vals
     );
     if (!rows[0]) return res.status(404).json({ error: 'הטיול לא נמצא' });
-    res.json(rows[0]);
+    const { was_public, ...tripOut } = rows[0];
+    res.json(tripOut);
+    // gallery gate: a trip ENTERING the public gallery gets one cheap, fail-open
+    // copy-edit pass (AI descriptions occasionally leak foreign words) — after the
+    // response, never blocking or failing the toggle itself
+    if (b.is_public && tripOut.is_public && !was_public) {
+      try { require('./ai').proofreadPublicTripCopy(tripOut, req.user.id); } catch { /* proofread is optional */ }
+    }
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });

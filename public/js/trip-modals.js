@@ -166,14 +166,38 @@ const TripModals = (() => {
     return { checkin: mk(h.night_start - 1), checkout: mk(h.night_end) };
   }
 
+  // Travelpayouts wrapping (Booking.com program). The three ids come from one
+  // link generated in the TP dashboard — it looks like
+  // https://tp.media/r?marker=123456&trs=98765&p=4132&u=https%3A%2F%2Fwww.booking.com...
+  // Empty marker = affiliate off, links stay bare booking.com URLs.
+  const TP = { marker: '', trs: '', p: '' };
+
+  function tpWrap(state, h, url) {
+    let host = '';
+    try { host = new URL(url).hostname; } catch { return url; }
+    if (!TP.marker || !/(^|\.)booking\.com$/i.test(host)) return url;
+    return `https://tp.media/r?marker=${TP.marker}&trs=${TP.trs}&p=${TP.p}` +
+      `&sub_id=${encodeURIComponent(`t${state.trip.id}-n${h.night_start}`)}&u=${encodeURIComponent(url)}`;
+  }
+
+  // stroke icons for the hotel-card action row — inherit currentColor like every .ic
+  const HICON = {
+    pin: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>',
+    link: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+    search: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>',
+    pencil: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>',
+    trash: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6h17M9.5 6V4.4A1.4 1.4 0 0 1 10.9 3h2.2a1.4 1.4 0 0 1 1.4 1.4V6"/><path d="M18.4 6l-.8 12.7A2 2 0 0 1 15.6 20.6H8.4a2 2 0 0 1-2-1.9L5.6 6"/><path d="M10.3 10.4v5.9M13.7 10.4v5.9"/></svg>',
+  };
+
   function bookingUrl(state, h) {
-    if (h.link) return h.link;
+    if (h.link) return tpWrap(state, h, h.link);
     const block = destBlocks(state).find((b) => h.night_start >= b.from && h.night_start <= b.to);
     let url = 'https://www.booking.com/searchresults.he.html?ss=' +
       encodeURIComponent(`${h.name} ${block ? block.name : state.trip.destination}`);
     const dates = nightDates(state, h);
     if (dates) url += `&checkin=${dates.checkin}&checkout=${dates.checkout}`;
-    return url;
+    url += `&group_adults=${(state.budget && state.budget.travelers) || 2}&no_rooms=1&group_children=0`;
+    return tpWrap(state, h, url);
   }
 
   // ---- modal shell ----
@@ -270,11 +294,11 @@ const TripModals = (() => {
           ${state.canEdit && (h.price_total || h.note) ? `<div class="hc-details">${h.price_total ? fmt(h.price_total, curOf(state)) : ''}${h.price_total && h.note ? ' · ' : ''}${h.note ? esc(h.note) : ''}</div>` : ''}
           ${over.length ? `<div class="hc-warn">⚠️ ${over.map((o) => `יש חפיפה עם "${esc(o.name)}"`)[0]}</div>` : ''}
           <div class="hc-actions">
-            <a target="_blank" rel="noopener" href="${esc(TRIPI.mapsSearchUrl(h.name + (block ? ' ' + block.name : '')))}">📍 מפה</a>
-            <a target="_blank" rel="noopener" href="${esc(bookingUrl(state, h))}">${h.link ? '🔗 להזמנה' : '🔎 חיפוש בבוקינג'}</a>
+            <a target="_blank" rel="noopener" href="${esc(TRIPI.mapsSearchUrl(h.name + (block ? ' ' + block.name : '')))}">${HICON.pin} מפה</a>
+            <a target="_blank" rel="noopener" data-book="${h.id}" data-kind="${h.link ? 'custom_link' : 'booking_search'}" href="${esc(bookingUrl(state, h))}">${h.link ? `${HICON.link} להזמנה` : `${HICON.search} חיפוש בבוקינג`}</a>
             <span class="hc-spacer"></span>
-            <button type="button" class="hc-edit" data-id="${h.id}">✏️ עריכה</button>
-            <button type="button" class="hc-del" data-id="${h.id}">🗑️</button>
+            <button type="button" class="hc-edit" data-id="${h.id}">${HICON.pencil} עריכה</button>
+            <button type="button" class="hc-del" data-id="${h.id}" title="הסרת המלון" aria-label="הסרת המלון">${HICON.trash}</button>
           </div>
         </div>`;
       };
@@ -291,7 +315,7 @@ const TripModals = (() => {
         ${booked.map(cardHtml).join('')}
         ${ideas.length ? `<div class="hc-divider">💡 רעיונות שעוד מתלבטים עליהם</div>${ideas.map(cardHtml).join('')}` : ''}
         <div id="hotel-form-slot"></div>
-        ${formState ? '' : `<button type="button" class="add-item-inline" id="hotel-add-btn">➕ הוספת מלון</button>`}
+        ${formState ? '' : `<button type="button" class="add-item-inline" id="hotel-add-btn">+ הוספת מלון</button>`}
         ${state.canEdit ? '' : `<div class="mw-footnote">רוצים לערוך? רק משתתפי הטיול יכולים — בקשו קישור הזמנה מהמארגנים</div>`}
       `;
 
@@ -349,6 +373,17 @@ const TripModals = (() => {
         };
       });
 
+      // outbound booking clicks are the revenue funnel — count them from day one
+      body.querySelectorAll('a[data-book]').forEach((a) => {
+        a.addEventListener('click', () => {
+          const h = state.hotels.find((x) => x.id === +a.dataset.book);
+          TRIPI.track('hotel_link_click', {
+            trip_id: state.trip.id, kind: a.dataset.kind, affiliate: !!TP.marker,
+            night_start: h && h.night_start, night_end: h && h.night_end,
+          });
+        });
+      });
+
       if (formState) renderForm();
     }
 
@@ -369,7 +404,7 @@ const TripModals = (() => {
           <div class="form-grid">
             <div class="field span-2"><label>שם המלון</label>
               <input type="text" class="hf-name" maxlength="160" autocomplete="off"
-                placeholder="מלון, דירה, אכסניה — מה שתקעו" value="${esc(h ? h.name : '')}">
+                placeholder="מלון, דירה, אכסניה — מה שסגרתם" value="${esc(h ? h.name : '')}">
             </div>
             <div class="field"><label>מאיזה לילה?</label><select class="hf-from">${opts(formState.from)}</select></div>
             <div class="field"><label>עד איזה לילה?</label><select class="hf-to">${opts(formState.to)}</select></div>
@@ -388,7 +423,7 @@ const TripModals = (() => {
           </div>
           <div class="form-error hf-err"></div>
           <div style="display:flex;gap:8px">
-            <button type="button" class="btn btn-amber hf-save" style="flex:1;justify-content:center">שמירה 🏨</button>
+            <button type="button" class="btn btn-amber hf-save" style="flex:1;justify-content:center">שמירה</button>
             <button type="button" class="btn btn-ghost hf-cancel">ביטול</button>
           </div>
         </div>`;

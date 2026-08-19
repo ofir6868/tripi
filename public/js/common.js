@@ -44,6 +44,10 @@ const TRIPI = {
   mapsSearchUrl(q) {
     return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
   },
+  // fire-and-forget product event — PostHog may be absent (no key, blocker, offline)
+  track(name, props) {
+    try { window.posthog && posthog.capture && posthog.capture(name, props); } catch { /* analytics never breaks UX */ }
+  },
   // the calendar day a Date falls on *here* — never toISOString(), which east of
   // UTC rolls local midnight back a day and pairs every itinerary day with the
   // previous day's forecast

@@ -477,6 +477,46 @@ async function aiTripMeta({ dests, from, to, interestList, freeText, answers, ph
   };
 }
 
+// gallery gate: one cheap copy-edit pass when a trip enters the public gallery.
+// AI descriptions occasionally leak a foreign word mid-Hebrew ("עם Schwerpunkt על…")
+// and the gallery is the shop window. Description only — the title is the owner's
+// voice and is never rewritten. Fail-open by construction: aiJson returns null on
+// any failure and the publish already succeeded before this runs.
+const proofreadDone = new Map(); // tripId → date — one model call per trip per day, whatever the caller does
+async function proofreadPublicTripCopy(trip, userId) {
+  if (!process.env.OPENAI_API_KEY || !trip.description) return;
+  const today = new Date().toISOString().slice(0, 10);
+  if (proofreadDone.get(trip.id) === today) return;
+  proofreadDone.set(trip.id, today);
+  try {
+    const out = await aiJson({
+      system: 'אתה עורך לשוני של אתר טיולים בעברית. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
+      user:
+        `תיאור של טיול ל${trip.destination} שעומד להתפרסם בגלריה ציבורית:\n"${trip.description}"\n` +
+        'תקן אך ורק שגיאות: מילים בשפה זרה שנשתלו בטעות בתוך העברית (החלף במילה עברית מתאימה; שמות מקומות נשארים), ' +
+        'שגיאות כתיב ותחביר שבור. אל תשנה סגנון, אל תוסיף מידע, אל תקצר. ' +
+        'אם התיאור תקין — החזר אותו בדיוק כמו שהוא, אות באות.',
+      schemaName: 'gallery_copy_edit',
+      maxTokens: 400,
+      ph: { distinctId: 'user_' + userId, traceId: randomUUID() },
+      schema: {
+        type: 'object', additionalProperties: false, required: ['description'],
+        properties: { description: { type: 'string' } },
+      },
+    });
+    const clean = out && String(out.description || '').trim().slice(0, 500);
+    if (!clean || clean === trip.description) return;
+    // compare-and-swap: the model call takes seconds, and an edit (or the AI-edit
+    // undo) may have rewritten the description meanwhile — never clobber newer text
+    await pool.query(
+      'UPDATE trips SET description = $1 WHERE id = $2 AND description = $3',
+      [clean, trip.id, trip.description]
+    );
+  } catch (err) {
+    console.error('gallery proofread failed:', err.message);
+  }
+}
+
 // stage 1: the AI itself decides city order and how many days each deserves —
 // a small, cheap call whose output is easy to validate structurally
 async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers, ph }) {
@@ -766,7 +806,7 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
     .filter((it) => it && it.title && it.day_number >= from && it.day_number <= to)
     .map((it) => ({
       day_number: it.day_number,
-      time_label: /^\d{1,2}:\d{2}$/.test(it.time_label || '') ? it.time_label : null,
+      time_label: cleanTime(it.time_label),
       title: String(it.title).slice(0, 200),
       note: it.note ? String(it.note).slice(0, 300) : null,
       place_query: it.place_query ? withContext(String(it.place_query).slice(0, 90)) : null,
@@ -928,7 +968,9 @@ const AI_EDIT_MAX_PROMPT = 200;
 const aiEditUsage = new Map(); // 'u<userId>' → {date, count}
 
 // field cleaners shared by both edit routes (DB-applied and draft)
-const cleanTime = (t) => (/^\d{1,2}:\d{2}$/.test(t || '') ? t : null);
+// zero-pad the hour: times sort as strings (day → clock → slot), and an unpadded
+// "9:00" would land after "18:00"
+const cleanTime = (t) => (/^\d{1,2}:\d{2}$/.test(t || '') ? t.padStart(5, '0') : null);
 const clampDay = (d, days, dflt = 1) => Math.min(Math.max(parseInt(d, 10) || dflt, 1), days);
 
 // the itinerary a set of ops would produce, so the rules below can be checked against
@@ -1384,10 +1426,15 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
     const byId = new Map(items.map((it) => [it.id, it]));
     const inScope = (day) => !area || (day >= from && day <= to);
     let added = 0, updated = 0, removed = 0;
+    // the exact inverse of what this edit does, computed from the server's own
+    // pre-edit rows — the client undo replays it without guessing from a snapshot
+    // (a snapshot diff would delete stops a co-planner added concurrently)
+    const undoOps = { added: [], updated: [], deleted: [] };
     await client.query('BEGIN');
     for (const op of result.ops) {
       if (op.action === 'delete' && byId.has(op.id)) {
         if (!inScope(byId.get(op.id).day_number)) continue;
+        undoOps.deleted.push(byId.get(op.id));
         await client.query('DELETE FROM trip_items WHERE id = $1 AND trip_id = $2', [op.id, trip.id]);
         removed++;
       } else if (op.action === 'update' && byId.has(op.id)) {
@@ -1398,7 +1445,8 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
         if (newDay != null && !inScope(newDay)) continue;
         const sets = [];
         const vals = [];
-        const add = (col, val) => { vals.push(val); sets.push(`${col} = $${vals.length}`); };
+        const pre = {}; // the touched columns' pre-edit values, for the undo
+        const add = (col, val) => { vals.push(val); sets.push(`${col} = $${vals.length}`); pre[col] = target[col]; };
         if (newDay != null) add('day_number', newDay);
         if (op.time_label != null) add('time_label', cleanTime(op.time_label));
         if (op.title != null && String(op.title).trim()) add('title', String(op.title).slice(0, 200).trim());
@@ -1418,14 +1466,16 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
           await client.query(
             `UPDATE trip_items SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND trip_id = $${vals.length}`, vals
           );
+          undoOps.updated.push({ id: op.id, fields: pre });
           updated++;
         }
       } else if (op.action === 'add' && op.title && String(op.title).trim()) {
         const day = clampDay(op.day_number, trip.days, from);
         if (!inScope(day)) continue;
-        await client.query(
+        const { rows: ins } = await client.query(
           `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, cost, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
+           RETURNING id`,
           [trip.id, day, cleanTime(op.time_label), String(op.title).slice(0, 200).trim(),
            op.note ? String(op.note).slice(0, 300) : null,
            op.place_query ? String(op.place_query).slice(0, 120) : null,
@@ -1435,6 +1485,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
            Number.isFinite(op.lon) ? op.lon : null,
            cleanCost(op.cost)]
         );
+        undoOps.added.push(ins[0].id);
         added++;
       }
     }
@@ -1464,6 +1515,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
       added, updated, removed,
       items: fresh.rows,
       description: newDesc, // null = unchanged, so the client leaves it alone
+      undo: added + updated + removed > 0 ? undoOps : null,
       remaining: admin ? null : AI_EDIT_DAILY_LIMIT - used - 1, // null = unlimited (admin)
     });
   } catch (err) {
@@ -1484,3 +1536,5 @@ module.exports.aiEditOps = aiEditOps;
 module.exports.editViolations = editViolations;
 module.exports.applyOps = applyOps;
 module.exports.daySpreadOutliers = daySpreadOutliers;
+// routes/trips.js runs this after a publish-to-gallery toggle — fire-and-forget
+module.exports.proofreadPublicTripCopy = proofreadPublicTripCopy;

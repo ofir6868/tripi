@@ -224,7 +224,16 @@
 
   async function loadSuggested() {
     try {
-      const trips = await TRIPI.api('/api/trips/suggested');
+      const fetched = await TRIPI.api('/api/trips/suggested');
+      // near-duplicates (two 22-day Japan trips) crowd the shop window — keep one
+      // card per country+length. The server pre-sorts by likes, so first-seen wins.
+      const seen = new Set();
+      const trips = fetched.filter((t) => {
+        const key = `${(t.country || t.destination || '').trim()}|${t.days}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
       const cardsHtml = trips.map(cardHtml).join('');
       const loop = trips.length > 3;
       strip.innerHTML = loop ? cardsHtml + cardsHtml : cardsHtml;
