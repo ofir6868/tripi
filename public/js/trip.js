@@ -1329,6 +1329,13 @@
         if (found[0]) { d.lat = found[0].lat; d.lon = found[0].lon; if (!d.country) d.country = found[0].country; }
       }
       currentDest = d;
+      paintMap(d);
+      loadWeather(d);
+    }
+
+    // the map half of showDestination, on its own so the geocode backfill below can
+    // bring the map up (or repaint it) without re-running the weather fetch
+    function paintMap(d) {
       const mapQuery = `${d.name}${d.country && d.country !== d.name ? ', ' + d.country : ''}`;
       document.getElementById('map-caption').textContent = `📍 ${mapQuery}`;
       // a Leaflet map with nothing to frame (unresolvable free-text destination AND
@@ -1354,7 +1361,35 @@
           `<iframe title="מפת היעד" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
              src="${TRIPI.esc(TRIPI.mapsEmbedUrl(mapQuery))}"></iframe>`;
       }
-      loadWeather(d);
+    }
+
+    // Stops built before the AI kept its verified coordinates (and any the geocoder
+    // missed on build day) carry a place name and no pin — the map would open on the
+    // destination alone. The server geocodes them a batch at a time and stores what it
+    // resolves, so this runs once in a trip's life; the pins appear as the batches land.
+    async function locateStops() {
+      let skip = 0; // stops already asked about — a name the geocoder can't place stays null
+      for (let round = 0; round < 8; round++) {
+        if (!tripItems.some((it) => it.lat == null && it.place_query)) return;
+        let r;
+        try {
+          r = await TRIPI.api(`/api/trips/code/${trip.share_code}/locate`, {
+            method: 'POST', body: JSON.stringify({ skip }),
+          });
+        } catch { return; } // a viewer's map is not worth an error toast
+        const byId = new Map(tripItems.map((it) => [it.id, it]));
+        for (const l of r.located || []) {
+          const it = byId.get(l.id);
+          if (it) { it.lat = l.lat; it.lon = l.lon; }
+        }
+        // repaint the map only — the list and calendar key their map links off
+        // place_query, so nothing else changes under the user's hands mid-visit
+        if ((r.located || []).length) {
+          if (tripMapReady) TripMap.refresh(); else paintMap(currentDest);
+        }
+        skip += (r.attempted || 0) - (r.located || []).length; // the failures, kept behind us
+        if (!r.remaining) return;
+      }
     }
 
     const weatherDayHtml = (w) => `
@@ -1426,6 +1461,7 @@
     }
 
     showDestination(dests[0]);
+    locateStops();
     const ticketCode = document.getElementById('ticket-code');
     ticketCode.textContent = trip.share_code;
     ticketCode.classList.add('copyable');

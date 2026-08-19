@@ -7,6 +7,7 @@ const {
 } = require('../lib/trips');
 const { rateLimiter } = require('../lib/rate-limit');
 const { notifyTripAsync } = require('../lib/push');
+const { verifyPlaces } = require('../lib/places');
 
 const router = express.Router();
 
@@ -96,6 +97,61 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
       expenses: canEdit ? expenses.rows : [],
       participants: participants.rows,
     });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// ---- map backfill: coordinates for the stops that never got any ----
+// The day map draws stored lat/lon. Verification only started keeping the coordinates
+// it pays for on 2026-08-18, so nearly every stop written before that has a
+// place_query and no pin — and a build whose geocoder was having a bad minute leaves
+// the same hole. The trip page asks for a batch per load; whatever the geocoder can
+// place is written back, so the work happens once per stop and the map fills in.
+// Anyone who can open the trip may ask: it only resolves a place name the page
+// already shows, and it can't touch anything else on the row.
+const LOCATE_BATCH = 25; // ~15s at the geocoder's polite pace — one page-load's worth
+
+router.post('/api/trips/code/:code/locate', authOptional, async (req, res) => {
+  try {
+    if (codeMissLimit.blocked(req.ip)) return res.status(429).json({ error: CODE_MISS_ERROR });
+    const { rows } = await pool.query('SELECT id FROM trips WHERE share_code = $1', [req.params.code]);
+    if (!rows[0]) {
+      codeMissLimit.hit(req.ip); // same enumeration guard the page load itself gets
+      return res.status(404).json({ error: 'לא נמצא טיול עם הקוד הזה' });
+    }
+    const tripId = rows[0].id;
+    // the page walks the unlocated stops with `skip` — stops this call fails to place
+    // stay NULL, and without the offset the next batch would ask about them again
+    const skip = Math.max(parseInt(req.body && req.body.skip, 10) || 0, 0);
+    const { rows: todo } = await pool.query(
+      `SELECT id, place_query FROM trip_items
+        WHERE trip_id = $1 AND lat IS NULL AND place_query IS NOT NULL
+        ORDER BY day_number, sort_order, id
+        OFFSET $2`, [tripId, skip]
+    );
+    const batch = todo.slice(0, LOCATE_BATCH);
+    if (!batch.length) return res.json({ located: [], attempted: 0, remaining: 0 });
+
+    const results = await verifyPlaces([...new Set(batch.map((r) => r.place_query))]);
+    const located = [];
+    for (const r of batch) {
+      const v = results.get(r.place_query);
+      if (v && v.verdict === 'ok' && v.best && v.best.lat != null) {
+        located.push({ id: r.id, lat: v.best.lat, lon: v.best.lon });
+      }
+    }
+    if (located.length) {
+      // one statement for the batch — a round trip per stop is what made creation slow
+      await pool.query(
+        `UPDATE trip_items AS i SET lat = v.lat, lon = v.lon
+           FROM unnest($1::int[], $2::float8[], $3::float8[]) AS v(id, lat, lon)
+          WHERE i.id = v.id AND i.trip_id = $4`,
+        [located.map((l) => l.id), located.map((l) => l.lat), located.map((l) => l.lon), tripId]
+      );
+    }
+    res.json({ located, attempted: batch.length, remaining: todo.length - batch.length });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
