@@ -1,5 +1,13 @@
 // Shared: auth state, header rendering, auth modal, small helpers.
 const TRIPI = {
+  // iPadOS 13+ reports itself as a Mac; the touch points are what give it away.
+  // Both the install card and the notification switch branch on these, and a
+  // disagreement between them would offer a control that can't work.
+  iOS: /iPhone|iPad|iPod/i.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1),
+  standalone: window.navigator.standalone === true
+    || window.matchMedia('(display-mode: standalone)').matches,
+
   token: localStorage.getItem('tripi_token'),
   user: JSON.parse(localStorage.getItem('tripi_user') || 'null'),
 

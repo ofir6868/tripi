@@ -685,12 +685,14 @@
         const pushDesc = wrap.querySelector('#push-desc');
         syncPushSection = async () => {
           const st = await TRIPI_PUSH.state();
-          if (st === 'unavailable' && !TRIPI_PUSH.needsInstall) { pushSec.style.display = 'none'; return; }
+          if (st === 'unavailable') { pushSec.style.display = 'none'; return; }
           pushSec.style.display = '';
-          if (TRIPI_PUSH.needsInstall) {
+          // the switch can't be flipped from mobile Safari at all — so this says
+          // where the button is, rather than only that something is missing
+          if (st === 'needs-install') {
             pushToggle.checked = false;
             pushToggle.disabled = true;
-            pushDesc.textContent = 'באייפון צריך קודם להוסיף את TRIP MAKER למסך הבית — ואז אפשר להפעיל התראות';
+            pushDesc.textContent = 'באייפון התראות עובדות רק מהאפליקציה: מקישים על כפתור השיתוף בסרגל של Safari, בוחרים "הוספה למסך הבית", ופותחים את TRIP MAKER משם';
             return;
           }
           if (st === 'blocked') {

@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v16';
+const VERSION = 'v17';
 const SHELL = 'tripi-shell-' + VERSION;
 const RUNTIME = 'tripi-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first
@@ -10,7 +10,7 @@ const STATIC = [
   '/css/style.css', '/js/common.js', '/js/geo.js', '/js/home.js', '/js/trip.js',
   '/js/trip-modals.js', '/js/trip-calendar.js', '/js/plan.js', '/js/admin.js',
   '/js/countries.js', '/js/push.js', '/js/webmcp.js', '/js/webmcp-tools.js',
-  '/js/analytics.js',
+  '/js/analytics.js', '/js/install.js',
   '/icon.svg', '/manifest.json',
 ];
 

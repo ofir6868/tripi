@@ -114,8 +114,12 @@ body::after {
 /* ---------- header ---------- */
 
 .site-header {
-  /* inset-based centering — immune to scrollbar-width and RTL transform quirks */
-  position: fixed; top: 14px; right: 14px; left: 14px;
+  /* inset-based centering — immune to scrollbar-width and RTL transform quirks.
+     The insets carry the safe area because the pages ship viewport-fit=cover: the
+     layout viewport now runs under the status bar and the home indicator, and
+     every fixed edge has to earn its clearance back. */
+  position: fixed; top: calc(14px + env(safe-area-inset-top));
+  right: calc(14px + env(safe-area-inset-right)); left: calc(14px + env(safe-area-inset-left));
   max-width: 1120px; margin: 0 auto;
   z-index: 100;
   display: flex; align-items: center; justify-content: space-between;
@@ -164,7 +168,7 @@ body::after {
 .hero {
   position: relative; min-height: 92vh;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  text-align: center; padding: 120px 20px 60px;
+  text-align: center; padding: calc(120px + env(safe-area-inset-top)) 20px 60px;
   /* z-index lifts the hero above the sections below, so the search dropdown can
      spill past the hero's bottom edge instead of being clipped by it */
   isolation: isolate; z-index: 5;
@@ -487,7 +491,7 @@ body::after {
 
 .trip-hero {
   position: relative; min-height: 62vh; display: flex; align-items: flex-end;
-  isolation: isolate; overflow: hidden; padding: 130px 20px 40px;
+  isolation: isolate; overflow: hidden; padding: calc(130px + env(safe-area-inset-top)) 20px 40px;
 }
 .trip-hero .hero-bg { animation-duration: 30s; }
 .trip-hero-inner { width: min(1120px, 100%); margin: 0 auto; position: relative; }
@@ -696,7 +700,7 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 
 /* ---------- plan wizard ---------- */
 
-.page-shell { width: min(880px, calc(100% - 32px)); margin: 0 auto; padding: 120px 0 60px; }
+.page-shell { width: min(880px, calc(100% - 32px)); margin: 0 auto; padding: calc(120px + env(safe-area-inset-top)) 0 60px; }
 .page-shell > h1 { font-family: var(--font-display); font-size: clamp(2rem, 5vw, 3rem); }
 .page-shell > .page-sub { color: var(--paper-dim); font-weight: 300; margin: 8px 0 30px; }
 
@@ -1342,14 +1346,15 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 /* ---------- invite join banner (bottom, above the action bar) ---------- */
 
 .join-banner {
-  position: fixed; bottom: 14px; inset-inline: 14px; z-index: 60;
+  position: fixed; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 60;
+  inset-inline: calc(14px + env(safe-area-inset-left)) calc(14px + env(safe-area-inset-right));
   display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap;
   padding: 12px 18px; border-radius: var(--radius);
   border: 1px solid rgba(255, 180, 95, .45);
   box-shadow: 0 10px 40px rgba(0, 0, 0, .45);
 }
 .join-banner .jb-text { font-weight: 700; font-size: .95rem; text-align: center; }
-body:has(.join-banner) { padding-bottom: 92px; }
+body:has(.join-banner) { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
 
 /* participant (not owner) badge on my-trips cards — sits under the days chip (top-left) */
 .tc-role {
@@ -1415,8 +1420,12 @@ body:has(.join-banner) { padding-bottom: 92px; }
 }
 
 @media (max-width: 640px) {
-  .site-header { top: 10px; right: 10px; left: 10px; padding: 8px 12px; }
-  .trip-hero { min-height: 48vh; padding: 100px 16px 28px; }
+  .site-header {
+    top: calc(10px + env(safe-area-inset-top));
+    right: calc(10px + env(safe-area-inset-right)); left: calc(10px + env(safe-area-inset-left));
+    padding: 8px 12px;
+  }
+  .trip-hero { min-height: 48vh; padding: calc(100px + env(safe-area-inset-top)) 16px 28px; }
   .trip-layout { width: calc(100% - 24px); margin-top: 24px; }
   /* keep the description to 2 lines so the itinerary below it is visible without
      scrolling on first paint — "הצג עוד" (below) reveals the rest on demand */
@@ -1456,7 +1465,8 @@ body:has(.join-banner) { padding-bottom: 92px; }
      of the same surface as every other panel in the app */
   .action-bar {
     position: fixed; top: auto; bottom: var(--dock-inset);
-    inset-inline: 10px; width: auto; margin: 0;
+    inset-inline: calc(10px + env(safe-area-inset-left)) calc(10px + env(safe-area-inset-right));
+    width: auto; margin: 0;
     padding: 5px; border-radius: 18px; z-index: 120;
     border: 1px solid var(--glass-border);
     /* a white film for the glass, over just enough ink to keep labels legible */
@@ -1984,6 +1994,9 @@ body.cal-full-open { overflow: hidden; }
   position: fixed; inset: 0; z-index: 300; margin: 0;
   overflow-y: auto; overscroll-behavior: contain;
   padding: 18px clamp(14px, 3vw, 34px) calc(28px + env(safe-area-inset-bottom));
+  padding-inline: calc(clamp(14px, 3vw, 34px) + env(safe-area-inset-left))
+                  calc(clamp(14px, 3vw, 34px) + env(safe-area-inset-right));
+  padding-top: calc(18px + env(safe-area-inset-top));
   /* a lifted panel, not a blackout: the page's own warm/teal glow stays visible through it */
   background:
     radial-gradient(58% 42% at 82% 0%, rgba(232, 133, 58, .10), transparent 70%),
@@ -2413,6 +2426,74 @@ body.cal-full-open { overflow: hidden; }
   font: inherit; font-size: .85rem; color: var(--paper-dim);
 }
 .pa-no:hover { color: var(--paper); }
+
+/* ---------- "add to home screen" card (install.js) ----------
+   A bottom sheet rather than a top banner: on a phone the thumb is down there,
+   and on iOS the card points at the Share button in Safari's own bottom bar —
+   so the hint sits next to the thing it is describing. */
+.install-ask {
+  position: fixed; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 130;
+  inset-inline: calc(14px + env(safe-area-inset-left)) calc(14px + env(safe-area-inset-right));
+  max-width: 640px; margin-inline: auto;
+  display: flex; align-items: center; gap: 14px; padding: 14px 18px;
+  border-radius: var(--radius); border: 1px solid rgba(255, 180, 95, .32);
+  box-shadow: 0 18px 44px -12px rgba(0, 0, 0, .7);
+  opacity: 0; transform: translateY(10px);
+  transition: opacity .3s ease, transform .3s ease;
+}
+.install-ask.in { opacity: 1; transform: none; }
+.ia-icon {
+  flex: none; display: grid; place-items: center; width: 40px; height: 40px;
+  border-radius: 12px; color: var(--amber);
+  background: rgba(255, 180, 95, .12); border: 1px solid rgba(255, 180, 95, .3);
+}
+.ia-icon .ic { width: 21px; height: 21px; }
+.ia-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ia-title { font-size: .97rem; color: var(--paper); }
+.ia-sub { font-size: .84rem; font-weight: 300; color: var(--paper-dim); line-height: 1.5; }
+.ia-actions { flex: none; display: flex; align-items: center; gap: 10px; }
+.ia-no {
+  padding: 6px 10px; background: none; border: 0; cursor: pointer;
+  font: inherit; font-size: .85rem; color: var(--paper-dim);
+}
+.ia-no:hover { color: var(--paper); }
+
+/* the two iOS steps: numbered, with the real glyphs inline so the sentence can be
+   followed without translating "the square with the arrow" into a button */
+.ia-steps { display: flex; flex-direction: column; gap: 5px; margin-top: 7px; }
+.ia-step {
+  display: flex; align-items: center; gap: 7px;
+  font-size: .84rem; font-weight: 600; color: var(--paper);
+}
+.ia-step b {
+  flex: none; display: grid; place-items: center; width: 18px; height: 18px;
+  border-radius: 999px; font-size: .7rem; font-weight: 700;
+  background: rgba(255, 180, 95, .16); color: var(--amber);
+  border: 1px solid rgba(255, 180, 95, .3);
+}
+.ia-step-t { font-weight: 700; color: var(--amber); }
+.ios-share {
+  flex: none; width: 17px; height: 17px; vertical-align: -3px;
+  fill: none; stroke: currentColor; stroke-width: 1.9;
+  stroke-linecap: round; stroke-linejoin: round; color: var(--paper-dim);
+}
+
+@media (max-width: 640px) {
+  .install-ask { flex-wrap: wrap; gap: 10px 12px; padding: 13px 15px; }
+  .ia-text { flex-basis: calc(100% - 54px); }
+  .ia-actions { width: 100%; }
+  .ia-actions .btn { flex: 1; justify-content: center; }
+  .ia-actions:has(.ia-yes) .ia-no { flex: none; }
+  /* the iOS card has nothing to press but "got it" — a bare text link floating at
+     one edge reads as an afterthought, so it takes the full row as a real button */
+  .ia-actions:not(:has(.ia-yes)) .ia-no {
+    width: 100%; padding: 9px; border-radius: 999px;
+    border: 1px solid var(--glass-border); color: var(--paper);
+    font-weight: 600;
+  }
+}
+
+@media print { .install-ask { display: none; } }
 
 /* the permanent control, inside the participants screen */
 .pm-notif { border-top: 1px solid var(--glass-border); margin-top: 16px; padding-top: 12px; }

@@ -6,11 +6,9 @@ const TRIPI_PUSH = (() => {
   const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
   // iOS only exposes push to a PWA that was added to the home screen (16.4+), so
-  // in mobile Safari we don't offer a switch that can't be flipped — we say why
-  const iOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-  const standalone = window.navigator.standalone === true
-    || window.matchMedia('(display-mode: standalone)').matches;
-  const needsInstall = iOS && !standalone;
+  // in mobile Safari we don't offer a switch that can't be flipped — we say why,
+  // and point at the card that explains how (install.js)
+  const needsInstall = TRIPI.iOS && !TRIPI.standalone;
 
   const b64ToU8 = (base64) => {
     const pad = '='.repeat((4 - (base64.length % 4)) % 4);
@@ -24,10 +22,15 @@ const TRIPI_PUSH = (() => {
     return keyPromise;
   };
 
+  // 'needs-install' is reported only once push is known to work here at all —
+  // otherwise a deployment without VAPID keys would tell iPhone users to install
+  // the app to unlock a feature that doesn't exist on it, and then show them
+  // nothing once they had
   const state = async () => {
-    if (!supported || needsInstall || !TRIPI.user) return 'unavailable';
+    if (!supported || !TRIPI.user) return 'unavailable';
     const { enabled } = await serverKey();
     if (!enabled) return 'unavailable';
+    if (needsInstall) return 'needs-install';
     if (Notification.permission === 'denied') return 'blocked';
     const reg = await navigator.serviceWorker.getRegistration();
     const sub = reg && await reg.pushManager.getSubscription();
@@ -35,10 +38,16 @@ const TRIPI_PUSH = (() => {
   };
 
   async function enable() {
-    const { enabled, key } = await serverKey();
-    if (!enabled || !key) throw new Error('התראות אינן זמינות כרגע');
+    // the permission ask goes first, before any I/O. WebKit checks user activation
+    // synchronously, so an await in front of requestPermission() — even one on an
+    // already-resolved promise — loses the tap and throws NotAllowedError, which is
+    // what made this unreachable on iPhone. Chrome's activation window is time-based
+    // and never noticed. The key is fetched (and cached) by state() before the
+    // control is ever shown, so nothing is lost by asking first.
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') throw new Error('ההתראות חסומות בדפדפן — אפשר להפעיל אותן בהגדרות האתר');
+    const { enabled, key } = await serverKey();
+    if (!enabled || !key) throw new Error('התראות אינן זמינות כרגע');
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription()
       || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(key) });
@@ -59,7 +68,7 @@ const TRIPI_PUSH = (() => {
     return true;
   }
 
-  return { supported, needsInstall, state, enable, disable };
+  return { supported, state, enable, disable };
 })();
 
 /* ---------------- the ask ---------------- */
