@@ -502,6 +502,39 @@ router.put('/api/trips/code/:code/items/:itemId/vote', authOptional, async (req,
   }
 });
 
+// ---- trip dates ----
+// A trip can be planned before anyone knows when it leaves — the wizard's date is
+// optional — and without dates the itinerary has no weekdays, no forecast and no
+// calendar export. The hero badge on the trip page posts here to fill them in.
+// end_date is never sent: it follows from the trip's own day count, so the two
+// can't drift apart, and clearing the start clears both.
+router.put('/api/trips/code/:code/dates', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const raw = (req.body || {}).start_date;
+    const start = raw === null || raw === undefined || raw === '' ? null : String(raw).slice(0, 10);
+    // the shape alone isn't enough — 2026-02-31 parses into March and would store a
+    // date nobody picked, so the round trip has to come back the same string
+    if (start && (!/^\d{4}-\d{2}-\d{2}$/.test(start)
+      || new Date(start + 'T00:00:00Z').toISOString().slice(0, 10) !== start)) {
+      return res.status(400).json({ error: 'תאריך לא תקין' });
+    }
+    const { rows } = await pool.query(
+      `UPDATE trips SET start_date = $1::date,
+              end_date = CASE WHEN $1::date IS NULL THEN NULL ELSE $1::date + (days - 1) END
+       WHERE id = $2
+       RETURNING ${tripFields}`,
+      [start, trip.id]
+    );
+    res.json(rows[0]);
+    pingEdit(req, trip); // dates move everyone's plans — the same ping an itinerary edit sends
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
 // ---- shared budget (one row per trip) ----
 
 const BUDGET_CURRENCIES = ['ILS', 'USD', 'EUR', 'GBP', 'JPY', 'THB', 'CHF'];

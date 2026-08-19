@@ -1697,10 +1697,11 @@ body:has(.join-banner) { padding-bottom: 92px; }
 .nc-rail {
   display: flex; gap: 8px; margin-top: 10px;
   overflow-x: auto; scroll-snap-type: x proximity;
-  padding-bottom: 4px; scrollbar-width: thin;
+  padding-bottom: 4px;
+  /* no scrollbar-width / no ::-webkit-scrollbar override here on purpose: the
+     amber glass rail at the top of this file is global, and setting either one
+     locally is what switches Chrome and Safari back to the native bar */
 }
-.nc-rail::-webkit-scrollbar { height: 5px; }
-.nc-rail::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 3px; }
 
 .nc-hotel {
   flex: 0 0 148px; scroll-snap-align: start;
@@ -1793,7 +1794,7 @@ body:has(.join-banner) { padding-bottom: 92px; }
 .hs-book { display: flex; justify-content: center; gap: 8px; margin-top: 14px; text-decoration: none; }
 .hs-loading { color: var(--paper-dim); font-weight: 300; margin-top: 16px; }
 
-.hs-gallery { display: flex; gap: 6px; margin-top: 12px; overflow-x: auto; scrollbar-width: thin; }
+.hs-gallery { display: flex; gap: 6px; margin-top: 12px; overflow-x: auto; padding-bottom: 4px; }
 .hs-gallery img { flex: 0 0 120px; height: 84px; object-fit: cover; border-radius: 8px; display: block; }
 
 /* one row per rated category — the number is the point, so it leads */

@@ -151,10 +151,8 @@
     const meta = [];
     meta.push(`<span class="chip"><span class="dot">●</span> ${TRIPI.esc(trip.destination)}${trip.country ? ', ' + TRIPI.esc(trip.country) : ''}</span>`);
     meta.push(`<span class="chip"><span class="dot">●</span> ${trip.days} ימים</span>`);
-    if (trip.start_date) {
-      const range = trip.end_date ? `${heDate(trip.start_date)} – ${heDate(trip.end_date)}` : heDate(trip.start_date);
-      meta.push(`<span class="chip"><span class="dot">●</span> ${range}</span>`);
-    }
+    // the dates chip goes in between, added by renderDateChip() once edit rights are
+    // known — with no dates on the trip it's a badge that sets them, not a chip
     // the code is minted at creation but only revealed once planning is finished —
     // applyDraftState() keeps this chip hidden until then
     meta.push(`<span class="chip copyable" id="code-chip" dir="ltr" title="לחיצה מעתיקה את קוד הטיול"
