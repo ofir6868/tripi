@@ -70,3 +70,8 @@ npm start          # http://localhost:3000
 | `DATABASE_URL` | כתובת חיבור ל-PostgreSQL |
 | `JWT_SECRET` | סוד לחתימת טוקנים |
 | `PORT` | פורט (ברירת מחדל 3000) |
+| `HOTEL_CONTENT_PROVIDER` | ספק תוכן המלונות: `osm` (ברירת מחדל, ללא מפתח) או `liteapi` |
+| `LITEAPI_KEY` | מפתח LiteAPI — בלעדיו המערכת נופלת חזרה ל-`osm` ולא נשברת |
+| `HOTEL_GUEST_NATIONALITY` | לאום האורח לתמחור (ברירת מחדל `IL`) |
+
+בדיקת הספק הפעיל: `node tools/hotel-content-probe.js` (או `node tools/hotel-content-probe.js liteapi`).

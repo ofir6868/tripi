@@ -132,9 +132,33 @@ const GEO = {
     try { return await promise; } catch (err) { this.routeCache.delete(chain); throw err; }
   },
 
-  async hotelsNear(lat, lon) {
-    const res = await fetch(`/api/hotels?lat=${lat}&lon=${lon}`);
+  // opts: {country, limit, radius} — country is the trip's Hebrew country name,
+  // which the server maps to the ISO code providers like LiteAPI ask for
+  async hotelsNear(lat, lon, opts = {}) {
+    const p = new URLSearchParams({ lat, lon });
+    if (opts.country) p.set('country', opts.country);
+    if (opts.limit) p.set('limit', opts.limit);
+    if (opts.radius) p.set('radius', opts.radius);
+    const res = await fetch('/api/hotels?' + p);
     if (!res.ok) throw new Error('hotels unavailable');
+    return res.json();
+  },
+
+  // cheapest offer per hotel id for one night (or range) — {} when the active
+  // content provider can't price, which the caller renders as "no price line"
+  async hotelPrices(ids, { checkin, checkout, adults, currency } = {}) {
+    if (!ids || !ids.length || !checkin || !checkout) return {};
+    const p = new URLSearchParams({ ids: ids.join(','), checkin, checkout });
+    if (adults) p.set('adults', adults);
+    if (currency) p.set('currency', currency);
+    const res = await fetch('/api/hotels/prices?' + p);
+    if (!res.ok) return {};
+    return res.json();
+  },
+
+  async hotelDetail(id) {
+    const res = await fetch('/api/hotels/detail?id=' + encodeURIComponent(id));
+    if (!res.ok) throw new Error('hotel details unavailable');
     return res.json();
   },
 

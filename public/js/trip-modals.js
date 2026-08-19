@@ -192,11 +192,14 @@ const TripModals = (() => {
   function bookingUrl(state, h) {
     if (h.link) return tpWrap(state, h, h.link);
     const block = destBlocks(state).find((b) => h.night_start >= b.from && h.night_start <= b.to);
+    // trimmed: a night card searches the area with no hotel name, and an
+    // untrimmed join leaves a leading space in the query
     let url = 'https://www.booking.com/searchresults.he.html?ss=' +
-      encodeURIComponent(`${h.name} ${block ? block.name : state.trip.destination}`);
+      encodeURIComponent(`${h.name} ${block ? block.name : state.trip.destination}`.trim());
     const dates = nightDates(state, h);
     if (dates) url += `&checkin=${dates.checkin}&checkout=${dates.checkout}`;
     url += `&group_adults=${(state.budget && state.budget.travelers) || 2}&no_rooms=1&group_children=0`;
+    url += `&selected_currency=${curOf(state)}`; // prices land in the same currency as the trip's budget
     return tpWrap(state, h, url);
   }
 
@@ -230,7 +233,7 @@ const TripModals = (() => {
   //  HOTELS MODAL
   // =================================================================
 
-  function openHotels(ctx) {
+  function openHotels(ctx, opts = {}) {
     const { state } = ctx;
     const wrap = shell('hotels-modal', '🏨 איפה ישנים?', 'לילה 3 = הלילה שאחרי יום 3');
     const body = wrap.querySelector('.mw-body');
@@ -524,6 +527,359 @@ const TripModals = (() => {
     }
 
     render();
+    // arriving from a night card's "כבר הזמנתי" — open straight on that night
+    if (opts.addNight) openForm(null, opts.addNight, opts.addNight);
+  }
+
+  // =================================================================
+  //  NIGHT CARDS — the lodging surface inside the itinerary
+  //
+  //  A night nobody has solved renders between the day it follows and the
+  //  next one, so it reads as an unfinished plan rather than a feature you
+  //  have to go find. Suggestions are anchored on where the day actually
+  //  ended — the one ranking no booking site can compute, because only we
+  //  know the itinerary. Booking itself still happens on Booking.com:
+  //  nothing here quotes a price or takes a payment.
+  // =================================================================
+
+  const NC_ICON = {
+    moon: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>',
+    bed: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18v-5h18v5"/><path d="M3 13V6"/><path d="M7 13v-3h4v3"/></svg>',
+    photo: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m21 16-5-5-9 9"/></svg>',
+    save: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
+    check: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
+    search: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
+  };
+
+  const dm = (iso) => (iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}` : '');
+
+  // Where the night is really anchored: the last stop of that day carrying
+  // coordinates. Only if the day has none do we fall back to the destination's
+  // own centre, which is what a booking site would have guessed anyway.
+  function nightAnchor(state, night) {
+    const block = blockOfNight(state, night);
+    const area = (block && block.name) || state.trip.destination || '';
+    const stops = (state.items || [])
+      .filter((it) => it.day_number === night && it.lat != null && it.lon != null);
+    const last = stops[stops.length - 1];
+    if (last) return { lat: +last.lat, lon: +last.lon, after: last.title, area };
+    const d = destCoords(state, area);
+    return d ? { lat: +d.lat, lon: +d.lon, after: null, area: d.name || area } : null;
+  }
+
+  // The slim, settled version: one line in the hotel's own colour. A solved
+  // night should take less room than an unsolved one, not more.
+  function bookedNightHtml(state, night, hotel) {
+    const color = hotelColor(state, hotel);
+    const dates = nightDates(state, hotel);
+    const meta = [
+      dates ? `צ'ק-אין ${dm(dates.checkin)} · צ'ק-אאוט ${dm(dates.checkout)}` : null,
+      hotel.price_total ? fmt(hotel.price_total, curOf(state)) : null,
+    ].filter(Boolean).join(' · ');
+    return `
+      <div class="night-booked" style="border-inline-start-color:${color}">
+        <span style="color:${color}">${NC_ICON.bed}</span>
+        <div class="nb-text">
+          <div class="nb-name">לילה ${night} · ${esc(hotel.name)}</div>
+          ${meta ? `<div class="nb-meta">${meta}</div>` : ''}
+        </div>
+        <button type="button" class="nb-edit" data-open-night="${night}">שינוי</button>
+      </div>`;
+  }
+
+  // The rail starts as placeholders; mountNightCards fills it when the card
+  // comes near the viewport, so a 14-night trip doesn't fire 13 lookups on load.
+  function nightCardHtml(state, night) {
+    if (night < 1 || night > nightCount(state)) return '';
+    const booked = nightCoverage(state)[night];
+    if (booked) return bookedNightHtml(state, night, booked);
+
+    const anchor = nightAnchor(state, night);
+    const hint = anchor && anchor.after
+      ? `היום מסתיים ב${esc(anchor.after)} — אלה המלונות הקרובים ביותר`
+      : `מלונות ב${esc((anchor && anchor.area) || state.trip.destination || '')}`;
+
+    return `
+      <div class="night-card" data-night="${night}">
+        <div class="nc-head">
+          ${NC_ICON.moon}
+          <span class="nc-title">לילה ${night} — איפה ישנים?</span>
+          ${anchor && anchor.area ? `<span class="nc-where">${esc(anchor.area)}</span>` : ''}
+        </div>
+        <div class="nc-hint">${hint}</div>
+        ${anchor ? `<div class="nc-rail">${'<div class="nc-skel"></div>'.repeat(3)}</div>` : ''}
+        ${state.canEdit ? `<div class="nc-foot">
+          <button type="button" data-open-night="${night}">${NC_ICON.check} כבר הזמנתי</button>
+        </div>` : ''}
+      </div>`;
+  }
+
+  // Photos first when there are enough of them — a rail of grey boxes reads as
+  // broken — but never at the cost of the distance ordering the server applied.
+  function pickForRail(hotels) {
+    const withPhoto = hotels.filter((h) => h.thumb || h.photo);
+    return (withPhoto.length >= 3 ? withPhoto : hotels).slice(0, 6);
+  }
+
+  // already on the trip's hotel list for this night? The rail then shows a tick
+  // instead of a save button — a second tap (or a tap after a repaint) must not
+  // add the same hotel twice.
+  function alreadySaved(state, night, name) {
+    const key = String(name || '').trim().toLowerCase();
+    return (state.hotels || []).some((x) =>
+      x.night_start <= night && night <= x.night_end &&
+      String(x.name || '').trim().toLowerCase() === key);
+  }
+
+  function railHtml(state, night, hotels) {
+    return hotels.map((h, i) => {
+      const img = h.thumb || h.photo;
+      const score = h.rating != null
+        ? `${h.rating}${h.reviewCount ? ` <span>· ${h.reviewCount.toLocaleString('he-IL')} ביקורות</span>` : ''}`
+        : (h.stars ? '★'.repeat(Math.min(+h.stars, 5)) : '');
+      const dist = h.distance != null
+        ? (h.distance < 1000 ? `${h.distance} מ' מסוף היום` : `${(h.distance / 1000).toFixed(1)} ק"מ מסוף היום`)
+        : '';
+      return `
+        <div class="nc-hotel" data-i="${i}" data-detail="${esc(h.id || '')}"
+             role="button" tabindex="0" title="לחיצה לפרטי המלון">
+          <div class="nc-photo">
+            ${NC_ICON.photo}
+            ${img ? `<img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
+          </div>
+          <div class="nc-body">
+            <div class="nc-name" title="${esc(h.name)}">${esc(h.name)}</div>
+            ${score ? `<div class="nc-score">${score}</div>` : ''}
+            ${dist ? `<div class="nc-dist">${dist}</div>` : ''}
+            <div class="nc-price" data-price-for="${esc(h.id || '')}"></div>
+            <div class="nc-actions">
+              ${state.canEdit ? (alreadySaved(state, night, h.name)
+                ? `<button type="button" class="nc-save saved" disabled
+                     aria-label="${esc(h.name)} כבר ברשימת המלונות"
+                     title="כבר ברשימת המלונות">${NC_ICON.check}</button>`
+                : `<button type="button" class="nc-save" data-save-i="${i}"
+                     aria-label="שמירת ${esc(h.name)} כרעיון ללילה ${night}"
+                     title="שמירה כרעיון">${NC_ICON.save}</button>`) : ''}
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  // Prices arrive in a second pass: the rate lookup takes 5-7s against LiteAPI
+  // while content is instant, so tiles paint immediately and gain a price line
+  // when it lands. A card that can't be priced simply never grows one.
+  async function loadPrices(state, night, picked, rail) {
+    const dates = nightDates(state, { night_start: night, night_end: night });
+    if (!dates) { // no trip dates yet — say why rather than showing nothing
+      rail.querySelectorAll('.nc-price').forEach((el) => {
+        el.className = 'nc-price muted';
+        el.textContent = 'הוסיפו תאריכים למחירים';
+      });
+      return;
+    }
+    const ids = picked.map((h) => h.id).filter(Boolean);
+    if (!ids.length) return;
+
+    rail.querySelectorAll('.nc-price').forEach((el) => { el.className = 'nc-price loading'; el.textContent = '···'; });
+
+    let prices = {};
+    try {
+      prices = await GEO.hotelPrices(ids, {
+        checkin: dates.checkin, checkout: dates.checkout,
+        adults: (state.budget && state.budget.travelers) || 2,
+        currency: curOf(state),
+      });
+    } catch { /* leave the tiles priceless rather than wrong */ }
+
+    let priced = 0;
+    for (const h of picked) {
+      const el = rail.querySelector(`.nc-price[data-price-for="${CSS.escape(h.id || '')}"]`);
+      if (!el) continue;
+      const p = prices[h.id];
+      if (p && Number.isFinite(p.amount)) {
+        priced++;
+        // the card covers exactly one night, so the range total IS the nightly price
+        el.className = 'nc-price';
+        el.innerHTML = `<span class="ncp-from">החל מ־</span>${esc(fmt(p.amount, p.currency || curOf(state)))}<span class="ncp-per"> ללילה</span>`;
+      } else {
+        el.className = 'nc-price muted';
+        el.textContent = 'אין מחיר לתאריך הזה';
+      }
+    }
+    TRIPI.track('night_card_prices', { trip_id: state.trip.id, night, asked: ids.length, priced });
+  }
+
+  // LiteAPI scores a fixed set of categories, in English. Guest pros/cons stay
+  // in whatever language they were written — those are quotes, not labels.
+  const HS_CATEGORY = {
+    'cleanliness': 'ניקיון', 'service': 'שירות', 'location': 'מיקום',
+    'room quality': 'איכות החדר', 'amenities': 'שירותים במלון', 'facilities': 'מתקנים',
+    'value for money': 'תמורה למחיר', 'comfort': 'נוחות', 'staff': 'צוות',
+    'food': 'אוכל', 'breakfast': 'ארוחת בוקר', 'wifi': 'אינטרנט', 'value': 'תמורה למחיר',
+  };
+  const catName = (n) => HS_CATEGORY[String(n || '').trim().toLowerCase()] || n;
+
+  // "03:00 PM" → "15:00"; anything already 24h or unparseable passes through
+  function hhmm(t) {
+    const m = String(t || '').trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!m) return t;
+    let h = +m[1] % 12;
+    if (m[3].toUpperCase() === 'PM') h += 12;
+    return `${String(h).padStart(2, '0')}:${m[2]}`;
+  }
+
+  // Everything worth knowing before picking a bed: the gallery, what guests
+  // consistently praise and complain about, the facilities, and the times.
+  function openHotelSheet(ctx, night, hotel) {
+    const { state } = ctx;
+    const wrap = shell('hotel-sheet', esc(hotel.name), hotel.address ? esc(hotel.address) : 'פרטי המלון');
+    const body = wrap.querySelector('.mw-body');
+    wrap.querySelector('.mw-controls').innerHTML = '';
+    wrap.querySelector('h2').innerHTML = esc(hotel.name);
+    wrap.querySelector('.modal-sub').innerHTML = hotel.address ? esc(hotel.address) : `לילה ${night}`;
+
+    const hero = hotel.photo || hotel.thumb;
+    const scoreLine = hotel.rating != null
+      ? `<span class="hs-score">${hotel.rating}</span>${hotel.reviewCount ? `<span class="hs-reviews">${hotel.reviewCount.toLocaleString('he-IL')} ביקורות</span>` : ''}`
+      : '';
+    body.innerHTML = `
+      <div class="hs-hero">${hero ? `<img src="${esc(hero)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}</div>
+      <div class="hs-top">
+        ${hotel.stars ? `<span class="hotel-stars">${'★'.repeat(Math.min(+hotel.stars, 5))}</span>` : ''}
+        ${scoreLine}
+        ${hotel.distance != null ? `<span class="hs-dist">${hotel.distance < 1000 ? `${hotel.distance} מ'` : `${(hotel.distance / 1000).toFixed(1)} ק"מ`} מסוף היום</span>` : ''}
+      </div>
+      <div class="hs-loading">טוען פרטים…</div>`;
+
+    GEO.hotelDetail(hotel.id).then((d) => {
+      if (!wrap.classList.contains('open')) return; // closed while we waited
+      const gallery = (d.images || []).slice(0, 6);
+      const cat = (d.categories || []).map((c) =>
+        `<div class="hs-cat"><span>${esc(catName(c.name))}</span><b>${c.rating.toFixed(1)}</b></div>`).join('');
+      body.querySelector('.hs-loading').outerHTML = `
+        ${gallery.length > 1 ? `<div class="hs-gallery">${gallery.slice(1).map((u) =>
+          `<img src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">`).join('')}</div>` : ''}
+        ${cat ? `<div class="hs-cats">${cat}</div>` : ''}
+        ${(d.pros || []).length ? `<div class="hs-sec"><h3>מה אהבו</h3><ul class="hs-pros">${
+          d.pros.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>` : ''}
+        ${(d.cons || []).length ? `<div class="hs-sec"><h3>מה פחות</h3><ul class="hs-cons">${
+          d.cons.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>` : ''}
+        ${(d.facilities || []).length ? `<div class="hs-sec"><h3>בבית המלון</h3><div class="hs-fac">${
+          d.facilities.map((f) => `<span>${esc(f)}</span>`).join('')}</div></div>` : ''}
+        ${d.checkin || d.checkout ? `<div class="hs-times">${
+          d.checkin ? `צ'ק-אין מ־${esc(hhmm(d.checkin))}` : ''}${d.checkin && d.checkout ? ' · ' : ''}${
+          d.checkout ? `צ'ק-אאוט עד ${esc(hhmm(d.checkout))}` : ''}</div>` : ''}`;
+    }).catch(() => {
+      const l = body.querySelector('.hs-loading');
+      if (l) l.textContent = 'לא הצלחנו לטעון פרטים נוספים';
+    });
+
+    TRIPI.track('hotel_sheet_open', { trip_id: state.trip.id, night, provider: hotel.provider || null });
+  }
+
+  // Wires every night card the itinerary just painted. Safe to call after each
+  // re-render: cards are matched by night and each fills itself once.
+  function mountNightCards(ctx, container) {
+    const { state } = ctx;
+
+    container.querySelectorAll('[data-open-night]').forEach((b) => {
+      b.onclick = () => openHotels(ctx, { addNight: +b.dataset.openNight });
+    });
+    const fill = async (el) => {
+      if (el.dataset.loaded) return;
+      el.dataset.loaded = '1';
+      const night = +el.dataset.night;
+      const rail = el.querySelector('.nc-rail');
+      const anchor = nightAnchor(state, night);
+      if (!rail || !anchor) return;
+
+      let hotels = [];
+      try {
+        hotels = await GEO.hotelsNear(anchor.lat, anchor.lon, {
+          country: state.trip.country || null, limit: 12, radius: 4000,
+        });
+      } catch { /* upstream trouble — the card still offers "כבר הזמנתי" */ }
+
+      const picked = pickForRail(hotels || []);
+      if (!picked.length) {
+        rail.remove();
+        el.querySelector('.nc-hint').insertAdjacentHTML('afterend',
+          '<div class="nc-empty">לא מצאנו מלונות בקרבת מקום ללילה הזה</div>');
+        return;
+      }
+      rail.innerHTML = railHtml(state, night, picked);
+      TRIPI.track('night_card_shown', {
+        trip_id: state.trip.id, night, count: picked.length,
+        provider: picked[0].provider || null, with_photo: picked.filter((h) => h.thumb || h.photo).length,
+      });
+
+      loadPrices(state, night, picked, rail);
+
+      // the tile itself opens the sheet; the save button inside it must not
+      const openSheet = (tile) => {
+        const h = picked[+tile.dataset.i];
+        if (h) openHotelSheet(ctx, night, h);
+      };
+      rail.querySelectorAll('.nc-hotel[data-detail]').forEach((tile) => {
+        tile.addEventListener('click', (e) => { if (!e.target.closest('.nc-save')) openSheet(tile); });
+        tile.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSheet(tile); }
+        });
+      });
+
+      // one tap turns a suggestion into an idea on the real hotel list — no
+      // retyping a name we already have, coordinates and stars included
+      rail.querySelectorAll('[data-save-i]').forEach((b) => {
+        b.onclick = async () => {
+          const h = picked[+b.dataset.saveI];
+          if (b.disabled) return;
+          b.disabled = true;
+          // re-checked here too: the list can gain this hotel between paint and
+          // tap (the modal, another device, a slow first tap)
+          if (alreadySaved(state, night, h.name)) {
+            b.classList.add('saved');
+            b.innerHTML = NC_ICON.check;
+            b.title = 'כבר ברשימת המלונות';
+            return;
+          }
+          const headers = await ctx.ensureEdit();
+          if (!headers) { b.disabled = false; return; }
+          try {
+            const created = await TRIPI.api(`/api/trips/code/${state.trip.share_code}/hotels`, {
+              method: 'POST', headers,
+              body: JSON.stringify({
+                name: h.name, night_start: night, night_end: night, status: 'idea',
+                stars: h.stars || null, lat: h.lat ?? null, lon: h.lon ?? null,
+              }),
+            });
+            state.hotels.push(created);
+            state.hotels.sort((a, c) => a.night_start - c.night_start || a.id - c.id);
+            b.classList.add('saved');
+            b.innerHTML = NC_ICON.check;
+            b.title = 'נשמר ברשימת המלונות';
+            TRIPI.track('night_card_save_idea', { trip_id: state.trip.id, night });
+            // deliberately no ctx.refresh(): an idea changes nothing the itinerary
+            // draws, and a repaint here would wipe the tick the user just earned
+          } catch (e) {
+            b.disabled = false;
+            alert(e.message);
+          }
+        };
+      });
+    };
+
+    const cards = [...container.querySelectorAll('.night-card[data-night]')];
+    if (!cards.length) return;
+    if (!('IntersectionObserver' in window)) { cards.forEach(fill); return; }
+    const io = new IntersectionObserver((entries, obs) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        obs.unobserve(e.target);
+        fill(e.target);
+      }
+    }, { rootMargin: '300px 0px' });
+    cards.forEach((c) => io.observe(c));
   }
 
   // =================================================================
@@ -1091,5 +1447,5 @@ const TripModals = (() => {
     return lines;
   }
 
-  return { openHotels, openBudget, travelIcon, plannedTotals, plannedByDay, budgetButtonState, heroChip, dayHotelLines, uncoveredRuns, fmt, curOf };
+  return { openHotels, openBudget, travelIcon, plannedTotals, plannedByDay, budgetButtonState, heroChip, dayHotelLines, uncoveredRuns, fmt, curOf, nightCardHtml, mountNightCards };
 })();

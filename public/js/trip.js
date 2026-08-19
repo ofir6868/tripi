@@ -509,8 +509,19 @@
             ${byDay.get(day).length === 0 && editMode ? '<div class="empty-day">יום פנוי — מוסיפים תחנה למטה ↓</div>' : ''}
             ${editMode ? `<button class="add-item-inline" data-day="${day}">+ הוספת תחנה ליום ${day}</button>` : ''}
           </div>
-        </div>`;
+        </div>
+        ${TripModals.nightCardHtml(state, day)}`;
       }).join('');
+
+      // night N is the night after day N, so the card lands between the two days
+      // it separates — the suggestions inside load lazily as they scroll near.
+      // Built inline rather than reusing modalCtx: that const is declared much
+      // further down and a repaint can fire before it exists.
+      TripModals.mountNightCards({
+        state,
+        ensureEdit: () => ensureEditRights(),
+        refresh: () => renderItinerary(),
+      }, container);
 
       // a tap anywhere on the card opens the stop sheet — the same details/edit
       // popover the calendar uses. One surface for a stop, whichever view it's in.
