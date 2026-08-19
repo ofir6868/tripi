@@ -599,7 +599,23 @@ async function repairPlaces(entries, { where, ph, flagMore }) {
   try {
     const queries = [...new Set(entries.map((e) => e.place_query).filter(Boolean))];
     if (!queries.length) return;
-    const results = await verifyPlaces(queries);
+    let results = await verifyPlaces(queries);
+    // 'skipped' means the geocoder never answered — the one verdict that says nothing
+    // about the place. It used to pass in silence, which is how a twenty-minute Photon
+    // outage on 2026-08-19 produced a day of trips with no pins and no verification and
+    // left no trace anywhere. Wait out the breaker once, ask again, and say so either way.
+    const skipped = () => [...results].filter(([, r]) => r.verdict === 'skipped').map(([q]) => q);
+    let quiet = skipped();
+    if (quiet.length) {
+      console.warn(`place verification: geocoder silent on ${quiet.length}/${queries.length} in "${where}" — retrying`);
+      await new Promise((r) => setTimeout(r, 9000)); // just past the breaker window
+      const retry = await verifyPlaces(quiet);
+      results = new Map([...results, ...retry]);
+      quiet = skipped();
+      if (quiet.length) {
+        console.error(`place verification UNAVAILABLE: ${quiet.length}/${queries.length} unverified in "${where}" — stops keep their place_query and no coordinates`);
+      }
+    }
     const setCoords = (e, r) => {
       if (r && r.verdict === 'ok' && r.best && r.best.lat != null) { e.lat = r.best.lat; e.lon = r.best.lon; }
     };

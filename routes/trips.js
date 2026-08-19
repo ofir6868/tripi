@@ -112,6 +112,7 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
 // Anyone who can open the trip may ask: it only resolves a place name the page
 // already shows, and it can't touch anything else on the row.
 const LOCATE_BATCH = 25; // ~15s at the geocoder's polite pace — one page-load's worth
+const LOCATE_MAX_KM = 80; // clears a day-trip's outskirts, catches a same-name place elsewhere
 
 // Photon and Overpass both refuse Render's datacenter IPs (measured 2026-08-19: the
 // same eight Eilat stops that geocode from a laptop come back empty from the server),
@@ -143,12 +144,19 @@ router.post('/api/trips/code/:code/locate', authOptional, async (req, res) => {
   try {
     if (codeMissLimit.blocked(req.ip)) return res.status(429).json({ error: CODE_MISS_ERROR });
     if (req.body && Array.isArray(req.body.coords)) return await saveLocatedCoords(req, res);
-    const { rows } = await pool.query('SELECT id FROM trips WHERE share_code = $1', [req.params.code]);
+    const { rows } = await pool.query('SELECT id, destinations FROM trips WHERE share_code = $1', [req.params.code]);
     if (!rows[0]) {
       codeMissLimit.hit(req.ip); // same enumeration guard the page load itself gets
       return res.status(404).json({ error: 'לא נמצא טיול עם הקוד הזה' });
     }
     const tripId = rows[0].id;
+    // the same ceiling the page applies to its own lookups: a geocoder hit further than
+    // this from every area of the trip is the right name in the wrong city — "Benny
+    // HaDayag, Eilat" answers with a Rishon LeZion branch 250km up the coast
+    const areas = (Array.isArray(rows[0].destinations) ? rows[0].destinations : [])
+      .filter((d) => d && d.lat != null && d.lon != null);
+    const nearAnArea = (c) => !areas.length || areas.some((d) =>
+      Math.hypot((c.lat - d.lat) * 111, (c.lon - d.lon) * 111 * Math.cos(d.lat * Math.PI / 180)) <= LOCATE_MAX_KM);
     // the page walks the unlocated stops with `skip` — stops this call fails to place
     // stay NULL, and without the offset the next batch would ask about them again
     const skip = Math.max(parseInt(req.body && req.body.skip, 10) || 0, 0);
@@ -165,7 +173,7 @@ router.post('/api/trips/code/:code/locate', authOptional, async (req, res) => {
     const located = [];
     for (const r of batch) {
       const v = results.get(r.place_query);
-      if (v && v.verdict === 'ok' && v.best && v.best.lat != null) {
+      if (v && v.verdict === 'ok' && v.best && v.best.lat != null && nearAnArea(v.best)) {
         located.push({ id: r.id, lat: v.best.lat, lon: v.best.lon });
       }
     }

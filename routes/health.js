@@ -22,6 +22,8 @@ const PROBE_TOKEN = 'osm-egress-2026-08-19';
 const TARGETS = {
   photon: 'https://photon.komoot.io/api/?q=eilat&limit=1',
   overpass: 'https://overpass-api.de/api/status',
+  overpassKumi: 'https://overpass.kumi.systems/api/status',
+  overpassCoffee: 'https://overpass.private.coffee/api/status',
   openMeteo: 'https://geocoding-api.open-meteo.com/v1/search?name=eilat&count=1',
   ipify: 'https://api.ipify.org/?format=json',
 };
