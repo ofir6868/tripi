@@ -63,4 +63,33 @@ router.get('/api/health/net', async (req, res) => {
   res.json({ node: process.version, out });
 });
 
+// the same question one level up: what does the verifier itself make of a query the
+// laptop resolves? Raw Photon answer (the exact URL lib/places builds) beside the
+// verdict, so a network problem and a scoring problem can't be mistaken for each other
+router.get('/api/health/geocode', async (req, res) => {
+  if (req.query.probe !== PROBE_TOKEN) return res.status(404).json({ error: 'not found' });
+  const q = String(req.query.q || 'Dekel Beach, Eilat, Israel').slice(0, 120);
+  const out = { q };
+  const at = Date.now();
+  try {
+    const r = await fetch('https://photon.komoot.io/api/?limit=8&lang=en&q=' + encodeURIComponent(q), {
+      headers: { 'user-agent': 'tripi-places/1' },
+    });
+    out.raw = { status: r.status, ms: Date.now() - at };
+    const j = await r.json().catch(() => null);
+    out.raw.features = (j && j.features || []).slice(0, 3).map((f) => ({
+      name: f.properties && f.properties.name,
+      city: f.properties && (f.properties.city || f.properties.county),
+      country: f.properties && f.properties.country,
+      coords: f.geometry && f.geometry.coordinates,
+    }));
+  } catch (e) { out.raw = { error: describe(e), ms: Date.now() - at }; }
+  const at2 = Date.now();
+  try {
+    out.verify = await require('../lib/places').verifyPlace(q);
+    out.verify.ms = Date.now() - at2;
+  } catch (e) { out.verify = { error: describe(e) }; }
+  res.json(out);
+});
+
 module.exports = router;
