@@ -204,6 +204,38 @@ const TripModals = (() => {
   }
 
   // ---- modal shell ----
+  //
+  // Panels answer the phone's back gesture, the way the budget page and the stop
+  // sheet already do. Opening one pushes a history entry at the same URL, so back
+  // closes the panel instead of leaving the trip — and in an installed PWA, where
+  // back has nowhere else to go, the panel is no longer a dead end.
+
+  const modalStack = [];
+
+  window.addEventListener('popstate', () => {
+    // we left a modal's entry: close it, and any stacked above it, topmost first
+    while (modalStack.length) {
+      const id = modalStack[modalStack.length - 1];
+      if (history.state && history.state.tripiModal === id) break;
+      modalStack.pop();
+      document.getElementById(id)?.classList.remove('open');
+    }
+  });
+
+  // dismissing goes back one entry so the panel and the history stay in step;
+  // popstate is what actually hides it
+  function dismissModal(wrap) {
+    if (history.state && history.state.tripiModal === wrap.id) { history.back(); return; }
+    const i = modalStack.indexOf(wrap.id);
+    if (i >= 0) modalStack.splice(i, 1);
+    wrap.classList.remove('open');
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !modalStack.length) return;
+    const top = document.getElementById(modalStack[modalStack.length - 1]);
+    if (top) dismissModal(top);
+  });
 
   function shell(id, title, sub) {
     let wrap = document.getElementById(id);
@@ -222,10 +254,15 @@ const TripModals = (() => {
           <div class="mw-body"></div>
         </div>`;
       document.body.appendChild(wrap);
-      wrap.querySelector('.modal-close').onclick = () => wrap.classList.remove('open');
-      wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.classList.remove('open'); });
+      wrap.querySelector('.modal-close').onclick = () => dismissModal(wrap);
+      wrap.addEventListener('click', (e) => { if (e.target === wrap) dismissModal(wrap); });
     }
-    wrap.classList.add('open');
+    // re-opening an already-open panel must not stack a second history entry
+    if (!wrap.classList.contains('open')) {
+      wrap.classList.add('open');
+      modalStack.push(id);
+      history.pushState({ tripiModal: id }, '', location.href);
+    }
     return wrap;
   }
 
@@ -235,7 +272,7 @@ const TripModals = (() => {
 
   function openHotels(ctx, opts = {}) {
     const { state } = ctx;
-    const wrap = shell('hotels-modal', '🏨 איפה ישנים?', 'לילה 3 = הלילה שאחרי יום 3');
+    const wrap = shell('hotels-modal', '🏨 איפה ישנים?', '');
     const body = wrap.querySelector('.mw-body');
     wrap.querySelector('.mw-controls').innerHTML = '';
     let formState = null; // null | {editing: hotel|null, night_from, night_to}
@@ -245,7 +282,7 @@ const TripModals = (() => {
       return;
     }
 
-    function nightLabel(n) { return `לילה ${n} (אחרי יום ${n})`; }
+    function nightLabel(n) { return `לילה ${n}`; }
 
     function overlapsOf(hotel) {
       if (hotel.status !== 'booked') return [];
@@ -409,8 +446,13 @@ const TripModals = (() => {
               <input type="text" class="hf-name" maxlength="160" autocomplete="off"
                 placeholder="מלון, דירה, אכסניה — מה שסגרתם" value="${esc(h ? h.name : '')}">
             </div>
-            <div class="field"><label>מאיזה לילה?</label><select class="hf-from">${opts(formState.from)}</select></div>
-            <div class="field"><label>עד איזה לילה?</label><select class="hf-to">${opts(formState.to)}</select></div>
+            <div class="field span-2"><label>אילו לילות?</label>
+              <div class="night-range">
+                <select class="hf-from">${opts(formState.from)}</select>
+                <span>עד</span>
+                <select class="hf-to">${opts(formState.to)}</select>
+              </div>
+            </div>
             <div class="field span-2"><label>סטטוס</label>
               <div class="seg hf-status">
                 <button type="button" data-v="booked" class="${!h || h.status === 'booked' ? 'active' : ''}">✅ הוזמן</button>
@@ -421,8 +463,6 @@ const TripModals = (() => {
               <input type="number" min="0" step="1" class="hf-price" placeholder="לכל הלילות יחד" value="${h && h.price_total ? Math.round(+h.price_total) : ''}"></div>
             <div class="field"><label>קישור להזמנה (לא חובה)</label>
               <input type="url" class="hf-link" dir="ltr" placeholder="Booking, Airbnb, אתר המלון…" value="${esc(h && h.link ? h.link : '')}"></div>
-            <div class="field span-2"><label>הערות</label>
-              <input type="text" class="hf-note" maxlength="300" placeholder="מספר אישור, שעת צ'ק-אין, קומה גבוהה בבקשה 🙏" value="${esc(h && h.note ? h.note : '')}"></div>
           </div>
           <div class="form-error hf-err"></div>
           <div style="display:flex;gap:8px">
@@ -462,7 +502,9 @@ const TripModals = (() => {
           status: slot.querySelector('.hf-status button.active').dataset.v,
           price_total: slot.querySelector('.hf-price').value || null,
           link: slot.querySelector('.hf-link').value.trim() || null,
-          note: slot.querySelector('.hf-note').value.trim() || null,
+          // the notes field is gone from the form; carry any existing note
+          // through an edit rather than silently deleting what someone wrote
+          note: (h && h.note) || null,
           stars: picked.stars ?? null, lat: picked.lat ?? null, lon: picked.lon ?? null,
         };
         try {
@@ -552,6 +594,12 @@ const TripModals = (() => {
   };
 
   const dm = (iso) => (iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}` : '');
+
+  // Where "להזמנה" goes. Booking.com search could not reliably find the hotel it
+  // was named after; Google's hotel search resolves a property by name and lists
+  // who sells it, so the traveler lands on their own choice of seller.
+  const hotelSearchUrl = (name) =>
+    'https://www.google.com/travel/hotels?q=' + encodeURIComponent(String(name || '').trim());
 
   // Where the night is really anchored: the last stop of that day carrying
   // coordinates. Only if the day has none do we fall back to the destination's
@@ -653,6 +701,9 @@ const TripModals = (() => {
             ${dist ? `<div class="nc-dist">${dist}</div>` : ''}
             <div class="nc-price" data-price-for="${esc(h.id || '')}"></div>
             <div class="nc-actions">
+              <a class="nc-cta" target="_blank" rel="noopener" data-book-i="${i}"
+                 href="${esc(hotelSearchUrl(h.name))}"
+                 title="נפתח בגוגל, בחלון חדש">להזמנה</a>
               ${state.canEdit ? (alreadySaved(state, night, h.name)
                 ? `<button type="button" class="nc-save saved" disabled
                      aria-label="${esc(h.name)} כבר ברשימת המלונות"
@@ -750,7 +801,13 @@ const TripModals = (() => {
         ${scoreLine}
         ${hotel.distance != null ? `<span class="hs-dist">${hotel.distance < 1000 ? `${hotel.distance} מ'` : `${(hotel.distance / 1000).toFixed(1)} ק"מ`} מסוף היום</span>` : ''}
       </div>
+      <a class="btn btn-amber hs-book" target="_blank" rel="noopener"
+         href="${esc(hotelSearchUrl(hotel.name))}" title="נפתח בגוגל, בחלון חדש">להזמנה ${TRIPI.externalIcon}</a>
       <div class="hs-loading">טוען פרטים…</div>`;
+
+    body.querySelector('.hs-book')?.addEventListener('click', () => TRIPI.track('hotel_book_click', {
+      trip_id: state.trip.id, night, provider: hotel.provider || null, from: 'hotel_sheet',
+    }));
 
     GEO.hotelDetail(hotel.id).then((d) => {
       if (!wrap.classList.contains('open')) return; // closed while we waited
@@ -816,13 +873,20 @@ const TripModals = (() => {
 
       loadPrices(state, night, picked, rail);
 
-      // the tile itself opens the sheet; the save button inside it must not
+      rail.querySelectorAll('[data-book-i]').forEach((a) => {
+        a.addEventListener('click', () => TRIPI.track('hotel_book_click', {
+          trip_id: state.trip.id, night, rank: +a.dataset.bookI + 1,
+          provider: picked[+a.dataset.bookI].provider || null, from: 'night_card',
+        }));
+      });
+
+      // the tile itself opens the sheet; the controls inside it must not
       const openSheet = (tile) => {
         const h = picked[+tile.dataset.i];
         if (h) openHotelSheet(ctx, night, h);
       };
       rail.querySelectorAll('.nc-hotel[data-detail]').forEach((tile) => {
-        tile.addEventListener('click', (e) => { if (!e.target.closest('.nc-save')) openSheet(tile); });
+        tile.addEventListener('click', (e) => { if (!e.target.closest('.nc-save, a')) openSheet(tile); });
         tile.addEventListener('keydown', (e) => {
           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSheet(tile); }
         });

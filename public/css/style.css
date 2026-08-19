@@ -458,6 +458,14 @@ body::after {
 @keyframes pop { from { opacity: 0; transform: scale(.92) translateY(14px); } to { opacity: 1; transform: none; } }
 .modal h2 { font-family: var(--font-display); font-size: 1.6rem; margin-bottom: 4px; }
 .modal .modal-sub { color: var(--paper-dim); font-weight: 300; margin-bottom: 20px; }
+/* a modal with nothing to add under its title shouldn't reserve the line */
+.modal .modal-sub:empty { display: none; }
+
+/* from/to nights stay on one row — the form grid drops to a single column on
+   phones, and a night range split across two rows reads as two questions */
+.night-range { display: flex; align-items: center; gap: 8px; }
+.night-range select { flex: 1; min-width: 0; }
+.night-range span { flex: none; color: var(--paper-dim); font-weight: 300; }
 .modal-close {
   position: absolute; top: 16px; left: 16px; width: 34px; height: 34px;
   display: grid; place-items: center;
@@ -1709,6 +1717,13 @@ body:has(.join-banner) { padding-bottom: 92px; }
 .nc-hotel:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
 
 .nc-actions { display: flex; gap: 5px; margin-top: auto; padding-top: 6px; }
+.nc-cta {
+  flex: 1; text-align: center; text-decoration: none;
+  background: rgba(255, 180, 95, .14); border: 1px solid rgba(255, 180, 95, .3);
+  color: var(--amber); border-radius: 8px; padding: 4px 6px;
+  font-size: .73rem; font-weight: 700; white-space: nowrap;
+}
+.nc-cta:hover { background: rgba(255, 180, 95, .24); }
 .nc-save {
   flex: none; width: 26px; border: 1px solid var(--glass-border); border-radius: 8px;
   background: transparent; color: var(--paper-dim); cursor: pointer;
@@ -1757,6 +1772,7 @@ body:has(.join-banner) { padding-bottom: 92px; }
   border-radius: 8px; padding: 3px 9px; font-weight: 700;
 }
 .hs-reviews, .hs-dist { color: var(--paper-dim); font-size: .85rem; font-weight: 300; }
+.hs-book { display: flex; justify-content: center; gap: 8px; margin-top: 14px; text-decoration: none; }
 .hs-loading { color: var(--paper-dim); font-weight: 300; margin-top: 16px; }
 
 .hs-gallery { display: flex; gap: 6px; margin-top: 12px; overflow-x: auto; scrollbar-width: thin; }
