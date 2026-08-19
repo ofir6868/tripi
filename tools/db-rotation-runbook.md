@@ -11,6 +11,13 @@ Secrets (`ROTATION_TOKEN`, `DB_BACKUP_KEY`) are **not** in this file — the rep
 is public. The scheduled triggers carry them; humans find them in the Render
 dashboard (service env vars).
 
+> **Repo migration (2026-08-16):** production now deploys from
+> `tripmaker/tripmaker` (service renamed `tripmaker`). The rotation *code*
+> must live there. This repo (`ofir6868/tripi`) stays alive as the **escrow
+> home**: the `db-rotation-backups` branch here is what the app's boot-restore
+> fetches, and it is the branch the rotation automation can push to. Do not
+> delete this repository or make it private without moving the escrow.
+
 ## Fixed facts
 
 - Workspace: `tea-d9j761cm0tmc73ahjiog` · Web service: `srv-d9qgmoijobas7382hu0g` (`tripi`)
