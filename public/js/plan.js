@@ -153,25 +153,54 @@
     if (!e.target.closest('.autocomplete-wrap')) suggBox.classList.remove('open');
   });
 
-  // ---- days stepper + auto end date ----
+  // ---- days stepper + range calendar ----
+  // Two views of the same decision: dragging a range on the calendar sets how many
+  // days the trip is, and nudging the number moves the return date to match. Dates
+  // stay optional — with none picked the stepper alone decides the length.
   const daysSel = document.getElementById('f-days');
-  const startInput = document.getElementById('f-start');
   const endHint = document.getElementById('end-date-hint');
+  const PICK_HINT = 'בוחרים את יום היציאה, ואז את יום החזרה';
+  let tripStart = null; // ISO, or null while the trip has no dates
+
+  const datesPicker = DATEPICKER.create(document.getElementById('plan-dates'), {
+    maxDays: 60,
+    onChange: ({ start, end, days }) => {
+      tripStart = start;
+      if (days) daysSel.value = days; // already capped at maxDays by the picker
+      updateEndHint(!end); // half a range: say so instead of showing a return date
+      userTouched = true;
+      scheduleSave();
+    },
+  });
 
   function clampDays() {
     daysSel.value = Math.min(Math.max(parseInt(daysSel.value, 10) || 1, 1), 60);
+    // the stepper is authoritative when it's the one being moved — the calendar
+    // follows it, which is what keeps the two from disagreeing
+    if (tripStart) syncPickerToDays();
     updateEndHint();
   }
-  function updateEndHint() {
-    if (!startInput.value) { endHint.textContent = ''; return; }
-    const end = new Date(startInput.value);
+  function syncPickerToDays() {
+    datesPicker.set(tripStart, TRIPI.isoDate(endDate())); // silent: it would echo the number back
+  }
+  // DATEPICKER.parse, not new Date(iso): a bare "2026-09-14" is read as UTC midnight,
+  // which west of Greenwich is the day before the one the traveller picked
+  function endDate() {
+    if (!tripStart) return null;
+    const end = DATEPICKER.parse(tripStart);
     end.setDate(end.getDate() + (+daysSel.value) - 1);
-    endHint.textContent = 'חוזרים ב-' + end.toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' });
+    return end;
+  }
+  function updateEndHint(pending) {
+    const end = endDate();
+    if (!end) { endHint.textContent = PICK_HINT; return; }
+    if (pending) { endHint.textContent = 'ועכשיו את יום החזרה'; return; }
+    endHint.textContent = `${daysSel.value} ימים · חוזרים ב-`
+      + end.toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' });
   }
   document.getElementById('days-minus').onclick = () => { daysSel.value = +daysSel.value - 1; clampDays(); };
   document.getElementById('days-plus').onclick = () => { daysSel.value = +daysSel.value + 1; clampDays(); };
   daysSel.addEventListener('change', clampDays);
-  startInput.addEventListener('change', updateEndHint);
 
   // ---- draft autosave: leave mid-creation, come back, continue ----
   // v3 covers steps 1-3 only — the itinerary itself lives on the server from the
@@ -193,7 +222,7 @@
       title: titleInput.value,
       titleWasAutofilled,
       days: daysSel.value,
-      start: startInput.value,
+      start: tripStart,
       interests: [...selectedInterests],
       aiNotes: document.getElementById('ai-notes').value,
     };
@@ -457,13 +486,10 @@
 
   function buildTripPayload(builtItems) {
     const days = +daysSel.value;
-    const start = startInput.value || null;
-    let end = null;
-    if (start) {
-      const e = new Date(start);
-      e.setDate(e.getDate() + days - 1);
-      end = e.toISOString().slice(0, 10);
-    }
+    const start = tripStart;
+    // the very day the calendar and the hint show — anything that round-trips
+    // through toISOString() hands the server the day before, east of Greenwich
+    const end = start ? TRIPI.isoDate(endDate()) : null;
     if (!titleInput.value.trim()) autoTitle();
     return {
       title: titleInput.value.trim(),
@@ -526,7 +552,8 @@
     titleInput.value = draft.title || '';
     titleWasAutofilled = !!draft.titleWasAutofilled;
     daysSel.value = Math.min(Math.max(parseInt(draft.days, 10) || 4, 1), 60);
-    startInput.value = draft.start || '';
+    tripStart = draft.start || null;
+    if (tripStart) syncPickerToDays(); else datesPicker.set(null, null);
     updateEndHint();
     document.getElementById('ai-notes').value = draft.aiNotes || '';
     (Array.isArray(draft.interests) ? draft.interests : []).forEach((name) => selectedInterests.add(name));

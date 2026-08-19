@@ -626,6 +626,130 @@
       participants.length > 1 ? `${participants.length} משתתפים` : 'משתתפים';
     participantsBtn.onclick = () => (canEdit ? openParticipants() : requireSignup());
 
+    // ---- the dates slot in the hero row ----
+    // Dates are optional in the wizard, and a trip without them is half a plan: the
+    // days carry no weekday, the forecast can't line up with them, nights can't be
+    // booked against real check-in dates and there's nothing to export to a calendar.
+    // So when they're missing a planner gets a badge in the very slot the range will
+    // occupy — setting them swaps the badge for the chip in place, nothing else moves.
+    const CAL_PLUS_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 13V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="M16 19h6"/><path d="M19 16v6"/></svg>';
+
+    function renderDateChip() {
+      document.getElementById('dates-chip')?.remove();
+      if (!trip.start_date && !privileged) return; // a viewer never sees the empty slot
+      // a viewer's chip is plain text; a planner's is the way back into the calendar,
+      // because a date typed a month ago is exactly the kind of thing that moves
+      const el = document.createElement(trip.start_date && !canEdit ? 'span' : 'button');
+      el.id = 'dates-chip';
+      if (trip.start_date) {
+        el.className = 'chip';
+        const range = trip.end_date
+          ? `${heDate(trip.start_date)} – ${heDate(trip.end_date)}` : heDate(trip.start_date);
+        el.innerHTML = `<span class="dot">●</span> ${range}`;
+        if (canEdit) {
+          el.type = 'button';
+          el.classList.add('chip-edit');
+          el.title = 'שינוי תאריכי הטיול';
+          el.onclick = () => openDates();
+        }
+      } else {
+        el.type = 'button';
+        el.className = 'chip chip-action';
+        el.innerHTML = `${CAL_PLUS_ICON} קבעו תאריכים`;
+        el.title = 'הטיול עדיין בלי תאריכים — לחיצה קובעת מתי יוצאים';
+        el.onclick = () => (canEdit ? openDates() : requireSignup());
+      }
+      document.getElementById('code-chip').before(el);
+    }
+    renderDateChip();
+
+    let datesPicker = null;  // both built with the panel, reused every time it re-opens
+    let datesHint = null;
+    // The same calendar the wizard uses, with one difference that matters: there a
+    // range decides how long the trip is, here the trip is already that long and its
+    // stops are pinned to those days. So a click sets the departure and the return
+    // paints itself in — the length is the itinerary's, not the picker's, to change.
+    function openDates() {
+      let wrap = document.getElementById('dates-modal');
+      if (!wrap) {
+        wrap = document.createElement('div');
+        wrap.id = 'dates-modal';
+        wrap.className = 'modal-backdrop';
+        wrap.innerHTML = `
+          <div class="modal glass">
+            <button class="modal-close" aria-label="סגירה">
+              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+            <h2>מתי יוצאים? 📅</h2>
+            <p class="modal-sub">התאריכים פורסים את ${trip.days} ימי הטיול על לוח השנה — ומכאן גם מזג האוויר, הלינות והייצוא ליומן מתחילים לעבוד</p>
+            <div class="field">
+              <label>יום היציאה</label>
+              <div id="dates-cal"></div>
+              <div class="dest-hint" id="dates-end-hint"></div>
+            </div>
+            <div class="form-error" id="dates-error"></div>
+            <button class="btn btn-amber btn-lg" id="dates-save" style="width:100%;justify-content:center">שמירת התאריכים</button>
+          </div>`;
+        document.body.appendChild(wrap);
+        const hint = wrap.querySelector('#dates-end-hint');
+        const err = wrap.querySelector('#dates-error');
+        const close = () => wrap.classList.remove('open');
+        wrap.querySelector('.modal-close').onclick = close;
+        wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && wrap.classList.contains('open')) close();
+        });
+        // the return date in words under the calendar, so it's read rather than
+        // counted off the painted band
+        const showRange = ({ start, end }) => {
+          hint.textContent = !start ? 'בוחרים את יום היציאה — שאר ימי הטיול ייצבעו לבד'
+            : `${trip.days} ימים · חוזרים ב-` + DATEPICKER.parse(end)
+              .toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' });
+        };
+        datesHint = showRange;
+        datesPicker = DATEPICKER.create(wrap.querySelector('#dates-cal'), {
+          fixedDays: trip.days,
+          onChange: (v) => { err.textContent = ''; showRange(v); },
+        });
+
+        const saveBtn = wrap.querySelector('#dates-save');
+        saveBtn.onclick = async () => {
+          err.textContent = '';
+          const picked = datesPicker.value().start;
+          if (!picked) { err.textContent = 'בחרו את יום היציאה בלוח'; return; }
+          const headers = await ensureEditRights();
+          if (!headers) return;
+          saveBtn.disabled = true;
+          try {
+            const updated = await TRIPI.api(`/api/trips/code/${trip.share_code}/dates`, {
+              method: 'PUT', headers, body: JSON.stringify({ start_date: picked }),
+            });
+            Object.assign(trip, updated);
+            TRIPI.track('trip_dates_set', { trip_id: trip.id, days: trip.days });
+            close();
+            applyDates();
+          } catch (e) { err.textContent = e.message; }
+          saveBtn.disabled = false;
+        };
+      }
+      // no past-date guard: a trip already under way, or one being written up after
+      // the fact, has dates too — this is about filling them in, not about the future
+      datesPicker.set(trip.start_date ? TRIPI.isoDate(new Date(trip.start_date)) : null);
+      datesHint(datesPicker.value());
+      wrap.querySelector('#dates-error').textContent = '';
+      wrap.classList.add('open');
+    }
+
+    // everything that was waiting for real dates, in one pass: the hero chip, the day
+    // headers and calendar cells, the calendar export, and a forecast that can now
+    // line itself up with the trip's own days
+    function applyDates() {
+      renderDateChip();
+      renderItinerary();
+      wireIcsButton();
+      if (currentDest) loadWeather(currentDest);
+    }
+
     // hero badge next to the "X ימים" chip: pull co-planners in from the top of
     // the page — clicking opens the participants screen
     if (privileged) {
@@ -1181,9 +1305,12 @@
     // calendar export (.ics) — needs real dates to anchor the events; visible to
     // viewers too, same as PDF (an itinerary you can read, you can put in a calendar).
     // Fetched as a blob rather than navigated to: an error answers as JSON, and a
-    // navigation would strand the user on a raw error page (worse in the installed PWA).
+    // navigation would strand the user on a raw error page (worse in the installed
+    // PWA). Wired through a function because the dates badge calls it again the
+    // moment a dateless trip gets the dates this export needs.
     const icsBtn = document.getElementById('ics-btn');
-    if (trip.start_date) {
+    function wireIcsButton() {
+      if (!trip.start_date) return;
       icsBtn.style.display = '';
       icsBtn.onclick = async () => {
         if (icsBtn.disabled) return;
@@ -1207,6 +1334,7 @@
         icsBtn.disabled = false;
       };
     }
+    wireIcsButton();
 
     // ---- share: the invite leads ----
     // this trip is something people build together, so a participant's big button

@@ -519,6 +519,10 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 .chip-action { color: var(--amber); border-color: rgba(255, 180, 95, .45); background: rgba(255, 180, 95, .1); transition: background .15s ease; }
 .chip-action:hover { background: rgba(255, 180, 95, .2); }
 .chip-action .ic { width: 15px; height: 15px; }
+/* a chip that opens what it shows (the dates): quieter than chip-action — it's a
+   fact first and a control second */
+.chip-edit { cursor: pointer; transition: border-color .15s ease; }
+.chip-edit:hover { border-color: rgba(255, 180, 95, .45); }
 
 .trip-layout {
   width: min(1120px, calc(100% - 40px)); margin: 34px auto 0;
@@ -872,6 +876,47 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
   transition: background .15s ease;
 }
 .step-btn:hover { background: var(--glass-strong); }
+
+/* ---------- range calendar (js/datepicker.js) ----------
+   Same block wherever a trip's dates are chosen: the wizard's step 2 and the trip
+   page's dates panel. Sunday sits on the right — grid column 1 is the right edge
+   in RTL, the same way the trip's own month calendar reads. */
+
+.dp { -webkit-user-select: none; user-select: none; }
+.dp-head { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.dp-month { flex: 1; text-align: center; font-weight: 800; font-size: .95rem; }
+.dp-nav {
+  width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 1px solid var(--glass-border); background: var(--glass);
+  color: var(--amber); cursor: pointer; transition: background .15s ease;
+}
+.dp-nav:hover { background: var(--glass-strong); }
+.dp-nav .ic { width: 16px; height: 16px; }
+.dp-dow, .dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.dp-dow { margin-bottom: 4px; }
+.dp-dow span { text-align: center; font-size: .75rem; font-weight: 700; color: var(--paper-dim); opacity: .65; }
+.dp-grid { gap: 2px 0; }
+.dp-day {
+  aspect-ratio: 1; min-height: 34px; border: 0; background: transparent; cursor: pointer;
+  font-family: var(--font-body); font-size: .9rem; font-weight: 600; color: var(--paper);
+  border-radius: 50%; transition: background .12s ease;
+}
+.dp-day:hover { background: var(--glass-strong); }
+/* today is a hint, never the selection — an amber ring, no fill */
+.dp-day.is-today { box-shadow: inset 0 0 0 1px rgba(255, 180, 95, .5); }
+/* the range is one continuous amber band with rounded caps at both ends */
+.dp-day.in-range { background: rgba(255, 180, 95, .16); border-radius: 0; }
+/* logical radii: the band opens on the side the reading starts from, so it caps
+   correctly without knowing which direction the page runs in */
+.dp-day.is-start { border-start-start-radius: 50%; border-end-start-radius: 50%; }
+.dp-day.is-end { border-start-end-radius: 50%; border-end-end-radius: 50%; }
+.dp-day.is-start, .dp-day.is-end { background: var(--amber); color: var(--ink); font-weight: 800; }
+.dp-day.is-solo { border-radius: 50%; }
+.dp-pad { pointer-events: none; }
+
+@media (max-width: 640px) {
+  .dp-day { min-height: 38px; font-size: .95rem; }
+}
 
 /* ---------- trip sidebar: weather + hotels ---------- */
 
