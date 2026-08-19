@@ -21,6 +21,37 @@ router.get('/api/hotels', async (req, res) => {
   const cached = hotelsCache.get(key);
   if (cached && Date.now() - cached.at < HOTELS_TTL) return res.json(cached.data);
 
+  // Photon first: every public Overpass mirror times out from this host (measured
+  // 2026-08-19 from the deployed service — overpass-api.de refuses outright, kumi and
+  // private.coffee never finish the handshake), while Photon answers in under a second.
+  // Its reverse endpoint takes the same "hotels within 7km" question and needs no
+  // query language. What it can't tell us is the star rating, which is optional here.
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    const r = await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}&radius=7&limit=20&lang=en&osm_tag=tourism:hotel`, {
+      signal: ctrl.signal,
+      headers: { 'user-agent': 'TRIPI trip planner/1.0', Accept: 'application/json' },
+    });
+    clearTimeout(timer);
+    if (r.ok) {
+      const seen = new Set();
+      const hotels = ((await r.json()).features || [])
+        .map((f) => ({
+          name: (f.properties || {})['name:he'] || (f.properties || {}).name,
+          stars: null,
+          lat: f.geometry && f.geometry.coordinates[1],
+          lon: f.geometry && f.geometry.coordinates[0],
+        }))
+        .filter((h) => h.name && h.lat != null && !seen.has(h.name) && seen.add(h.name))
+        .slice(0, 8);
+      if (hotels.length) {
+        hotelsCache.set(key, { at: Date.now(), data: hotels });
+        return res.json(hotels);
+      }
+    }
+  } catch { /* fall through to Overpass — it carries star ratings when it answers */ }
+
   // node-only: way/relation geometry resolution regularly 504s on the public servers
   const query = `[out:json][timeout:25];node["tourism"="hotel"]["name"](around:7000,${lat},${lon});out 30;`;
   let elements = null;
