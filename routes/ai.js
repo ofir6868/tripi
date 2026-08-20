@@ -5,6 +5,11 @@ const { pool } = require('../lib/db');
 const { authRequired, authOptional, isAdmin } = require('../lib/auth');
 const { tripWithEditAuth, cleanDestinations } = require('../lib/trips');
 const { verifyPlaces } = require('../lib/places');
+// the Hebrew country name → ISO code table the client uses for flags, read here to tell
+// whether a stop landed in a country the traveller actually picked. It lives under
+// public/ because the browser and the service worker load it too — one table, so a
+// country can never be spelled one way for a flag and another way for this check.
+const COUNTRIES = require('../public/js/countries.js');
 const posthog = require('../lib/posthog');
 
 const router = express.Router();
@@ -616,10 +621,16 @@ async function repairPlaces(entries, { where, ph, flagMore }) {
         console.error(`place verification UNAVAILABLE: ${quiet.length}/${queries.length} unverified in "${where}" — stops keep their place_query and no coordinates`);
       }
     }
-    const setCoords = (e, r) => {
-      if (r && r.verdict === 'ok' && r.best && r.best.lat != null) { e.lat = r.best.lat; e.lon = r.best.lon; }
+    const setGeo = (e, r) => {
+      if (!r || r.verdict !== 'ok' || !r.best) return;
+      if (r.best.lat != null) { e.lat = r.best.lat; e.lon = r.best.lon; }
+      // which country answered, and how to say where that is — both already paid for by
+      // the same lookup, and the only way to catch a place that is entirely real and
+      // entirely on the wrong trip
+      e.cc = r.best.cc || null;
+      e.geoWhere = r.best.where || null;
     };
-    for (const e of entries) if (e.place_query) setCoords(e, results.get(e.place_query));
+    for (const e of entries) if (e.place_query) setGeo(e, results.get(e.place_query));
     const unfound = (q) => { const r = results.get(q); return r && (r.verdict === 'mismatch' || r.verdict === 'none'); };
     const failing = entries.filter((e) => e.place_query && unfound(e.place_query));
     for (const extra of flagMore ? flagMore(entries) : []) {
@@ -632,11 +643,12 @@ async function repairPlaces(entries, { where, ph, flagMore }) {
     const parsed = await aiJson({
       system: 'אתה בודק עובדות של מסלולי טיולים. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
       user:
-        `במסלול טיול ב"${where}" יש תחנות בעייתיות — המקום לא נמצא במפה (שם שגוי או מקום שלא קיים), או שהוא רחוק מדי משאר תחנות היום שלו:\n` +
+        `במסלול טיול ב"${where}" יש תחנות בעייתיות — המקום לא נמצא במפה (שם שגוי או מקום שלא קיים), או שהוא רחוק מדי משאר תחנות היום שלו, או שהוא נמצא במדינה שאינה חלק מהטיול:\n` +
         failing.map((e, i) => `${i}. "${e.title}"${e.area && e.area !== where ? ` (אזור: ${e.area})` : ''} — place_query: "${e.place_query}" — ${e.reason || 'לא נמצא במפה'}`).join('\n') +
         `\nהחזר לכל תחנה (לפי index) אחת משתיים: place_query מתוקן — מקום אמיתי, מוכר וקיים שמשרת את כוונת התחנה, באנגלית ובפורמט "Name, City, Country"; ` +
         `לתחנה רחוקה — מקום חלופי מאותו סוג שנמצא ליד שאר תחנות היום. ` +
-        `או null אם לתחנה אין מקום ספציפי אמיתי (ארוחה כללית, סיור חופשי). אל תמציא: אם אינך בטוח שהמקום קיים — החזר null.`,
+        `לתחנה שנמצאת במדינה אחרת — מקום חלופי מאותו סוג בתוך אזור הטיול עצמו, אף פעם לא במדינה שממנה הגיעה התחנה השגויה, ובמקרה כזה החזר גם title חדש בעברית שמתאר את המקום החלופי. ` +
+        `או null אם לתחנה אין מקום ספציפי אמיתי (ארוחה כללית, סיור חופשי). אל תמציא: אם אינך בטוח שהמקום קיים — החזר null. בשאר המקרים החזר title = null. `,
       schemaName: 'place_fixes',
       maxTokens: 1500,
       model: AI_MODEL_STRONG,
@@ -651,22 +663,36 @@ async function repairPlaces(entries, { where, ph, flagMore }) {
             items: {
               type: 'object',
               additionalProperties: false,
-              required: ['index', 'place_query'],
+              required: ['index', 'place_query', 'title'],
               properties: {
                 index: { type: 'integer' },
                 place_query: { type: ['string', 'null'] },
+                // only a stop that moved countries needs one: its name described the
+                // place it can no longer point at ("ביקור במגדל אייפל" now standing on
+                // Tokyo Tower reads as a Paris stop with a Japanese pin)
+                title: { type: ['string', 'null'] },
               },
             },
           },
         },
       },
     });
-    if (!parsed) return; // the corrector failing is not a reason to fail the build
+    // a stop already known to be in the wrong country is wrong whether or not anything
+    // can be suggested in its place — it goes even when the corrector never answers
+    const strike = (e) => { e.place_query = null; e.lat = null; e.lon = null; if (e.dropIfUnfixed) e.drop = true; };
+    if (!parsed) { // the corrector failing is not a reason to fail the build
+      const doomed = failing.filter((e) => e.dropIfUnfixed);
+      doomed.forEach(strike);
+      if (doomed.length) console.log(`place verification: corrector unavailable — ${doomed.length} removed in "${where}"`);
+      return;
+    }
 
     const fixByIndex = new Map();
+    const titleByIndex = new Map();
     for (const f of parsed.fixes || []) {
       if (!Number.isInteger(f.index) || f.index < 0 || f.index >= failing.length) continue;
       fixByIndex.set(f.index, typeof f.place_query === 'string' && f.place_query.trim() ? f.place_query.slice(0, 120).trim() : null);
+      if (typeof f.title === 'string' && f.title.trim()) titleByIndex.set(f.index, f.title.slice(0, 200).trim());
     }
     // the replacements get the same check — a second invented name is how this loop
     // would otherwise reintroduce the exact failure it exists to stop — and a
@@ -681,18 +707,28 @@ async function repairPlaces(entries, { where, ph, flagMore }) {
       if (good && e.near && r.verdict === 'ok' && r.best && r.best.lat != null) {
         good = haversineKm(e.near, r.best) <= e.near.km;
       }
+      // and a stop sent back for being in the wrong country cannot return from another
+      // one — the model likes to answer a Paris stop with a Brussels stop
+      if (good && e.allowedCc && r.verdict === 'ok' && r.best && r.best.cc) {
+        good = e.allowedCc.has(r.best.cc);
+      }
       if (good) {
         e.place_query = fix;
         if (r.verdict === 'ok' && r.best && r.best.lat != null) { e.lat = r.best.lat; e.lon = r.best.lon; }
         else { e.lat = null; e.lon = null; }
+        // a stop that changed countries also changes its name — everywhere else the
+        // title still describes the same intention and is left exactly as written
+        if (e.dropIfUnfixed && titleByIndex.has(i)) e.newTitle = titleByIndex.get(i);
         repaired++;
       } else {
-        e.place_query = null;
-        e.lat = null;
-        e.lon = null;
+        // a stop whose place merely isn't in OSM keeps its slot in the day — losing the
+        // pin is the smaller loss. A stop in a country nobody picked has no such
+        // defence: it is not this trip's stop at all, so the caller is told to drop it.
+        strike(e);
       }
     });
-    console.log(`place verification: ${repaired} repaired, ${failing.length - repaired} dropped in "${where}"`);
+    const removed = failing.filter((e) => e.drop).length;
+    console.log(`place verification: ${repaired} repaired, ${failing.length - repaired - removed} unpinned, ${removed} removed in "${where}"`);
   } catch (err) {
     console.warn('place verification skipped:', err.message); // never the caller's problem
   }
@@ -707,6 +743,9 @@ async function repairPlaces(entries, { where, ph, flagMore }) {
 // stops around it. Under three located stops there's no majority to say where the day
 // is, so nobody gets convicted. Returns the flagged entries with reason + near set.
 const DAY_SPREAD_KM = 150;
+// the same reach, applied to the whole block rather than one day: a stop brought back
+// from another country has to land in the area this block is actually about
+const AREA_REACH_KM = DAY_SPREAD_KM;
 function daySpreadOutliers(items) {
   const flagged = [];
   const byDay = new Map();
@@ -735,6 +774,61 @@ function daySpreadOutliers(items) {
   return flagged;
 }
 
+// The failure the geocoder cannot see on its own: a stop that is a real, findable
+// place — in a country nobody picked. "Louvre, Paris, France" verifies perfectly; it
+// just belongs to somebody else's trip. The geocoder already says which country
+// answered, and the trip's own destinations say which countries were chosen, so the
+// two together name the mistake exactly.
+//
+// Judgement is refused unless it can be complete: one destination whose country can't
+// be resolved (free text, an unusual spelling) means the allowed set is unknown, and an
+// unknown allowed set convicts honest stops. Silence beats a wrong verdict here.
+function tripCountryCodes(dests) {
+  const names = (dests || []).map((d) => d && (d.country || d.name)).filter(Boolean);
+  if (!names.length) return null;
+  const ccs = names.map((n) => COUNTRIES.ccByName(String(n).trim()));
+  return ccs.every(Boolean) ? new Set(ccs) : null;
+}
+
+// flagMore-shaped (see repairPlaces): the stops sitting outside those countries, each
+// asked to come back as something of the same kind inside the trip's own area — and
+// marked to be dropped rather than merely unpinned if it can't.
+//
+// An unpicked country is not on its own a mistake, which the 2026-08-20 sweep of live
+// trips showed in its only two candidates. The Vatican Museums, country code "va", on a
+// trip to Rome — the Vatican, two kilometres from the hotel. And "Food with Love -
+// Cooking School, Osaka, Japan", which the geocoder answered with a school in San Jose,
+// California: the itinerary asked for Osaka, the *match* went to another continent.
+// Neither is a stop in the wrong country, so three things have to hold together before
+// one is called that: the border crossed, every destination left behind (within a day's
+// reach, another country is a day trip), and the query itself naming the country the
+// geocoder answered from — that last one is what separates a model that wandered off
+// from a matcher that missed. A bad pin is the day-spread check's business, not this.
+function foreignCountryStops(entries, dests, areaName = null) {
+  const allowed = tripCountryCodes(dests);
+  if (!allowed) return [];
+  const located = (dests || []).filter((d) => d && d.lat != null);
+  const anchor = (areaName && located.find((d) => d.name === areaName)) || located[0] || null;
+  // "United States" against "…, Osaka, Japan" — the text never asked to leave Japan
+  const flat = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const queryNamesItsCountry = (e) => {
+    const country = flat((e.geoWhere || '').split(',').pop());
+    return !!country && flat(e.place_query).includes(country);
+  };
+  const flagged = [];
+  for (const e of entries) {
+    if (!e.cc || allowed.has(e.cc)) continue;
+    if (e.lat != null && located.some((d) => haversineKm(e, d) <= AREA_REACH_KM)) continue;
+    if (!queryNamesItsCountry(e)) continue;
+    e.reason = `המקום נמצא ב-${e.geoWhere} — מחוץ למדינות הטיול`; // geoWhere is what named the country above
+    if (anchor) e.near = { lat: anchor.lat, lon: anchor.lon, km: AREA_REACH_KM };
+    e.allowedCc = allowed;
+    e.dropIfUnfixed = true;
+    flagged.push(e);
+  }
+  return flagged;
+}
+
 // one OpenAI call for ONE area and a fixed day range — the shape that stays coherent
 async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, answers, transferFrom, ph }) {
   // every block gets the strong model: the 2026-08 places audit put weak-model blocks
@@ -746,6 +840,12 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
     `בנה מסלול טיול מפורט לימים ${from} עד ${to} (כולל) באזור "${area}" בלבד, מתוך טיול שכולל את: ${destDescFull(dests)}. ` +
     `כל התחנות חייבות להיות באזור "${area}" ובשדה area לכתוב בדיוק "${area}". ` +
     `אסור לשבץ תחנות מאזורים אחרים בטווח הימים הזה.`;
+  // the area rule alone leaves room for a famous place "nearby" that happens to be
+  // across a border — naming the countries closes it, and costs one line of prompt
+  const tripCountryNames = [...new Set((dests || []).map((d) => d && d.country).filter(Boolean))];
+  if (tripCountryNames.length) {
+    userMsg += ` כל התחנות חייבות להיות בתוך ${tripCountryNames.join(' / ')} — אסור לשלב מקום ממדינה אחרת.`;
+  }
   if (transferFrom) {
     const fromDest = dests.find((d) => d.name === transferFrom);
     const toDest = dests.find((d) => d.name === area);
@@ -848,11 +948,32 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
       cost: null,
     });
   }
-  await repairPlaces(cleaned, { where: area, ph, flagMore: daySpreadOutliers });
-  // reason/near were working notes between the flagger and the corrector — the items
-  // now travel to the client and the DB, which have no business seeing them
-  for (const it of cleaned) { delete it.reason; delete it.near; }
-  return cleaned;
+  // both flaggers, foreign second: a stop that is BOTH far from its day and in the
+  // wrong country is the wrong-country one — that reason is the one worth telling the
+  // corrector, and the one that decides what happens if the correction fails
+  await repairPlaces(cleaned, {
+    where: area,
+    ph,
+    flagMore: (entries) => {
+      const flagged = daySpreadOutliers(entries);
+      for (const e of foreignCountryStops(entries, dests, area)) {
+        if (!flagged.includes(e)) flagged.push(e);
+      }
+      return flagged;
+    },
+  });
+  for (const it of cleaned) if (it.newTitle) it.title = it.newTitle;
+  const kept = cleaned.filter((it) => !it.drop);
+  if (kept.length !== cleaned.length) {
+    console.log(`block "${area}": dropped ${cleaned.length - kept.length} stop(s) that stayed outside the trip's countries`);
+  }
+  // the working notes between the flagger and the corrector — the items now travel to
+  // the client and the DB, which have no business seeing them
+  for (const it of kept) {
+    delete it.reason; delete it.near; delete it.cc;
+    delete it.geoWhere; delete it.allowedCc; delete it.dropIfUnfixed; delete it.newTitle;
+  }
+  return kept;
 }
 
 router.post('/api/ai/itinerary', authRequired, async (req, res) => {
@@ -1373,8 +1494,24 @@ async function aiEditOps(args) {
     }));
   if (!entries.length) return result;
   const where = (args.dests || []).length ? args.dests.map((d) => d.name).join(', ') : args.destText || args.title;
-  await repairPlaces(entries, { where, ph: args.ph });
+  // the editor is the other door a foreign stop can walk through — "add a good sushi
+  // place" answered with one in Osaka on a Roman holiday — so it meets the same check
+  await repairPlaces(entries, {
+    where,
+    ph: args.ph,
+    flagMore: (es) => foreignCountryStops(es, args.dests),
+  });
+  // an op that could not be brought back inside the trip's countries is abandoned whole:
+  // an added stop never appears, and an edit that was moving a stop to another country
+  // simply doesn't happen. Blanking only its query would leave the rest of the edit —
+  // a new title, a new day — standing on a stop that no longer points anywhere.
+  const dropped = new Set(entries.filter((e) => e.drop).map((e) => e.op));
+  if (dropped.size) result.ops = result.ops.filter((op) => !dropped.has(op));
   for (const e of entries) {
+    if (dropped.has(e.op)) continue;
+    // a stop brought back from another country carries its new name onto the op, or the
+    // itinerary ends up with a Paris title standing on a Tokyo address
+    if (e.newTitle) e.op.title = e.newTitle;
     e.op.place_query = e.place_query != null ? e.place_query : (e.op.action === 'update' ? '' : null);
     // verified coordinates ride the op into the DB — the map pins without the client
     // having to re-geocode, and a moved stop can't keep pointing at its old spot
@@ -1552,5 +1689,7 @@ module.exports.aiEditOps = aiEditOps;
 module.exports.editViolations = editViolations;
 module.exports.applyOps = applyOps;
 module.exports.daySpreadOutliers = daySpreadOutliers;
+module.exports.foreignCountryStops = foreignCountryStops;
+module.exports.tripCountryCodes = tripCountryCodes;
 // routes/trips.js runs this after a publish-to-gallery toggle — fire-and-forget
 module.exports.proofreadPublicTripCopy = proofreadPublicTripCopy;

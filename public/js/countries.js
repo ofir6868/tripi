@@ -66,7 +66,22 @@ const COUNTRIES = (() => {
   const RESTRICTED = new Set(['af', 'ir', 'iq', 'sy', 'lb', 'ye', 'ly', 'sd', 'so', 'kp']);
 
   const byName = new Map(LIST);
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  // spellings people type (and older trips carry) that no geocoder returns. Resolved
+  // but never suggested — they live outside LIST so the picker keeps offering exactly
+  // one canonical name per country.
+  for (const [alias, cc] of [['ארהב', 'us'], ['אנגליה', 'gb'], ['הממלכה המאוחדת', 'gb'], ['צכיה', 'cz'], ['וייטנם', 'vn']]) {
+    byName.set(alias, cc);
+  }
+  // the same table with the punctuation taken out, so a lookup can miss the geresh in
+  // either direction — "אלגיריה" typed plainly, or "ארה״ב" against a plain key
+  const bare = (n) => n.replace(/["'׳״]/g, '');
+  const byBareName = new Map([...byName].map(([n, cc]) => [bare(n), cc]));
+
+  // guarded: the build pipeline requires this file in Node to resolve a trip's
+  // countries, and there is no navigator there — an unguarded read would take the
+  // whole server down at startup rather than degrade a flag
+  const isMobile = typeof navigator !== 'undefined'
+    && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
 
   function flagEmoji(cc) {
     if (!cc || cc.length !== 2) return '';
@@ -100,6 +115,17 @@ const COUNTRIES = (() => {
     search,
     flagEmoji,
     flagHtml,
-    ccByName: (name) => byName.get((name || '').trim()) || null,
+    // names arrive from geocoders and from people, so the abbreviation punctuation
+    // varies ("ארה\"ב", "ארה״ב", "ארהב") where the country is one and the same
+    ccByName: (name) => {
+      const raw = (name || '').trim();
+      if (!raw) return null;
+      return byName.get(raw) || byBareName.get(bare(raw)) || null;
+    },
   };
 })();
+
+// the build pipeline needs the same Hebrew-name → country-code table to tell whether a
+// stop landed in a country the traveller actually picked, and one table that everything
+// reads beats a second copy that can disagree with this one
+if (typeof module !== 'undefined' && module.exports) module.exports = COUNTRIES;
