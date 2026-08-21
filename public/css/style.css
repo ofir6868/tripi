@@ -241,14 +241,42 @@ body::after {
 .hero-veil {
   position: absolute; inset: 0;
   background:
-    linear-gradient(180deg, rgba(10, 21, 18, .78) 0%, rgba(10, 21, 18, .38) 42%, rgba(10, 21, 18, .82) 88%),
+    linear-gradient(180deg,
+      rgba(10, 21, 18, .78) 0%,
+      rgba(10, 21, 18, .38) 42%,
+      rgba(10, 21, 18, .80) 84%,
+      rgba(10, 21, 18, .90) 100%),
     radial-gradient(70% 55% at 50% 42%, transparent 30%, rgba(10, 21, 18, .55) 100%);
 }
-/* photo + veil dissolve into the page background, so there is no seam where the
-   suggested-trips section starts — the fade lands on the page's own atmosphere */
-.hero-bg, .hero-veil {
-  -webkit-mask-image: linear-gradient(180deg, #000 52%, rgba(0, 0, 0, .5) 80%, transparent 100%);
-  mask-image: linear-gradient(180deg, #000 52%, rgba(0, 0, 0, .5) 80%, transparent 100%);
+/* photo + veil dissolve into the page background as one image, so there is no
+   seam where the section below starts — the fade lands on the page's own
+   atmosphere.
+
+   The mask belongs on the clip, never on .hero-bg: a mask on .hero-bg rides
+   along with the ken-burns scale(), which pushes the transparent end of the ramp
+   below the clip's bottom edge — so the photo is still ~10% visible when
+   overflow:hidden cuts it off in a hard horizontal line. (Under
+   prefers-reduced-motion the animation freezes at scale(1.09) and that line is
+   permanent.) Masking the container also fades photo and veil as one layer, so
+   the photo can't brighten back up as its own veil thins out.
+
+   The stops trace a smoothstep instead of a straight ramp: an S-curve leaves no
+   kink where the fade starts or ends, and a kink is exactly what the eye reads
+   as an edge. The long flat tail near zero is what makes the last stretch
+   disappear rather than stop. */
+.hero-clip {
+  --hero-fade: linear-gradient(180deg,
+    #000 0 50%,
+    rgba(0, 0, 0, .96) 56.5%,
+    rgba(0, 0, 0, .84) 63%,
+    rgba(0, 0, 0, .68) 69%,
+    rgba(0, 0, 0, .50) 75%,
+    rgba(0, 0, 0, .32) 81%,
+    rgba(0, 0, 0, .16) 87.5%,
+    rgba(0, 0, 0, .04) 94%,
+    transparent 100%);
+  -webkit-mask-image: var(--hero-fade);
+  mask-image: var(--hero-fade);
 }
 
 .hero-kicker {
