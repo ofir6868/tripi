@@ -184,10 +184,22 @@ function renderHeader() {
   const placePanel = () => {
     const r = btn.getBoundingClientRect();
     const gap = 10;
-    const edge = 14; // match .site-header inset — keep the menu in the left corner
+    const edge = 14;
     panel.style.top = `${Math.round(r.bottom + gap)}px`;
-    panel.style.left = `${edge}px`;
     panel.style.right = 'auto';
+    // desktop: align under the user button; phones: keep the left-corner dock
+    if (window.matchMedia('(max-width: 640px)').matches) {
+      panel.style.left = `${edge}px`;
+      return;
+    }
+    panel.style.left = `${Math.round(r.left)}px`;
+    requestAnimationFrame(() => {
+      const pr = panel.getBoundingClientRect();
+      if (pr.right > window.innerWidth - edge) {
+        panel.style.left = `${Math.max(edge, Math.round(window.innerWidth - edge - pr.width))}px`;
+      }
+      if (pr.left < edge) panel.style.left = `${edge}px`;
+    });
   };
   const setOpen = (open) => {
     panel.hidden = !open;
