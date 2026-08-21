@@ -114,8 +114,14 @@ body::after {
 /* ---------- header ---------- */
 
 .site-header {
-  /* inset-based centering — immune to scrollbar-width and RTL transform quirks */
-  position: fixed; top: 14px; right: 14px; left: 14px;
+  /* inset-based centering — immune to scrollbar-width and RTL transform quirks.
+     The insets are physical on purpose: env() is physical too, and the status bar
+     sits above the header in a standalone PWA (black-translucent), so without the
+     top inset the logo runs under the clock and the notch. */
+  position: fixed;
+  top: calc(14px + env(safe-area-inset-top));
+  right: calc(14px + env(safe-area-inset-right));
+  left: calc(14px + env(safe-area-inset-left));
   max-width: 1120px; margin: 0 auto;
   z-index: 100;
   display: flex; align-items: center; justify-content: space-between;
@@ -807,7 +813,12 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 
 /* ---------- plan wizard ---------- */
 
-.page-shell { width: min(880px, calc(100% - 32px)); margin: 0 auto; padding: 120px 0 60px; }
+/* 120px is the clearance for the fixed header — it has to grow with the header,
+   which now sits below the notch, or the first heading slides under it */
+.page-shell {
+  width: min(880px, calc(100% - 32px)); margin: 0 auto;
+  padding: calc(120px + env(safe-area-inset-top)) 0 60px;
+}
 .page-shell > h1 { font-family: var(--font-display); font-size: clamp(2rem, 5vw, 3rem); }
 .page-shell > .page-sub { color: var(--paper-dim); font-weight: 300; margin: 8px 0 30px; }
 
@@ -1123,7 +1134,6 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 /* place photo gallery (Wikimedia Commons) */
 .stop-gallery {
   display: flex; gap: 8px; overflow-x: auto; margin-top: 10px; padding-bottom: 4px;
-  scrollbar-width: thin;
 }
 /* fixed slots so the strip never reflows: the slot shimmers, the photo fades in over it */
 .gal-ph {
@@ -1570,7 +1580,15 @@ body:has(.join-banner) { padding-bottom: 92px; }
 }
 
 @media (max-width: 640px) {
-  .site-header { top: 10px; right: 10px; left: 10px; padding: 8px 12px; }
+  /* the phone branch tightens the gutters — it must carry the safe-area insets
+     with it, or it drops the ones the base rule set and puts the header back
+     under the notch on exactly the devices that have one */
+  .site-header {
+    top: calc(10px + env(safe-area-inset-top));
+    right: calc(10px + env(safe-area-inset-right));
+    left: calc(10px + env(safe-area-inset-left));
+    padding: 8px 12px;
+  }
   .trip-hero { min-height: 48vh; padding: 100px 16px 28px; }
   .trip-layout { width: calc(100% - 24px); margin-top: 24px; }
   /* keep the description to 2 lines so the itinerary below it is visible without
@@ -1612,7 +1630,11 @@ body:has(.join-banner) { padding-bottom: 92px; }
      of the same surface as every other panel in the app */
   .action-bar {
     position: fixed; top: auto; bottom: var(--dock-inset);
-    inset-inline: 10px; width: auto; margin: 0;
+    /* one max() rather than a left/right pair: env() is physical while inset-inline
+       is logical, and in RTL the two swap — a symmetric dock doesn't care which
+       side the notch is on, and landscape is the only case where either is set */
+    inset-inline: calc(10px + max(env(safe-area-inset-left), env(safe-area-inset-right)));
+    width: auto; margin: 0;
     padding: 5px; border-radius: 18px; z-index: 120;
     border: 1px solid var(--glass-border);
     /* a white film for the glass, over just enough ink to keep labels legible */
@@ -2412,7 +2434,6 @@ body.cal-full-open { overflow: hidden; }
 /* ---- day ---- */
 .cal-day-strip {
   display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 10px; margin-bottom: 14px;
-  scrollbar-width: thin;
 }
 .cds-btn {
   flex: 0 0 auto; min-width: 48px; padding: 7px 6px; border-radius: 12px; cursor: pointer;
@@ -2838,10 +2859,26 @@ body.cal-full-open { overflow: hidden; }
 }
 .arrange-done {
   position: fixed;
-  bottom: 22px;
+  bottom: calc(22px + env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%);
   z-index: 2001;
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
 }
 .dragging .arrange-done { pointer-events: none; opacity: 0.35; }
+
+/* ---------- iOS: fields a finger can tap without the page zooming ----------
+   Mobile Safari force-zooms on focus whenever the focused field computes under
+   16px, and it never zooms back out — the traveller is left panning a magnified
+   page. These five are the only text-entry controls in the app below that line;
+   everything inside .field is already 1rem. The desktop sizes are deliberate
+   typography, so the bump is scoped to coarse pointers rather than applied to
+   the rules themselves. It must also come last in the file: a media query adds
+   no specificity, so source order is the only thing that wins here. */
+@media (pointer: coarse) {
+  .cost-input,
+  .qa-row input, .qa-row select,
+  .ai-prefs textarea,
+  .edit-loc-form input,
+  .ai-edit-scope select { font-size: 16px; }
+}
