@@ -149,13 +149,16 @@ function renderHeader() {
       `<button type="button" class="nav-menu-item" id="nav-login">${NAV_ICON.login}<span>התחברות</span></button>`,
     );
   }
+  const userName = TRIPI.user
+    ? `<span class="logo-user">שלום, <span class="ph-mask">${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</span></span>`
+    : `<span class="logo-he">מתכנן הטיולים שלך</span>`;
   el.innerHTML = `
     <a class="logo" href="/">
       <span class="logo-stack" dir="ltr" role="img" aria-label="TRIP MAKER">
         <span class="ls-trip" aria-hidden="true"><b>T</b><b>R</b><b>I</b><b>P</b></span>
         <span class="ls-maker" aria-hidden="true"><b>M</b><b>A</b><b>K</b><b>E</b><b>R</b></span>
       </span>
-      <span class="logo-he">מתכנן הטיולים שלך</span>
+      ${userName}
     </a>
     <nav class="nav-actions">
       <div class="nav-menu">
