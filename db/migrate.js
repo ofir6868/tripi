@@ -1,11 +1,15 @@
 // Migration 2: multi-destination support + coordinates for weather/hotels.
 // Idempotent. Usage: DATABASE_URL=postgres://... node db/migrate.js
+require('../lib/env');
 const { Pool } = require('pg');
 
-const url = process.env.DATABASE_URL ||
-  (() => { try { return require('fs').readFileSync(require('path').join(__dirname, '..', '.env'), 'utf8').match(/DATABASE_URL=(.*)/)[1].trim(); } catch { return null; } })();
-
-const pool = new Pool({ connectionString: url, ssl: { rejectUnauthorized: false } });
+const url = process.env.DATABASE_URL;
+const pool = new Pool({
+  connectionString: url,
+  ssl: url && url.includes('render.com')
+    ? { rejectUnauthorized: false }
+    : (process.env.PGSSL === 'true' ? { rejectUnauthorized: false } : false),
+});
 
 // coordinates for the seeded suggested trips (share_code → [{name, country, lat, lon}])
 const SEED_DESTS = {

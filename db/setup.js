@@ -1,10 +1,14 @@
 // One-time database setup: schema + seed of curated public trips.
 // Usage: DATABASE_URL=postgres://... node db/setup.js
+require('../lib/env');
 const { Pool } = require('pg');
 
+const url = process.env.DATABASE_URL;
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  connectionString: url,
+  ssl: url && url.includes('render.com')
+    ? { rejectUnauthorized: false }
+    : (process.env.PGSSL === 'true' ? { rejectUnauthorized: false } : false),
 });
 
 const SCHEMA = `

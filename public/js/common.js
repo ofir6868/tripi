@@ -124,20 +124,31 @@ const NAV_ICON = {
   gear: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
   map: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>',
   plus: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>',
+  more: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.6" fill="currentColor" stroke="none"/></svg>',
+  user: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  login: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>',
+  logout: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
 };
 
 function renderHeader() {
   document.querySelector('.site-header')?.remove(); // re-render after refreshUser()
+  document.getElementById('nav-menu-panel')?.remove(); // panel lives on body for real backdrop blur
   const el = document.createElement('header');
   el.className = 'site-header glass';
-  const adminPart = TRIPI.user && TRIPI.user.is_admin
-    ? `<a class="btn btn-ghost nav-admin" href="/admin" title="ניהול">${NAV_ICON.gear}<span class="nav-label">ניהול</span></a>`
-    : '';
-  const authPart = TRIPI.user
-    ? `${adminPart}
-       <a class="btn btn-ghost" href="/my" title="הטיולים שלי">${NAV_ICON.map}<span class="nav-label ph-mask">הטיולים של ${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</span></a>
-       <button class="btn btn-ghost nav-logout" id="nav-logout" title="התנתקות">יציאה</button>`
-    : `<button class="btn btn-ghost" id="nav-login">התחברות</button>`;
+  const menuItems = [];
+  if (TRIPI.user) {
+    if (TRIPI.user.is_admin) {
+      menuItems.push(`<a class="nav-menu-item nav-menu-admin" href="/admin">${NAV_ICON.gear}<span>ניהול</span></a>`);
+    }
+    menuItems.push(
+      `<a class="nav-menu-item" href="/my">${NAV_ICON.map}<span class="ph-mask">הטיולים של ${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</span></a>`,
+      `<button type="button" class="nav-menu-item nav-menu-logout" id="nav-logout">${NAV_ICON.logout}<span>יציאה</span></button>`,
+    );
+  } else {
+    menuItems.push(
+      `<button type="button" class="nav-menu-item" id="nav-login">${NAV_ICON.login}<span>התחברות</span></button>`,
+    );
+  }
   el.innerHTML = `
     <a class="logo" href="/">
       <span class="logo-stack" dir="ltr" role="img" aria-label="TRIP MAKER">
@@ -147,12 +158,68 @@ function renderHeader() {
       <span class="logo-he">מתכנן הטיולים שלך</span>
     </a>
     <nav class="nav-actions">
-      ${authPart}
+      <div class="nav-menu">
+        <button type="button" class="btn btn-ghost nav-menu-btn" id="nav-menu-btn"
+          aria-haspopup="menu" aria-expanded="false" aria-controls="nav-menu-panel" title="תפריט">
+          ${NAV_ICON.user}<span class="sr-only">תפריט</span>
+        </button>
+      </div>
       <a class="btn btn-amber" href="/plan">${NAV_ICON.plus}טיול חדש</a>
     </nav>`;
   document.body.prepend(el);
-  el.querySelector('#nav-login')?.addEventListener('click', () => openAuthModal());
-  el.querySelector('#nav-logout')?.addEventListener('click', () => TRIPI.logout());
+
+  const panel = document.createElement('div');
+  panel.className = 'nav-menu-panel glass';
+  panel.id = 'nav-menu-panel';
+  panel.setAttribute('role', 'menu');
+  panel.hidden = true;
+  panel.innerHTML = menuItems.join('');
+  document.body.appendChild(panel);
+
+  const menu = el.querySelector('.nav-menu');
+  const btn = el.querySelector('#nav-menu-btn');
+  const placePanel = () => {
+    const r = btn.getBoundingClientRect();
+    const gap = 10;
+    panel.style.top = `${Math.round(r.bottom + gap)}px`;
+    panel.style.left = `${Math.round(r.left)}px`;
+    panel.style.right = 'auto';
+    // keep inside the viewport if the measured width would overflow
+    requestAnimationFrame(() => {
+      const pr = panel.getBoundingClientRect();
+      if (pr.right > window.innerWidth - 12) {
+        panel.style.left = `${Math.max(12, Math.round(window.innerWidth - 12 - pr.width))}px`;
+      }
+      if (pr.left < 12) panel.style.left = '12px';
+    });
+  };
+  const setOpen = (open) => {
+    panel.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    menu.classList.toggle('open', open);
+    if (open) placePanel();
+  };
+  // abort previous document listeners when the header re-renders (refreshUser)
+  if (renderHeader._ac) renderHeader._ac.abort();
+  renderHeader._ac = new AbortController();
+  const { signal } = renderHeader._ac;
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setOpen(panel.hidden);
+  });
+  panel.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', () => setOpen(false), { signal });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') setOpen(false);
+  }, { signal });
+  window.addEventListener('resize', () => { if (!panel.hidden) placePanel(); }, { signal });
+  window.addEventListener('scroll', () => { if (!panel.hidden) placePanel(); }, { signal, capture: true });
+  panel.querySelector('#nav-logout')?.addEventListener('click', () => TRIPI.logout());
+  panel.querySelector('#nav-login')?.addEventListener('click', () => {
+    setOpen(false);
+    openAuthModal();
+  });
 }
 
 // ---------- click-to-copy ----------
