@@ -539,6 +539,23 @@ body::after {
 .switch-auth { text-align: center; margin-top: 16px; font-size: .92rem; color: var(--paper-dim); }
 .switch-auth a { color: var(--amber); cursor: pointer; text-decoration: none; font-weight: 700; }
 
+.auth-google-wrap { margin-top: 14px; }
+.auth-divider {
+  display: flex; align-items: center; gap: 12px;
+  margin: 4px 0 14px; color: var(--paper-dim); font-size: .85rem;
+}
+.auth-divider::before, .auth-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--glass-border);
+}
+.btn-google {
+  width: 100%; justify-content: center;
+  background: rgba(255, 255, 255, .92); color: #1f1f1f;
+  border-color: rgba(255, 255, 255, .35);
+  font-weight: 700;
+}
+.btn-google:hover { background: #fff; transform: translateY(-1px); }
+.btn-google .google-g { width: 18px; height: 18px; flex: none; }
+
 /* ---------- trip page ---------- */
 
 .trip-hero {

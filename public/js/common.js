@@ -259,6 +259,18 @@ function renderAuthModal() {
         <div class="form-error" id="auth-error"></div>
         <button class="btn btn-amber btn-lg" type="submit" style="width:100%;justify-content:center" id="auth-submit">התחברות</button>
       </form>
+      <div class="auth-google-wrap" id="auth-google-wrap" hidden>
+        <div class="auth-divider"><span>או</span></div>
+        <a class="btn btn-google" id="auth-google" href="/api/auth/google">
+          <svg class="google-g" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+          </svg>
+          המשך עם Google
+        </a>
+      </div>
       <div class="switch-auth" id="auth-switch">
         אין לכם חשבון? <a id="auth-toggle">הרשמה מהירה</a>
       </div>
@@ -281,6 +293,19 @@ function renderAuthModal() {
 
   wrap.querySelector('.modal-close').onclick = () => wrap.classList.remove('open');
   wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.classList.remove('open'); });
+
+  // only show Google when the server has credentials configured
+  fetch('/api/auth/providers').then((r) => r.json()).then((p) => {
+    if (!p.google) return;
+    const wrapEl = wrap.querySelector('#auth-google-wrap');
+    const link = wrap.querySelector('#auth-google');
+    wrapEl.hidden = false;
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      const next = location.pathname + location.search;
+      location.href = '/api/auth/google?next=' + encodeURIComponent(next);
+    });
+  }).catch(() => {});
 
   wrap.querySelector('#auth-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -317,12 +342,49 @@ function openAuthModal(onSuccess, mode = 'login') {
 }
 
 // ---------- atmosphere + boot ----------
-document.addEventListener('DOMContentLoaded', () => {
+async function consumeGoogleAuthHash() {
+  const hash = location.hash.startsWith('#') ? location.hash.slice(1) : location.hash;
+  const params = new URLSearchParams(hash);
+  const token = params.get('google_token');
+  if (!token) return false;
+  history.replaceState(null, '', location.pathname + location.search);
+  try {
+    TRIPI.token = token;
+    localStorage.setItem('tripi_token', token);
+    const me = await TRIPI.api('/api/me');
+    TRIPI.saveAuth(token, me);
+    return true;
+  } catch {
+    TRIPI.token = null;
+    TRIPI.user = null;
+    localStorage.removeItem('tripi_token');
+    localStorage.removeItem('tripi_user');
+    return false;
+  }
+}
+
+function showGoogleAuthError() {
+  const q = new URLSearchParams(location.search);
+  const err = q.get('google_error');
+  if (!err) return;
+  q.delete('google_error');
+  const clean = q.toString();
+  history.replaceState(null, '', location.pathname + (clean ? `?${clean}` : ''));
+  openAuthModal();
+  const errEl = document.querySelector('#auth-error');
+  if (errEl) errEl.textContent = err;
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
   const atm = document.createElement('div');
   atm.className = 'atmosphere';
   document.body.prepend(atm);
+  const fromGoogle = await consumeGoogleAuthHash();
   renderHeader();
   renderAuthModal();
-  TRIPI.refreshUser().then((changed) => { if (changed) renderHeader(); });
+  showGoogleAuthError();
+  if (!fromGoogle) {
+    TRIPI.refreshUser().then((changed) => { if (changed) renderHeader(); });
+  }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 });

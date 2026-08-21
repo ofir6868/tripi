@@ -171,6 +171,10 @@ async function main() {
   console.log('Migration 13: zero-pad single-digit stop hours (times sort as strings)...');
   await pool.query(`UPDATE trip_items SET time_label = '0' || time_label WHERE time_label ~ '^\\d:\\d\\d$'`);
 
+  console.log('Migration 14: Google sign-in (nullable password + google_sub)...');
+  await pool.query(`ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT UNIQUE`);
+
   console.log('Done.');
   await pool.end();
 }
