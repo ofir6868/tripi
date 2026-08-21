@@ -30,17 +30,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const locked = (msg) => {
     statsEl.innerHTML = '';
-    panel.innerHTML = `<div class="empty-state"><div class="big">🔒</div><p>${TRIPI.esc(msg)}</p></div>`;
+    panel.innerHTML = `<div class="empty-state"><div class="big">🔒</div><p>${TRIPMAKER.esc(msg)}</p></div>`;
   };
 
-  if (!TRIPI.token) {
+  if (!TRIPMAKER.token) {
     locked('צריך להתחבר כדי להיכנס לאזור הניהול.');
     openAuthModal(() => location.reload());
     return;
   }
   // the cached user can be stale in both directions — ask the server who we are
-  await TRIPI.refreshUser();
-  if (!TRIPI.user || !TRIPI.user.is_admin) {
+  await TRIPMAKER.refreshUser();
+  if (!TRIPMAKER.user || !TRIPMAKER.user.is_admin) {
     locked('האזור הזה מיועד למנהלי המערכת.');
     return;
   }
@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function loadStats() {
     try {
-      const s = await TRIPI.api('/api/admin/stats');
+      const s = await TRIPMAKER.api('/api/admin/stats');
       const tiles = [
         ['משתמשים', s.users, `+${s.new_users} בשבוע`],
         ['טיולים', s.trips, `+${s.new_trips} בשבוע`],
@@ -63,10 +63,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         <div class="adm-stat glass">
           <div class="adm-stat-n">${n}</div>
           <div class="adm-stat-label">${label}</div>
-          <div class="adm-stat-sub">${TRIPI.esc(sub)}</div>
+          <div class="adm-stat-sub">${TRIPMAKER.esc(sub)}</div>
         </div>`).join('');
     } catch (err) {
-      statsEl.innerHTML = `<div class="form-error">${TRIPI.esc(err.message)}</div>`;
+      statsEl.innerHTML = `<div class="form-error">${TRIPMAKER.esc(err.message)}</div>`;
     }
   }
 
@@ -74,10 +74,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     panel.innerHTML = '<div class="skl-rows">' + '<span class="skl"></span>'.repeat(4) + '</div>';
     const q = encodeURIComponent(searchEl.value.trim());
     try {
-      rows = await TRIPI.api(`/api/admin/${tab}?q=${q}`);
+      rows = await TRIPMAKER.api(`/api/admin/${tab}?q=${q}`);
       render();
     } catch (err) {
-      panel.innerHTML = `<div class="empty-day">${TRIPI.esc(err.message)}</div>`;
+      panel.innerHTML = `<div class="empty-day">${TRIPMAKER.esc(err.message)}</div>`;
     }
   }
 
@@ -100,12 +100,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         <tbody>${rows.map((t) => `
           <tr data-id="${t.id}">
             <td>
-              <a class="adm-link" href="/trip/${t.share_code}">${t.emoji || '🧭'} ${TRIPI.esc(t.title)}</a>
+              <a class="adm-link" href="/trip/${t.share_code}">${t.emoji || '🧭'} ${TRIPMAKER.esc(t.title)}</a>
               ${t.is_draft ? '<span class="adm-draft">✍️ בתכנון</span>' : ''}
-              <div class="adm-sub">${TRIPI.esc(t.destination)}${t.country ? ' · ' + TRIPI.esc(t.country) : ''} · ${t.days} ימים</div>
+              <div class="adm-sub">${TRIPMAKER.esc(t.destination)}${t.country ? ' · ' + TRIPMAKER.esc(t.country) : ''} · ${t.days} ימים</div>
             </td>
-            <td>${t.owner_name ? TRIPI.esc(t.owner_name) : '<span class="adm-sub">— ללא בעלים</span>'}
-              ${t.owner_email ? `<div class="adm-sub" dir="ltr">${TRIPI.esc(t.owner_email)}</div>` : ''}</td>
+            <td>${t.owner_name ? TRIPMAKER.esc(t.owner_name) : '<span class="adm-sub">— ללא בעלים</span>'}
+              ${t.owner_email ? `<div class="adm-sub" dir="ltr">${TRIPMAKER.esc(t.owner_email)}</div>` : ''}</td>
             <td dir="ltr" class="adm-codes">
               <span class="copyable adm-code" data-copy="${t.share_code}" title="קוד טיול — לחיצה מעתיקה">#${t.share_code}</span>
             </td>
@@ -126,13 +126,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         </tr></thead>
         <tbody>${rows.map((u) => `
           <tr data-id="${u.id}">
-            <td>${TRIPI.esc(u.name)}${u.id === TRIPI.user.id ? ' <span class="adm-you">אתם</span>' : ''}</td>
-            <td dir="ltr">${TRIPI.esc(u.email)}</td>
+            <td>${TRIPMAKER.esc(u.name)}${u.id === TRIPMAKER.user.id ? ' <span class="adm-you">אתם</span>' : ''}</td>
+            <td dir="ltr">${TRIPMAKER.esc(u.email)}</td>
             <td class="num">${u.trip_count}</td>
             <td class="adm-sub">${heDate(u.created_at)}</td>
             <td><label class="adm-switch"><input type="checkbox" class="adm-admin" ${u.is_admin ? 'checked' : ''}
-              ${u.id === TRIPI.user.id ? 'disabled title="אי אפשר להסיר הרשאות מעצמכם"' : ''}><span></span></label></td>
-            <td>${u.id === TRIPI.user.id
+              ${u.id === TRIPMAKER.user.id ? 'disabled title="אי אפשר להסיר הרשאות מעצמכם"' : ''}><span></span></label></td>
+            <td>${u.id === TRIPMAKER.user.id
               ? `<button class="adm-del self" disabled title="אי אפשר למחוק את עצמכם" aria-label="אי אפשר למחוק את עצמכם">${ICON.trash}</button>`
               : `<button class="adm-del" title="מחיקת המשתמש" aria-label="מחיקת המשתמש">${ICON.trash}</button>`}</td>
           </tr>`).join('')}</tbody>
@@ -184,7 +184,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const errEl = wrap.querySelector('#au-err');
       errEl.textContent = '';
       try {
-        const created = await TRIPI.api('/api/admin/users', {
+        const created = await TRIPMAKER.api('/api/admin/users', {
           method: 'POST',
           body: JSON.stringify({
             name: wrap.querySelector('#au-name').value,
@@ -207,13 +207,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   function showTempPassword(user, closeForm) {
     closeForm();
     const { wrap, close } = admModal(`
-      <h2>${TRIPI.esc(user.name)} נוצר/ה ✅</h2>
+      <h2>${TRIPMAKER.esc(user.name)} נוצר/ה ✅</h2>
       <p class="modal-sub">זו ההצגה היחידה של הסיסמה הזמנית — העתיקו אותה עכשיו ומסרו למשתמש</p>
       <div class="adm-cred">
         <div class="adm-cred-row"><span class="adm-cred-k">אימייל</span>
-          <span class="copyable adm-cred-v" dir="ltr">${TRIPI.esc(user.email)}</span></div>
+          <span class="copyable adm-cred-v" dir="ltr">${TRIPMAKER.esc(user.email)}</span></div>
         <div class="adm-cred-row"><span class="adm-cred-k">סיסמה זמנית</span>
-          <span class="copyable adm-cred-v" dir="ltr">${TRIPI.esc(user.temp_password)}</span></div>
+          <span class="copyable adm-cred-v" dir="ltr">${TRIPMAKER.esc(user.temp_password)}</span></div>
       </div>
       <button class="btn btn-amber btn-lg" id="au-done" style="width:100%;justify-content:center">סיימתי להעתיק</button>`);
     wrap.querySelector('#au-done').onclick = () => { close(); if (tab === 'users') load(); };
@@ -223,7 +223,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const owns = u.trip_count > 0;
     const { wrap, close } = admModal(`
       <h2>מחיקת משתמש</h2>
-      <p class="modal-sub">${TRIPI.esc(u.name)} · <span dir="ltr">${TRIPI.esc(u.email)}</span></p>
+      <p class="modal-sub">${TRIPMAKER.esc(u.name)} · <span dir="ltr">${TRIPMAKER.esc(u.email)}</span></p>
       ${owns ? `
         <p class="adm-warn">למשתמש הזה ${u.trip_count} טיולים. כברירת מחדל הם יישארו באתר בלי בעלים.</p>
         <label class="adm-check"><input type="checkbox" id="du-trips">
@@ -241,7 +241,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       btn.disabled = true;
       const dropTrips = owns && wrap.querySelector('#du-trips').checked;
       try {
-        const r = await TRIPI.api(`/api/admin/users/${u.id}${dropTrips ? '?trips=delete' : ''}`, { method: 'DELETE' });
+        const r = await TRIPMAKER.api(`/api/admin/users/${u.id}${dropTrips ? '?trips=delete' : ''}`, { method: 'DELETE' });
         close();
         onDone(r);
       } catch (err) {
@@ -257,7 +257,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const id = box.closest('tr').dataset.id;
         box.disabled = true; // a second click mid-flight can land out of order
         try {
-          await TRIPI.api('/api/trips/' + id, { method: 'PATCH', body: JSON.stringify({ is_public: box.checked }) });
+          await TRIPMAKER.api('/api/trips/' + id, { method: 'PATCH', body: JSON.stringify({ is_public: box.checked }) });
           loadStats();
         } catch (err) { box.checked = !box.checked; alert(err.message); }
         finally { box.disabled = false; }
@@ -270,7 +270,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!confirm(`למחוק לצמיתות את "${title}"? כל התחנות, המלונות וההוצאות יימחקו איתו.`)) return;
         btn.disabled = true;
         try {
-          await TRIPI.api('/api/trips/' + tr.dataset.id, { method: 'DELETE' });
+          await TRIPMAKER.api('/api/trips/' + tr.dataset.id, { method: 'DELETE' });
           tr.remove();
           rows = rows.filter((t) => String(t.id) !== tr.dataset.id);
           loadStats();
@@ -286,7 +286,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const id = box.closest('tr').dataset.id;
         box.disabled = true;
         try {
-          await TRIPI.api('/api/admin/users/' + id, { method: 'PATCH', body: JSON.stringify({ is_admin: box.checked }) });
+          await TRIPMAKER.api('/api/admin/users/' + id, { method: 'PATCH', body: JSON.stringify({ is_admin: box.checked }) });
         } catch (err) { box.checked = !box.checked; alert(err.message); }
         finally { box.disabled = false; }
       });

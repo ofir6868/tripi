@@ -42,7 +42,7 @@ const GEO = {
     const shift = (iso, years) => {
       const [y, m, d] = iso.split('-').map(Number);
       const dt = new Date(y - years, m - 1, d); // Feb 29 rolls to Mar 1 — fine for an estimate
-      return TRIPI.isoDate(dt);
+      return TRIPMAKER.isoDate(dt);
     };
     const fetchYear = async (years) => {
       const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}` +
@@ -240,7 +240,7 @@ const GEO = {
     input.addEventListener('keydown', (e) => {
       const open = list.classList.contains('open');
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        if (open) { e.preventDefault(); TRIPI.acMove(list, e.key === 'ArrowDown' ? 1 : -1); }
+        if (open) { e.preventDefault(); TRIPMAKER.acMove(list, e.key === 'ArrowDown' ? 1 : -1); }
       } else if (e.key === 'Enter' && open) {
         const act = list.querySelector('.autocomplete-item.active') || list.querySelector('.autocomplete-item');
         if (act) { e.preventDefault(); act.click(); }
@@ -288,7 +288,7 @@ const GEO = {
       const reveal = () => { img.classList.add('loaded'); img.parentElement.classList.remove('skl'); };
       if (img.complete && img.naturalWidth) reveal(); else img.onload = reveal;
       img.onerror = () => img.parentElement.remove();
-      img.onclick = (e) => { e.stopPropagation(); TRIPI.openLightbox(img.dataset.full); };
+      img.onclick = (e) => { e.stopPropagation(); TRIPMAKER.openLightbox(img.dataset.full); };
     });
   },
 };

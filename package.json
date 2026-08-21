@@ -1,7 +1,7 @@
 {
-  "name": "tripi",
+  "name": "tripmaker",
   "version": "1.0.0",
-  "description": "TRIPI - מתכנן הטיולים שלך",
+  "description": "TRIP MAKER - מתכנן הטיולים שלך",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

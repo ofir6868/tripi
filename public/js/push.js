@@ -2,7 +2,7 @@
 // deny it once and it's gone for good on that device — so it is never fired on
 // page load. It fires only from a deliberate tap on our own card, which explains
 // what the notifications are for before the OS dialog appears.
-const TRIPI_PUSH = (() => {
+const TRIPMAKER_PUSH = (() => {
   const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
   // iOS only exposes push to a PWA that was added to the home screen (16.4+), so
@@ -20,12 +20,12 @@ const TRIPI_PUSH = (() => {
 
   let keyPromise = null;
   const serverKey = () => {
-    if (!keyPromise) keyPromise = TRIPI.api('/api/push/key').catch(() => ({ enabled: false }));
+    if (!keyPromise) keyPromise = TRIPMAKER.api('/api/push/key').catch(() => ({ enabled: false }));
     return keyPromise;
   };
 
   const state = async () => {
-    if (!supported || needsInstall || !TRIPI.user) return 'unavailable';
+    if (!supported || needsInstall || !TRIPMAKER.user) return 'unavailable';
     const { enabled } = await serverKey();
     if (!enabled) return 'unavailable';
     if (Notification.permission === 'denied') return 'blocked';
@@ -42,7 +42,7 @@ const TRIPI_PUSH = (() => {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription()
       || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(key) });
-    await TRIPI.api('/api/push/subscribe', { method: 'POST', body: JSON.stringify(sub.toJSON()) });
+    await TRIPMAKER.api('/api/push/subscribe', { method: 'POST', body: JSON.stringify(sub.toJSON()) });
     return true;
   }
 
@@ -52,7 +52,7 @@ const TRIPI_PUSH = (() => {
     if (!sub) return true;
     // tell the server first — if unsubscribing locally succeeded but the row
     // stayed, we'd keep pushing into a dead endpoint until it 410s
-    await TRIPI.api('/api/push/unsubscribe', {
+    await TRIPMAKER.api('/api/push/unsubscribe', {
       method: 'POST', body: JSON.stringify({ endpoint: sub.endpoint }),
     }).catch(() => {});
     await sub.unsubscribe();
@@ -71,7 +71,7 @@ const PUSH_BELL = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path 
 
 async function offerPushOptIn(anchor) {
   if (localStorage.getItem('tm_push_asked')) return;
-  if (await TRIPI_PUSH.state() !== 'off') return;
+  if (await TRIPMAKER_PUSH.state() !== 'off') return;
 
   const card = document.createElement('div');
   card.className = 'push-ask glass';
@@ -99,7 +99,7 @@ async function offerPushOptIn(anchor) {
     btn.disabled = true;
     btn.textContent = 'מפעילים…';
     try {
-      await TRIPI_PUSH.enable();
+      await TRIPMAKER_PUSH.enable();
       card.classList.add('done');
       card.querySelector('.pa-title').textContent = 'מעולה — נעדכן אתכם 🔔';
       card.querySelector('.pa-sub').textContent = 'אפשר לכבות בכל רגע במסך המשתתפים.';

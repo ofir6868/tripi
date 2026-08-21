@@ -6,11 +6,11 @@
 // Three hosts, tried in order, because the API is still moving:
 //   1. document.modelContext  — where the W3C draft put it (April 2026)
 //   2. navigator.modelContext — Edge 147 / the Chrome 149 origin trial, deprecated in Chrome 150
-//   3. window.tripiTools      — our own bridge, always installed
+//   3. window.tripmakerTools      — our own bridge, always installed
 //
 // (3) is the one that matters today: native support is thin, and almost every agent
 // that reaches this site does so through a headless browser where the only channel is
-// evaluating JS. Same tools, same arguments, same results — `window.tripiTools.call()`
+// evaluating JS. Same tools, same arguments, same results — `window.tripmakerTools.call()`
 // is a faithful stand-in for a native host, not a lesser path.
 (function () {
   'use strict';
@@ -151,7 +151,7 @@
 
   // ---------- the always-on bridge ----------
   // Anything with a JS channel into the page gets the same tools a native host would,
-  // through `window.tripiTools`. Deliberately on `window` and deliberately unminified:
+  // through `window.tripmakerTools`. Deliberately on `window` and deliberately unminified:
   // it is a documented entry point, not an implementation detail.
   const bridge = {
     // 'document' | 'navigator' | null — which native host picked the tools up, if any
@@ -178,27 +178,27 @@
   function announce() {
     clearTimeout(announced);
     announced = setTimeout(() => {
-      const via = bridge.host ? bridge.host + '.modelContext' : 'window.tripiTools only (no native host)';
+      const via = bridge.host ? bridge.host + '.modelContext' : 'window.tripmakerTools only (no native host)';
       console.info(
         `[TRIP MAKER] WebMCP: ${registry.size} tools via ${via}. ` +
-        'window.tripiTools.list() to see them, window.tripiTools.call(name, input) to run one.'
+        'window.tripmakerTools.list() to see them, window.tripmakerTools.call(name, input) to run one.'
       );
     }, 250);
   }
 
-  window.tripiTools = bridge;
+  window.tripmakerTools = bridge;
 
-  // common.js declares TRIPI with `const`, which is a lexical binding and never lands
+  // common.js declares TRIPMAKER with `const`, which is a lexical binding and never lands
   // on window — so this has to reach the identifier directly. typeof guards the case
   // where webmcp.js is loaded on its own.
   try {
-    if (typeof TRIPI !== 'undefined') {
-      TRIPI.mcp = {
+    if (typeof TRIPMAKER !== 'undefined') {
+      TRIPMAKER.mcp = {
         register, registerAll, unregister, ok, fail,
         list: () => bridge.list(),
         call: (n, i) => bridge.call(n, i),
         get host() { return bridge.host; },
       };
     }
-  } catch { /* no common.js on this page — window.tripiTools still works */ }
+  } catch { /* no common.js on this page — window.tripmakerTools still works */ }
 }());

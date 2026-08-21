@@ -51,13 +51,13 @@
     document.addEventListener('DOMContentLoaded', async () => {
       const wrap = document.getElementById('my-wrap');
       const grid = document.getElementById('my-grid');
-      if (!TRIPI.user) { grid.innerHTML = ''; openAuthModal(() => location.reload()); return; }
+      if (!TRIPMAKER.user) { grid.innerHTML = ''; openAuthModal(() => location.reload()); return; }
       // a draft card shows a "בתכנון" tag where the (not yet revealed) code chip
       // would be; everything else — cover, delete, link — behaves the same
       const card = (t) => `
           <a class="trip-card" href="/trip/${t.share_code}">
             <div class="tc-media">
-              <img class="tc-img" src="${TRIPI.esc(t.cover_image || '')}" alt="" loading="lazy" onerror="this.removeAttribute('src')">
+              <img class="tc-img" src="${TRIPMAKER.esc(t.cover_image || '')}" alt="" loading="lazy" onerror="this.removeAttribute('src')">
               <span class="tc-emoji">${t.emoji || '🧭'}</span>
               <span class="tc-days">${t.days} ימים</span>
               ${t.is_draft ? '<span class="tc-role draft">✍️ בתכנון</span>' : (t.is_mine ? '' : '<span class="tc-role">משתתף</span>')}
@@ -71,14 +71,14 @@
               </button>`}
               ${t.is_draft ? '' : `<span class="tc-code-chip copyable" data-copy="${t.share_code}" title="לחיצה מעתיקה את קוד הטיול">#${t.share_code}</span>`}
               <div class="tc-body">
-                <div class="tc-country">${TRIPI.esc(t.country || '')}</div>
-                <div class="tc-title">${TRIPI.esc(t.title)}</div>
-                <div class="tc-dest">${TRIPI.esc(t.destination)}</div>
+                <div class="tc-country">${TRIPMAKER.esc(t.country || '')}</div>
+                <div class="tc-title">${TRIPMAKER.esc(t.title)}</div>
+                <div class="tc-dest">${TRIPMAKER.esc(t.destination)}</div>
               </div>
             </div>
           </a>`;
       try {
-        const trips = await TRIPI.api('/api/my-trips');
+        const trips = await TRIPMAKER.api('/api/my-trips');
         if (!trips.length) { grid.innerHTML = ''; document.getElementById('empty').style.display = ''; return; }
         const drafts = trips.filter((t) => t.is_draft);
         const rest = trips.filter((t) => !t.is_draft);
@@ -99,13 +99,13 @@
             if (b.disabled) return;
             if (!confirm('למחוק את הטיול לצמיתות?')) return;
             b.disabled = true;
-            try { await TRIPI.api('/api/trips/' + b.dataset.id, { method: 'DELETE' }); }
+            try { await TRIPMAKER.api('/api/trips/' + b.dataset.id, { method: 'DELETE' }); }
             catch { b.disabled = false; return; }
             location.reload();
           });
         });
       } catch (err) {
-        grid.innerHTML = '<div class="empty-day">' + TRIPI.esc(err.message) + '</div>';
+        grid.innerHTML = '<div class="empty-day">' + TRIPMAKER.esc(err.message) + '</div>';
       }
     });
   </script>

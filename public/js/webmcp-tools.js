@@ -8,9 +8,9 @@
 (function () {
   'use strict';
   // needs both halves: the registry from webmcp.js and the API client from common.js
-  if (!window.tripiTools || typeof TRIPI === 'undefined' || !TRIPI.mcp) return;
+  if (!window.tripmakerTools || typeof TRIPMAKER === 'undefined' || !TRIPMAKER.mcp) return;
 
-  const { register, ok, fail } = TRIPI.mcp;
+  const { register, ok, fail } = TRIPMAKER.mcp;
 
   // the item shape both create_trip and the trip-page tools accept, kept in one place
   // so a stop means the same thing wherever an agent writes one
@@ -31,7 +31,7 @@
   };
   // trip.js builds its stop tools from the same definition, so a stop's fields never
   // drift between "create the trip with an itinerary" and "add one stop to it"
-  TRIPI.mcp.stopProps = STOP_PROPS;
+  TRIPMAKER.mcp.stopProps = STOP_PROPS;
 
   const tripUrl = (code) => location.origin + '/trip/' + code;
 
@@ -53,7 +53,7 @@
     likes: t.likes ?? 0,
   });
 
-  const requireAuth = () => (TRIPI.token
+  const requireAuth = () => (TRIPMAKER.token
     ? null
     : fail('Not signed in. The user has to sign in through the site header first — an agent must not enter credentials on their behalf.'));
 
@@ -65,12 +65,12 @@
     annotations: { readOnlyHint: true },
     inputSchema: { type: 'object', properties: {} },
     execute: async () => ok({
-      signed_in: !!TRIPI.token,
-      user: TRIPI.user ? { name: TRIPI.user.name, email: TRIPI.user.email, is_admin: !!TRIPI.user.is_admin } : null,
+      signed_in: !!TRIPMAKER.token,
+      user: TRIPMAKER.user ? { name: TRIPMAKER.user.name, email: TRIPMAKER.user.email, is_admin: !!TRIPMAKER.user.is_admin } : null,
       url: location.href,
       // the trip page registers extra tools; this is how an agent knows to expect them
       open_trip_code: /^\/trip\/(\d{6})$/.test(location.pathname) ? location.pathname.split('/').pop() : null,
-      tools: window.tripiTools.list().map((t) => t.name),
+      tools: window.tripmakerTools.list().map((t) => t.name),
     }),
   });
 
@@ -90,7 +90,7 @@
     execute: async ({ query }) => {
       const q = String(query || '').trim();
       if (!q) return fail('query is required');
-      const rows = await TRIPI.api('/api/trips/search?q=' + encodeURIComponent(q));
+      const rows = await TRIPMAKER.api('/api/trips/search?q=' + encodeURIComponent(q));
       return ok({ count: rows.length, trips: rows.map(tripSummary) });
     },
   });
@@ -102,7 +102,7 @@
     annotations: { readOnlyHint: true, untrustedContentHint: true },
     inputSchema: { type: 'object', properties: {} },
     execute: async () => {
-      const rows = await TRIPI.api('/api/trips/suggested');
+      const rows = await TRIPMAKER.api('/api/trips/suggested');
       return ok({ count: rows.length, trips: rows.map(tripSummary) });
     },
   });
@@ -120,7 +120,7 @@
     execute: async ({ code }) => {
       const c = String(code || '').trim();
       if (!/^\d{6}$/.test(c)) return fail('code must be 6 digits');
-      const data = await TRIPI.api('/api/trips/code/' + encodeURIComponent(c));
+      const data = await TRIPMAKER.api('/api/trips/code/' + encodeURIComponent(c));
       const byDay = new Map();
       for (const it of data.items || []) {
         if (!byDay.has(it.day_number)) byDay.set(it.day_number, []);
@@ -159,7 +159,7 @@
     execute: async () => {
       const denied = requireAuth();
       if (denied) return denied;
-      const rows = await TRIPI.api('/api/my-trips');
+      const rows = await TRIPMAKER.api('/api/my-trips');
       return ok({
         count: rows.length,
         trips: rows.map((t) => ({ ...tripSummary(t), is_mine: !!t.is_mine })),
@@ -232,7 +232,7 @@
       if (!String(input.destination || '').trim() && !(input.destinations || []).length) {
         return fail('give either destination text or a destinations array');
       }
-      const trip = await TRIPI.api('/api/trips', { method: 'POST', body: JSON.stringify(input) });
+      const trip = await TRIPMAKER.api('/api/trips', { method: 'POST', body: JSON.stringify(input) });
       return ok({
         created: true,
         ...tripSummary(trip),

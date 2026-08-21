@@ -1,13 +1,13 @@
 ---
 name: verify
-description: Run TRIPI locally and drive it to see a change working — server startup, minting a dev JWT, and hitting the authed API routes.
+description: Run TRIPMAKER locally and drive it to see a change working — server startup, minting a dev JWT, and hitting the authed API routes.
 ---
 
-# Verifying TRIPI changes
+# Verifying TRIPMAKER changes
 
 ## Run the app
 
-`preview_start` with the `tripi` config in `.claude/launch.json` (`node server.js`).
+`preview_start` with the `tripmaker` config in `.claude/launch.json` (`node server.js`).
 Port 3000 is often taken by another session — `autoPort` picks a free one and the
 result reports it. `.env` is loaded by `lib/env` and already holds `DATABASE_URL`
 (the live Render Postgres) and `OPENAI_API_KEY`.
@@ -20,10 +20,10 @@ and think your change did nothing.
 
 Every `/api/ai/*` and most `/api/trips/*` routes are `authRequired`: a Bearer JWT,
 no cookies. Locally `JWT_SECRET` is unset, so `lib/auth` falls back to
-`tripi-dev-secret-change-me` and you can mint your own without registering a user:
+`tripmaker-dev-secret-change-me` and you can mint your own without registering a user:
 
 ```bash
-node -e "console.log(require('jsonwebtoken').sign({id:999999,name:'verify'},'tripi-dev-secret-change-me',{expiresIn:'1h'}))"
+node -e "console.log(require('jsonwebtoken').sign({id:999999,name:'verify'},'tripmaker-dev-secret-change-me',{expiresIn:'1h'}))"
 ```
 
 Then POST with `fetch` from a scratchpad script — Hebrew payloads survive a JSON
@@ -57,8 +57,8 @@ before finishing.
   days when you only need to see which branch ran.
 - Builds return the itinerary in the response; **nothing is written to the DB**
   until the client saves the trip. Safe to drive against the live `DATABASE_URL`.
-- To drive the real wizard UI, put the dev JWT in localStorage (`tripi_token` plus a
-  `tripi_user` JSON blob) and open `/plan?dest=<יעד>&cc=<xx>` — a country pick lands
+- To drive the real wizard UI, put the dev JWT in localStorage (`tripmaker_token` plus a
+  `tripmaker_user` JSON blob) and open `/plan?dest=<יעד>&cc=<xx>` — a country pick lands
   straight on step 2. `/api/me` 401s for a synthetic user, which `refreshUser`
   swallows, so the page works anyway. The final `POST /api/trips` will 500 on a
   foreign-key violation (`owner_id` not in `users`) — everything up to and including

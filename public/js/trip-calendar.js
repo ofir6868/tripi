@@ -3,7 +3,7 @@
 // stop opens its details in a modal — a bottom sheet on phones.
 // ctx = { trip, state, dayDate(day) -> Date|null, weather() -> { iso: forecast } }
 const TripCalendar = (() => {
-  const esc = (s) => TRIPI.esc(s);
+  const esc = (s) => TRIPMAKER.esc(s);
   const DOW = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳']; // Sunday-first, like every Hebrew calendar
   const CAT_EMOJI = {
     'אטרקציה': '🎡', 'אוכל': '🍜', 'טבע': '🌿', 'ים': '🏖️', 'תרבות': '🎭',
@@ -78,7 +78,7 @@ const TripCalendar = (() => {
   function weatherOf(ctx, day) {
     const date = ctx.dayDate(day);
     if (!date) return null;
-    return ctx.weather()[TRIPI.isoDate(date)] || null;
+    return ctx.weather()[TRIPMAKER.isoDate(date)] || null;
   }
 
   const stopEmoji = (it) => it.category === 'נסיעה' ? TripModals.travelIcon(it) : (CAT_EMOJI[it.category] || '📍');
@@ -296,7 +296,7 @@ const TripCalendar = (() => {
     const cur = TripModals.curOf(ctx.state);
     const dayCost = TripModals.plannedByDay(ctx.state)[d];
     const hotelLines = TripModals.dayHotelLines(ctx.state, d);
-    const routeUrl = TRIPI.mapsRouteUrl(items);
+    const routeUrl = TRIPMAKER.mapsRouteUrl(items);
 
     body.innerHTML = `
       <div class="cal-day-strip">
@@ -314,7 +314,7 @@ const TripCalendar = (() => {
         ${date ? `<span class="day-date">${date.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}</span>` : ''}
         ${dayCost ? `<span class="day-cost" title="עלות משוערת של היום (בלי לינה)">${TripModals.fmt(dayCost, cur)}</span>` : ''}
         ${routeUrl ? `<a class="day-route" target="_blank" rel="noopener" href="${esc(routeUrl)}"
-          title="נפתח בגוגל מפות, בחלון חדש">${TRIPI.routeIcon} מסלול בגוגל מפות ${TRIPI.externalIcon}</a>` : ''}
+          title="נפתח בגוגל מפות, בחלון חדש">${TRIPMAKER.routeIcon} מסלול בגוגל מפות ${TRIPMAKER.externalIcon}</a>` : ''}
         ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}${w.est ? ' · ממוצע היסטורי' : ''}">${GEO.weatherIcon(w.code)} ${w.est ? '≈' : ''}${w.max}°</span>` : ''}
       </div>
       ${hotelLines.length ? `<div class="day-hotels">${hotelLines.map((l) =>
@@ -450,10 +450,10 @@ const TripCalendar = (() => {
       </div>
       ${it.note ? `<div class="item-note"${tap('note')}>${esc(it.note)}</div>` : ''}
       ${it.place_query ? `<div class="item-more-place"${tap('place')}><span class="imp-pin">📍</span><span class="imp-text">${esc(it.place_query)}</span></div>` : ''}
-      ${hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPI.mapsEmbedUrlExact(it)}"></iframe>` : ''}
+      ${hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPMAKER.mapsEmbedUrlExact(it)}"></iframe>` : ''}
       ${it.place_query ? '<div class="stop-gallery"></div>' : ''}
       ${hasMap ? `<a class="btn btn-ghost sm-maps" target="_blank" rel="noopener"
-        href="${esc(TRIPI.mapsSearchUrl(it.place_query || `${it.lat},${it.lon}`))}">פתיחה בגוגל מפות ›</a>` : ''}
+        href="${esc(TRIPMAKER.mapsSearchUrl(it.place_query || `${it.lat},${it.lon}`))}">פתיחה בגוגל מפות ›</a>` : ''}
       ${ctx.canEdit ? `<button type="button" class="btn btn-amber sm-edit">${icPencil}<span>עריכת התחנה</span></button>` : ''}`;
 
     const gal = body.querySelector('.stop-gallery');

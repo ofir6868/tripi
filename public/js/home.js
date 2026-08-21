@@ -53,10 +53,10 @@
     codeBusy = true;
     hint.textContent = 'רגע, מאתרים את הטיול…';
     try {
-      await TRIPI.api('/api/trips/code/' + q);
+      await TRIPMAKER.api('/api/trips/code/' + q);
       location.href = '/trip/' + q;
     } catch (err) {
-      hint.innerHTML = `<span class="err">${TRIPI.esc(err.message)}</span>`;
+      hint.innerHTML = `<span class="err">${TRIPMAKER.esc(err.message)}</span>`;
       codeBusy = false;
     }
   }
@@ -88,7 +88,7 @@
       openResults();
     }
     try {
-      const rows = await TRIPI.api('/api/trips/search?q=' + encodeURIComponent(q));
+      const rows = await TRIPMAKER.api('/api/trips/search?q=' + encodeURIComponent(q));
       if (mySeq !== seq) return; // a newer keystroke already took over
       // section 1 — creation. Country matches (max 3, flag in the thumb square) lead;
       // clicking one opens the wizard with that country pre-picked. With no country
@@ -99,7 +99,7 @@
           <a class="search-result plan-cta" href="/plan?dest=${encodeURIComponent(c.name)}&cc=${c.cc}" role="option">
             <span class="sr-flag">${COUNTRIES.flagHtml(c.cc)}</span>
             <div>
-              <div class="sr-title">טיול ל${TRIPI.esc(c.name)}</div>
+              <div class="sr-title">טיול ל${TRIPMAKER.esc(c.name)}</div>
               <div class="sr-meta">מתכננים טיול חדש — ה-AI בונה את המסלול</div>
             </div>
             ${GO_ARROW}
@@ -108,7 +108,7 @@
           <a class="search-result plan-cta" href="/plan?dest=${encodeURIComponent(q)}" role="option">
             <span class="pc-icon"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg></span>
             <div>
-              <div class="sr-title">מתכננים טיול חדש ל"${TRIPI.esc(q)}"</div>
+              <div class="sr-title">מתכננים טיול חדש ל"${TRIPMAKER.esc(q)}"</div>
               <div class="sr-meta">בוחרים יעד, כמה ימים — וה-AI בונה את המסלול</div>
             </div>
             ${GO_ARROW}
@@ -116,21 +116,21 @@
       const inspiration = rows.length
         ? `<div class="sr-group-label">מקבלים השראה מטיולים של אחרים</div>` + rows.map((t) => `
           <a class="search-result" href="/trip/${t.share_code}" role="option">
-            <img src="${TRIPI.esc(t.cover_image || '')}" alt="" loading="lazy" onerror="this.style.display='none'">
+            <img src="${TRIPMAKER.esc(t.cover_image || '')}" alt="" loading="lazy" onerror="this.style.display='none'">
             <div>
-              <div class="sr-title">${t.emoji || '🧭'} ${TRIPI.esc(t.title)}</div>
-              <div class="sr-meta">${TRIPI.esc(t.destination)}${t.country ? ' · ' + TRIPI.esc(t.country) : ''} · ${t.days} ימים</div>
+              <div class="sr-title">${t.emoji || '🧭'} ${TRIPMAKER.esc(t.title)}</div>
+              <div class="sr-meta">${TRIPMAKER.esc(t.destination)}${t.country ? ' · ' + TRIPMAKER.esc(t.country) : ''} · ${t.days} ימים</div>
             </div>
             ${GO_ARROW}
           </a>`).join('')
-        : `<div class="sr-empty">עוד אין טיולים ל"${TRIPI.esc(q)}" — תהיו הראשונים 🌍</div>`;
+        : `<div class="sr-empty">עוד אין טיולים ל"${TRIPMAKER.esc(q)}" — תהיו הראשונים 🌍</div>`;
       results.innerHTML = planCta + inspiration;
       activeIdx = -1;
       openResults();
     } catch (err) {
       if (mySeq !== seq) return;
       closeResults();
-      hint.innerHTML = `<span class="err">${TRIPI.esc(err.message)}</span>`;
+      hint.innerHTML = `<span class="err">${TRIPMAKER.esc(err.message)}</span>`;
     }
   }
 
@@ -186,14 +186,14 @@
     return `
       <a class="trip-card" href="/trip/${t.share_code}">
         <div class="tc-media">
-          <img class="tc-img" src="${TRIPI.esc(t.cover_image || '')}" alt="${TRIPI.esc(t.destination)}" loading="lazy"
+          <img class="tc-img" src="${TRIPMAKER.esc(t.cover_image || '')}" alt="${TRIPMAKER.esc(t.destination)}" loading="lazy"
                onerror="this.removeAttribute('src')">
           <span class="tc-emoji">${t.emoji || '🧭'}</span>
           <span class="tc-days">${t.days} ימים</span>
           <div class="tc-body">
-            <div class="tc-country">${TRIPI.esc(t.country || '')}</div>
-            <div class="tc-title">${TRIPI.esc(t.title)}</div>
-            <div class="tc-dest">${TRIPI.esc((t.description || '').slice(0, 72))}…</div>
+            <div class="tc-country">${TRIPMAKER.esc(t.country || '')}</div>
+            <div class="tc-title">${TRIPMAKER.esc(t.title)}</div>
+            <div class="tc-dest">${TRIPMAKER.esc((t.description || '').slice(0, 72))}…</div>
           </div>
         </div>
       </a>`;
@@ -224,7 +224,7 @@
 
   async function loadSuggested() {
     try {
-      const fetched = await TRIPI.api('/api/trips/suggested');
+      const fetched = await TRIPMAKER.api('/api/trips/suggested');
       // near-duplicates (two 22-day Japan trips) crowd the shop window — keep one
       // card per country+length. The server pre-sorts by likes, so first-seen wins.
       const seen = new Set();

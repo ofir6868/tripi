@@ -1,12 +1,28 @@
 // Shared: auth state, header rendering, auth modal, small helpers.
-const TRIPI = {
-  token: localStorage.getItem('tripi_token'),
-  user: JSON.parse(localStorage.getItem('tripi_user') || 'null'),
+
+// The storage prefix moved with the rename (tripi_* → tripmaker_*). Carry over
+// whatever a browser still holds so an open session keeps its login, likes and
+// drafts instead of silently starting from scratch. Runs before anything reads a
+// key, and is a no-op once the old keys are gone.
+(() => {
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith('tripi_')) continue;
+      const renamed = 'tripmaker_' + key.slice('tripi_'.length);
+      if (localStorage.getItem(renamed) === null) localStorage.setItem(renamed, localStorage.getItem(key));
+      localStorage.removeItem(key);
+    }
+  } catch { /* storage blocked — nothing to carry over */ }
+})();
+
+const TRIPMAKER = {
+  token: localStorage.getItem('tripmaker_token'),
+  user: JSON.parse(localStorage.getItem('tripmaker_user') || 'null'),
 
   saveAuth(token, user) {
     this.token = token; this.user = user;
-    localStorage.setItem('tripi_token', token);
-    localStorage.setItem('tripi_user', JSON.stringify(user));
+    localStorage.setItem('tripmaker_token', token);
+    localStorage.setItem('tripmaker_user', JSON.stringify(user));
   },
   // the cached user is whatever login returned, possibly months ago — re-read it so
   // an admin promotion (or rename) shows up without forcing a logout/login round
@@ -16,7 +32,7 @@ const TRIPI = {
       const me = await this.api('/api/me');
       const changed = !this.user || this.user.is_admin !== me.is_admin || this.user.name !== me.name;
       this.user = me;
-      localStorage.setItem('tripi_user', JSON.stringify(me));
+      localStorage.setItem('tripmaker_user', JSON.stringify(me));
       return changed;
     } catch {
       return false; // expired token / offline — every other call handles that on its own
@@ -24,8 +40,8 @@ const TRIPI = {
   },
   logout() {
     this.token = null; this.user = null;
-    localStorage.removeItem('tripi_token');
-    localStorage.removeItem('tripi_user');
+    localStorage.removeItem('tripmaker_token');
+    localStorage.removeItem('tripmaker_user');
     location.href = '/';
   },
   async api(path, opts = {}) {
@@ -136,12 +152,12 @@ function renderHeader() {
   const el = document.createElement('header');
   el.className = 'site-header glass';
   const menuItems = [];
-  if (TRIPI.user) {
-    if (TRIPI.user.is_admin) {
+  if (TRIPMAKER.user) {
+    if (TRIPMAKER.user.is_admin) {
       menuItems.push(`<a class="nav-menu-item nav-menu-admin" href="/admin">${NAV_ICON.gear}<span>ניהול</span></a>`);
     }
     menuItems.push(
-      `<a class="nav-menu-item" href="/my">${NAV_ICON.map}<span class="ph-mask">הטיולים של ${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</span></a>`,
+      `<a class="nav-menu-item" href="/my">${NAV_ICON.map}<span class="ph-mask">הטיולים של ${TRIPMAKER.esc(TRIPMAKER.user.name.split(' ')[0])}</span></a>`,
       `<button type="button" class="nav-menu-item nav-menu-logout" id="nav-logout">${NAV_ICON.logout}<span>יציאה</span></button>`,
     );
   } else {
@@ -149,8 +165,8 @@ function renderHeader() {
       `<button type="button" class="nav-menu-item" id="nav-login">${NAV_ICON.login}<span>התחברות</span></button>`,
     );
   }
-  const userName = TRIPI.user
-    ? `<span class="logo-user">שלום, <span class="ph-mask">${TRIPI.esc(TRIPI.user.name.split(' ')[0])}</span></span>`
+  const userName = TRIPMAKER.user
+    ? `<span class="logo-user">שלום, <span class="ph-mask">${TRIPMAKER.esc(TRIPMAKER.user.name.split(' ')[0])}</span></span>`
     : `<span class="logo-he">מתכנן הטיולים שלך</span>`;
   el.innerHTML = `
     <a class="logo" href="/">
@@ -223,7 +239,7 @@ function renderHeader() {
   }, { signal });
   window.addEventListener('resize', () => { if (!panel.hidden) placePanel(); }, { signal });
   window.addEventListener('scroll', () => { if (!panel.hidden) placePanel(); }, { signal, capture: true });
-  panel.querySelector('#nav-logout')?.addEventListener('click', () => TRIPI.logout());
+  panel.querySelector('#nav-logout')?.addEventListener('click', () => TRIPMAKER.logout());
   panel.querySelector('#nav-login')?.addEventListener('click', () => {
     setOpen(false);
     openAuthModal();
@@ -238,7 +254,7 @@ document.addEventListener('click', async (e) => {
   if (!el) return;
   e.preventDefault();   // codes often sit inside a card <a> — copy instead of navigating
   e.stopPropagation();
-  const ok = await TRIPI.copy(el.dataset.copy || el.textContent.trim());
+  const ok = await TRIPMAKER.copy(el.dataset.copy || el.textContent.trim());
   el.classList.remove('copied', 'copy-failed');
   void el.offsetWidth; // restart the bubble even on a rapid second click
   el.classList.add(ok ? 'copied' : 'copy-failed');
@@ -335,8 +351,8 @@ function renderAuthModal() {
     try {
       const path = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
       const body = authMode === 'register' ? { name, email, password } : { email, password };
-      const data = await TRIPI.api(path, { method: 'POST', body: JSON.stringify(body) });
-      TRIPI.saveAuth(data.token, data.user);
+      const data = await TRIPMAKER.api(path, { method: 'POST', body: JSON.stringify(body) });
+      TRIPMAKER.saveAuth(data.token, data.user);
       wrap.classList.remove('open');
       if (authOnSuccess) { const cb = authOnSuccess; authOnSuccess = null; cb(); }
       else location.reload();
@@ -364,16 +380,16 @@ async function consumeGoogleAuthHash() {
   if (!token) return false;
   history.replaceState(null, '', location.pathname + location.search);
   try {
-    TRIPI.token = token;
-    localStorage.setItem('tripi_token', token);
-    const me = await TRIPI.api('/api/me');
-    TRIPI.saveAuth(token, me);
+    TRIPMAKER.token = token;
+    localStorage.setItem('tripmaker_token', token);
+    const me = await TRIPMAKER.api('/api/me');
+    TRIPMAKER.saveAuth(token, me);
     return true;
   } catch {
-    TRIPI.token = null;
-    TRIPI.user = null;
-    localStorage.removeItem('tripi_token');
-    localStorage.removeItem('tripi_user');
+    TRIPMAKER.token = null;
+    TRIPMAKER.user = null;
+    localStorage.removeItem('tripmaker_token');
+    localStorage.removeItem('tripmaker_user');
     return false;
   }
 }
@@ -399,7 +415,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderAuthModal();
   showGoogleAuthError();
   if (!fromGoogle) {
-    TRIPI.refreshUser().then((changed) => { if (changed) renderHeader(); });
+    TRIPMAKER.refreshUser().then((changed) => { if (changed) renderHeader(); });
   }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 });

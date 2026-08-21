@@ -22,14 +22,14 @@
 לוחצים, הדף מגיש לו כלים בשם, עם סכימת קלט ותוצאה מובנית.
 
 הכלים נרשמים לכל מארח שהדפדפן חושף, לפי הסדר: `document.modelContext` (הטיוטה של W3C),
-`navigator.modelContext` (Edge 147 / ה-origin trial של Chrome 149), ובכל מקרה גם `window.tripiTools` —
+`navigator.modelContext` (Edge 147 / ה-origin trial של Chrome 149), ובכל מקרה גם `window.tripmakerTools` —
 גשר משלנו. הגשר הוא זה שעובד היום בפועל: תמיכה נייטיבית עדיין דקה, ורוב הסוכנים שמגיעים לאתר עושים זאת
 דרך דפדפן headless שבו הערוץ היחיד הוא הרצת JS.
 
 ```js
-window.tripiTools.host              // 'document' | 'navigator' | null
-window.tripiTools.list()            // כל הכלים: שם, תיאור, inputSchema, annotations
-await window.tripiTools.call(name, input)
+window.tripmakerTools.host              // 'document' | 'navigator' | null
+window.tripmakerTools.list()            // כל הכלים: שם, תיאור, inputSchema, annotations
+await window.tripmakerTools.call(name, input)
 ```
 
 התוצאה תמיד באותו מבנה — `content` קריא לאדם ו-`structuredContent` לפרסור. כישלון חוזר כתוצאה עם

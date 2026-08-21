@@ -37,16 +37,16 @@
     posthog.capture('$pageview');
 
     const identify = () => {
-      if (TRIPI.user && TRIPI.user.id != null) posthog.identify('user_' + TRIPI.user.id);
+      if (TRIPMAKER.user && TRIPMAKER.user.id != null) posthog.identify('user_' + TRIPMAKER.user.id);
     };
     identify();
 
     // login can complete without a page load (authOnSuccess callbacks), and logout
     // must drop the identity before the shared-device next user shows up
-    const saveAuth = TRIPI.saveAuth.bind(TRIPI);
-    TRIPI.saveAuth = (token, user) => { saveAuth(token, user); identify(); };
-    const logout = TRIPI.logout.bind(TRIPI);
-    TRIPI.logout = () => { try { posthog.reset(); } catch { /* recorder gone — proceed */ } logout(); };
+    const saveAuth = TRIPMAKER.saveAuth.bind(TRIPMAKER);
+    TRIPMAKER.saveAuth = (token, user) => { saveAuth(token, user); identify(); };
+    const logout = TRIPMAKER.logout.bind(TRIPMAKER);
+    TRIPMAKER.logout = () => { try { posthog.reset(); } catch { /* recorder gone — proceed */ } logout(); };
   };
   document.head.appendChild(s);
 })();

@@ -14,7 +14,7 @@ const TripModals = (() => {
     { key: 'אחר', emoji: '✨' },
   ];
 
-  const esc = (s) => TRIPI.esc(s);
+  const esc = (s) => TRIPMAKER.esc(s);
   const sym = (cur) => CURRENCIES[cur] || '₪';
   const fmt = (n, cur) => `${sym(cur)}${Math.round(+n || 0).toLocaleString('he-IL')}`;
   const curOf = (state) => (state.budget && state.budget.currency) || 'ILS';
@@ -161,7 +161,7 @@ const TripModals = (() => {
     const mk = (offsetDays) => {
       const d = new Date(state.trip.start_date);
       d.setDate(d.getDate() + offsetDays);
-      return TRIPI.isoDate(d);
+      return TRIPMAKER.isoDate(d);
     };
     return { checkin: mk(h.night_start - 1), checkout: mk(h.night_end) };
   }
@@ -216,7 +216,7 @@ const TripModals = (() => {
     // we left a modal's entry: close it, and any stacked above it, topmost first
     while (modalStack.length) {
       const id = modalStack[modalStack.length - 1];
-      if (history.state && history.state.tripiModal === id) break;
+      if (history.state && history.state.tripmakerModal === id) break;
       modalStack.pop();
       document.getElementById(id)?.classList.remove('open');
     }
@@ -225,7 +225,7 @@ const TripModals = (() => {
   // dismissing goes back one entry so the panel and the history stay in step;
   // popstate is what actually hides it
   function dismissModal(wrap) {
-    if (history.state && history.state.tripiModal === wrap.id) { history.back(); return; }
+    if (history.state && history.state.tripmakerModal === wrap.id) { history.back(); return; }
     const i = modalStack.indexOf(wrap.id);
     if (i >= 0) modalStack.splice(i, 1);
     wrap.classList.remove('open');
@@ -261,7 +261,7 @@ const TripModals = (() => {
     if (!wrap.classList.contains('open')) {
       wrap.classList.add('open');
       modalStack.push(id);
-      history.pushState({ tripiModal: id }, '', location.href);
+      history.pushState({ tripmakerModal: id }, '', location.href);
     }
     return wrap;
   }
@@ -334,7 +334,7 @@ const TripModals = (() => {
           ${state.canEdit && (h.price_total || h.note) ? `<div class="hc-details">${h.price_total ? fmt(h.price_total, curOf(state)) : ''}${h.price_total && h.note ? ' · ' : ''}${h.note ? esc(h.note) : ''}</div>` : ''}
           ${over.length ? `<div class="hc-warn">⚠️ ${over.map((o) => `יש חפיפה עם "${esc(o.name)}"`)[0]}</div>` : ''}
           <div class="hc-actions">
-            <a target="_blank" rel="noopener" href="${esc(TRIPI.mapsSearchUrl(h.name + (block ? ' ' + block.name : '')))}">${HICON.pin} מפה</a>
+            <a target="_blank" rel="noopener" href="${esc(TRIPMAKER.mapsSearchUrl(h.name + (block ? ' ' + block.name : '')))}">${HICON.pin} מפה</a>
             <a target="_blank" rel="noopener" data-book="${h.id}" data-kind="${h.link ? 'custom_link' : 'booking_search'}" href="${esc(bookingUrl(state, h))}">${h.link ? `${HICON.link} להזמנה` : `${HICON.search} חיפוש בבוקינג`}</a>
             <span class="hc-spacer"></span>
             <button type="button" class="hc-edit" data-id="${h.id}">${HICON.pencil} עריכה</button>
@@ -384,7 +384,7 @@ const TripModals = (() => {
           const headers = await ctx.ensureEdit();
           if (!headers) return;
           try {
-            const updated = await TRIPI.api(`/api/trips/code/${state.trip.share_code}/hotels/${h.id}`, {
+            const updated = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels/${h.id}`, {
               method: 'PUT', headers,
               body: JSON.stringify({ ...h, status: h.status === 'booked' ? 'idea' : 'booked' }),
             });
@@ -405,7 +405,7 @@ const TripModals = (() => {
           const headers = await ctx.ensureEdit();
           if (!headers) return;
           try {
-            await TRIPI.api(`/api/trips/code/${state.trip.share_code}/hotels/${b.dataset.id}`, { method: 'DELETE', headers });
+            await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels/${b.dataset.id}`, { method: 'DELETE', headers });
             state.hotels = state.hotels.filter((x) => x.id !== +b.dataset.id);
             ctx.state.hotels = state.hotels;
             render(); ctx.refresh();
@@ -417,7 +417,7 @@ const TripModals = (() => {
       body.querySelectorAll('a[data-book]').forEach((a) => {
         a.addEventListener('click', () => {
           const h = state.hotels.find((x) => x.id === +a.dataset.book);
-          TRIPI.track('hotel_link_click', {
+          TRIPMAKER.track('hotel_link_click', {
             trip_id: state.trip.id, kind: a.dataset.kind, affiliate: !!TP.marker,
             night_start: h && h.night_start, night_end: h && h.night_end,
           });
@@ -509,12 +509,12 @@ const TripModals = (() => {
         };
         try {
           if (h) {
-            const updated = await TRIPI.api(`/api/trips/code/${state.trip.share_code}/hotels/${h.id}`, {
+            const updated = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels/${h.id}`, {
               method: 'PUT', headers, body: JSON.stringify(payload),
             });
             Object.assign(h, updated);
           } else {
-            const created = await TRIPI.api(`/api/trips/code/${state.trip.share_code}/hotels`, {
+            const created = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels`, {
               method: 'POST', headers, body: JSON.stringify(payload),
             });
             state.hotels.push(created);
@@ -597,7 +597,7 @@ const TripModals = (() => {
   // A collapsed night stays collapsed — on a two-week trip there are thirteen of
   // these, and someone who has already decided about a night should not have to
   // dismiss it again on every visit. Per trip, per night, in localStorage.
-  const collapsedKey = (state) => 'tripi_nights_min_' + state.trip.share_code;
+  const collapsedKey = (state) => 'tripmaker_nights_min_' + state.trip.share_code;
 
   function collapsedNights(state) {
     try { return new Set(JSON.parse(localStorage.getItem(collapsedKey(state)) || '[]')); } catch { return new Set(); }
@@ -776,7 +776,7 @@ const TripModals = (() => {
         el.textContent = 'אין מחיר לתאריך הזה';
       }
     }
-    TRIPI.track('night_card_prices', { trip_id: state.trip.id, night, asked: ids.length, priced });
+    TRIPMAKER.track('night_card_prices', { trip_id: state.trip.id, night, asked: ids.length, priced });
   }
 
   // LiteAPI scores a fixed set of categories, in English. Guest pros/cons stay
@@ -820,10 +820,10 @@ const TripModals = (() => {
         ${hotel.distance != null ? `<span class="hs-dist">${hotel.distance < 1000 ? `${hotel.distance} מ'` : `${(hotel.distance / 1000).toFixed(1)} ק"מ`} מסוף היום</span>` : ''}
       </div>
       <a class="btn btn-amber hs-book" target="_blank" rel="noopener"
-         href="${esc(hotelSearchUrl(hotel.name))}" title="נפתח בגוגל, בחלון חדש">להזמנה ${TRIPI.externalIcon}</a>
+         href="${esc(hotelSearchUrl(hotel.name))}" title="נפתח בגוגל, בחלון חדש">להזמנה ${TRIPMAKER.externalIcon}</a>
       <div class="hs-loading">טוען פרטים…</div>`;
 
-    body.querySelector('.hs-book')?.addEventListener('click', () => TRIPI.track('hotel_book_click', {
+    body.querySelector('.hs-book')?.addEventListener('click', () => TRIPMAKER.track('hotel_book_click', {
       trip_id: state.trip.id, night, provider: hotel.provider || null, from: 'hotel_sheet',
     }));
 
@@ -850,7 +850,7 @@ const TripModals = (() => {
       if (l) l.textContent = 'לא הצלחנו לטעון פרטים נוספים';
     });
 
-    TRIPI.track('hotel_sheet_open', { trip_id: state.trip.id, night, provider: hotel.provider || null });
+    TRIPMAKER.track('hotel_sheet_open', { trip_id: state.trip.id, night, provider: hotel.provider || null });
   }
 
   // Wires every night card the itinerary just painted. Safe to call after each
@@ -870,7 +870,7 @@ const TripModals = (() => {
         b.setAttribute('aria-expanded', String(!shut));
         setNightCollapsed(state, night, shut);
         if (!shut) fill(card); // opened for the first time — go get the hotels
-        TRIPI.track('night_card_toggle', { trip_id: state.trip.id, night, collapsed: shut });
+        TRIPMAKER.track('night_card_toggle', { trip_id: state.trip.id, night, collapsed: shut });
       };
     });
     const fill = async (el) => {
@@ -898,7 +898,7 @@ const TripModals = (() => {
         return;
       }
       rail.innerHTML = railHtml(state, night, picked);
-      TRIPI.track('night_card_shown', {
+      TRIPMAKER.track('night_card_shown', {
         trip_id: state.trip.id, night, count: picked.length,
         provider: picked[0].provider || null, with_photo: picked.filter((h) => h.thumb || h.photo).length,
       });
@@ -906,7 +906,7 @@ const TripModals = (() => {
       loadPrices(state, night, picked, rail);
 
       rail.querySelectorAll('[data-book-i]').forEach((a) => {
-        a.addEventListener('click', () => TRIPI.track('hotel_book_click', {
+        a.addEventListener('click', () => TRIPMAKER.track('hotel_book_click', {
           trip_id: state.trip.id, night, rank: +a.dataset.bookI + 1,
           provider: picked[+a.dataset.bookI].provider || null, from: 'night_card',
         }));
@@ -942,7 +942,7 @@ const TripModals = (() => {
           const headers = await ctx.ensureEdit();
           if (!headers) { b.disabled = false; return; }
           try {
-            const created = await TRIPI.api(`/api/trips/code/${state.trip.share_code}/hotels`, {
+            const created = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels`, {
               method: 'POST', headers,
               body: JSON.stringify({
                 name: h.name, night_start: night, night_end: night, status: 'idea',
@@ -954,7 +954,7 @@ const TripModals = (() => {
             b.classList.add('saved');
             b.innerHTML = NC_ICON.check;
             b.title = 'נשמר ברשימת המלונות';
-            TRIPI.track('night_card_save_idea', { trip_id: state.trip.id, night });
+            TRIPMAKER.track('night_card_save_idea', { trip_id: state.trip.id, night });
             // deliberately no ctx.refresh(): an idea changes nothing the itinerary
             // draws, and a repaint here would wipe the tick the user just earned
           } catch (e) {
@@ -1013,7 +1013,7 @@ const TripModals = (() => {
     }
   });
 
-  const personalKey = (state) => 'tripi_personal_budget_' + state.trip.share_code;
+  const personalKey = (state) => 'tripmaker_personal_budget_' + state.trip.share_code;
   function loadPersonal(state) {
     try {
       const p = JSON.parse(localStorage.getItem(personalKey(state)) || 'null');
@@ -1158,7 +1158,7 @@ const TripModals = (() => {
           if (!headers) return;
           btn.disabled = true;
           try {
-            state.budget = await TRIPI.api(`/api/trips/code/${state.trip.share_code}/budget`, {
+            state.budget = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/budget`, {
               method: 'PUT', headers,
               body: JSON.stringify({
                 total: body.querySelector('.bs-total').value || null,
@@ -1279,7 +1279,7 @@ const TripModals = (() => {
         if (!headers) return;
         btn.disabled = true;
         try {
-          const created = await TRIPI.api(`/api/trips/code/${state.trip.share_code}/expenses`, {
+          const created = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/expenses`, {
             method: 'POST', headers, body: JSON.stringify(expense),
           });
           state.expenses.unshift(created);
@@ -1359,7 +1359,7 @@ const TripModals = (() => {
         const headers = await ctx.ensureEdit();
         if (!headers) return;
         try {
-          state.budget = await TRIPI.api(`/api/trips/code/${state.trip.share_code}/budget`, {
+          state.budget = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/budget`, {
             method: 'PUT', headers,
             body: JSON.stringify({ total: body.querySelector('.st-total').value || null, currency: newCur, travelers: +trav.value }),
           });
@@ -1370,7 +1370,7 @@ const TripModals = (() => {
       wireReset('לאפס את התקציב המשותף? התקרה, המטבע ומספר המטיילים יימחקו לכולם', async () => {
         const headers = await ctx.ensureEdit();
         if (!headers) return;
-        await TRIPI.api(`/api/trips/code/${state.trip.share_code}/budget`, { method: 'DELETE', headers });
+        await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/budget`, { method: 'DELETE', headers });
         state.budget = null;
         budgetView.skippedSetup = false;
         ctx.refresh();
@@ -1476,7 +1476,7 @@ const TripModals = (() => {
           if (!headers) return;
           const it = state.items.find((x) => x.id === +inp.dataset.item);
           try {
-            const updated = await TRIPI.api(`/api/trips/code/${state.trip.share_code}/items/${it.id}`, {
+            const updated = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/items/${it.id}`, {
               method: 'PATCH', headers, body: JSON.stringify({ cost: inp.value || null }),
             });
             it.cost = updated.cost;
@@ -1495,7 +1495,7 @@ const TripModals = (() => {
           const headers = await ctx.ensureEdit();
           if (!headers) return;
           try {
-            await TRIPI.api(`/api/trips/code/${state.trip.share_code}/expenses/${b.dataset.id}`, { method: 'DELETE', headers });
+            await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/expenses/${b.dataset.id}`, { method: 'DELETE', headers });
             state.expenses = state.expenses.filter((e) => e.id !== +b.dataset.id);
             render(); ctx.refresh();
           } catch (e) { alert(e.message); }

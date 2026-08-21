@@ -27,11 +27,11 @@
   // edit rights: trip participants (owner included). A ?join=TOKEN invite link makes
   // a visitor a participant-in-waiting — the token is stashed per-trip so it survives
   // the register/login round trip, and is redeemed the moment there's a logged-in user.
-  const savedInvites = JSON.parse(localStorage.getItem('tripi_invites') || '{}');
+  const savedInvites = JSON.parse(localStorage.getItem('tripmaker_invites') || '{}');
   const urlToken = new URLSearchParams(location.search).get('join');
   if (urlToken) {
     savedInvites[code] = urlToken;
-    localStorage.setItem('tripi_invites', JSON.stringify(savedInvites));
+    localStorage.setItem('tripmaker_invites', JSON.stringify(savedInvites));
     history.replaceState(null, '', location.pathname); // the token shouldn't linger in the address bar
   }
   let inviteToken = savedInvites[code] || null;
@@ -82,14 +82,14 @@
   function forgetInvite() {
     inviteToken = null;
     delete savedInvites[code];
-    localStorage.setItem('tripi_invites', JSON.stringify(savedInvites));
+    localStorage.setItem('tripmaker_invites', JSON.stringify(savedInvites));
   }
 
   // one shot per token: joined or rejected, it's no longer pending
   async function redeemInvite() {
-    if (!inviteToken || !TRIPI.user) return false;
+    if (!inviteToken || !TRIPMAKER.user) return false;
     try {
-      await TRIPI.api('/api/trips/code/' + encodeURIComponent(code) + '/join', {
+      await TRIPMAKER.api('/api/trips/code/' + encodeURIComponent(code) + '/join', {
         method: 'POST', body: JSON.stringify({ token: inviteToken }),
       });
       forgetInvite();
@@ -114,10 +114,10 @@
 
   async function load() {
     // an invite link + a logged-in user = redeem first, so the page arrives unlocked
-    if (TRIPI.user && inviteToken) await redeemInvite();
+    if (TRIPMAKER.user && inviteToken) await redeemInvite();
     let data;
     try {
-      data = await TRIPI.api('/api/trips/code/' + encodeURIComponent(code));
+      data = await TRIPMAKER.api('/api/trips/code/' + encodeURIComponent(code));
     } catch {
       hideTripLoader();
       document.querySelector('.trip-hero').style.display = 'none';
@@ -146,10 +146,10 @@
         .filter(Boolean)
     )].map((cc) => COUNTRIES.flagHtml(cc)).join(' ');
     document.getElementById('trip-title').innerHTML =
-      `${trip.emoji || '🧭'} ${TRIPI.esc(trip.title)}${tripFlags ? ' ' + tripFlags : ''}`;
+      `${trip.emoji || '🧭'} ${TRIPMAKER.esc(trip.title)}${tripFlags ? ' ' + tripFlags : ''}`;
 
     const meta = [];
-    meta.push(`<span class="chip"><span class="dot">●</span> ${TRIPI.esc(trip.destination)}${trip.country ? ', ' + TRIPI.esc(trip.country) : ''}</span>`);
+    meta.push(`<span class="chip"><span class="dot">●</span> ${TRIPMAKER.esc(trip.destination)}${trip.country ? ', ' + TRIPMAKER.esc(trip.country) : ''}</span>`);
     meta.push(`<span class="chip"><span class="dot">●</span> ${trip.days} ימים</span>`);
     // the dates chip goes in between, added by renderDateChip() once edit rights are
     // known — with no dates on the trip it's a badge that sets them, not a chip
@@ -164,7 +164,7 @@
     function renderDesc() {
       document.getElementById('trip-desc').innerHTML =
         `<div class="trip-desc-text" id="trip-desc-text">${
-          trip.description ? TRIPI.esc(trip.description) : 'עוד אין תיאור לטיול הזה — אבל המסלול מדבר בעד עצמו 🙂'
+          trip.description ? TRIPMAKER.esc(trip.description) : 'עוד אין תיאור לטיול הזה — אבל המסלול מדבר בעד עצמו 🙂'
         }</div>` +
         `<button type="button" class="trip-desc-toggle" id="trip-desc-toggle" hidden>הצג עוד</button>`;
       setupDescToggle();
@@ -183,7 +183,7 @@
     const votesOn = canEdit && participants.length > 1;
     let votesByItem = {}; // item_id → {up, down, my_vote}
     if (votesOn) {
-      TRIPI.api(`/api/trips/code/${trip.share_code}/votes`).then((rows) => {
+      TRIPMAKER.api(`/api/trips/code/${trip.share_code}/votes`).then((rows) => {
         votesByItem = Object.fromEntries(rows.map((r) => [r.item_id, r]));
         if (rows.length) renderItinerary();
       }).catch(() => {});
@@ -224,7 +224,7 @@
     // ---- view mode: a long trip is always a calendar, no toggle. A short trip is a
     // list, with a toggle over to the calendar. The choice can't ride on editMode —
     // participants are always in edit mode, so that would pin them to one view. ----
-    const savedViewModes = JSON.parse(localStorage.getItem('tripi_view_modes') || '{}');
+    const savedViewModes = JSON.parse(localStorage.getItem('tripmaker_view_modes') || '{}');
     const longTrip = trip.days > 7;
     let viewMode = longTrip ? 'calendar' : (savedViewModes[trip.share_code] || 'list');
     const viewToggle = document.getElementById('view-toggle');
@@ -245,7 +245,7 @@
         b.onclick = () => {
           viewMode = b.dataset.v;
           savedViewModes[trip.share_code] = viewMode;
-          localStorage.setItem('tripi_view_modes', JSON.stringify(savedViewModes));
+          localStorage.setItem('tripmaker_view_modes', JSON.stringify(savedViewModes));
           renderItinerary();
         };
       });
@@ -265,7 +265,7 @@
     // the one write path for a stop: patch, fold the server's row back into the
     // item both views already hold, and repaint. Throws on failure — callers show it.
     async function saveItem(item, patch) {
-      const updated = await TRIPI.api(`/api/trips/code/${trip.share_code}/items/${item.id}`, {
+      const updated = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/items/${item.id}`, {
         method: 'PATCH', headers: canEditHeaders, body: JSON.stringify(patch),
       });
       Object.assign(item, updated);
@@ -277,7 +277,7 @@
     }
 
     async function addItem(data) {
-      const item = await TRIPI.api(`/api/trips/code/${trip.share_code}/items`, {
+      const item = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/items`, {
         method: 'POST', headers: canEditHeaders, body: JSON.stringify(data),
       });
       tripItems.push(item);
@@ -289,7 +289,7 @@
     }
 
     async function deleteItem(item) {
-      await TRIPI.api(`/api/trips/code/${trip.share_code}/items/${item.id}`, {
+      await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/items/${item.id}`, {
         method: 'DELETE', headers: canEditHeaders,
       });
       tripItems = tripItems.filter((x) => x.id !== item.id);
@@ -323,7 +323,7 @@
       // half-moved arrangement the drag preview has already replaced on screen
       try {
         for (const { item, patch } of jobs) {
-          const updated = await TRIPI.api(`/api/trips/code/${trip.share_code}/items/${item.id}`, {
+          const updated = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/items/${item.id}`, {
             method: 'PATCH', headers: canEditHeaders, body: JSON.stringify(patch),
           });
           Object.assign(item, updated);
@@ -481,18 +481,18 @@
       const cur = TripModals.curOf(state);
       container.innerHTML = [...byDay.keys()].sort((a, b) => a - b).map((day) => {
         const date = dayDate(day);
-        const iso = date ? TRIPI.isoDate(date) : null;
+        const iso = date ? TRIPMAKER.isoDate(date) : null;
         const w = iso && weatherByDate[iso];
         const hotelLines = TripModals.dayHotelLines(state, day);
-        const routeUrl = TRIPI.mapsRouteUrl(byDay.get(day));
+        const routeUrl = TRIPMAKER.mapsRouteUrl(byDay.get(day));
         return `
         <div class="day-block" data-day="${day}">
           <div class="day-title">
             <span class="day-badge">יום ${day}</span>
             ${date ? `<span class="day-date">${date.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}</span>` : ''}
             ${dayCosts[day] ? `<span class="day-cost" title="עלות משוערת של היום (בלי לינה)">${TripModals.fmt(dayCosts[day], cur)}</span>` : ''}
-            ${routeUrl ? `<a class="day-route" target="_blank" rel="noopener" href="${TRIPI.esc(routeUrl)}"
-              title="נפתח בגוגל מפות, בחלון חדש">${TRIPI.routeIcon} מסלול בגוגל מפות ${TRIPI.externalIcon}</a>` : ''}
+            ${routeUrl ? `<a class="day-route" target="_blank" rel="noopener" href="${TRIPMAKER.esc(routeUrl)}"
+              title="נפתח בגוגל מפות, בחלון חדש">${TRIPMAKER.routeIcon} מסלול בגוגל מפות ${TRIPMAKER.externalIcon}</a>` : ''}
             ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}${w.est ? ' · ממוצע היסטורי' : ''}">${GEO.weatherIcon(w.code)} ${w.est ? '≈' : ''}${w.max}°</span>` : ''}
           </div>
           ${hotelLines.length ? `<div class="day-hotels">${hotelLines.map((l) =>
@@ -505,17 +505,17 @@
                 ${isTravel ? `data-ticon="${TripModals.travelIcon(it)}"` : ''} data-item-id="${it.id}"
                 role="button" tabindex="0" title="לחיצה לפרטי התחנה">
                 <div class="item-top">
-                  ${it.time_label ? `<span class="item-time">${TRIPI.esc(it.time_label)}</span>` : ''}
-                  <span class="item-title">${TRIPI.esc(it.title)}</span>
+                  ${it.time_label ? `<span class="item-time">${TRIPMAKER.esc(it.time_label)}</span>` : ''}
+                  <span class="item-title">${TRIPMAKER.esc(it.title)}</span>
                   <span class="item-badges">
                     ${voteHtml(it)}
                     ${+it.cost > 0 ? `<span class="item-cost">${TripModals.fmt(it.cost, TripModals.curOf(state))}</span>` : ''}
-                    ${multiDest() && it.area ? `<span class="item-area">📍 ${TRIPI.esc(it.area)}</span>` : ''}
-                    ${it.category ? `<span class="item-cat">${TRIPI.esc(it.category)}</span>` : ''}
+                    ${multiDest() && it.area ? `<span class="item-area">📍 ${TRIPMAKER.esc(it.area)}</span>` : ''}
+                    ${it.category ? `<span class="item-cat">${TRIPMAKER.esc(it.category)}</span>` : ''}
                     ${editMode ? `<button class="item-del" data-id="${it.id}" title="מחיקת תחנה">✕</button>` : ''}
                   </span>
                 </div>
-                ${it.note ? `<div class="item-note">${TRIPI.esc(it.note)}</div>` : ''}
+                ${it.note ? `<div class="item-note">${TRIPMAKER.esc(it.note)}</div>` : ''}
               </div>`;
             }).join('')}
             ${byDay.get(day).length === 0 && editMode ? '<div class="empty-day">יום פנוי — מוסיפים תחנה למטה ↓</div>' : ''}
@@ -558,7 +558,7 @@
           const mine = (votesByItem[id] || {}).my_vote || 0;
           const next = mine === +b.dataset.v ? 0 : +b.dataset.v;
           try {
-            votesByItem[id] = await TRIPI.api(`/api/trips/code/${trip.share_code}/items/${id}/vote`, {
+            votesByItem[id] = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/items/${id}/vote`, {
               method: 'PUT', headers: canEditHeaders || {}, body: JSON.stringify({ vote: next }),
             });
             renderItinerary();
@@ -721,11 +721,11 @@
           if (!headers) return;
           saveBtn.disabled = true;
           try {
-            const updated = await TRIPI.api(`/api/trips/code/${trip.share_code}/dates`, {
+            const updated = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/dates`, {
               method: 'PUT', headers, body: JSON.stringify({ start_date: picked }),
             });
             Object.assign(trip, updated);
-            TRIPI.track('trip_dates_set', { trip_id: trip.id, days: trip.days });
+            TRIPMAKER.track('trip_dates_set', { trip_id: trip.id, days: trip.days });
             close();
             applyDates();
           } catch (e) { err.textContent = e.message; }
@@ -734,7 +734,7 @@
       }
       // no past-date guard: a trip already under way, or one being written up after
       // the fact, has dates too — this is about filling them in, not about the future
-      datesPicker.set(trip.start_date ? TRIPI.isoDate(new Date(trip.start_date)) : null);
+      datesPicker.set(trip.start_date ? TRIPMAKER.isoDate(new Date(trip.start_date)) : null);
       datesHint(datesPicker.value());
       wrap.querySelector('#dates-error').textContent = '';
       wrap.classList.add('open');
@@ -772,20 +772,20 @@
     };
 
     function renderParticipantsList(wrap) {
-      const me = TRIPI.user ? TRIPI.user.id : null;
+      const me = TRIPMAKER.user ? TRIPMAKER.user.id : null;
       wrap.querySelector('#pt-count').textContent = participants.length;
       wrap.querySelector('#participants-list').innerHTML = participants.map((p) => {
         const self = p.id === me;
         const action = self ? 'עזיבת הטיול' : `הסרת ${p.name} מהטיול`;
         return `
         <div class="pt-row${p.is_owner ? ' owner' : ''}">
-          <span class="pt-avatar">${TRIPI.esc((String(p.name || '?').trim()[0] || '?').toUpperCase())}</span>
+          <span class="pt-avatar">${TRIPMAKER.esc((String(p.name || '?').trim()[0] || '?').toUpperCase())}</span>
           <span class="pt-id">
-            <span class="pt-name"><span class="pt-name-t">${TRIPI.esc(p.name)}</span>${self ? '<span class="pt-me">אני</span>' : ''}</span>
+            <span class="pt-name"><span class="pt-name-t">${TRIPMAKER.esc(p.name)}</span>${self ? '<span class="pt-me">אני</span>' : ''}</span>
             <span class="pt-role">${p.is_owner ? 'מארגן הטיול' : 'עורך את הטיול'}</span>
           </span>
           ${p.is_owner ? '' : `<button type="button" class="pt-remove" data-id="${p.id}"
-            title="${TRIPI.esc(action)}" aria-label="${TRIPI.esc(action)}">${self ? PT_ICON.leave : PT_ICON.remove}</button>`}
+            title="${TRIPMAKER.esc(action)}" aria-label="${TRIPMAKER.esc(action)}">${self ? PT_ICON.leave : PT_ICON.remove}</button>`}
         </div>`;
       }).join('');
       wrap.querySelectorAll('.pt-remove').forEach((b) => {
@@ -796,7 +796,7 @@
             ? 'לעזוב את הטיול? אפשר תמיד לחזור עם קישור הזמנה'
             : 'להסיר את המשתתף? הוא יאבד את הרשאת העריכה')) return;
           try {
-            await TRIPI.api(`/api/trips/code/${trip.share_code}/participants/${uid}`, { method: 'DELETE' });
+            await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/participants/${uid}`, { method: 'DELETE' });
             if (self) { location.reload(); return; }
             participants = participants.filter((p) => p.id !== uid);
             document.getElementById('participants-label').textContent =
@@ -884,7 +884,7 @@
           window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
         };
         wrap.querySelector('#invite-copy').onclick = async () => {
-          await TRIPI.copy(inviteLink());
+          await TRIPMAKER.copy(inviteLink());
           flash('קישור ההזמנה הועתק! ✓');
         };
         wrap.querySelector('#invite-regen').onclick = async (e) => {
@@ -892,7 +892,7 @@
           const btn = e.currentTarget;
           btn.disabled = true;
           try {
-            const r = await TRIPI.api(`/api/trips/code/${trip.share_code}/invite/regenerate`, { method: 'POST' });
+            const r = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/invite/regenerate`, { method: 'POST' });
             trip.invite_token = r.invite_token;
             flash('נוצר קישור חדש ✓');
           } catch (err) { alert(err.message); }
@@ -905,10 +905,10 @@
         const pushToggle = wrap.querySelector('#push-toggle');
         const pushDesc = wrap.querySelector('#push-desc');
         syncPushSection = async () => {
-          const st = await TRIPI_PUSH.state();
-          if (st === 'unavailable' && !TRIPI_PUSH.needsInstall) { pushSec.style.display = 'none'; return; }
+          const st = await TRIPMAKER_PUSH.state();
+          if (st === 'unavailable' && !TRIPMAKER_PUSH.needsInstall) { pushSec.style.display = 'none'; return; }
           pushSec.style.display = '';
-          if (TRIPI_PUSH.needsInstall) {
+          if (TRIPMAKER_PUSH.needsInstall) {
             pushToggle.checked = false;
             pushToggle.disabled = true;
             pushDesc.textContent = 'באייפון צריך קודם להוסיף את TRIP MAKER למסך הבית — ואז אפשר להפעיל התראות';
@@ -927,8 +927,8 @@
         pushToggle.onchange = async () => {
           pushToggle.disabled = true;
           try {
-            if (pushToggle.checked) await TRIPI_PUSH.enable();
-            else await TRIPI_PUSH.disable();
+            if (pushToggle.checked) await TRIPMAKER_PUSH.enable();
+            else await TRIPMAKER_PUSH.disable();
             localStorage.setItem('tm_push_asked', '1'); // decided here — don't ask again elsewhere
           } catch (err) {
             pushDesc.textContent = err.message;
@@ -947,7 +947,7 @@
 
     // bottom banner for invite holders who aren't signed in yet: they can look
     // around freely, and one quick signup makes them a participant
-    if (inviteToken && !canEdit && !TRIPI.user) {
+    if (inviteToken && !canEdit && !TRIPMAKER.user) {
       const banner = document.createElement('div');
       banner.className = 'join-banner glass';
       banner.innerHTML = `
@@ -986,7 +986,7 @@
     if (multiDest()) {
       document.getElementById('trip-ai-scope').style.display = '';
       aiArea.innerHTML = '<option value="">כל הטיול</option>' +
-        tripDests.map((d) => `<option>${TRIPI.esc(d.name)}</option>`).join('');
+        tripDests.map((d) => `<option>${TRIPMAKER.esc(d.name)}</option>`).join('');
       aiArea.onchange = syncAiScopeRange;
     }
     aiInput.addEventListener('input', () => { aiCount.textContent = `${aiInput.value.length}/200`; });
@@ -1007,7 +1007,7 @@
               day_to: +document.getElementById('trip-ai-to').value || trip.days }
           : {};
         const snapDesc = trip.description; // for the undo — the item inverse comes from the server
-        const r = await TRIPI.api(`/api/trips/code/${trip.share_code}/ai-edit`, {
+        const r = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/ai-edit`, {
           method: 'POST', headers: canEditHeaders || {},
           body: JSON.stringify({ prompt, ...scope }),
         });
@@ -1065,17 +1065,17 @@
       const base = `/api/trips/code/${trip.share_code}`;
       try {
         for (const id of ops.added) {
-          await TRIPI.api(`${base}/items/${id}`, { method: 'DELETE', headers: H }).catch(() => {});
+          await TRIPMAKER.api(`${base}/items/${id}`, { method: 'DELETE', headers: H }).catch(() => {});
         }
         for (const u of ops.updated) {
           // exactly the columns the edit touched, back to their pre-edit values
-          await TRIPI.api(`${base}/items/${u.id}`, {
+          await TRIPMAKER.api(`${base}/items/${u.id}`, {
             method: 'PATCH', headers: H, body: JSON.stringify(u.fields),
           }).catch(() => {});
         }
         for (const it of ops.deleted) {
           try {
-            const row = await TRIPI.api(`${base}/items`, {
+            const row = await TRIPMAKER.api(`${base}/items`, {
               method: 'POST', headers: H,
               body: JSON.stringify({
                 day_number: it.day_number, time_label: it.time_label, title: it.title,
@@ -1086,7 +1086,7 @@
             // POST assigns MAX(sort_order)+1 — pin the original slot back so an
             // unclocked stop returns to where it stood, not to the day's end
             if ((row.sort_order ?? 0) !== (it.sort_order ?? 0)) {
-              await TRIPI.api(`${base}/items/${row.id}`, {
+              await TRIPMAKER.api(`${base}/items/${row.id}`, {
                 method: 'PATCH', headers: H, body: JSON.stringify({ sort_order: it.sort_order ?? 0 }),
               }).catch(() => {});
             }
@@ -1094,7 +1094,7 @@
         }
         if ((snapDesc ?? '') !== (trip.description ?? '')) {
           // the AI rewrote the trip description too — restore it server-side
-          await TRIPI.api('/api/trips/' + trip.id, {
+          await TRIPMAKER.api('/api/trips/' + trip.id, {
             method: 'PATCH', body: JSON.stringify({ description: snapDesc || null }),
           }).catch(() => {});
         }
@@ -1102,7 +1102,7 @@
         // one re-fetch is the source of truth after the inverse ops — it also folds
         // in whatever co-planners changed meanwhile instead of guessing at it
         try {
-          const fresh = await TRIPI.api(`/api/trips/code/${trip.share_code}`);
+          const fresh = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}`);
           tripItems = fresh.items;
           trip.description = fresh.trip.description;
           renderDesc();
@@ -1131,7 +1131,7 @@
       busy.disabled = true;
       label.textContent = 'משכפלים…';
       try {
-        const copy = await TRIPI.api(`/api/trips/code/${trip.share_code}/clone`, { method: 'POST' });
+        const copy = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/clone`, { method: 'POST' });
         location.href = '/trip/' + copy.share_code;
       } catch (e) {
         alert(e.message);
@@ -1142,12 +1142,12 @@
     }
     cloneBtn.onclick = () => {
       // cloning needs an account to own the copy — register, then clone right away
-      if (!TRIPI.user) { openAuthModal(doClone, 'register'); return; }
+      if (!TRIPMAKER.user) { openAuthModal(doClone, 'register'); return; }
       doClone();
     };
 
     // ---- like button ----
-    const likedTrips = JSON.parse(localStorage.getItem('tripi_likes') || '{}');
+    const likedTrips = JSON.parse(localStorage.getItem('tripmaker_likes') || '{}');
     const likeBtn = document.getElementById('like-btn');
     const likeCount = document.getElementById('like-count');
     likeCount.textContent = trip.likes || 0;
@@ -1186,12 +1186,12 @@
       const teCta = endcap.querySelector('.te-cta');
       teCta.onclick = () => {
         // no account yet? register first — that signup is the whole point of this card
-        if (!TRIPI.user) { openAuthModal(() => doClone(teCta), 'register'); return; }
+        if (!TRIPMAKER.user) { openAuthModal(() => doClone(teCta), 'register'); return; }
         doClone(teCta);
       };
     }
 
-    // publishing lives on the TRIPI PASS card — it's a sharing decision, next to
+    // publishing lives on the TRIPMAKER PASS card — it's a sharing decision, next to
     // the public code and the share buttons. Participants only.
     const publishRow = document.getElementById('publish-row');
     const publishToggle = document.getElementById('publish-toggle');
@@ -1200,7 +1200,7 @@
     publishToggle.onchange = async () => {
       publishToggle.disabled = true;
       try {
-        const updated = await TRIPI.api('/api/trips/' + trip.id, {
+        const updated = await TRIPMAKER.api('/api/trips/' + trip.id, {
           method: 'PATCH', body: JSON.stringify({ is_public: publishToggle.checked }),
         });
         trip.is_public = updated.is_public;
@@ -1216,10 +1216,10 @@
       likeBusy = true;
       const undo = !!likedTrips[trip.id];
       try {
-        const r = await TRIPI.api(`/api/trips/${trip.id}/like`, { method: 'POST', body: JSON.stringify({ undo }) });
+        const r = await TRIPMAKER.api(`/api/trips/${trip.id}/like`, { method: 'POST', body: JSON.stringify({ undo }) });
         likeCount.textContent = r.likes;
         if (undo) delete likedTrips[trip.id]; else likedTrips[trip.id] = 1;
-        localStorage.setItem('tripi_likes', JSON.stringify(likedTrips));
+        localStorage.setItem('tripmaker_likes', JSON.stringify(likedTrips));
         likeBtn.classList.toggle('liked', !!likedTrips[trip.id]);
       } catch { /* ignore */ } finally { likeBusy = false; }
     };
@@ -1315,7 +1315,7 @@
       icsBtn.onclick = async () => {
         if (icsBtn.disabled) return;
         icsBtn.disabled = true;
-        TRIPI.track('calendar_export', { trip_id: trip.id });
+        TRIPMAKER.track('calendar_export', { trip_id: trip.id });
         try {
           const res = await fetch(`/api/trips/code/${trip.share_code}/calendar.ics`);
           if (!res.ok) {
@@ -1352,7 +1352,7 @@
       document.getElementById('copy-link-label').textContent = 'העתקת קישור הזמנה';
       document.getElementById('view-link-row').style.display = '';
       document.getElementById('copy-view-link').onclick = async () => {
-        await TRIPI.copy(tripLink());
+        await TRIPMAKER.copy(tripLink());
         flash('קישור הצפייה הועתק! ✓');
       };
     }
@@ -1363,7 +1363,7 @@
       window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
     };
     document.getElementById('copy-link').onclick = async () => {
-      await TRIPI.copy(shareInvite ? inviteLink() : tripLink());
+      await TRIPMAKER.copy(shareInvite ? inviteLink() : tripLink());
       flash(shareInvite ? 'קישור ההזמנה הועתק! ✓' : 'הקישור הועתק! ✓');
     };
 
@@ -1391,7 +1391,7 @@
       if (publishing) return;
       publishing = true;
       try {
-        const updated = await TRIPI.api(`/api/trips/code/${trip.share_code}/publish`, {
+        const updated = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/publish`, {
           method: 'POST', headers: canEditHeaders || {},
         });
         Object.assign(trip, updated); // no invite_token in the response — the loaded one survives
@@ -1418,7 +1418,7 @@
           <div class="ticket glass" style="max-width:340px;margin:0 auto">
             <div class="ticket-label">✈ TRIP MAKER PASS ✈</div>
             <div class="code copyable" data-copy="${trip.share_code}" title="לחיצה מעתיקה את קוד הטיול">${trip.share_code}</div>
-            <div class="ticket-sub">${TRIPI.esc(trip.title)}</div>
+            <div class="ticket-sub">${TRIPMAKER.esc(trip.title)}</div>
             <hr class="divider">
             <button class="btn btn-amber" id="cele-wa" style="width:100%;justify-content:center">
               <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/></svg>
@@ -1438,7 +1438,7 @@
       };
       wrap.querySelector('#cele-wa').onclick = () => document.getElementById('wa-share').onclick();
       wrap.querySelector('#cele-copy').onclick = async () => {
-        await TRIPI.copy(shareInvite ? inviteLink() : tripLink());
+        await TRIPMAKER.copy(shareInvite ? inviteLink() : tripLink());
         celeFlash(shareInvite ? 'קישור ההזמנה הועתק! ✓' : 'הקישור הועתק! ✓');
       };
       wrap.querySelector('#cele-close').onclick = () => wrap.remove();
@@ -1453,7 +1453,7 @@
     if (dests.length > 1) {
       switcher.style.display = '';
       switcher.innerHTML = '<div class="side-card-title" style="margin-bottom:8px">🧳 תחנות בטיול</div>' +
-        dests.map((d, i) => `<button class="day-tab${i === 0 ? ' active' : ''}" data-i="${i}">${TRIPI.esc(d.name)}</button>`).join('');
+        dests.map((d, i) => `<button class="day-tab${i === 0 ? ' active' : ''}" data-i="${i}">${TRIPMAKER.esc(d.name)}</button>`).join('');
       switcher.querySelectorAll('.day-tab').forEach((b) => {
         b.onclick = () => {
           switcher.querySelectorAll('.day-tab').forEach((x) => x.classList.remove('active'));
@@ -1510,7 +1510,7 @@
         // coordinates anywhere — the old destination embed beats a dead box
         document.getElementById('trip-map').innerHTML =
           `<iframe title="מפת היעד" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
-             src="${TRIPI.esc(TRIPI.mapsEmbedUrl(mapQuery))}"></iframe>`;
+             src="${TRIPMAKER.esc(TRIPMAKER.mapsEmbedUrl(mapQuery))}"></iframe>`;
       }
     }
 
@@ -1551,7 +1551,7 @@
       }
       if (!found.length) return;
       try {
-        await TRIPI.api(`/api/trips/code/${trip.share_code}/locate`, {
+        await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/locate`, {
           method: 'POST', headers: canEditHeaders, body: JSON.stringify({ coords: found }),
         });
       } catch { /* the map is right for this visit either way; the next load retries */ }
@@ -1563,7 +1563,7 @@
         if (!tripItems.some((it) => it.lat == null && it.place_query)) return;
         let r;
         try {
-          r = await TRIPI.api(`/api/trips/code/${trip.share_code}/locate`, {
+          r = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/locate`, {
             method: 'POST', body: JSON.stringify({ skip }),
           });
         } catch { return; } // a viewer's map is not worth an error toast
@@ -1608,7 +1608,7 @@
         const daysUntil = startD
           ? Math.round((startD - new Date(new Date().setHours(0, 0, 0, 0))) / 86400000) : null;
         if (daysUntil != null && daysUntil > 15) {
-          const tripDates = Array.from({ length: trip.days }, (_, i) => TRIPI.isoDate(dayDate(i + 1)));
+          const tripDates = Array.from({ length: trip.days }, (_, i) => TRIPMAKER.isoDate(dayDate(i + 1)));
           const est = await GEO.typicalWeather(d.lat, d.lon, tripDates).catch(() => []);
           if (est.length) {
             weatherByDate = {};
@@ -1638,7 +1638,7 @@
         // not about this trip, so the printed sheet drops it (see .wx-trip).
         const tripDays = wantDates
           ? Array.from({ length: trip.days }, (_, i) => dayDate(i + 1))
-            .map((d2) => d2 && weatherByDate[TRIPI.isoDate(d2)])
+            .map((d2) => d2 && weatherByDate[TRIPMAKER.isoDate(d2)])
             .filter(Boolean)
           : [];
         card.classList.toggle('wx-trip', tripDays.length > 0);
@@ -1664,9 +1664,9 @@
   // human's would. A tool that wrote straight to the server would leave the open page
   // showing an itinerary that no longer exists.
   function registerTripTools(ctx) {
-    if (typeof TRIPI === 'undefined' || !TRIPI.mcp || !TRIPI.mcp.stopProps) return;
-    const { register, ok, fail } = TRIPI.mcp;
-    const stopProps = TRIPI.mcp.stopProps;
+    if (typeof TRIPMAKER === 'undefined' || !TRIPMAKER.mcp || !TRIPMAKER.mcp.stopProps) return;
+    const { register, ok, fail } = TRIPMAKER.mcp;
+    const stopProps = TRIPMAKER.mcp.stopProps;
     const { trip, state, canEdit, addItem, saveItem, deleteItem, items } = ctx;
 
     // stop ids come from tripmaker_current_trip / tripmaker_get_trip; resolving here

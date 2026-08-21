@@ -1,5 +1,5 @@
 /* ============================================================
-   TRIPI — יומן מסע בשעת דמדומים
+   TRIP MAKER — יומן מסע בשעת דמדומים
    Deep-dusk ink + warm amber, real glass, film grain.
    Display: Suez One · Body: Assistant
    ============================================================ */
@@ -1452,7 +1452,7 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
   .pm-body { padding: 4px 18px 20px; }
 }
 
-/* ---------- publish setting row (TRIPI PASS card) ---------- */
+/* ---------- publish setting row (TRIP MAKER PASS card) ---------- */
 
 .ticket-setting { text-align: start; margin-top: 14px; }
 .ticket-setting .divider { margin-bottom: 14px; }

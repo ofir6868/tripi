@@ -22,7 +22,7 @@ const DATEPICKER = (() => {
     return y && m && d ? new Date(y, m - 1, d) : null;
   }
   const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const iso = (d) => (d ? TRIPI.isoDate(d) : null);
+  const iso = (d) => (d ? TRIPMAKER.isoDate(d) : null);
   const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
   const sameDay = (a, b) => !!a && !!b && a.getTime() === b.getTime();
   // whole days apart — built from calendar days, so a DST shift can't make it 0.96

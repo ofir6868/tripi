@@ -26,7 +26,7 @@
       const cc = ccFor(d);
       return `
       <span class="dest-chip">
-        ${cc ? COUNTRIES.flagHtml(cc) + ' ' : ''}${TRIPI.esc(d.name)}${d.country && d.country !== d.name ? `<small>${TRIPI.esc(d.country)}</small>` : ''}
+        ${cc ? COUNTRIES.flagHtml(cc) + ' ' : ''}${TRIPMAKER.esc(d.name)}${d.country && d.country !== d.name ? `<small>${TRIPMAKER.esc(d.country)}</small>` : ''}
         <button type="button" data-i="${i}" aria-label="הסרת יעד">✕</button>
       </span>`;
     }).join('');
@@ -58,7 +58,7 @@
     box.innerHTML = `<span class="dc-label">הטיול שלכם ל־</span>` + destinations
       .map((d) => {
         const cc = ccFor(d);
-        return `<span class="dc-dest">${cc ? COUNTRIES.flagHtml(cc) + ' ' : ''}${TRIPI.esc(d.name)}${d.country && d.country !== d.name ? `<small>, ${TRIPI.esc(d.country)}</small>` : ''}</span>`;
+        return `<span class="dc-dest">${cc ? COUNTRIES.flagHtml(cc) + ' ' : ''}${TRIPMAKER.esc(d.name)}${d.country && d.country !== d.name ? `<small>, ${TRIPMAKER.esc(d.country)}</small>` : ''}</span>`;
       })
       .join('<span class="dc-sep">·</span>') +
       ` <button type="button" class="dc-change" id="dc-add">+ עוד יעד</button>` +
@@ -102,15 +102,15 @@
       return `
       <button type="button" class="autocomplete-item" data-i="${i}">
         <span class="ac-icon">${cc ? COUNTRIES.flagHtml(cc) : (p.isCountry ? '🌍' : '📍')}</span>
-        <span class="ac-name">${TRIPI.esc(p.name)}</span>
-        <span class="ac-meta">${p.isCountry ? 'מדינה' : TRIPI.esc([p.admin, p.country].filter(Boolean).join(', '))}</span>
+        <span class="ac-name">${TRIPMAKER.esc(p.name)}</span>
+        <span class="ac-meta">${p.isCountry ? 'מדינה' : TRIPMAKER.esc([p.admin, p.country].filter(Boolean).join(', '))}</span>
       </button>`;
     }).join('');
     // free-text fallback appears only AFTER results loaded, so it can't be picked blindly
     suggBox.innerHTML = options + `
       <button type="button" class="autocomplete-item free-text" data-free="1">
         <span class="ac-icon">✏️</span>
-        <span class="ac-name">להוסיף "${TRIPI.esc(q)}" כמו שהוא</span>
+        <span class="ac-name">להוסיף "${TRIPMAKER.esc(q)}" כמו שהוא</span>
       </button>`;
     suggBox.classList.add('open');
     suggBox.querySelectorAll('.autocomplete-item').forEach((btn) => {
@@ -135,7 +135,7 @@
   destInput.addEventListener('keydown', (e) => {
     const open = suggBox.classList.contains('open');
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      if (open) { e.preventDefault(); TRIPI.acMove(suggBox, e.key === 'ArrowDown' ? 1 : -1); }
+      if (open) { e.preventDefault(); TRIPMAKER.acMove(suggBox, e.key === 'ArrowDown' ? 1 : -1); }
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (open) {
@@ -181,7 +181,7 @@
     updateEndHint();
   }
   function syncPickerToDays() {
-    datesPicker.set(tripStart, TRIPI.isoDate(endDate())); // silent: it would echo the number back
+    datesPicker.set(tripStart, TRIPMAKER.isoDate(endDate())); // silent: it would echo the number back
   }
   // DATEPICKER.parse, not new Date(iso): a bare "2026-09-14" is read as UTC midnight,
   // which west of Greenwich is the day before the one the traveller picked
@@ -205,7 +205,7 @@
   // ---- draft autosave: leave mid-creation, come back, continue ----
   // v3 covers steps 1-3 only — the itinerary itself lives on the server from the
   // moment it's built, so there's nothing heavier to keep here anymore
-  const DRAFT_KEY = 'tripi_plan_draft';
+  const DRAFT_KEY = 'tripmaker_plan_draft';
   let curStep = 1;
   let draftTimer = null;
 
@@ -339,10 +339,10 @@
         <h2>שאלה קטנה לפני שבונים 🧭</h2>
         <p class="modal-sub">התשובה תעזור ל-AI לסדר את הטיול נכון — ואפשר גם לדלג</p>
         ${questions.map((q, i) => `
-          <div class="field aiq" data-i="${i}" data-q="${TRIPI.esc(q.question)}"${q.multi ? ' data-multi="1"' : ''}>
-            <label>${TRIPI.esc(q.question)}${q.multi ? ' <small>(אפשר לבחור כמה)</small>' : ''}</label>
+          <div class="field aiq" data-i="${i}" data-q="${TRIPMAKER.esc(q.question)}"${q.multi ? ' data-multi="1"' : ''}>
+            <label>${TRIPMAKER.esc(q.question)}${q.multi ? ' <small>(אפשר לבחור כמה)</small>' : ''}</label>
             ${q.type === 'choice'
-              ? `<div class="aiq-opts">${q.options.map((o) => `<button type="button" class="day-tab aiq-opt">${TRIPI.esc(o)}</button>`).join('')}<button type="button" class="day-tab aiq-opt aiq-other">אחר…</button></div>
+              ? `<div class="aiq-opts">${q.options.map((o) => `<button type="button" class="day-tab aiq-opt">${TRIPMAKER.esc(o)}</button>`).join('')}<button type="button" class="day-tab aiq-opt aiq-other">אחר…</button></div>
                  <input type="text" class="aiq-text aiq-other-text" maxlength="120" placeholder="ספרו במילים שלכם (עד 15 מילים)…" hidden>`
               : `<input type="text" class="aiq-text" maxlength="120" placeholder="התשובה שלכם (עד 15 מילים)…">`}
           </div>`).join('')}
@@ -408,7 +408,7 @@
       aiStatus.textContent = '';
       showAiOverlay(label);
       try {
-        const res = await TRIPI.api('/api/ai/itinerary', {
+        const res = await TRIPMAKER.api('/api/ai/itinerary', {
           method: 'POST',
           body: JSON.stringify({
             destinations,
@@ -448,7 +448,7 @@
         aiStatus.textContent = '⚠️ ' + e.message;
       }
     };
-    if (!TRIPI.user) openAuthModal(go, 'register');
+    if (!TRIPMAKER.user) openAuthModal(go, 'register');
     else go();
   }
 
@@ -489,7 +489,7 @@
     const start = tripStart;
     // the very day the calendar and the hint show — anything that round-trips
     // through toISOString() hands the server the day before, east of Greenwich
-    const end = start ? TRIPI.isoDate(endDate()) : null;
+    const end = start ? TRIPMAKER.isoDate(endDate()) : null;
     if (!titleInput.value.trim()) autoTitle();
     return {
       title: titleInput.value.trim(),
@@ -509,7 +509,7 @@
     if (savingTrip) return;
     savingTrip = true;
     try {
-      const trip = await TRIPI.api('/api/trips', {
+      const trip = await TRIPMAKER.api('/api/trips', {
         method: 'POST', body: JSON.stringify({ ...payload, draft: true }),
       });
       clearDraft();
@@ -518,7 +518,7 @@
       savingTrip = false;
       hideAiOverlay();
       aiStatus.className = 'ai-status error';
-      aiStatus.innerHTML = `⚠️ הטיול נבנה אבל עוד לא נשמר (${TRIPI.esc(e.message)}) ` +
+      aiStatus.innerHTML = `⚠️ הטיול נבנה אבל עוד לא נשמר (${TRIPMAKER.esc(e.message)}) ` +
         `<button type="button" class="btn btn-amber" id="retry-save">שמירה מחדש</button>`;
       document.getElementById('retry-save').onclick = () => {
         aiStatus.textContent = 'שומרים את הטיול…';
@@ -541,7 +541,7 @@
       goManualBtn.disabled = false;
       goManualBtn.textContent = goManualLabel;
     };
-    if (!TRIPI.user) openAuthModal(go, 'register');
+    if (!TRIPMAKER.user) openAuthModal(go, 'register');
     else go();
   };
 
