@@ -130,7 +130,10 @@ body::after {
 }
 .logo .logo-he { font-weight: 300; font-size: .95rem; color: var(--paper-dim); }
 
-.nav-actions { display: flex; align-items: center; gap: 8px; }
+.nav-actions {
+  /* LTR within the actions group: user on the left, New Trip to its right */
+  display: flex; align-items: center; gap: 8px; direction: ltr;
+}
 
 .nav-menu { position: relative; }
 .nav-menu-btn {

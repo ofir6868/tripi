@@ -181,17 +181,10 @@ function renderHeader() {
   const placePanel = () => {
     const r = btn.getBoundingClientRect();
     const gap = 10;
+    const edge = 14; // match .site-header inset — keep the menu in the left corner
     panel.style.top = `${Math.round(r.bottom + gap)}px`;
-    panel.style.left = `${Math.round(r.left)}px`;
+    panel.style.left = `${edge}px`;
     panel.style.right = 'auto';
-    // keep inside the viewport if the measured width would overflow
-    requestAnimationFrame(() => {
-      const pr = panel.getBoundingClientRect();
-      if (pr.right > window.innerWidth - 12) {
-        panel.style.left = `${Math.max(12, Math.round(window.innerWidth - 12 - pr.width))}px`;
-      }
-      if (pr.left < 12) panel.style.left = '12px';
-    });
   };
   const setOpen = (open) => {
     panel.hidden = !open;
