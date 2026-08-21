@@ -70,8 +70,20 @@ npm start          # http://localhost:3000
 | `DATABASE_URL` | כתובת חיבור ל-PostgreSQL |
 | `JWT_SECRET` | סוד לחתימת טוקנים |
 | `PORT` | פורט (ברירת מחדל 3000) |
+| `GOOGLE_CLIENT_ID` | OAuth 2.0 Client ID מ-Google Cloud |
+| `GOOGLE_CLIENT_SECRET` | OAuth 2.0 Client Secret מ-Google Cloud |
+| `GOOGLE_REDIRECT_URI` | אופציונלי — ברירת מחדל `{origin}/api/auth/google/callback` (בפרודקשן: `https://tripi-caw3.onrender.com/api/auth/google/callback`) |
 | `HOTEL_CONTENT_PROVIDER` | ספק תוכן המלונות: `osm` (ברירת מחדל, ללא מפתח) או `liteapi` |
 | `LITEAPI_KEY` | מפתח LiteAPI — בלעדיו המערכת נופלת חזרה ל-`osm` ולא נשברת |
 | `HOTEL_GUEST_NATIONALITY` | לאום האורח לתמחור (ברירת מחדל `IL`) |
+
+### התחברות עם Google
+
+ב-Google Cloud → OAuth client (Web application):
+
+- **Authorized JavaScript origins:** `https://tripi-caw3.onrender.com` (ו־`http://localhost:3000` לפיתוח)
+- **Authorized redirect URIs:** `https://tripi-caw3.onrender.com/api/auth/google/callback` (ו־`http://localhost:3000/api/auth/google/callback`)
+
+אחרי הגדרת המשתנים, הריצו `node db/migrate.js` פעם אחת (עמודת `google_sub` + סיסמה אופציונלית).
 
 בדיקת הספק הפעיל: `node tools/hotel-content-probe.js` (או `node tools/hotel-content-probe.js liteapi`).
