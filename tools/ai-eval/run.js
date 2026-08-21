@@ -57,6 +57,10 @@ function checkQuestions(res, expect) {
   if (typeof expect.questions === 'number' && qs.length !== expect.questions) {
     bad.push(`expected ${expect.questions} question(s), got ${qs.length}`);
   }
+  // a range, for the rounds where one question or two are both right answers
+  if (Array.isArray(expect.questions) && (qs.length < expect.questions[0] || qs.length > expect.questions[1])) {
+    bad.push(`expected ${expect.questions[0]}–${expect.questions[1]} question(s), got ${qs.length}`);
+  }
   const first = qs[0];
   if (expect.multi !== undefined && !!first.multi !== expect.multi) {
     bad.push(`expected multi=${expect.multi} on the first question, got ${!!first.multi}`);
@@ -77,6 +81,15 @@ function checkQuestions(res, expect) {
     const named = first.options.filter((o) => /\(.+\)/.test(o)).length;
     if (named < Math.ceil(first.options.length / 2)) {
       bad.push(`region options should name their cities, only ${named}/${first.options.length} do`);
+    }
+  }
+  // between islands, "how do we get there" has only two honest answers — a transport
+  // question that offers neither is worse than not asking at all
+  if (expect.transportOptionsAnyOf) {
+    const q = qs.find(isTransportQuestion);
+    if (!q) bad.push('expected a transport question, found none');
+    else if (!q.options.some((o) => expect.transportOptionsAnyOf.some((w) => o.includes(w)))) {
+      bad.push(`transport options offer none of: ${expect.transportOptionsAnyOf.join(', ')}`);
     }
   }
   for (const word of expect.transportOptionsExclude || []) {
@@ -123,6 +136,10 @@ function checkBuild(res, expect, body) {
   if (expect.areasDifferFromDestination) {
     const dest = body.destinations[0].name;
     if (plan.every((b) => b.area === dest)) bad.push(`the trip was built as one undivided "${dest}" — no areas`);
+  }
+  if (expect.areasExclude) {
+    const stray = plan.filter((b) => expect.areasExclude.some((w) => b.area.includes(w)));
+    if (stray.length) bad.push(`the plan invented area(s) out of the free text: ${stray.map((b) => b.area).join(', ')}`);
   }
   if (expect.minDaysPerArea) {
     const thin = plan.filter((b) => b.to - b.from + 1 < expect.minDaysPerArea);
@@ -189,6 +206,24 @@ function checkEdit(result, expect, fixture) {
     if (tooEarly.length) bad.push(`op(s) set times before ${expect.minTouchedTime}: ${tooEarly.map((o) => o.time_label).join(', ')}`);
     if (!ops.some((op) => op.time_label != null)) bad.push('expected at least one time_label change');
   }
+  if (expect.areaGone) {
+    const left = applyOps(fixture.items, ops).filter((it) => it.area === expect.areaGone);
+    if (left.length) bad.push(`"${expect.areaGone}" was dropped from the trip, ${left.length} stop(s) still carry it`);
+  }
+  // null is the default: the existing description survives every edit that leaves it true
+  if (expect.descriptionChanged !== undefined) {
+    const changed = !!(result.description && result.description !== fixture.description);
+    if (changed !== expect.descriptionChanged) {
+      bad.push(expect.descriptionChanged
+        ? 'the description still describes a trip this edit changed, and was not rewritten'
+        : `the description was rewritten over an edit that left it true: "${result.description}"`);
+    }
+  }
+  // the place guard, from the outside: whatever the editor answered with, it is not there
+  for (const word of expect.noPlaceMatching || []) {
+    const hit = ops.filter((op) => `${op.place_query || ''} ${op.title || ''}`.toLowerCase().includes(word.toLowerCase()));
+    if (hit.length) bad.push(`op(s) still point at "${word}": ${hit.map((o) => o.place_query || o.title).join(' | ')}`);
+  }
   if (ops.length && (expect.noEmptyDays || expect.areasContiguous)) {
     bad.push(...editViolations(fixture.items, ops, fixture.days).problems);
   }
@@ -214,6 +249,7 @@ function describeEdit(result, fixture) {
 
 function describe(res, body) {
   const out = [];
+  if (res.error) return [`    ${res.error}`];
   if (res.questions) {
     for (const q of res.questions) {
       out.push(`    ${q.multi ? '☑' : '◉'} ${q.question}`);
@@ -293,7 +329,12 @@ async function callApi(body) {
         const r = await callApi(c.body);
         secs = r.secs;
         payload = r.json;
-        if (r.status !== 200) bad = [`HTTP ${r.status} ${r.json.error || ''}`.trim()];
+        if (c.expect.httpStatus) {
+          bad = r.status === c.expect.httpStatus ? [] : [`expected HTTP ${c.expect.httpStatus}, got ${r.status}`];
+          if (c.expect.errorIncludes && !String(r.json.error || '').includes(c.expect.errorIncludes)) {
+            bad.push(`error should mention "${c.expect.errorIncludes}", got "${r.json.error || ''}"`);
+          }
+        } else if (r.status !== 200) bad = [`HTTP ${r.status} ${r.json.error || ''}`.trim()];
         else if (r.json.questions) bad = checkQuestions(r.json, c.expect); // asked, so there is no build to check
         else bad = [...checkQuestions(r.json, c.expect), ...checkBuild(r.json, c.expect, c.body)];
         lines = describe(r.json, c.body);
