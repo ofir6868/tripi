@@ -7,7 +7,17 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Render terminates TLS at its proxy — without this, req.ip (which the rate
-// limiters key on) would be the proxy's address, one shared bucket for everyone
+// limiters key on) would be the proxy's address, one shared bucket for everyone.
+//
+// The 1 is a hop count, so it is only correct while Render's proxy is the ONLY
+// one in front of us. tripmaker.co.il is on Cloudflare DNS deliberately unproxied
+// (grey cloud) to keep it that way. Turning the orange cloud on adds a second hop
+// and req.ip silently becomes a Cloudflare edge address — every visitor sharing
+// one bucket, which disables the login brute-force and share-code enumeration
+// limits without any error to notice. If that switch is ever flipped, the client
+// IP has to come from CF-Connecting-IP, believed only when the hop that reached
+// us is genuinely Cloudflare's (the onrender.com host stays directly reachable,
+// and that header is trivial to forge there).
 app.set('trust proxy', 1);
 
 app.use(express.json());

@@ -1,0 +1,12 @@
+# Everything not listed here is fair game — the marketing surface is / and /plan.
+#
+# /trip/ is the important line: a share code IS the privacy boundary, so a crawler
+# that indexes one turns a link meant for a family WhatsApp group into a public page.
+# /my and /admin need a session anyway and would only ever be indexed as an empty shell.
+User-agent: *
+Disallow: /admin
+Disallow: /my
+Disallow: /trip/
+Disallow: /api/
+
+Sitemap: https://tripmaker.co.il/sitemap.xml
