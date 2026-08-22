@@ -523,7 +523,7 @@ body::after {
 
 .site-footer {
   margin-top: 60px; padding: 34px 20px 40px; text-align: center;
-  color: rgba(245, 239, 227, .4); font-size: .88rem; font-weight: 300;
+  color: rgba(245, 239, 227, .72); font-size: .88rem; font-weight: 300; /* ≥4.5:1 on the page ground (WCAG AA) */
   border-top: 1px solid rgba(255, 255, 255, .07);
 }
 
@@ -2910,3 +2910,112 @@ body.cal-full-open { overflow: hidden; }
   .edit-loc-form input,
   .ai-edit-scope select { font-size: 16px; }
 }
+
+/* ---------- server-rendered marketing pages (lib/seo.js) ---------- */
+/* Plain and light on purpose: these pages exist to be read by people arriving from
+   search and by crawlers, so no entry splash, no scroll-triggered reveals. */
+
+.seo-article h1 .accent { color: var(--amber); }
+.seo-article h2 { font-family: var(--font-display); font-size: 1.5rem; margin: 40px 0 12px; }
+.seo-article p { line-height: 1.75; color: var(--paper-dim); font-weight: 300; margin: 0 0 14px; }
+.seo-article p strong, .seo-article li strong { color: var(--paper); font-weight: 600; }
+.seo-lead { font-size: 1.12rem; color: var(--paper) !important; }
+.seo-muted { font-size: .95rem; }
+.seo-crumbs { font-size: .85rem; color: var(--paper-dim); margin-bottom: 14px; }
+.seo-crumbs a { color: var(--mint); text-decoration: none; }
+
+.seo-facts {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+  padding: 18px 20px; margin: 6px 0 24px;
+}
+.seo-facts span { display: block; font-size: .78rem; letter-spacing: .08em; color: var(--mint); font-weight: 600; }
+.seo-facts strong { display: block; margin-top: 4px; font-weight: 600; line-height: 1.4; }
+.seo-facts a { color: var(--paper); text-decoration: underline; text-decoration-color: rgba(255, 180, 95, .5); }
+@media (max-width: 640px) { .seo-facts { grid-template-columns: 1fr; } }
+
+.seo-cta {
+  display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;
+  padding: 22px 24px; margin: 28px 0;
+  border-color: rgba(255, 180, 95, .35);
+}
+.seo-cta strong { display: block; font-family: var(--font-display); font-size: 1.2rem; font-weight: 400; }
+.seo-cta span { color: var(--paper-dim); font-weight: 300; }
+.seo-cta .btn { white-space: nowrap; }
+
+.seo-list, .seo-steps { padding-right: 22px; margin: 0 0 16px; line-height: 1.7; color: var(--paper-dim); font-weight: 300; }
+.seo-list li, .seo-steps li { margin-bottom: 8px; }
+.seo-tip { padding: 14px 18px; border-right: 3px solid var(--amber); background: var(--glass); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+
+.seo-trips { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin: 8px 0 10px; }
+.seo-trips .trip-card { width: auto; }
+.seo-trips .tc-media { height: 280px; }
+
+.dest-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin: 8px 0 10px; }
+.dest-card {
+  display: flex; flex-direction: column; gap: 4px; padding: 16px 18px;
+  text-decoration: none; color: var(--paper); transition: transform .18s, border-color .18s;
+}
+.dest-card:hover { transform: translateY(-2px); border-color: rgba(255, 180, 95, .45); }
+.dest-card-name { font-family: var(--font-display); font-size: 1.08rem; }
+.dest-card-meta { font-size: .85rem; color: var(--paper-dim); font-weight: 300; }
+
+.seo-faq details { border-top: 1px solid rgba(255, 255, 255, .08); padding: 14px 0; }
+.seo-faq details:last-child { border-bottom: 1px solid rgba(255, 255, 255, .08); }
+.seo-faq summary { cursor: pointer; font-weight: 600; font-size: 1.05rem; list-style: none; position: relative; padding-left: 28px; }
+.seo-faq summary::-webkit-details-marker { display: none; }
+.seo-faq summary::after { content: '+'; position: absolute; left: 4px; top: -2px; color: var(--amber); font-size: 1.4rem; font-weight: 300; }
+.seo-faq details[open] summary::after { content: '\2212'; }
+.seo-faq details p { margin: 10px 0 0; }
+
+.seo-footer-links { margin-bottom: 14px; }
+.seo-footer-links a { color: rgba(245, 239, 227, .8); text-decoration: none; }
+.seo-footer-links a:hover { color: var(--paper); }
+
+/* homepage additions: audience cards, destination links, FAQ */
+.audience-grid {
+  width: min(1120px, calc(100% - 40px)); margin: 0 auto;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;
+}
+.audience-card { padding: 26px 24px; text-decoration: none; color: var(--paper); display: block; position: relative; overflow: hidden; min-height: 230px; transition: transform .18s, border-color .18s; }
+.audience-card > * { position: relative; z-index: 1; }
+.audience-card .ac-bg { position: absolute; inset: 0; z-index: 0; background-size: cover; background-position: center; opacity: .55; transition: transform .35s ease, opacity .35s ease; }
+.audience-card .ac-bg::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(10, 21, 18, .25) 0%, rgba(10, 21, 18, .82) 70%, rgba(10, 21, 18, .95) 100%); }
+.audience-card:hover .ac-bg { transform: scale(1.05); opacity: .7; }
+.audience-card h3, .audience-card p { text-shadow: 0 1px 12px rgba(0, 0, 0, .6); }
+.audience-card p { color: var(--paper); }
+.audience-card { display: flex; flex-direction: column; justify-content: flex-end; }
+.audience-card:hover { transform: translateY(-3px); border-color: rgba(255, 180, 95, .45); }
+.audience-card h3 { font-family: var(--font-display); font-size: 1.3rem; margin: 0 0 8px; }
+.audience-card p { color: var(--paper-dim); font-weight: 300; line-height: 1.65; font-size: .97rem; margin: 0 0 12px; }
+.audience-card .ac-more { color: var(--amber); font-weight: 600; font-size: .92rem; }
+@media (max-width: 820px) { .audience-grid { grid-template-columns: 1fr; } }
+.home-dests { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+.home-faq { width: min(880px, calc(100% - 40px)); margin: 0 auto; }
+.home-faq h2 { font-family: var(--font-display); font-size: 1.5rem; margin-bottom: 10px; }
+.home-faq h2 .accent { color: var(--amber); }
+.home-faq > p { color: var(--paper-dim); font-weight: 300; line-height: 1.7; margin-bottom: 10px; }
+
+/* ---------- legal pages (lib/legal.js) ---------- */
+.legal-page h2 { font-size: 1.25rem; margin-top: 34px; }
+.legal-page ul.seo-list li { margin-bottom: 10px; }
+.legal-table-wrap { overflow-x: auto; margin: 6px 0 16px; }
+.legal-table { width: 100%; border-collapse: collapse; font-size: .93rem; line-height: 1.55; font-weight: 300; color: var(--paper-dim); }
+.legal-table th, .legal-table td { text-align: right; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid rgba(255, 255, 255, .08); }
+.legal-table th { color: var(--mint); font-weight: 600; font-size: .78rem; letter-spacing: .06em; }
+.legal-table td:first-child { color: var(--paper); font-weight: 400; min-width: 160px; }
+.auth-legal { margin: 12px 0 0; font-size: .8rem; line-height: 1.5; color: var(--paper-dim); font-weight: 300; text-align: center; }
+.auth-legal a { color: var(--amber); text-decoration: underline; text-decoration-color: rgba(255, 180, 95, .5); }
+.ai-prefs-hint { display: block; margin-top: 6px; font-size: .78rem; color: var(--paper-dim); font-weight: 300; }
+.ai-prefs-hint a { color: var(--amber); }
+.legal-page p a, .legal-page li a, .legal-page td a, .legal-page .seo-tip a {
+  color: var(--amber); text-decoration: underline; text-decoration-color: rgba(255, 180, 95, .4);
+  text-decoration-thickness: 1px; text-underline-offset: 3px; font-weight: 500; unicode-bidi: isolate;
+}
+.legal-page p a:hover, .legal-page li a:hover, .legal-page td a:hover { text-decoration-color: var(--amber); }
+.seo-footer-links .legal-links { display: block; margin-top: 8px; font-size: .88rem; }
+/* Leaflet's default attribution link colour fails AA on its grey strip */
+.leaflet-container .leaflet-control-attribution a { color: #005a80; }
+/* keyboard focus is always visible on controls (inputs draw their own focus ring) */
+a:focus-visible, button:focus-visible, [role="button"]:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
+.home-what p a { color: var(--amber); text-decoration: none; border-bottom: 1px solid rgba(255, 180, 95, .4); }
+.home-what p a:hover { border-bottom-color: var(--amber); }

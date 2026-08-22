@@ -6,6 +6,9 @@
 // common.js), and users are identified by numeric id only — no email or name
 // ever reaches PostHog. Not loaded on /admin, which renders other users' emails.
 (async () => {
+  // the privacy page (/privacy) sets this; respecting it before the SDK even loads
+  // means no request ever leaves the browser for an opted-out user
+  if (localStorage.getItem('tm_analytics_optout') === '1') return;
   let cfg;
   try {
     cfg = await (await fetch('/api/analytics/config')).json();

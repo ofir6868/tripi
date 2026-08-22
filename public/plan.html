@@ -4,7 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>תכנון טיול חדש · TRIP MAKER</title>
+  <meta name="description" content="מתכננים טיול חדש: בוחרים יעד ותאריכים, וה-AI בונה מסלול יום-אחר-יום עם אטרקציות, מסעדות ומלונות. משתפים עם החברים בקוד בן 6 ספרות.">
   <link rel="canonical" href="https://tripmaker.co.il/plan">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="TRIP MAKER">
+  <meta property="og:locale" content="he_IL">
+  <meta property="og:title" content="תכנון טיול חדש · טריפ מייקר">
+  <meta property="og:description" content="בוחרים יעד ותאריכים, ה-AI בונה מסלול יום-אחר-יום, ומשתפים בקוד בן 6 ספרות.">
+  <meta property="og:url" content="https://tripmaker.co.il/plan">
+  <meta property="og:image" content="https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1200&h=630&q=80">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧭</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -102,6 +111,7 @@
         <div class="interest-row" id="interest-row"></div>
         <label class="ai-prefs-label" for="ai-notes">משהו נוסף שכדאי לדעת?</label>
         <textarea id="ai-notes" maxlength="500" rows="2" placeholder="למשל: טסים עם שני ילדים קטנים, אוהבים אוכל רחוב, קצב רגוע…"></textarea>
+        <small class="ai-prefs-hint">הטקסט נשלח לבינה המלאכותית שבונה את המסלול — בלי שמות, טלפונים או פרטים רפואיים. <a href="/privacy" target="_blank" rel="noopener">למה</a></small>
       </div>
       <div class="ai-status" id="ai-status"></div>
       <div class="wizard-nav">
@@ -130,6 +140,9 @@
   </div>
 
   <footer class="site-footer">
+    <nav class="seo-footer-links">
+      <a href="/">דף הבית</a> · <a href="/destinations">כל היעדים</a><span class="legal-links"><a href="/terms">תנאי שימוש</a> · <a href="/privacy">מדיניות פרטיות</a> · <a href="/accessibility">הצהרת נגישות</a></span>
+    </nav>
     <span class="logo-stack" dir="ltr" role="img" aria-label="TRIP MAKER"><span class="ls-trip" aria-hidden="true"><b>T</b><b>R</b><b>I</b><b>P</b></span><span class="ls-maker" aria-hidden="true"><b>M</b><b>A</b><b>K</b><b>E</b><b>R</b></span></span> · נבנה באהבה לטיולים · <span dir="ltr">© 2026</span>
   </footer>
 

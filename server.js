@@ -36,6 +36,7 @@ app.use(require('./routes/hotels'));
 app.use(require('./routes/push'));
 app.use(require('./routes/analytics'));
 app.use(require('./routes/health'));
+app.use(require('./routes/seo'));
 app.use(require('./routes/pages'));
 
 // trip reminder pushes (countdowns + morning briefs) — in-process, no-op without VAPID keys

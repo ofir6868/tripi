@@ -289,6 +289,7 @@ function renderAuthModal() {
         </div>
         <div class="form-error" id="auth-error"></div>
         <button class="btn btn-amber btn-lg" type="submit" style="width:100%;justify-content:center" id="auth-submit">התחברות</button>
+        <p class="auth-legal">בהרשמה ובהתחברות אתם מאשרים את <a href="/terms" target="_blank" rel="noopener">תנאי השימוש</a> ואת <a href="/privacy" target="_blank" rel="noopener">מדיניות הפרטיות</a>. מסירת הפרטים אינה חובה על פי חוק, אך בלעדיהם לא ניתן לפתוח חשבון.</p>
       </form>
       <div class="auth-google-wrap" id="auth-google-wrap" hidden>
         <div class="auth-divider"><span>או</span></div>
@@ -324,6 +325,7 @@ function renderAuthModal() {
 
   wrap.querySelector('.modal-close').onclick = () => wrap.classList.remove('open');
   wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.classList.remove('open'); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && wrap.classList.contains('open')) wrap.classList.remove('open'); });
 
   // only show Google when the server has credentials configured
   fetch('/api/auth/providers').then((r) => r.json()).then((p) => {

@@ -1,4 +1,6 @@
-# Everything not listed here is fair game — the marketing surface is / and /plan.
+# Everything not listed here is fair game — the marketing surface is /, /plan, and the
+# server-rendered guides under /destinations, /friends, /big-trip and /city-break
+# (routes/seo.js); /sitemap.xml is generated from the same list.
 #
 # /trip/ is the important line: a share code IS the privacy boundary, so a crawler
 # that indexes one turns a link meant for a family WhatsApp group into a public page.
