@@ -243,6 +243,7 @@ const TripCalendar = (() => {
               <button type="button" class="cal-wevt${it.category === 'נסיעה' ? ' travel' : ''}" data-item="${it.id}">
                 ${it.time_label ? `<span class="we-time">${esc(it.time_label)}</span>` : ''}
                 <span class="we-title">${stopEmoji(it)} ${esc(it.title)}</span>
+                ${ctx.votes?.tally(it) || ''}
               </button>`).join('') || '<span class="wd-free">יום פנוי</span>'}
           </div>
         </div>`);
@@ -329,6 +330,7 @@ const TripCalendar = (() => {
                 ${it.time_label ? `<span class="cd-time">${esc(it.time_label)}</span>` : ''}
                 ${it.category ? `<span>${esc(it.category)}</span>` : ''}
                 ${+it.cost > 0 ? `<span class="cd-cost">${TripModals.fmt(it.cost, cur)}</span>` : ''}
+                ${ctx.votes?.tally(it) || ''}
               </span>
               ${it.note ? `<span class="cd-note">${esc(it.note)}</span>` : ''}
             </span>
@@ -448,6 +450,7 @@ const TripCalendar = (() => {
         ${+it.cost > 0 ? `<span class="item-cost"${tap('cost')}>${TripModals.fmt(it.cost, cur)}</span>` : ''}
         ${it.area ? `<span class="item-area"${tap('area')}>📍 ${esc(it.area)}</span>` : ''}
       </div>
+      ${ctx.votes?.on() ? `<div class="sm-votes">${ctx.votes.html(it)}<span class="sm-votes-hint">מה כולם חושבים על התחנה הזו?</span></div>` : ''}
       ${it.note ? `<div class="item-note"${tap('note')}>${esc(it.note)}</div>` : ''}
       ${it.place_query ? `<div class="item-more-place"${tap('place')}><span class="imp-pin">📍</span><span class="imp-text">${esc(it.place_query)}</span></div>` : ''}
       ${hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPMAKER.mapsEmbedUrlExact(it)}"></iframe>` : ''}
@@ -458,6 +461,19 @@ const TripCalendar = (() => {
 
     const gal = body.querySelector('.stop-gallery');
     if (gal) GEO.renderGallery(gal, it.place_query);
+
+    // a vote repaints the sheet in place and the calendar behind it (tallies)
+    body.querySelectorAll('.vote-btn').forEach((b) => {
+      b.onclick = async () => {
+        if (b.disabled) return;
+        b.disabled = true;
+        try {
+          await ctx.votes.cast(+b.dataset.id, +b.dataset.v);
+          ctx.refresh();
+          renderStopView(ctx, it);
+        } catch (err) { alert(err.message); b.disabled = false; }
+      };
+    });
 
     if (ctx.canEdit) {
       body.querySelector('.sm-edit').onclick = () => renderStopEdit(ctx, it);

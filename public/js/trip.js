@@ -358,6 +358,13 @@
       // the same edit/repaint hooks the modals use
       ensureEdit: () => ensureEditRights(),
       refresh: () => renderItinerary(),
+      // group votes — the calendar's stop sheet casts them, its cards show the tally
+      votes: {
+        on: () => votesOn,
+        html: (it) => voteHtml(it),
+        tally: (it) => voteTallyHtml(it),
+        cast: (id, v) => castVote(id, v),
+      },
     };
 
     // every existing call site funnels through here, so both views stay fresh
@@ -418,6 +425,22 @@
           title="נגד התחנה" aria-label="נגד התחנה">${VOTE_ICONS.down}${v.down ? `<b>${v.down}</b>` : ''}</button>
       </span>`;
     };
+
+    // read-only count for surfaces too small for buttons (calendar cards/chips)
+    const voteTallyHtml = (it) => {
+      if (!votesOn) return '';
+      const v = votesByItem[it.id];
+      if (!v || (!v.up && !v.down)) return '';
+      return `<span class="vote-tally" title="הצבעות על התחנה">${v.up ? `<span class="vt-up${v.my_vote === 1 ? ' mine' : ''}">${VOTE_ICONS.up}${v.up}</span>` : ''}${v.down ? `<span class="vt-down${v.my_vote === -1 ? ' mine' : ''}">${VOTE_ICONS.down}${v.down}</span>` : ''}</span>`;
+    };
+    // same vote again takes it back; the server answers with the stop's fresh tally
+    async function castVote(id, v) {
+      const mine = (votesByItem[id] || {}).my_vote || 0;
+      const next = mine === v ? 0 : v;
+      votesByItem[id] = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/items/${id}/vote`, {
+        method: 'PUT', headers: canEditHeaders || {}, body: JSON.stringify({ vote: next }),
+      });
+    }
 
     // ---- travel legs: real driving times between consecutive stops (OSRM) ----
     // injected into the rendered list once routing resolves, so the itinerary never
@@ -548,19 +571,13 @@
         });
       });
 
-      // vote taps: same vote again takes it back; the server answers with the
-      // stop's fresh tally, and the repaint folds it in
+      // vote taps — the repaint folds the fresh tally in
       container.querySelectorAll('.vote-btn').forEach((b) => {
         b.onclick = async () => {
           if (b.disabled) return;
           b.disabled = true;
-          const id = +b.dataset.id;
-          const mine = (votesByItem[id] || {}).my_vote || 0;
-          const next = mine === +b.dataset.v ? 0 : +b.dataset.v;
           try {
-            votesByItem[id] = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/items/${id}/vote`, {
-              method: 'PUT', headers: canEditHeaders || {}, body: JSON.stringify({ vote: next }),
-            });
+            await castVote(+b.dataset.id, +b.dataset.v);
             renderItinerary();
           } catch (err) { alert(err.message); b.disabled = false; }
         };

@@ -2836,7 +2836,19 @@ body.cal-full-open { overflow: hidden; }
 .vote-btn:hover { color: var(--paper); border-color: var(--glass-highlight); }
 .vote-btn.on { background: rgba(143, 216, 196, .14); color: var(--mint); border-color: rgba(143, 216, 196, .4); }
 .vote-btn.down.on { background: rgba(255, 122, 110, .12); color: var(--danger); border-color: rgba(255, 122, 110, .35); }
-@media print { .stop-votes { display: none; } }
+@media print { .stop-votes, .vote-tally, .sm-votes { display: none; } }
+
+/* calendar: read-only tally on cards/chips, full buttons in the stop sheet */
+.vote-tally { display: inline-flex; gap: 6px; font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--paper-dim); }
+.vote-tally > span { display: inline-flex; align-items: center; gap: 2px; }
+.vote-tally .ic { width: 11px; height: 11px; }
+.vote-tally .vt-up.mine { color: var(--mint); }
+.vote-tally .vt-down.mine { color: var(--danger); }
+.cal-wevt .vote-tally { margin-top: 2px; }
+.sm-votes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: -4px 0 14px; }
+.sm-votes .vote-btn { padding: 6px 12px; font-size: .84rem; }
+.sm-votes .vote-btn .ic { width: 15px; height: 15px; }
+.sm-votes-hint { font-size: .82rem; color: var(--paper-dim); font-weight: 300; }
 
 /* ---- arrange mode: long-press a stop → everything jiggles, drag to swap ---- */
 @keyframes arr-jiggle {

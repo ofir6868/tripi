@@ -78,8 +78,8 @@ async function offerPushOptIn(anchor) {
   card.innerHTML = `
     <span class="pa-icon">${PUSH_BELL}</span>
     <span class="pa-text">
-      <strong class="pa-title">שנודיע לכם כשמישהו מצטרף?</strong>
-      <span class="pa-sub">התראה קצרה כשחבר נכנס לתכנון או משנה משהו במסלול. שום דבר מעבר.</span>
+      <strong class="pa-title">שנעדכן אתכם לאורך הדרך?</strong>
+      <span class="pa-sub">כשחבר מצטרף או משנה משהו במסלול, ספירה לאחור לפני הטיסה, וכל בוקר בטיול — התוכנית של היום עם מזג האוויר. זהו.</span>
     </span>
     <span class="pa-actions">
       <button type="button" class="btn btn-amber pa-yes">כן, עדכנו אותי</button>
