@@ -6,7 +6,8 @@
 const COUNTRIES = (() => {
   const LIST = [
     ['אוגנדה', 'ug'], ['אוזבקיסטן', 'uz'], ['אוסטריה', 'at'], ['אוסטרליה', 'au'],
-    ['אוקראינה', 'ua'], ['אורוגוואי', 'uy'], ['איחוד האמירויות', 'ae'], ['איטליה', 'it'],
+    ['אוקראינה', 'ua'], ['אורוגוואי', 'uy'], ['אזרבייג\'ן', 'az'], ['איחוד האמירויות', 'ae'],
+    ['איטליה', 'it'],
     ['איי מרשל', 'mh'], ['איי פארו', 'fo'], ['איי קיימן', 'ky'], ['איי שלמה', 'sb'],
     ['אינדונזיה', 'id'], ['איסלנד', 'is'], ['איראן', 'ir'], ['אירלנד', 'ie'],
     ['אל סלוודור', 'sv'], ['אלבניה', 'al'], ['אלג\'יריה', 'dz'], ['אנגולה', 'ao'],
@@ -98,23 +99,17 @@ const COUNTRIES = (() => {
     return `<img class="flag-img" src="https://flagcdn.com/w80/${cc}.png" alt="">`;
   }
 
-  function search(q, max = 3) {
-    q = (q || '').trim();
-    if (q.length < 2) return [];
-    const starts = [], words = [];
-    for (const [name, cc] of LIST) {
-      if (RESTRICTED.has(cc)) continue;
-      if (name.startsWith(q)) starts.push({ name, cc });
-      else if (name.split(/[\s-]+/).some((w) => w.startsWith(q))) words.push({ name, cc });
-    }
-    return [...starts, ...words].slice(0, max);
-  }
+  const nameByCc = new Map(LIST.map(([name, cc]) => [cc, name]));
 
   return {
     isMobile,
-    search,
     flagEmoji,
     flagHtml,
+    // the suggestible countries, in one place — destinations.js folds them into the
+    // same fuzzy index as the cities, so a search sees countries and cities together
+    all: () => LIST.filter(([, cc]) => !RESTRICTED.has(cc)).map(([name, cc]) => ({ name, cc })),
+    isRestricted: (cc) => RESTRICTED.has(cc),
+    nameByCc: (cc) => nameByCc.get(cc) || null,
     // names arrive from geocoders and from people, so the abbreviation punctuation
     // varies ("ארה\"ב", "ארה״ב", "ארהב") where the country is one and the same
     ccByName: (name) => {

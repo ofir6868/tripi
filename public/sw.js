@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v33'; // bumped for the hero fade fix: the mask moved off the ken-burns layer
+const VERSION = 'v34'; // bumped for the fuzzy destination index (destinations.js)
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first
@@ -10,7 +10,7 @@ const STATIC = [
   '/css/style.css', '/js/common.js', '/js/geo.js', '/js/home.js', '/js/trip.js',
   '/js/trip-modals.js', '/js/trip-arrange.js', '/js/trip-calendar.js', '/js/trip-map.js',
   '/js/plan.js', '/js/admin.js',
-  '/js/countries.js', '/js/datepicker.js', '/js/push.js', '/js/webmcp.js', '/js/webmcp-tools.js',
+  '/js/countries.js', '/js/destinations.js', '/js/datepicker.js', '/js/push.js', '/js/webmcp.js', '/js/webmcp-tools.js',
   '/js/analytics.js',
   '/vendor/leaflet/leaflet.js', '/vendor/leaflet/leaflet.css',
   '/icon.svg', '/manifest.json',

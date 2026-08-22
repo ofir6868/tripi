@@ -170,7 +170,7 @@
   register({
     name: 'tripmaker_search_destinations',
     title: 'Look up a destination',
-    description: 'Geocode a place name to Hebrew name, country and coordinates (Open-Meteo). Use it to resolve destinations before creating a trip, so the trip carries real coordinates instead of just text.',
+    description: 'Resolve a place name to Hebrew name, country and coordinates. Curated matches (the destinations Israelis search, fuzzy-matched on Hebrew spelling) come first and always carry a country; geocoder hits (Open-Meteo) follow for everything else. Use it to resolve destinations before creating a trip, so the trip carries a real country and coordinates instead of just text.',
     annotations: { readOnlyHint: true },
     inputSchema: {
       type: 'object',
@@ -179,8 +179,15 @@
     },
     execute: async ({ query }) => {
       if (typeof GEO === 'undefined') return fail('destination lookup is not available on this page');
-      const places = await GEO.searchPlaces(String(query || '').trim());
-      return ok({ count: places.length, places });
+      const q = String(query || '').trim();
+      // the curated index isn't loaded on every page — it is a bonus here, not a dependency
+      const curated = typeof DESTINATIONS === 'undefined' ? [] : DESTINATIONS.search(q, 3).map((d) => ({
+        name: d.name, country: d.country, cc: d.cc, kind: d.kind, curated: true,
+      }));
+      const known = new Set(curated.map((d) => d.name));
+      const places = (await GEO.searchPlaces(q)).filter((p) => !known.has(p.name));
+      const all = [...curated, ...places];
+      return ok({ count: all.length, places: all });
     },
   });
 

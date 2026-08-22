@@ -77,43 +77,69 @@
 
   const GO_ARROW = '<svg class="ic sr-go" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>';
 
+  // section 1 — creation, and it is rendered from the in-memory destination index,
+  // so it is on screen before the trips request even leaves the browser. A matched
+  // destination carries its country code (flag + a country the AI can anchor on);
+  // the free-text CTA only appears when the index recognised nothing at all.
+  function planCtaHtml(q) {
+    const hits = DESTINATIONS.searchWithCountry(q, 3);
+    if (!hits.length) {
+      return `
+        <a class="search-result plan-cta" href="/plan?dest=${encodeURIComponent(q)}" role="option">
+          <span class="pc-icon"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg></span>
+          <div>
+            <div class="sr-title">מתכננים טיול חדש ל"${TRIPMAKER.esc(q)}"</div>
+            <div class="sr-meta">בוחרים יעד, כמה ימים — וה-AI בונה את המסלול</div>
+          </div>
+          ${GO_ARROW}
+        </a>`;
+    }
+    return hits.map((d) => {
+      const params = new URLSearchParams({ dest: d.name, cc: d.cc, country: d.country });
+      return `
+        <a class="search-result plan-cta" href="/plan?${params}" role="option">
+          <span class="sr-flag">${COUNTRIES.flagHtml(d.cc)}</span>
+          <div>
+            <div class="sr-title">${TRIPMAKER.esc(DESTINATIONS.tripPhrase(d.name))}</div>
+            <div class="sr-meta">${TRIPMAKER.esc(DESTINATIONS.subtitle(d))} · ה-AI בונה את המסלול</div>
+          </div>
+          ${GO_ARROW}
+        </a>`;
+    }).join('');
+  }
+
+  const INSPIRATION_SKELETON = `
+    <div class="skl-row">
+      <span class="skl skl-thumb"></span>
+      <div class="skl-sr-text"><span class="skl skl-sr-title"></span><span class="skl skl-sr-meta"></span></div>
+    </div>`.repeat(2);
+
+  // two independent sections: destinations re-render on every keystroke, while the
+  // trips underneath keep the previous answer until the new one arrives — replacing
+  // both at once would flash a skeleton through the whole dropdown as you type
+  function sections() {
+    if (!document.getElementById('sr-plan')) {
+      results.innerHTML = '<div id="sr-plan"></div><div id="sr-inspiration"></div>';
+    }
+    return [document.getElementById('sr-plan'), document.getElementById('sr-inspiration')];
+  }
+
+  function renderDestinations(q) {
+    const [plan, insp] = sections();
+    plan.innerHTML = planCtaHtml(q);
+    if (!insp.innerHTML) insp.innerHTML = INSPIRATION_SKELETON;
+    activeIdx = -1;
+    openResults();
+  }
+
   async function autocomplete(q) {
     const mySeq = ++seq;
-    if (!results.classList.contains('open')) {
-      results.innerHTML = `
-        <div class="skl-row">
-          <span class="skl skl-thumb"></span>
-          <div class="skl-sr-text"><span class="skl skl-sr-title"></span><span class="skl skl-sr-meta"></span></div>
-        </div>`.repeat(3);
-      openResults();
-    }
+    renderDestinations(q);
     try {
       const rows = await TRIPMAKER.api('/api/trips/search?q=' + encodeURIComponent(q));
       if (mySeq !== seq) return; // a newer keystroke already took over
-      // section 1 — creation. Country matches (max 3, flag in the thumb square) lead;
-      // clicking one opens the wizard with that country pre-picked. With no country
-      // match the free-text CTA fills the same slot, so creating is always first.
-      const countries = COUNTRIES.search(q, 3);
-      const planCta = countries.length
-        ? countries.map((c) => `
-          <a class="search-result plan-cta" href="/plan?dest=${encodeURIComponent(c.name)}&cc=${c.cc}" role="option">
-            <span class="sr-flag">${COUNTRIES.flagHtml(c.cc)}</span>
-            <div>
-              <div class="sr-title">טיול ל${TRIPMAKER.esc(c.name)}</div>
-              <div class="sr-meta">מתכננים טיול חדש — ה-AI בונה את המסלול</div>
-            </div>
-            ${GO_ARROW}
-          </a>`).join('')
-        : `
-          <a class="search-result plan-cta" href="/plan?dest=${encodeURIComponent(q)}" role="option">
-            <span class="pc-icon"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg></span>
-            <div>
-              <div class="sr-title">מתכננים טיול חדש ל"${TRIPMAKER.esc(q)}"</div>
-              <div class="sr-meta">בוחרים יעד, כמה ימים — וה-AI בונה את המסלול</div>
-            </div>
-            ${GO_ARROW}
-          </a>`;
-      const inspiration = rows.length
+      const [, box] = sections();
+      box.innerHTML = rows.length
         ? `<div class="sr-group-label">מקבלים השראה מטיולים של אחרים</div>` + rows.map((t) => `
           <a class="search-result" href="/trip/${t.share_code}" role="option">
             <img src="${TRIPMAKER.esc(t.cover_image || '')}" alt="" loading="lazy" onerror="this.style.display='none'">
@@ -124,12 +150,11 @@
             ${GO_ARROW}
           </a>`).join('')
         : `<div class="sr-empty">עוד אין טיולים ל"${TRIPMAKER.esc(q)}" — תהיו הראשונים 🌍</div>`;
-      results.innerHTML = planCta + inspiration;
-      activeIdx = -1;
-      openResults();
     } catch (err) {
       if (mySeq !== seq) return;
-      closeResults();
+      // the destination rows stand on their own — a failed trips lookup just empties
+      // the inspiration section instead of taking the whole dropdown down with it
+      sections()[1].innerHTML = '';
       hint.innerHTML = `<span class="err">${TRIPMAKER.esc(err.message)}</span>`;
     }
   }
@@ -145,6 +170,7 @@
     clearTimeout(debounceTimer);
     const q = input.value.trim();
     if (q.length < 2) { seq++; closeResults(); return; }
+    renderDestinations(q); // local index — no reason to make anyone wait for it
     debounceTimer = setTimeout(() => autocomplete(q), 250);
   });
 

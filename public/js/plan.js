@@ -92,12 +92,64 @@
     scheduleSave(); // also covers programmatic adds (?dest= pre-fill)
   }
 
+  // a locally-matched destination has a name and a country but no coordinates —
+  // they arrive from the geocoder a moment later, and the trip is saved again once
+  // they do. The AI works off the name either way, so nothing waits for this.
+  function fillCoords(d) {
+    GEO.searchPlaces(d.name).then((places) => {
+      const hit = (places || []).find((p) => (p.country || p.name) === d.country) || (places || [])[0];
+      if (hit && d.lat == null) { d.lat = hit.lat; d.lon = hit.lon; scheduleSave(); }
+    }).catch(() => { /* coordinates are a nice-to-have, not a blocker */ });
+  }
+
+  function localOptionsHtml(hits) {
+    return hits.map((d, i) => `
+      <button type="button" class="autocomplete-item" data-local="${i}">
+        <span class="ac-icon">${COUNTRIES.flagHtml(d.cc)}</span>
+        <span class="ac-name">${TRIPMAKER.esc(d.name)}</span>
+        <span class="ac-meta">${TRIPMAKER.esc(DESTINATIONS.subtitle(d))}</span>
+      </button>`).join('');
+  }
+
+  // The curated index answers first — it knows the Hebrew spellings the geocoder
+  // misses, and it always carries a country code, so the chip gets a flag and the
+  // AI gets a country. The geocoder still runs behind it for everything else
+  // (a village, a national park, a place nobody thought to list).
+  function bindOptions(hits, places, q) {
+    suggBox.querySelectorAll('.autocomplete-item').forEach((btn) => {
+      btn.onclick = () => {
+        if (btn.dataset.free) {
+          addDestination({ name: q, country: null, lat: null, lon: null });
+        } else if (btn.dataset.local != null) {
+          const d = hits[+btn.dataset.local];
+          const dest = { name: d.name, country: d.country, lat: null, lon: null, cc: d.cc };
+          addDestination(dest);
+          fillCoords(dest);
+        } else {
+          const p = places[+btn.dataset.i];
+          const country = p.isCountry ? p.name : p.country;
+          addDestination({ name: p.name, country, lat: p.lat, lon: p.lon, cc: COUNTRIES.ccByName(country) });
+        }
+      };
+    });
+  }
+
+  const FREE_TEXT_ITEM = (q) => `
+    <button type="button" class="autocomplete-item free-text" data-free="1">
+      <span class="ac-icon">✏️</span>
+      <span class="ac-name">להוסיף "${TRIPMAKER.esc(q)}" כמו שהוא</span>
+    </button>`;
+
   async function searchDestinations() {
     const q = destInput.value.trim();
     if (q.length < 2) { suggBox.classList.remove('open'); return; }
+    const hits = DESTINATIONS.search(q, 4);
     const places = await GEO.searchPlaces(q).catch(() => []);
     if (destInput.value.trim() !== q) return; // stale response — user kept typing
-    const options = places.map((p, i) => {
+    // the geocoder repeating what the index already offered is just a duplicate row
+    const known = new Set(hits.map((d) => DESTINATIONS.normalize(d.name)));
+    const extra = places.filter((p) => !known.has(DESTINATIONS.normalize(p.name)));
+    const options = extra.map((p, i) => {
       const cc = p.isCountry ? COUNTRIES.ccByName(p.name) : null;
       return `
       <button type="button" class="autocomplete-item" data-i="${i}">
@@ -107,28 +159,26 @@
       </button>`;
     }).join('');
     // free-text fallback appears only AFTER results loaded, so it can't be picked blindly
-    suggBox.innerHTML = options + `
-      <button type="button" class="autocomplete-item free-text" data-free="1">
-        <span class="ac-icon">✏️</span>
-        <span class="ac-name">להוסיף "${TRIPMAKER.esc(q)}" כמו שהוא</span>
-      </button>`;
+    suggBox.innerHTML = localOptionsHtml(hits) + options + FREE_TEXT_ITEM(q);
     suggBox.classList.add('open');
-    suggBox.querySelectorAll('.autocomplete-item').forEach((btn) => {
-      btn.onclick = () => {
-        if (btn.dataset.free) addDestination({ name: q, country: null, lat: null, lon: null });
-        else {
-          const p = places[+btn.dataset.i];
-          const country = p.isCountry ? p.name : p.country;
-          addDestination({ name: p.name, country, lat: p.lat, lon: p.lon, cc: COUNTRIES.ccByName(country) });
-        }
-      };
-    });
+    bindOptions(hits, extra, q);
+  }
+
+  // the index is in memory, so its suggestions can be on screen on the keystroke
+  // itself; only the geocoder round-trip is worth debouncing
+  function showLocalSuggestions(q) {
+    const hits = DESTINATIONS.search(q, 4);
+    if (!hits.length) return;
+    suggBox.innerHTML = localOptionsHtml(hits);
+    suggBox.classList.add('open');
+    bindOptions(hits, [], q);
   }
 
   destInput.addEventListener('input', () => {
     clearTimeout(debounceTimer);
     const q = destInput.value.trim();
     if (q.length < 2) { suggBox.classList.remove('open'); return; }
+    showLocalSuggestions(q);
     debounceTimer = setTimeout(searchDestinations, 280);
   });
 
@@ -587,25 +637,28 @@
   })();
 
   // ---- ?dest= from the homepage search ----
-  // A country pick (?cc= present, from the static list) is trusted as-is: the chip
-  // appears instantly and we land on step 2, while coordinates fill in quietly in
-  // the background. Free text goes through the API — only an EXACT match may
-  // auto-fill; anything else just pre-fills the search box and opens suggestions.
+  // A pick off the destination index (?cc= present, and ?country= for a city) is
+  // trusted as-is: the chip appears instantly and we land on step 2, while
+  // coordinates fill in quietly in the background. Free text goes through the API —
+  // only an EXACT match may auto-fill; anything else just pre-fills the search box
+  // and opens suggestions.
   (function applyDestParam() {
     const params = new URLSearchParams(location.search);
     const q = (params.get('dest') || '').trim().slice(0, 60);
     const cc = (params.get('cc') || '').trim().toLowerCase().slice(0, 2);
+    const country = (params.get('country') || '').trim().slice(0, 60);
     if (!q) return;
     history.replaceState(null, '', '/plan'); // one-shot: a reload shouldn't re-add it
     if (destinations.length) return;
     if (cc && /^[a-z]{2}$/.test(cc)) {
-      addDestination({ name: q, country: q, lat: null, lon: null, cc });
+      // the country name comes from the same index that produced the code, so it is
+      // only trusted when the two actually agree — a hand-edited URL falls back to
+      // treating the destination as a country of its own
+      const cn = country && COUNTRIES.ccByName(country) === cc ? country : q;
+      const dest = { name: q, country: cn, lat: null, lon: null, cc };
+      addDestination(dest);
       goStep(2); // dest-context line in the panel shows what was picked
-      GEO.searchPlaces(q).then((places) => {
-        const hit = (places || []).find((p) => p.isCountry) || (places || [])[0];
-        const d = destinations.find((x) => x.name === q && x.cc === cc);
-        if (hit && d && d.lat == null) { d.lat = hit.lat; d.lon = hit.lon; scheduleSave(); }
-      }).catch(() => { /* coords are a nice-to-have — the AI works off the name */ });
+      fillCoords(dest);
       return;
     }
     GEO.searchPlaces(q)
