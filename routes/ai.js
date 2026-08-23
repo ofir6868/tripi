@@ -27,6 +27,14 @@ const MAX_REGIONS = 6;
 const AI_CATEGORIES = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבות', 'קניות', 'לינה', 'נוף', 'חיי לילה', 'נסיעה', 'היסטוריה', 'אמנות', 'עיר'];
 // cost estimates arrive as loose model output — keep only positive, sane integers
 const cleanCost = (v) => (Number.isFinite(+v) && +v > 0 ? Math.min(Math.round(+v), 999999999) : null);
+// the model sometimes writes the STRING "null" where it means no place — on 2026-08-23
+// one such string geocoded to Nully, a village in France, and a Tokyo workshop shipped
+// with a French pin. Any spelling of "no place" is null, never a query.
+const NO_PLACE_RE = /^(null|none|n\/?a|אין|-+)$/i;
+const cleanPlaceQuery = (v, max = 120) => {
+  const s = typeof v === 'string' ? v.trim() : '';
+  return s && !NO_PLACE_RE.test(s) ? s.slice(0, max) : null;
+};
 const aiUsage = new Map(); // userId → {date, count}
 const AI_DAILY_LIMIT = 20;
 
@@ -600,7 +608,7 @@ async function aiPlanBlocks({ dests, from, to, interestList, freeText, answers, 
 // additional entries to send for correction even though their place EXISTS — each
 // carrying `reason` (shown to the model) and optionally `near` {lat, lon, km}, a
 // circle an accepted replacement must fall inside.
-async function repairPlaces(entries, { where, ph, flagMore }) {
+async function repairPlaces(entries, { where, ph, flagMore, dests }) {
   try {
     const queries = [...new Set(entries.map((e) => e.place_query).filter(Boolean))];
     if (!queries.length) return;
@@ -637,6 +645,35 @@ async function repairPlaces(entries, { where, ph, flagMore }) {
       if (!failing.includes(extra)) failing.push(extra);
     }
     if (!failing.length) return;
+    // Every replacement must land inside the trip's geography, whatever the original
+    // sin: a "not found" stop's fix used to be tested for existence only, which let
+    // the corrector answer a flagged Tokyo stop with "Chidori Bunka Senta, Chiyoda
+    // City, Tokyo, Japan" — a real name the geocoder found 800km away in Iwakuni —
+    // and once with the string "null", which is a village in France. The circle is
+    // the day's own cluster when the day has one; a travel day is the exception a
+    // tight circle would wrong — its stops legitimately straddle two areas — so
+    // there (and when the day can't say where it is) the replacement may land near
+    // ANY of the trip's destinations instead.
+    const failSet = new Set(failing);
+    const locatedDests = (dests || []).filter((d) => d && d.lat != null && d.lon != null);
+    const anyDest = locatedDests.length ? { points: locatedDests, km: AREA_REACH_KM } : null;
+    const allowed = tripCountryCodes(dests);
+    const travelDays = new Set(entries.filter((x) => x.category === 'נסיעה').map((x) => x.day_number));
+    const defaultNear = (e) => {
+      if (e.travelDay || (e.day_number != null && travelDays.has(e.day_number))) return anyDest;
+      const mates = entries.filter((o) => o !== e && !failSet.has(o) && o.day_number != null &&
+        o.day_number === e.day_number && o.lat != null && o.lon != null);
+      if (mates.length >= 2) return {
+        lat: mates.reduce((s, o) => s + o.lat, 0) / mates.length,
+        lon: mates.reduce((s, o) => s + o.lon, 0) / mates.length,
+        km: DAY_SPREAD_KM,
+      };
+      return anyDest;
+    };
+    for (const e of failing) {
+      if (!e.near) e.near = defaultNear(e);
+      if (!e.allowedCc && allowed) e.allowedCc = allowed;
+    }
     console.log(`place verification: ${failing.length}/${queries.length} flagged in "${where}":`,
       failing.map((e) => `${e.place_query}${e.reason ? ` (${e.reason})` : ''}`).join(' | '));
 
@@ -691,7 +728,7 @@ async function repairPlaces(entries, { where, ph, flagMore }) {
     const titleByIndex = new Map();
     for (const f of parsed.fixes || []) {
       if (!Number.isInteger(f.index) || f.index < 0 || f.index >= failing.length) continue;
-      fixByIndex.set(f.index, typeof f.place_query === 'string' && f.place_query.trim() ? f.place_query.slice(0, 120).trim() : null);
+      fixByIndex.set(f.index, cleanPlaceQuery(f.place_query));
       if (typeof f.title === 'string' && f.title.trim()) titleByIndex.set(f.index, f.title.slice(0, 200).trim());
     }
     // the replacements get the same check — a second invented name is how this loop
@@ -705,7 +742,9 @@ async function repairPlaces(entries, { where, ph, flagMore }) {
       const r = fix ? recheck.get(fix) : null;
       let good = r && (r.verdict === 'ok' || r.verdict === 'skipped');
       if (good && e.near && r.verdict === 'ok' && r.best && r.best.lat != null) {
-        good = haversineKm(e.near, r.best) <= e.near.km;
+        good = e.near.points
+          ? e.near.points.some((p) => haversineKm(p, r.best) <= e.near.km)
+          : haversineKm(e.near, r.best) <= e.near.km;
       }
       // and a stop sent back for being in the wrong country cannot return from another
       // one — the model likes to answer a Paris stop with a Brussels stop
@@ -920,16 +959,19 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
   // hard-enforce the block's day range and area regardless of what the model wrote
   const cleaned = items
     .filter((it) => it && it.title && it.day_number >= from && it.day_number <= to)
-    .map((it) => ({
-      day_number: it.day_number,
-      time_label: cleanTime(it.time_label),
-      title: String(it.title).slice(0, 200),
-      note: it.note ? String(it.note).slice(0, 300) : null,
-      place_query: it.place_query ? withContext(String(it.place_query).slice(0, 90)) : null,
-      category: AI_CATEGORIES.includes(it.category) ? it.category : 'אטרקציה',
-      area,
-      cost: cleanCost(it.cost),
-    }));
+    .map((it) => {
+      const q = cleanPlaceQuery(it.place_query, 90);
+      return {
+        day_number: it.day_number,
+        time_label: cleanTime(it.time_label),
+        title: String(it.title).slice(0, 200),
+        note: it.note ? String(it.note).slice(0, 300) : null,
+        place_query: q ? withContext(q) : null,
+        category: AI_CATEGORIES.includes(it.category) ? it.category : 'אטרקציה',
+        area,
+        cost: cleanCost(it.cost),
+      };
+    });
   // travel stops are mandatory between areas: if the model skipped the נסיעה stop
   // (or labeled it something else), synthesize one so the trip never teleports
   if (transferFrom && !cleaned.some((it) => it.day_number === from && it.category === 'נסיעה')) {
@@ -954,6 +996,7 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
   await repairPlaces(cleaned, {
     where: area,
     ph,
+    dests,
     flagMore: (entries) => {
       const flagged = daySpreadOutliers(entries);
       for (const e of foreignCountryStops(entries, dests, area)) {
@@ -962,6 +1005,13 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
       return flagged;
     },
   });
+  // the repairs just attached new pins, and a day that was too sparse to judge before
+  // may have its majority now: an Osaka park on a Tokyo day shipped exactly that way —
+  // two pins on its day at flag time, three after the repairs. One more look with the
+  // same rules (travel days stay exempt); two passes total, never a loop.
+  if (daySpreadOutliers(cleaned).length) {
+    await repairPlaces(cleaned, { where: area, ph, dests, flagMore: (entries) => daySpreadOutliers(entries) });
+  }
   for (const it of cleaned) if (it.newTitle) it.title = it.newTitle;
   const kept = cleaned.filter((it) => !it.drop);
   if (kept.length !== cleaned.length) {
@@ -1483,15 +1533,34 @@ async function aiEditOps(args) {
   const result = await aiEditOpsRaw(args);
   if (!result || !Array.isArray(result.ops) || !result.ops.length) return result;
   const byId = new Map((args.items || []).map((it) => [it.id, it]));
+  // an op whose place_query is a "no place" string ("null", "none") meant a cleared
+  // pin, not a query — left alone it would be geocoded and stored verbatim
+  for (const op of result.ops) {
+    if ((op.action === 'add' || op.action === 'update') && typeof op.place_query === 'string'
+        && op.place_query.trim() && !cleanPlaceQuery(op.place_query)) {
+      op.place_query = op.action === 'update' ? '' : null;
+      op.lat = null; op.lon = null;
+    }
+  }
+  // which days already hold a travel stop comes from the full trip — the ops alone
+  // can't show it, and a travel day's replacement circle must span the areas
+  const tripTravelDays = new Set((args.items || [])
+    .filter((it) => it.category === 'נסיעה').map((it) => it.day_number));
   const entries = result.ops
-    .filter((op) => (op.action === 'add' || op.action === 'update')
-      && typeof op.place_query === 'string' && op.place_query.trim())
-    .map((op) => ({
-      op,
-      title: op.title || (op.id != null && byId.get(op.id) ? byId.get(op.id).title : '') || '',
-      area: op.area || (op.id != null && byId.get(op.id) ? byId.get(op.id).area : null),
-      place_query: op.place_query,
-    }));
+    .filter((op) => (op.action === 'add' || op.action === 'update') && cleanPlaceQuery(op.place_query))
+    .map((op) => {
+      const cur = op.id != null ? byId.get(op.id) : null;
+      const day = op.day_number != null ? op.day_number : (cur ? cur.day_number : null);
+      return {
+        op,
+        title: op.title || (cur && cur.title) || '',
+        area: op.area || (cur && cur.area) || null,
+        day_number: day,
+        category: op.category || (cur && cur.category) || null,
+        travelDay: day != null && tripTravelDays.has(day),
+        place_query: cleanPlaceQuery(op.place_query),
+      };
+    });
   if (!entries.length) return result;
   const where = (args.dests || []).length ? args.dests.map((d) => d.name).join(', ') : args.destText || args.title;
   // the editor is the other door a foreign stop can walk through — "add a good sushi
@@ -1499,6 +1568,7 @@ async function aiEditOps(args) {
   await repairPlaces(entries, {
     where,
     ph: args.ph,
+    dests: args.dests,
     flagMore: (es) => foreignCountryStops(es, args.dests),
   });
   // an op that could not be brought back inside the trip's countries is abandoned whole:
@@ -1605,7 +1675,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
         if (op.title != null && String(op.title).trim()) add('title', String(op.title).slice(0, 200).trim());
         if (op.note != null) add('note', String(op.note).slice(0, 300) || null);
         if (op.place_query != null) {
-          add('place_query', String(op.place_query).slice(0, 120) || null);
+          add('place_query', cleanPlaceQuery(op.place_query));
           // the stop points somewhere else now — verified coordinates when the place
           // check produced them, cleared otherwise (stale ones would pin the old spot)
           add('lat', Number.isFinite(op.lat) ? op.lat : null);
@@ -1631,7 +1701,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
            RETURNING id`,
           [trip.id, day, cleanTime(op.time_label), String(op.title).slice(0, 200).trim(),
            op.note ? String(op.note).slice(0, 300) : null,
-           op.place_query ? String(op.place_query).slice(0, 120) : null,
+           cleanPlaceQuery(op.place_query),
            AI_CATEGORIES.includes(op.category) ? op.category : 'אטרקציה',
            op.area ? String(op.area).slice(0, 80) : (area || null),
            Number.isFinite(op.lat) ? op.lat : null,
@@ -1689,6 +1759,7 @@ module.exports.aiEditOps = aiEditOps;
 module.exports.editViolations = editViolations;
 module.exports.applyOps = applyOps;
 module.exports.daySpreadOutliers = daySpreadOutliers;
+module.exports.repairPlaces = repairPlaces;
 module.exports.foreignCountryStops = foreignCountryStops;
 module.exports.tripCountryCodes = tripCountryCodes;
 // routes/trips.js runs this after a publish-to-gallery toggle — fire-and-forget
