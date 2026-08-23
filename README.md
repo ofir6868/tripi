@@ -70,6 +70,7 @@ npm start          # http://localhost:3000
 | `DATABASE_URL` | כתובת חיבור ל-PostgreSQL |
 | `JWT_SECRET` | סוד לחתימת טוקנים |
 | `PORT` | פורט (ברירת מחדל 3000) |
+| `CANONICAL_ORIGIN` | אופציונלי — המקור היחיד שמותר להיכנס לאינדקס. ברירת מחדל `https://tripmaker.co.il` (מתוך `SITE` ב-`lib/seo.js`). כל בקשת GET לדף שמגיעה למארח או לסכימה אחרים מקבלת 301 לכאן |
 | `GOOGLE_CLIENT_ID` | OAuth 2.0 Client ID מ-Google Cloud |
 | `GOOGLE_CLIENT_SECRET` | OAuth 2.0 Client Secret מ-Google Cloud |
 | `GOOGLE_REDIRECT_URI` | אופציונלי — ברירת מחדל `{origin}/api/auth/google/callback` (בפרודקשן: `https://tripi-caw3.onrender.com/api/auth/google/callback`) |

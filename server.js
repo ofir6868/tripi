@@ -20,6 +20,11 @@ const PORT = process.env.PORT || 3000;
 // and that header is trivial to forge there).
 app.set('trust proxy', 1);
 
+// First in the chain, before anything can answer with a page: fold www., the bare http
+// scheme and the onrender.com host into the one origin we want indexed. See
+// lib/canonical-origin.js for what the duplicates cost us in Search Console.
+app.use(require('./lib/canonical-origin').canonicalOrigin);
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
