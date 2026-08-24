@@ -2927,6 +2927,23 @@ body.cal-full-open { overflow: hidden; }
 /* Plain and light on purpose: these pages exist to be read by people arriving from
    search and by crawlers, so no entry splash, no scroll-triggered reveals. */
 
+/* Per-destination header photo — static (no ken-burns) to match that plain,
+   light intent; full-bleed regardless of the page-shell's own max-width, and
+   it fades straight into the page background. .page-shell's usual top padding
+   exists to clear the fixed header on plain pages; here the photo already
+   fills that space, so the following page-shell's padding is trimmed down to
+   normal breathing room instead of stacking on top of the photo's height. */
+.seo-hero {
+  position: relative; width: 100vw; margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
+  height: 40vh; min-height: 220px; max-height: 400px;
+  background-size: cover; background-position: center;
+}
+.seo-hero::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(10, 21, 18, 0) 0%, rgba(10, 21, 18, .25) 60%, var(--ink) 100%);
+}
+.seo-hero + .page-shell { padding-top: 30px; }
+
 .seo-article h1 .accent { color: var(--amber); }
 .seo-article h2 { font-family: var(--font-display); font-size: 1.5rem; margin: 40px 0 12px; }
 .seo-article p { line-height: 1.75; color: var(--paper-dim); font-weight: 300; margin: 0 0 14px; }
