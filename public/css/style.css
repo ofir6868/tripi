@@ -337,9 +337,15 @@ body::after {
 .search-hint .err { color: var(--danger); }
 
 /* autocomplete dropdown: an overlay glued to the input's bottom edge, so it reads
-   as one combobox control — it floats above the hero instead of pushing it */
+   as one combobox control — it floats above the hero instead of pushing it.
+   position: fixed (top/left/width set in JS from the input's rect) with home.js
+   moving the element to <body> when it opens — the hero is an isolated stacking
+   context (isolation: isolate, for the ken-burns clip) that traps even fixed
+   descendants below the site header's z-index, so staying inside it meant the
+   dropdown scrolled away and vanished behind the header. z-index above the
+   header keeps it visible and glued to the input as the page scrolls. */
 .search-results {
-  position: absolute; top: calc(100% - 1px); right: 0; left: 0; z-index: 40;
+  position: fixed; z-index: 150;
   display: none; text-align: right;
   max-height: 320px; overflow-y: auto; overscroll-behavior: contain;
   background: rgba(8, 17, 14, .97);

@@ -6,7 +6,23 @@
   const hint = document.getElementById('search-hint');
   const results = document.getElementById('search-results');
 
+  // the dropdown used to be an absolutely-positioned child of .search-box, glued to
+  // the input via normal document flow. That put it inside the hero's isolated
+  // stacking context (isolation: isolate for the ken-burns clip), which traps even
+  // fixed-position descendants below the site header's z-index — so as the page
+  // scrolled, the open dropdown scrolled up with the hero and vanished behind the
+  // header instead of staying put. Reparenting to <body> escapes that stacking
+  // context; position: fixed + tracking the input's rect on scroll/resize keeps it
+  // glued to the input and visible above the header the whole time it's open.
+  function positionResults() {
+    const r = input.getBoundingClientRect();
+    results.style.top = `${r.bottom - 1}px`;
+    results.style.left = `${r.left}px`;
+    results.style.width = `${r.width}px`;
+  }
   function openResults() {
+    if (results.parentElement !== document.body) document.body.appendChild(results);
+    positionResults();
     results.classList.add('open');
     box.classList.add('dd-open');
     input.setAttribute('aria-expanded', 'true');
@@ -17,6 +33,12 @@
     input.setAttribute('aria-expanded', 'false');
     activeIdx = -1;
   }
+  window.addEventListener('scroll', () => {
+    if (results.classList.contains('open')) positionResults();
+  }, { passive: true });
+  window.addEventListener('resize', () => {
+    if (results.classList.contains('open')) positionResults();
+  });
 
   // ---- tabs ----
   document.querySelectorAll('.search-tab').forEach((tab) => {
@@ -197,20 +219,15 @@
     }
   });
 
-  // the dropdown behaves like a native one: focus back in reopens it, click-away closes
+  // the dropdown behaves like a native one: focus back in reopens it, click-away closes.
+  // results now lives under <body> (see openResults), not inside .search-box, so
+  // click-away has to check both.
   input.addEventListener('focus', () => {
     if (mode === 'dest' && results.children.length && input.value.trim().length >= 2) openResults();
   });
   document.addEventListener('pointerdown', (e) => {
-    if (!box.contains(e.target)) closeResults();
+    if (!box.contains(e.target) && !results.contains(e.target)) closeResults();
   });
-  // the dropdown is an absolutely-positioned child of the search box, not a fixed
-  // overlay — it scrolls away with the hero and ends up half-hidden under the fixed
-  // site header. Closing on scroll matches native combobox behavior (a scroll-tracking
-  // popup is more machinery than this needs) and avoids that orphaned-under-the-header look.
-  window.addEventListener('scroll', () => {
-    if (results.classList.contains('open')) closeResults();
-  }, { passive: true });
 
   // ---- suggested strip ----
   const strip = document.getElementById('trip-strip');
