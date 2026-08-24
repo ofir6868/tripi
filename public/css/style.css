@@ -1145,21 +1145,28 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 .ai-status.error { color: var(--danger); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 
-/* ---- region-edit step (long trips): the AI's area split painted on a calendar ---- */
+/* ---- region-edit step (long trips): the AI's area split painted on a calendar.
+   The cells ARE the trip page's month-calendar cells (.cal-cell/.cc-* carry the
+   look and the min-width:0 that keeps long area names from bursting the grid);
+   .rc-* only shrinks them to paint-grid size ---- */
 .region-sub { color: var(--paper-dim); font-weight: 300; margin: -10px 0 18px; }
 .rc-month { text-align: center; font-weight: 800; font-size: .95rem; margin: 12px 0 6px; }
-.rc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 8px; }
-.rc-day {
-  min-height: 48px; padding: 4px 2px; border: none; border-radius: 10px; cursor: pointer;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
-  background: var(--area-c); color: var(--ink);
-  font-family: var(--font-body); font-weight: 800; font-size: .88rem;
-  transition: transform .12s ease, filter .12s ease;
+.rc-grid { gap: 4px; margin-bottom: 8px; }
+.region-cal .cal-dow-row { gap: 4px; }
+/* doubled selectors on purpose: .cal-cell's own rules (and its mobile overrides)
+   come later in this file, so the region cells need the extra specificity to win */
+.region-cal .rc-day {
+  min-height: 56px; padding: 6px; gap: 2px;
+  font-family: var(--font-body); color: var(--paper); text-align: right;
+  /* the stripe alone is faint on a tiny cell — tint the body with the area color
+     too; on phones .cc-area is hidden (as on the trip page) and this tint plus the
+     palette-legend below are what carry the area */
+  background: color-mix(in srgb, var(--area-c) 26%, transparent);
 }
-.rc-day:hover { transform: translateY(-1px); filter: brightness(1.06); }
-.rc-day .rc-area {
-  font-size: .6rem; font-weight: 700; opacity: .75; max-width: 100%;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.region-cal .rc-day:hover { border-color: var(--area-c); }
+.region-cal .rc-day .cc-area { pointer-events: none; }
+@supports not (background: color-mix(in srgb, red 26%, transparent)) {
+  .region-cal .rc-day { background: var(--glass-strong); }
 }
 .region-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
 .rp-hint { width: 100%; font-size: .85rem; color: var(--paper-dim); }

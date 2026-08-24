@@ -597,10 +597,12 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  // the same cell the trip page's month calendar renders (.cal-cell/.cc-*), minus
+  // the stops it doesn't have yet — .rc-day only shrinks it to paint-grid size
   function rcCell(d, label) {
     const area = regionDayAreas[d];
-    return `<button type="button" class="rc-day" data-d="${d}" style="--area-c:${areaColor(area)}">` +
-      `<span class="rc-num">${label}</span><span class="rc-area">${TRIPMAKER.esc(area)}</span></button>`;
+    return `<button type="button" class="cal-cell has-area rc-day" data-d="${d}" style="--area-c:${areaColor(area)}" aria-label="יום ${d + 1} · ${TRIPMAKER.esc(area)}">` +
+      `<span class="cc-head"><span class="cc-num">${label}</span></span><span class="cc-area">${TRIPMAKER.esc(area)}</span></button>`;
   }
 
   // month view either way: with real dates the trip paints onto its actual months
@@ -614,7 +616,7 @@
       let cells = '';
       const flush = () => {
         if (!cells) return;
-        html += `<div class="dp-dow">${DOW_HE.map((x) => `<span>${x}</span>`).join('')}</div><div class="rc-grid">${cells}</div>`;
+        html += `<div class="cal-dow-row">${DOW_HE.map((x) => `<span>${x}</span>`).join('')}</div><div class="cal-grid rc-grid">${cells}</div>`;
         cells = '';
       };
       for (let d = 0; d < regionDayAreas.length; d++) {
@@ -630,7 +632,7 @@
       }
       flush();
     } else {
-      html = '<div class="rc-grid">' + regionDayAreas.map((_, d) => rcCell(d, 'יום ' + (d + 1))).join('') + '</div>';
+      html = '<div class="cal-grid rc-grid">' + regionDayAreas.map((_, d) => rcCell(d, 'יום ' + (d + 1))).join('') + '</div>';
     }
     cal.innerHTML = html;
     cal.querySelectorAll('.rc-day').forEach((el) => {
