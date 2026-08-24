@@ -2977,9 +2977,23 @@ body.cal-full-open { overflow: hidden; }
   height: 40vh; min-height: 220px; max-height: 400px;
   background-size: cover; background-position: center;
 }
+/* An S-curve, not a straight ramp — matches .hero-clip's --hero-fade. A
+   two/three-stop linear ramp reads as a hard edge where the darkening
+   suddenly kicks in; this traces the same easing (mirrored into an additive
+   veil instead of a subtractive mask) so the photo dissolves gradually
+   instead of looking cut off. */
 .seo-hero::after {
   content: ''; position: absolute; inset: 0;
-  background: linear-gradient(180deg, rgba(10, 21, 18, 0) 0%, rgba(10, 21, 18, .25) 60%, var(--ink) 100%);
+  background: linear-gradient(180deg,
+    transparent 0 50%,
+    rgba(10, 21, 18, .04) 56.5%,
+    rgba(10, 21, 18, .16) 63%,
+    rgba(10, 21, 18, .32) 69%,
+    rgba(10, 21, 18, .50) 75%,
+    rgba(10, 21, 18, .68) 81%,
+    rgba(10, 21, 18, .84) 87.5%,
+    rgba(10, 21, 18, .96) 94%,
+    var(--ink) 100%);
 }
 .seo-hero + .page-shell { padding-top: 30px; }
 
