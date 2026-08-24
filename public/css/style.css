@@ -1139,6 +1139,32 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 .ai-status.error { color: var(--danger); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 
+/* ---- region-edit step (long trips): the AI's area split painted on a calendar ---- */
+.region-sub { color: var(--paper-dim); font-weight: 300; margin: -10px 0 18px; }
+.rc-month { text-align: center; font-weight: 800; font-size: .95rem; margin: 12px 0 6px; }
+.rc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 8px; }
+.rc-day {
+  min-height: 48px; padding: 4px 2px; border: none; border-radius: 10px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  background: var(--area-c); color: var(--ink);
+  font-family: var(--font-body); font-weight: 800; font-size: .88rem;
+  transition: transform .12s ease, filter .12s ease;
+}
+.rc-day:hover { transform: translateY(-1px); filter: brightness(1.06); }
+.rc-day .rc-area {
+  font-size: .6rem; font-weight: 700; opacity: .75; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.region-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.rp-hint { width: 100%; font-size: .85rem; color: var(--paper-dim); }
+.rp-area {
+  display: inline-flex; align-items: center; gap: 7px; padding: 7px 13px;
+  border-radius: 999px; border: 1px solid var(--glass-border); background: var(--glass);
+  color: var(--paper); font-family: var(--font-body); font-weight: 700; font-size: .88rem; cursor: pointer;
+}
+.rp-area i { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+.rp-area.selected { border-color: var(--amber); background: var(--glass-strong); box-shadow: 0 0 0 3px rgba(255, 180, 95, .18); }
+
 /* ---------- stop cards + the shared stop sheet ---------- */
 
 .item-top > .item-del { margin-inline-start: 0; }

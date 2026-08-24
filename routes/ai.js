@@ -226,6 +226,33 @@ function regionsFromPicked(base, answerList) {
   return regions.length ? regions.slice(0, MAX_REGIONS) : null;
 }
 
+// the region-edit screen round-trip: the day→area blocks the traveller painted (or
+// accepted as recommended) on the wizard's calendar. Validated for exact contiguous
+// coverage of the requested range; unlike aiPlanBlocks an area MAY appear more than
+// once — painting קיוטו→טוקיו→קיוטו is legitimate — but the block count is capped,
+// because every block is its own generation call.
+const MAX_PRESET_BLOCKS = 12;
+function cleanPresetPlan(raw, { from, to, areaNames, broadSingle }) {
+  const blocks = raw.slice(0, MAX_PRESET_BLOCKS + 1).map((b) => ({
+    area: String(b?.area || '').slice(0, 60).trim(),
+    from: parseInt(b?.from, 10),
+    to: parseInt(b?.to, 10),
+    cities: (Array.isArray(b?.cities) ? b.cities : [])
+      .slice(0, 3).map((c) => String(c).slice(0, 60).trim()).filter(Boolean),
+  })).sort((a, b) => a.from - b.from);
+  if (!blocks.length || blocks.length > MAX_PRESET_BLOCKS) return null;
+  if (blocks.some((b) => !b.area || !Number.isInteger(b.from) || !Number.isInteger(b.to) || b.to < b.from)) return null;
+  if (new Set(blocks.map((b) => b.area)).size > MAX_REGIONS) return null;
+  // painted area names are free-form for a broad single destination (they came from
+  // the AI's own split); for a multi-destination trip they must be the destinations
+  if (!broadSingle && blocks.some((b) => !areaNames.includes(b.area))) return null;
+  if (blocks[0].from !== from || blocks[blocks.length - 1].to !== to) return null;
+  for (let i = 1; i < blocks.length; i++) {
+    if (blocks[i].from !== blocks[i - 1].to + 1) return null;
+  }
+  return blocks;
+}
+
 // the fallback: the AI names the areas for a country nobody split by hand — how many
 // of them, and which, is its call. What a region is worth depends on what these
 // travellers came for and on what the region actually holds, so no days-per-region
@@ -294,13 +321,16 @@ function tripPrefsText({ interestList, freeText, answers }) {
 // pre-flight: the AI decides whether it's missing information that would
 // materially change the trip STRUCTURE (which region, landing city, how to move
 // between far-apart areas). Default is to ask nothing; max 2 questions, fixed types.
-async function aiClarify({ dests, from, to, interestList, freeText, ph }) {
+async function aiClarify({ dests, from, to, interestList, freeText, ph, presetAreas = null }) {
   const days = to - from + 1;
   // the caller only sends two shapes here: one broad destination (a country pick, or
   // free text we can't classify), or several destinations. Each shape has its own
   // structural unknown, so each branch names only that one — last in the message,
   // which is where this model actually follows an instruction.
-  const broadSingle = dests.length === 1 && (!dests[0].country || dests[0].country === dests[0].name);
+  // presetAreas = the region-edit screen already settled the day→area split, so the
+  // region question is off the table — only the other unknowns (landing city,
+  // transfers) are worth asking about.
+  const broadSingle = !presetAreas && dests.length === 1 && (!dests[0].country || dests[0].country === dests[0].name);
   // roughly a region per 5–7 days: below that the trip has room for one area and the
   // question is "which one", above it the question is "which to combine". Pure day
   // arithmetic, so the server decides it — asked to judge this, the model answered
@@ -310,6 +340,9 @@ async function aiClarify({ dests, from, to, interestList, freeText, ph }) {
     `מתכננים טיול של ${days} ימים (ימים ${from} עד ${to}) ב: ${destDescFull(dests)}.` +
     distancesText(dests) +
     tripPrefsText({ interestList, freeText }) +
+    (presetAreas
+      ? `\nחלוקת הימים לאזורים כבר נקבעה על ידי המטיילים: ${presetAreas.join(' ← ')} — אל תשאל אילו אזורים לכלול או איך לחלק את הימים.`
+      : '') +
     `\nלפני שמחלקים את הימים בין האזורים: חסר לך פרט שבלעדיו החלוקה עלולה לצאת שגויה? ` +
     `ברירת המחדל היא להחזיר רשימה ריקה — כל שאלה חייבת להיות על מבנה המסלול עצמו (איזה אזור, סדר האזורים, חלוקת הימים או המעברים ביניהם), ` +
     `לכל היותר 2 שאלות קצרות בעברית, סוג "choice" עם options קצרות (עדיף) או "text" בלי options.` +
@@ -1026,6 +1059,49 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
   return kept;
 }
 
+// ---------- pre-build region planning: the wizard's region-edit screen ----------
+// A long trip shows its recommended day→area split on a calendar BEFORE any stop is
+// generated. This runs ONLY the split — the same region + allocation logic the full
+// build uses — and returns it for painting; the (possibly repainted) result comes
+// back to /api/ai/itinerary as `plan`. Like the clarifying round it costs no daily
+// build quota: the traveller is still deciding, and the build that follows counts.
+router.post('/api/ai/plan-regions', authRequired, async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'בניית AI לא זמינה כרגע' });
+
+    const { destinations, day_from, day_to, interests, notes } = req.body || {};
+    const interestList = (Array.isArray(interests) ? interests : [])
+      .slice(0, 15).map((s) => String(s).slice(0, 40).trim()).filter(Boolean);
+    const freeText = notes ? String(notes).slice(0, 500).trim() : '';
+    const dests = cleanDestinations(destinations);
+    if (!dests.length) return res.status(400).json({ error: 'חסרים יעדים' });
+    const from = Math.min(Math.max(parseInt(day_from, 10) || 1, 1), 60);
+    const to = Math.min(Math.max(parseInt(day_to, 10) || from, from), 60);
+    if (to - from + 1 > 30) return res.status(400).json({ error: 'אפשר לבנות עד 30 ימים בבקשה אחת' });
+
+    const ph = { distinctId: 'user_' + req.user.id, traceId: randomUUID() };
+    const broadSingle = dests.length === 1 && (!dests[0].country || dests[0].country === dests[0].name);
+    const regions = broadSingle
+      ? await aiCountryRegions({ dest: dests[0], from, to, interestList, freeText, answers: null, ph })
+      : null;
+    const buildDests = regions
+      ? regions.map((r) => ({
+        name: r.name, country: dests[0].country || dests[0].name, lat: null, lon: null, cities: r.cities,
+      }))
+      : dests;
+    const blocks = buildDests.length === 1
+      ? [{ dest: buildDests[0], from, to }]
+      : (await aiPlanBlocks({ dests: buildDests, from, to, interestList, freeText, answers: null, ph })
+        || allocateDays(orderByProximity(buildDests), from, to));
+    res.json({
+      plan: blocks.map((b) => ({ area: b.dest.name, from: b.from, to: b.to, cities: b.dest.cities || [] })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.name === 'AbortError' ? 'ה-AI התעכב יותר מדי — נסו שוב' : 'ה-AI לא הצליח לחלק את הטיול לאזורים — נסו שוב עוד רגע' });
+  }
+});
+
 router.post('/api/ai/itinerary', authRequired, async (req, res) => {
   try {
     if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'בניית AI לא זמינה כרגע' });
@@ -1068,8 +1144,22 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
         })).filter((a) => a.question && a.answer)
       : null;
     const broadSingle = dests.length === 1 && (!dests[0].country || dests[0].country === dests[0].name);
+
+    // region-edit screen round-trip (long trips): the wizard already showed the AI's
+    // split and the traveller's day→area painting comes back as `plan` — used
+    // verbatim, so no region question and no re-allocation below. Ignored for
+    // per-area rebuilds (`area`), which already know their day range.
+    let presetPlan = null;
+    if (!area && Array.isArray(req.body.plan)) {
+      presetPlan = cleanPresetPlan(req.body.plan, { from, to, areaNames, broadSingle });
+      if (!presetPlan) return res.status(400).json({ error: 'חלוקת האזורים לא תקינה — נסו שוב' });
+    }
+
     if (!area && (dests.length >= 2 || broadSingle) && answerList === null) {
-      const questions = await aiClarify({ dests, from, to, interestList, freeText, ph });
+      const questions = await aiClarify({
+        dests, from, to, interestList, freeText, ph,
+        presetAreas: presetPlan ? [...new Set(presetPlan.map((b) => b.area))] : null,
+      });
       if (questions.length) return res.json({ questions });
     }
 
@@ -1078,22 +1168,40 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
     // in for destinations while building, so a one-country trip gets the same contiguous
     // blocks and transfer stops as a multi-city one. The trip's own destination list
     // is untouched; only the response's `plan` reports the areas back.
-    const regions = broadSingle && !area
+    const regions = broadSingle && !area && !presetPlan
       ? (regionsFromPicked(dests[0], answerList)
         || await aiCountryRegions({ dest: dests[0], from, to, interestList, freeText, answers: answerList, ph }))
       : null;
-    const regionCities = new Map((regions || []).map((r) => [r.name, r.cities]));
-    const buildDests = regions
-      ? regions.map((r) => ({
-        name: r.name, country: dests[0].country || dests[0].name, lat: null, lon: null, cities: r.cities,
-      }))
-      : dests;
+    // preset areas carry their cities with them — they round-tripped from /plan-regions
+    const regionCities = presetPlan
+      ? new Map(presetPlan.map((b) => [b.area, b.cities]))
+      : new Map((regions || []).map((r) => [r.name, r.cities]));
+    let buildDests;
+    if (presetPlan) {
+      const names = [...new Set(presetPlan.map((b) => b.area))];
+      // for a broad single destination the painted areas stand in for destinations,
+      // exactly like AI-proposed regions; for a multi-destination trip the areas ARE
+      // the destinations — and painting one over entirely legitimately drops it
+      buildDests = broadSingle
+        ? names.map((n) => ({
+          name: n, country: dests[0].country || dests[0].name, lat: null, lon: null, cities: regionCities.get(n),
+        }))
+        : dests.filter((d) => names.includes(d.name));
+    } else {
+      buildDests = regions
+        ? regions.map((r) => ({
+          name: r.name, country: dests[0].country || dests[0].name, lat: null, lon: null, cities: r.cities,
+        }))
+        : dests;
+    }
 
-    // build the per-area blocks: a single requested area, or an AI-decided
-    // allocation (order + days per city). The AI plans; the server only verifies
-    // that the blocks are contiguous — falling back to an even split if invalid.
+    // build the per-area blocks: the painted preset, a single requested area, or an
+    // AI-decided allocation (order + days per city). The AI plans; the server only
+    // verifies that the blocks are contiguous — falling back to an even split if invalid.
     let blocks;
-    if (area) {
+    if (presetPlan) {
+      blocks = presetPlan.map((b) => ({ dest: buildDests.find((d) => d.name === b.area), from: b.from, to: b.to }));
+    } else if (area) {
       blocks = [{ dest: dests.find((d) => d.name === area), from, to }];
     } else if (buildDests.length === 1) {
       blocks = [{ dest: buildDests[0], from, to }];
