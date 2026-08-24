@@ -204,6 +204,13 @@
   document.addEventListener('pointerdown', (e) => {
     if (!box.contains(e.target)) closeResults();
   });
+  // the dropdown is an absolutely-positioned child of the search box, not a fixed
+  // overlay — it scrolls away with the hero and ends up half-hidden under the fixed
+  // site header. Closing on scroll matches native combobox behavior (a scroll-tracking
+  // popup is more machinery than this needs) and avoids that orphaned-under-the-header look.
+  window.addEventListener('scroll', () => {
+    if (results.classList.contains('open')) closeResults();
+  }, { passive: true });
 
   // ---- suggested strip ----
   const strip = document.getElementById('trip-strip');
