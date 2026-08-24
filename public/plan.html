@@ -121,6 +121,22 @@
       <button type="button" class="manual-link" id="go-manual">בלי AI — יוצרים טיול ריק ובונים אותו ידנית ›</button>
     </div>
 
+    <!-- step 3.5, long trips only: the AI's recommended day→area split painted on a
+         month calendar, editable before a single stop is generated. Still shown as
+         step 3 in the progress bar — it replaces panel-3, not the step. -->
+    <div class="wizard-panel glass" id="panel-3b" style="display:none">
+      <h2 id="region-question">אילו אזורים משלבים? 🗺️</h2>
+      <p class="region-sub">זו החלוקה שה-AI ממליץ עליה — אפשר לצבוע ימים ולשנות, או פשוט להמשיך</p>
+      <div class="region-cal" id="region-cal"></div>
+      <div class="region-palette" id="region-palette"></div>
+      <div class="form-error" id="err-3b"></div>
+      <div class="wizard-nav">
+        <button class="btn btn-ghost" id="back-to-3">‹ חזרה</button>
+        <button class="btn btn-amber btn-lg" id="regions-go">✨ בונים עם החלוקה הזאת</button>
+      </div>
+      <button type="button" class="manual-link" id="regions-skip">דילוג — ממשיכים עם ההמלצה כמו שהיא ›</button>
+    </div>
+
   </div>
 
   <!-- full-screen AI planning overlay: breathing amber edge-glow + blur -->

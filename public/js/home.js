@@ -222,10 +222,17 @@
   // the dropdown behaves like a native one: focus back in reopens it, click-away closes.
   // results now lives under <body> (see openResults), not inside .search-box, so
   // click-away has to check both.
+  //
+  // 'click', not 'pointerdown': pointerdown fires the instant a touch begins, including
+  // the touchstart that starts a scroll swipe — so on a phone, starting a scroll gesture
+  // anywhere outside the box (the dropdown floats over the whole page now) closed the
+  // dropdown before any scrolling even happened. A browser only synthesizes 'click' for
+  // an actual tap, never after a touchstart that turns into a pan/scroll, so this closes
+  // on a real click-away without also closing on every scroll-swipe that starts outside.
   input.addEventListener('focus', () => {
     if (mode === 'dest' && results.children.length && input.value.trim().length >= 2) openResults();
   });
-  document.addEventListener('pointerdown', (e) => {
+  document.addEventListener('click', (e) => {
     if (!box.contains(e.target) && !results.contains(e.target)) closeResults();
   });
 

@@ -303,6 +303,7 @@
     curStep = n;
     scheduleSave();
     Object.entries(panels).forEach(([k, p]) => { p.style.display = +k === n ? '' : 'none'; });
+    panel3b.style.display = 'none'; // the region sub-step never survives navigation
     document.querySelectorAll('.wp-step').forEach((s) => {
       const sn = +s.dataset.step;
       s.classList.toggle('active', sn === n);
@@ -505,7 +506,187 @@
   function fullBuild() {
     runAi({ day_from: 1, day_to: +daysSel.value }, 'את הטיול');
   }
-  document.getElementById('ai-full').onclick = fullBuild; // step 3 primary CTA
+  // step 3 primary CTA — long trips take a detour through the region-edit screen
+  // first, so the traveller sees (and can repaint) the day→area split before any
+  // stop exists. Future idea, not built: a LONG trip whose destinations span several
+  // different countries should be nudged back at step 1 to pick one country.
+  document.getElementById('ai-full').onclick = () => {
+    const days = +daysSel.value;
+    if (days >= REGION_EDIT_MIN_DAYS) regionEditFlow(days);
+    else fullBuild();
+  };
+
+  // ---- region-edit step (long trips): paint the AI's day→area split before building ----
+  // From this many days the wizard inserts "עריכת אזורים" between step 3 and the
+  // build: the AI splits the trip into areas first (no stops yet), the split is
+  // painted on a month-view calendar, and the full build then runs with the
+  // traveller's allocation as a given. A bare constant on purpose — easy to tune.
+  const REGION_EDIT_MIN_DAYS = 9;
+  // same palette as the trip page's calendar, so an area keeps its color there
+  const AREA_COLORS = ['#ffb45f', '#8fd8c4', '#c9a7ff', '#7fb8ff', '#ff9db1', '#ffd166'];
+  const DOW_HE = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
+  const panel3b = document.getElementById('panel-3b');
+  let regionPlan = null; // the AI's recommendation, untouched — what "דילוג" builds
+  let regionDayAreas = null; // area name per trip day (index 0 = day 1) — what painting edits
+  let paletteAreas = []; // [{name, cities}] in recommendation order — fixes each area's color
+  let selectedArea = null;
+  let regionBusy = false;
+
+  const areaColor = (name) =>
+    AREA_COLORS[Math.max(paletteAreas.findIndex((a) => a.name === name), 0) % AREA_COLORS.length];
+
+  async function regionEditFlow(days) {
+    const go = async () => {
+      if (regionBusy || aiBusy) return;
+      regionBusy = true;
+      const btn = document.getElementById('ai-full');
+      btn.disabled = true;
+      // deliberately NOT the full-screen overlay: this wait is short and lands back
+      // in the wizard — the glowing overlay is saved for the real build
+      aiStatus.className = 'ai-status working';
+      aiStatus.textContent = 'ה-AI מחלק את הטיול לאזורים…';
+      try {
+        const res = await TRIPMAKER.api('/api/ai/plan-regions', {
+          method: 'POST',
+          body: JSON.stringify({
+            destinations,
+            day_from: 1,
+            day_to: days,
+            interests: [...selectedInterests],
+            notes: document.getElementById('ai-notes').value.trim() || null,
+          }),
+        });
+        aiStatus.className = 'ai-status';
+        aiStatus.textContent = '';
+        const plan = Array.isArray(res.plan) ? res.plan.filter((b) => b && b.area) : [];
+        if (new Set(plan.map((b) => b.area)).size >= 2) openRegionEditor(plan, days);
+        // one area — nothing to paint; the preset still rides along so the popup
+        // won't re-ask a region question the traveller never needed
+        else if (plan.length) runAi({ day_from: 1, day_to: days, plan }, 'את הטיול');
+        else fullBuild();
+      } catch {
+        // the region screen is an enhancement, never a gate — on failure the classic
+        // flow (the split happens inside the build) takes over silently
+        aiStatus.className = 'ai-status';
+        aiStatus.textContent = '';
+        fullBuild();
+      } finally {
+        regionBusy = false;
+        btn.disabled = false;
+      }
+    };
+    if (!TRIPMAKER.user) openAuthModal(go, 'register');
+    else go();
+  }
+
+  function openRegionEditor(plan, days) {
+    regionPlan = plan;
+    paletteAreas = [...new Map(plan.map((b) => [b.area, b.cities || []])).entries()]
+      .map(([name, cities]) => ({ name, cities }));
+    regionDayAreas = new Array(days).fill(plan[0].area);
+    plan.forEach((b) => {
+      for (let d = b.from; d <= b.to && d <= days; d++) regionDayAreas[d - 1] = b.area;
+    });
+    selectedArea = paletteAreas[0].name;
+    document.getElementById('region-question').textContent = `אילו אזורים משלבים ב-${days} הימים? 🗺️`;
+    document.getElementById('err-3b').textContent = '';
+    renderRegionPalette();
+    renderRegionCalendar();
+    panels[3].style.display = 'none';
+    panel3b.style.display = '';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function rcCell(d, label) {
+    const area = regionDayAreas[d];
+    return `<button type="button" class="rc-day" data-d="${d}" style="--area-c:${areaColor(area)}">` +
+      `<span class="rc-num">${label}</span><span class="rc-area">${TRIPMAKER.esc(area)}</span></button>`;
+  }
+
+  // month view either way: with real dates the trip paints onto its actual months
+  // (weekday headers, date numbers); without them it's the same grid of "יום N" cells
+  function renderRegionCalendar() {
+    const cal = document.getElementById('region-cal');
+    const start = tripStart ? DATEPICKER.parse(tripStart) : null;
+    let html = '';
+    if (start) {
+      let monthKey = null;
+      let cells = '';
+      const flush = () => {
+        if (!cells) return;
+        html += `<div class="dp-dow">${DOW_HE.map((x) => `<span>${x}</span>`).join('')}</div><div class="rc-grid">${cells}</div>`;
+        cells = '';
+      };
+      for (let d = 0; d < regionDayAreas.length; d++) {
+        const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + d);
+        const key = `${date.getFullYear()}-${date.getMonth()}`;
+        if (key !== monthKey) {
+          flush();
+          monthKey = key;
+          html += `<div class="rc-month">${date.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}</div>`;
+          cells += '<span class="rc-pad"></span>'.repeat(date.getDay());
+        }
+        cells += rcCell(d, String(date.getDate()));
+      }
+      flush();
+    } else {
+      html = '<div class="rc-grid">' + regionDayAreas.map((_, d) => rcCell(d, 'יום ' + (d + 1))).join('') + '</div>';
+    }
+    cal.innerHTML = html;
+    cal.querySelectorAll('.rc-day').forEach((el) => {
+      el.onclick = () => {
+        regionDayAreas[+el.dataset.d] = selectedArea;
+        document.getElementById('err-3b').textContent = '';
+        renderRegionCalendar();
+      };
+    });
+  }
+
+  function renderRegionPalette() {
+    const pal = document.getElementById('region-palette');
+    pal.innerHTML = '<span class="rp-hint">בוחרים אזור ומקישים על ימים בלוח כדי לצבוע:</span>' +
+      paletteAreas.map((a) =>
+        `<button type="button" class="rp-area${a.name === selectedArea ? ' selected' : ''}" data-a="${TRIPMAKER.esc(a.name)}">` +
+        `<i style="background:${areaColor(a.name)}"></i>${TRIPMAKER.esc(a.name)}</button>`).join('');
+    pal.querySelectorAll('.rp-area').forEach((b) => {
+      b.onclick = () => { selectedArea = b.dataset.a; renderRegionPalette(); };
+    });
+  }
+
+  // consecutive same-area days → the contiguous blocks the server builds from.
+  // An area returning later (קיוטו→טוקיו→קיוטו) yields separate blocks — allowed.
+  function paintedBlocks() {
+    const blocks = [];
+    regionDayAreas.forEach((area, i) => {
+      const last = blocks[blocks.length - 1];
+      if (last && last.area === area) last.to = i + 1;
+      else blocks.push({ area, from: i + 1, to: i + 1, cities: (paletteAreas.find((a) => a.name === area) || {}).cities || [] });
+    });
+    return blocks;
+  }
+
+  // restore panel 3 underneath before building: the overlay covers the swap, and an
+  // error (or the clarifying popup) lands the traveller back where #ai-status lives
+  function closeRegionEditor() {
+    panel3b.style.display = 'none';
+    panels[3].style.display = '';
+  }
+  document.getElementById('back-to-3').onclick = closeRegionEditor;
+  document.getElementById('regions-go').onclick = () => {
+    const blocks = paintedBlocks();
+    if (blocks.length > 12) {
+      // every block is its own build call — a zebra of single days isn't a trip
+      document.getElementById('err-3b').textContent = 'יותר מדי מעברים בין אזורים — כדאי לאחד ימים סמוכים לאותו אזור';
+      return;
+    }
+    closeRegionEditor();
+    runAi({ day_from: 1, day_to: regionDayAreas.length, plan: blocks }, 'את הטיול');
+  };
+  // the default: build with the recommendation exactly as it was shown
+  document.getElementById('regions-skip').onclick = () => {
+    closeRegionEditor();
+    runAi({ day_from: 1, day_to: regionDayAreas.length, plan: regionPlan }, 'את הטיול');
+  };
 
   // ---- create (as a draft) ----
 
