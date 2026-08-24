@@ -670,6 +670,9 @@ async function repairPlaces(entries, { where, ph, flagMore, dests }) {
       // entirely on the wrong trip
       e.cc = r.best.cc || null;
       e.geoWhere = r.best.where || null;
+      // the id Google vouched with (second-opinion passes only) — stored on the stop,
+      // it makes the maps link deterministic and every future details lookup direct
+      if (r.best.place_id) e.google_place_id = r.best.place_id;
     };
     for (const e of entries) if (e.place_query) setGeo(e, results.get(e.place_query));
     const unfound = (q) => { const r = results.get(q); return r && (r.verdict === 'mismatch' || r.verdict === 'none'); };
@@ -749,7 +752,7 @@ async function repairPlaces(entries, { where, ph, flagMore, dests }) {
     });
     // a stop already known to be in the wrong country is wrong whether or not anything
     // can be suggested in its place — it goes even when the corrector never answers
-    const strike = (e) => { e.place_query = null; e.lat = null; e.lon = null; if (e.dropIfUnfixed) e.drop = true; };
+    const strike = (e) => { e.place_query = null; e.lat = null; e.lon = null; e.google_place_id = null; if (e.dropIfUnfixed) e.drop = true; };
     if (!parsed) { // the corrector failing is not a reason to fail the build
       const doomed = failing.filter((e) => e.dropIfUnfixed);
       doomed.forEach(strike);
@@ -788,6 +791,7 @@ async function repairPlaces(entries, { where, ph, flagMore, dests }) {
         e.place_query = fix;
         if (r.verdict === 'ok' && r.best && r.best.lat != null) { e.lat = r.best.lat; e.lon = r.best.lon; }
         else { e.lat = null; e.lon = null; }
+        e.google_place_id = (r.verdict === 'ok' && r.best && r.best.place_id) ? r.best.place_id : null;
         // a stop that changed countries also changes its name — everywhere else the
         // title still describes the same intention and is left exactly as written
         if (e.dropIfUnfixed && titleByIndex.has(i)) e.newTitle = titleByIndex.get(i);
@@ -1694,6 +1698,7 @@ async function aiEditOps(args) {
     // verified coordinates ride the op into the DB — the map pins without the client
     // having to re-geocode, and a moved stop can't keep pointing at its old spot
     if (e.place_query != null && e.lat != null) { e.op.lat = e.lat; e.op.lon = e.lon; }
+    e.op.google_place_id = e.place_query != null ? (e.google_place_id || null) : null;
   }
   return result;
 }
@@ -1788,6 +1793,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
           // check produced them, cleared otherwise (stale ones would pin the old spot)
           add('lat', Number.isFinite(op.lat) ? op.lat : null);
           add('lon', Number.isFinite(op.lon) ? op.lon : null);
+          add('google_place_id', op.google_place_id ? String(op.google_place_id).slice(0, 300) : null);
         }
         if (op.category != null && AI_CATEGORIES.includes(op.category)) add('category', op.category);
         if (op.area != null) add('area', String(op.area).slice(0, 80) || null);
@@ -1804,8 +1810,8 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
         const day = clampDay(op.day_number, trip.days, from);
         if (!inScope(day)) continue;
         const { rows: ins } = await client.query(
-          `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, cost, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
+          `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
            RETURNING id`,
           [trip.id, day, cleanTime(op.time_label), String(op.title).slice(0, 200).trim(),
            op.note ? String(op.note).slice(0, 300) : null,
@@ -1814,6 +1820,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
            op.area ? String(op.area).slice(0, 80) : (area || null),
            Number.isFinite(op.lat) ? op.lat : null,
            Number.isFinite(op.lon) ? op.lon : null,
+           op.google_place_id ? String(op.google_place_id).slice(0, 300) : null,
            cleanCost(op.cost)]
         );
         undoOps.added.push(ins[0].id);

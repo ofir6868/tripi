@@ -175,6 +175,11 @@ async function main() {
   await pool.query(`ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT UNIQUE`);
 
+  console.log('Migration 15: google_place_id on trip_items (deterministic maps links)...');
+  // place IDs are the one piece of Places data Google's terms allow storing
+  // indefinitely — everything else (ratings, hours) must be fetched fresh off this id
+  await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS google_place_id TEXT`);
+
   console.log('Done.');
   await pool.end();
 }

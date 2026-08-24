@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS trip_items (
   area TEXT,
   lat DOUBLE PRECISION,
   lon DOUBLE PRECISION,
+  google_place_id TEXT,
   cost NUMERIC(10,2),
   sort_order INT DEFAULT 0
 );

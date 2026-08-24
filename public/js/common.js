@@ -57,8 +57,11 @@ const TRIPMAKER = {
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[c]));
   },
-  mapsSearchUrl(q) {
-    return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
+  // with a stored place_id the link opens THE place, not whatever a text search
+  // happens to rank first — the id wins whenever a stop carries one
+  mapsSearchUrl(q, placeId) {
+    return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q)
+      + (placeId ? '&query_place_id=' + encodeURIComponent(placeId) : '');
   },
   // fire-and-forget product event — PostHog may be absent (no key, blocker, offline)
   track(name, props) {

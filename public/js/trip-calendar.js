@@ -456,7 +456,7 @@ const TripCalendar = (() => {
       ${hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPMAKER.mapsEmbedUrlExact(it)}"></iframe>` : ''}
       ${it.place_query ? '<div class="stop-gallery"></div>' : ''}
       ${hasMap ? `<a class="btn btn-ghost sm-maps" target="_blank" rel="noopener"
-        href="${esc(TRIPMAKER.mapsSearchUrl(it.place_query || `${it.lat},${it.lon}`))}">פתיחה בגוגל מפות ›</a>` : ''}
+        href="${esc(TRIPMAKER.mapsSearchUrl(it.place_query || `${it.lat},${it.lon}`, it.google_place_id))}">פתיחה בגוגל מפות ›</a>` : ''}
       ${ctx.canEdit ? `<button type="button" class="btn btn-amber sm-edit">${icPencil}<span>עריכת התחנה</span></button>` : ''}`;
 
     const gal = body.querySelector('.stop-gallery');
@@ -577,10 +577,10 @@ const TripCalendar = (() => {
       };
       const areaSel = body.querySelector('.se-area');
       if (areaSel) patch.area = areaSel.value || null;
-      // coordinates belong to a picked place: a hand-typed edit drops the old pin
-      // rather than pointing the map at the previous spot
-      if (picked) { patch.lat = picked.lat; patch.lon = picked.lon; }
-      else if (place !== (it.place_query || '')) { patch.lat = null; patch.lon = null; }
+      // coordinates and the Google id belong to a picked place: a hand-typed edit
+      // drops both rather than pointing the map at the previous spot
+      if (picked) { patch.lat = picked.lat; patch.lon = picked.lon; patch.google_place_id = picked.place_id || null; }
+      else if (place !== (it.place_query || '')) { patch.lat = null; patch.lon = null; patch.google_place_id = null; }
       // the day view follows a stop that was just moved or just created
       if (view.mode === 'day' && day !== view.anchor) view.anchor = day;
       btn.disabled = true;

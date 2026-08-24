@@ -380,13 +380,15 @@ router.post('/api/trips/code/:code/items', authOptional, async (req, res) => {
     const it = req.body || {};
     if (!it.title || !String(it.title).trim()) return res.status(400).json({ error: 'חסרה כותרת לתחנה' });
     const { rows } = await pool.query(
-      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, cost, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
+      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
        RETURNING *`,
       [trip.id, Math.min(Math.max(parseInt(it.day_number, 10) || 1, 1), trip.days),
        it.time_label || null, String(it.title).slice(0, 200).trim(), it.note || null,
        it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null,
-       numOrNull(it.lat), numOrNull(it.lon), moneyOrNull(it.cost)]
+       numOrNull(it.lat), numOrNull(it.lon),
+       it.google_place_id ? String(it.google_place_id).slice(0, 300) : null,
+       moneyOrNull(it.cost)]
     );
     pingEdit(req, trip);
     res.json(rows[0]);
@@ -416,6 +418,10 @@ router.patch('/api/trips/code/:code/items/:itemId', authOptional, async (req, re
     if ('area' in body) add('area', body.area ? String(body.area).slice(0, 80) : null);
     if ('note' in body) add('note', body.note ? String(body.note).slice(0, 500) : null);
     if ('place_query' in body) add('place_query', body.place_query ? String(body.place_query).slice(0, 120) : null);
+    if ('google_place_id' in body) add('google_place_id', body.google_place_id ? String(body.google_place_id).slice(0, 300) : null);
+    // a rewritten place with no id sent along must not keep the OLD id — the maps
+    // link would keep opening the place this stop no longer is
+    else if ('place_query' in body) add('google_place_id', null);
     if ('lat' in body) add('lat', numOrNull(body.lat));
     if ('lon' in body) add('lon', numOrNull(body.lon));
     if ('cost' in body) add('cost', moneyOrNull(body.cost));
@@ -707,8 +713,8 @@ router.post('/api/trips/code/:code/clone', authRequired, async (req, res) => {
        src.start_date, src.end_date, src.days, code, src.emoji, JSON.stringify(src.destinations || []), newInviteToken()]
     );
     await client.query(
-      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, cost, sort_order)
-       SELECT $1, day_number, time_label, title, note, place_query, category, area, lat, lon, cost, sort_order
+      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
+       SELECT $1, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order
        FROM trip_items WHERE trip_id = $2`,
       [t.rows[0].id, src.id]
     );
@@ -845,13 +851,15 @@ router.post('/api/trips', authRequired, async (req, res) => {
           trip.id, Math.min(Math.max(parseInt(it.day_number, 10) || 1, 1), nDays),
           it.time_label || null, String(it.title).slice(0, 200), it.note || null,
           it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null,
-          numOrNull(it.lat), numOrNull(it.lon), moneyOrNull(it.cost), i
+          numOrNull(it.lat), numOrNull(it.lon),
+          it.google_place_id ? String(it.google_place_id).slice(0, 300) : null,
+          moneyOrNull(it.cost), i
         );
-        const base = vals.length - 12;
-        return `(${Array.from({ length: 12 }, (_, k) => '$' + (base + k + 1)).join(',')})`;
+        const base = vals.length - 13;
+        return `(${Array.from({ length: 13 }, (_, k) => '$' + (base + k + 1)).join(',')})`;
       });
       await client.query(
-        `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, cost, sort_order)
+        `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
          VALUES ${tuples.join(',')}`,
         vals
       );
