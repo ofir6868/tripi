@@ -1556,7 +1556,10 @@
       const found = [];
       for (const it of todo) {
         const dest = destForItem(it);
-        const hits = await GEO.searchPois(it.place_query, dest && dest.lat, dest && dest.lon).catch(() => []);
+        // photonPois, deliberately: this pass needs coordinates on every hit in one
+        // request — the Google path answers with place_ids and would cost a details
+        // call per stop for nothing the verifier hasn't already stored
+        const hits = await GEO.photonPois(it.place_query, dest && dest.lat, dest && dest.lon).catch(() => []);
         // Photon's bias only re-ranks — the distance check is what rejects a same-name
         // place in another city, and without a located area nothing can be checked
         const hit = hits.find((h) => Number.isFinite(h.lat) && Number.isFinite(h.lon) &&

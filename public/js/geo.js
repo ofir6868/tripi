@@ -162,8 +162,36 @@ const GEO = {
     return res.json();
   },
 
-  // POI/address search (Photon — keyless OSM autocomplete; finds restaurants, museums, beaches…)
+  // POI autocomplete: Google Places via our own server (the key never reaches the
+  // browser), Photon as the keyless fallback — no key, an error, or an empty answer
+  // all land there. Google rows carry a place_id instead of coordinates; the picker
+  // resolves it on pick via resolvePlace.
   async searchPois(q, biasLat, biasLon) {
+    if (!q || q.length < 2) return [];
+    try {
+      let url = '/api/places/autocomplete?q=' + encodeURIComponent(q);
+      if (Number.isFinite(biasLat) && Number.isFinite(biasLon)) url += `&lat=${biasLat}&lon=${biasLon}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const rows = await res.json();
+        if (rows.length) return rows;
+      }
+    } catch { /* fall through to Photon */ }
+    return this.photonPois(q, biasLat, biasLon);
+  },
+
+  // placeId → {lat, lon}; null coordinates when the lookup fails — same as free text
+  async resolvePlace(placeId) {
+    try {
+      const res = await fetch('/api/places/details?id=' + encodeURIComponent(placeId));
+      if (!res.ok) return { lat: null, lon: null };
+      return await res.json();
+    } catch { return { lat: null, lon: null }; }
+  },
+
+  // Photon — keyless OSM autocomplete. The fallback above, and the coordinate source
+  // for locateInBrowser, which needs lat/lon on every hit without a second request.
+  async photonPois(q, biasLat, biasLon) {
     if (!q || q.length < 2) return [];
     // lang=en: Photon's default is the local OSM name — Greek script for Athens,
     // Kanji for Tokyo. Latin names our travelers can actually read, and the
@@ -227,11 +255,18 @@ const GEO = {
           </button>`).join('');
         list.classList.add('open');
         list.querySelectorAll('.autocomplete-item').forEach((btn) => {
-          btn.onclick = () => {
+          btn.onclick = async () => {
             const p = places[+btn.dataset.i];
             input.value = p.name;
-            lastPicked = p;
             list.classList.remove('open');
+            // a Google row carries a place_id, not coordinates — resolve now, so
+            // getPicked and onPick hand over lat/lon the same way for every source
+            if (p.place_id && p.lat == null) {
+              const c = await this.resolvePlace(p.place_id);
+              p.lat = c.lat;
+              p.lon = c.lon;
+            }
+            lastPicked = p;
             if (onPick) onPick(p);
           };
         });
