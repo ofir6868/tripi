@@ -720,8 +720,10 @@ async function repairPlaces(entries, { where, ph, flagMore, dests }) {
         failing.map((e, i) => `${i}. "${e.title}"${e.area && e.area !== where ? ` (אזור: ${e.area})` : ''} — place_query: "${e.place_query}" — ${e.reason || 'לא נמצא במפה'}`).join('\n') +
         `\nהחזר לכל תחנה (לפי index) אחת משתיים: place_query מתוקן — מקום אמיתי, מוכר וקיים שמשרת את כוונת התחנה, באנגלית ובפורמט "Name, City, Country"; ` +
         `לתחנה רחוקה — מקום חלופי מאותו סוג שנמצא ליד שאר תחנות היום. ` +
-        `לתחנה שנמצאת במדינה אחרת — מקום חלופי מאותו סוג בתוך אזור הטיול עצמו, אף פעם לא במדינה שממנה הגיעה התחנה השגויה, ובמקרה כזה החזר גם title חדש בעברית שמתאר את המקום החלופי. ` +
-        `או null אם לתחנה אין מקום ספציפי אמיתי (ארוחה כללית, סיור חופשי). אל תמציא: אם אינך בטוח שהמקום קיים — החזר null. בשאר המקרים החזר title = null. `,
+        `לתחנה שנמצאת במדינה אחרת — מקום חלופי מאותו סוג בתוך אזור הטיול עצמו, אף פעם לא במדינה שממנה הגיעה התחנה השגויה. ` +
+        `או place_query = null אם לתחנה אין מקום ספציפי אמיתי (ארוחה כללית, סיור חופשי). אל תמציא: אם אינך בטוח שהמקום קיים — החזר null. ` +
+        `לצד כל תיקון החזר גם title חדש בעברית, קצר ובסגנון שם התחנה המקורי: למקום חלופי — תיאור שנוקב במקום החדש; ל-place_query = null — ניסוח כללי של כוונת התחנה, בלי שם המקום שלא נמצא. ` +
+        `החזר title = null רק כששם התחנה המקורי לא נוקב במקום שהוחלף, ולכן נשאר נכון כמו שהוא. `,
       schemaName: 'place_fixes',
       maxTokens: 1500,
       model: AI_MODEL_STRONG,
@@ -740,9 +742,10 @@ async function repairPlaces(entries, { where, ph, flagMore, dests }) {
               properties: {
                 index: { type: 'integer' },
                 place_query: { type: ['string', 'null'] },
-                // only a stop that moved countries needs one: its name described the
-                // place it can no longer point at ("ביקור במגדל אייפל" now standing on
-                // Tokyo Tower reads as a Paris stop with a Japanese pin)
+                // the fix's other half: a corrected stop usually has a title still
+                // naming the place that was just replaced or removed ("שוק נישיקי"
+                // standing on a Nakamise pin reads as a Kyoto stop in Asakusa), so
+                // the corrector rewrites it; null keeps the original
                 title: { type: ['string', 'null'] },
               },
             },
@@ -792,14 +795,18 @@ async function repairPlaces(entries, { where, ph, flagMore, dests }) {
         if (r.verdict === 'ok' && r.best && r.best.lat != null) { e.lat = r.best.lat; e.lon = r.best.lon; }
         else { e.lat = null; e.lon = null; }
         e.google_place_id = (r.verdict === 'ok' && r.best && r.best.place_id) ? r.best.place_id : null;
-        // a stop that changed countries also changes its name — everywhere else the
-        // title still describes the same intention and is left exactly as written
-        if (e.dropIfUnfixed && titleByIndex.has(i)) e.newTitle = titleByIndex.get(i);
+        // the title follows the place: left as written, a repaired stop keeps naming
+        // the place it no longer points at ("שוק נישיקי" standing on a Nakamise pin)
+        if (titleByIndex.has(i)) e.newTitle = titleByIndex.get(i);
         repaired++;
       } else {
         // a stop whose place merely isn't in OSM keeps its slot in the day — losing the
         // pin is the smaller loss. A stop in a country nobody picked has no such
         // defence: it is not this trip's stop at all, so the caller is told to drop it.
+        // The corrector's own "no real place here" comes with a title phrased for a
+        // placeless stop and it applies; a replacement that failed the recheck does
+        // not — its title names the very place that was just rejected.
+        if (fixByIndex.has(i) && fixByIndex.get(i) === null && titleByIndex.has(i)) e.newTitle = titleByIndex.get(i);
         strike(e);
       }
     });
