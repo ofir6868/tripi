@@ -49,21 +49,21 @@
     el.innerHTML = tripCcs().map((cc) => COUNTRIES.flagHtml(cc)).join('');
   }
 
-  // step 2 reminder of what was chosen — matters most when we jumped here automatically
+  // step 2 reminder of what was chosen, as a quiet line under the panel title —
+  // matters most when we jumped here automatically. Changing destinations is the
+  // back arrow's job; the line only offers the add-another shortcut.
   function renderDestContext() {
     const box = document.getElementById('dest-context');
     if (!box) return;
     if (!destinations.length) { box.hidden = true; return; }
     box.hidden = false;
-    box.innerHTML = `<span class="dc-label">הטיול שלכם ל־</span>` + destinations
+    box.innerHTML = destinations
       .map((d) => {
         const cc = ccFor(d);
         return `<span class="dc-dest">${cc ? COUNTRIES.flagHtml(cc) + ' ' : ''}${TRIPMAKER.esc(d.name)}${d.country && d.country !== d.name ? `<small>, ${TRIPMAKER.esc(d.country)}</small>` : ''}</span>`;
       })
       .join('<span class="dc-sep">·</span>') +
-      ` <button type="button" class="dc-change" id="dc-add">+ עוד יעד</button>` +
-      ` <button type="button" class="dc-change" id="dc-change">שינוי</button>`;
-    box.querySelector('#dc-change').onclick = () => goStep(1);
+      ` <button type="button" class="dc-change" id="dc-add">+ עוד יעד</button>`;
     // the homepage country flow lands directly on step 2 — this is where a
     // multi-country trip picks up its second destination
     box.querySelector('#dc-add').onclick = () => { goStep(1); destInput.focus(); };

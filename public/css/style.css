@@ -874,6 +874,22 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 
 .wizard-panel { padding: 30px 28px; }
 .wizard-panel h2 { font-family: var(--font-display); font-size: 1.45rem; margin-bottom: 20px; }
+
+/* panels past the first: a round back arrow sits beside the title instead of a
+   "חזרה" button at the bottom — one glance says where "back" is, and the nav row
+   keeps only the forward action */
+.panel-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.panel-head h2, .panel-head .region-sub { margin: 0; }
+.panel-head .region-sub { margin-top: 3px; font-size: .9rem; }
+.panel-back {
+  width: 40px; height: 40px; flex-shrink: 0; border-radius: 50%; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--glass-border); background: var(--glass); color: var(--amber);
+  cursor: pointer; transition: background .15s ease;
+}
+.panel-back:hover { background: var(--glass-strong); }
+.panel-back .ic { width: 18px; height: 18px; }
+.panel-head-text { min-width: 0; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
 .form-grid .span-2 { grid-column: span 2; }
 
@@ -933,20 +949,18 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 }
 .dest-chip button:hover { color: var(--danger); }
 
-/* step 2: quiet reminder of the destination, especially when we auto-advanced here */
+/* step 2: the destination as a quiet subtitle under "כמה זמן?", not a box of its
+   own — especially for the homepage flow that auto-advanced here */
 .dest-context {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin: -6px 0 18px; padding: 10px 14px; border-radius: 14px;
-  background: rgba(255, 180, 95, .08); border: 1px solid rgba(255, 180, 95, .22);
-  font-size: .94rem;
+  display: flex; align-items: baseline; gap: 4px 8px; flex-wrap: wrap;
+  margin-top: 4px; font-size: .9rem; color: var(--paper-dim);
 }
-.dest-context .dc-label { color: var(--paper-dim); font-weight: 300; }
 .dest-context .dc-dest { color: var(--amber); font-weight: 700; }
 .dest-context .dc-dest small { color: var(--paper-dim); font-weight: 400; }
-.dest-context .dc-sep { color: var(--paper-dim); opacity: .6; }
+.dest-context .dc-sep { opacity: .6; }
 .dest-context .dc-change {
-  margin-inline-start: auto; background: none; border: none; cursor: pointer;
-  color: var(--paper-dim); font-size: .85rem; text-decoration: underline; padding: 0;
+  background: none; border: none; cursor: pointer;
+  color: var(--paper-dim); font-size: .84rem; text-decoration: underline; padding: 0;
 }
 .dest-context .dc-change:hover { color: var(--amber); }
 
@@ -975,6 +989,13 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 .autocomplete-item .ac-meta { color: var(--paper-dim); font-size: .82rem; margin-inline-start: auto; }
 .autocomplete-item.free-text { border-top: 1px dashed rgba(255, 255, 255, .12); border-radius: 0 0 10px 10px; }
 .dest-hint { font-size: .84rem; color: rgba(245, 239, 227, .45); }
+
+/* one-line question: label on the reading side, control on the other — the days
+   stepper doesn't need a full row of its own */
+.field-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; align-self: start; }
+.field-row label { margin-bottom: 0; }
+.field-row .stepper { flex-shrink: 0; }
+.field-row .stepper input { flex: none; width: 64px; }
 
 .stepper { display: flex; gap: 8px; align-items: stretch; }
 .stepper input {
@@ -1683,8 +1704,22 @@ body:has(.join-banner) { padding-bottom: 92px; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .span-2 { grid-column: span 1; }
   /* the numbered stepper eats a whole row on a phone — the panel headings and
-     the back buttons already say where you are */
+     the back arrows already say where you are */
   .wizard-progress { display: none; }
+  /* the whole wizard step fits one phone view: trimmed header clearance, a small
+     page title, compact panel — the calendar gets the room that's left */
+  .wizard-shell { padding-top: calc(84px + env(safe-area-inset-top)); }
+  .wizard-shell > h1 { font-size: 1.5rem; }
+  .wizard-shell > .page-sub { font-size: .88rem; margin: 4px 0 14px; }
+  .wizard-panel { padding: 18px 16px 16px; }
+  .wizard-panel h2 { font-size: 1.25rem; margin-bottom: 14px; }
+  .panel-head { margin-bottom: 12px; }
+  .panel-head h2 { margin-bottom: 0; }
+  .panel-back { width: 36px; height: 36px; }
+  .form-grid { gap: 10px; }
+  .wizard-nav { margin-top: 14px; }
+  .wizard-nav .btn-lg { flex: 1; justify-content: center; }
+  .dp-day { min-height: 34px; }
   .strip-nav { display: none; }
   .ticket .code { font-size: 2.2rem; letter-spacing: .14em; }
   .weather-row { overflow-x: auto; }
