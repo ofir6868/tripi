@@ -974,7 +974,10 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 .autocomplete-wrap input:focus { border-color: var(--amber); box-shadow: 0 0 0 4px rgba(255, 180, 95, .12); }
 .autocomplete-list {
   position: absolute; top: calc(100% + 6px); right: 0; left: 0; z-index: 50;
-  display: none; overflow: hidden; border-radius: var(--radius-sm); padding: 6px;
+  display: none; overflow: hidden auto; border-radius: var(--radius-sm); padding: 6px;
+  /* capped so the list never runs off a phone screen with the keyboard up —
+     long result sets scroll inside the list, the page itself stays put */
+  max-height: min(45vh, 320px);
   background: rgba(14, 26, 22, .97);
 }
 .autocomplete-list.open { display: block; }
