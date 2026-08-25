@@ -1709,8 +1709,10 @@ body:has(.join-banner) { padding-bottom: 92px; }
   /* the whole wizard step fits one phone view: trimmed header clearance, a small
      page title, compact panel — the calendar gets the room that's left */
   .wizard-shell { padding-top: calc(84px + env(safe-area-inset-top)); }
-  .wizard-shell > h1 { font-size: 1.5rem; }
-  .wizard-shell > .page-sub { font-size: .88rem; margin: 4px 0 14px; }
+  .wizard-shell > h1 { font-size: 1.5rem; margin-bottom: 12px; }
+  /* the intro line repeats what the panel titles already ask — on a phone its two
+     lines are the difference between one view and a scroll */
+  .wizard-shell > .page-sub { display: none; }
   .wizard-panel { padding: 18px 16px 16px; }
   .wizard-panel h2 { font-size: 1.25rem; margin-bottom: 14px; }
   .panel-head { margin-bottom: 12px; }
@@ -1720,6 +1722,22 @@ body:has(.join-banner) { padding-bottom: 92px; }
   .wizard-nav { margin-top: 14px; }
   .wizard-nav .btn-lg { flex: 1; justify-content: center; }
   .dp-day { min-height: 34px; }
+  /* step 3 in one view too: smaller interest chips, tighter labels, and the
+     status row only takes space once it has something to say */
+  .interest-chip { padding: 5px 10px; font-size: .78rem; }
+  .interest-row { gap: 6px; }
+  .ai-prefs { margin-bottom: 10px; }
+  .ai-prefs-label { margin: 8px 0 6px; }
+  .ai-prefs-hint { font-size: .7rem; margin-top: 4px; }
+  .ai-status { margin-top: 4px; }
+  .ai-status:empty { display: none; min-height: 0; }
+  .manual-link { margin-top: 6px; padding: 4px; font-size: .82rem; }
+}
+
+/* short phones: the page title gives way too — each panel's own title says it all */
+@media (max-width: 640px) and (max-height: 730px) {
+  .wizard-shell { padding-top: calc(76px + env(safe-area-inset-top)); }
+  .wizard-shell > h1 { display: none; }
   .strip-nav { display: none; }
   .ticket .code { font-size: 2.2rem; letter-spacing: .14em; }
   .weather-row { overflow-x: auto; }
