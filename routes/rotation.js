@@ -9,8 +9,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { pool } = require('../lib/db');
-const { TABLES } = require('../db/schema');
-const { DUMP_FORMAT, restoreDump, isEmpty } = require('../lib/restore');
+const { buildDump, restoreDump, isEmpty } = require('../lib/restore');
 
 const router = express.Router();
 
@@ -26,10 +25,12 @@ function rotationAuth(req, res, next) {
 }
 
 async function tableCounts(q) {
+  const { rows: tabs } = await q.query(
+    `SELECT tablename AS t FROM pg_tables WHERE schemaname='public' ORDER BY tablename`);
   const counts = {};
-  for (const t of TABLES) {
-    const { rows } = await q.query(`SELECT count(*)::int AS n FROM ${t.name}`);
-    counts[t.name] = rows[0].n;
+  for (const { t } of tabs) {
+    const { rows } = await q.query(`SELECT count(*)::int AS n FROM ${t}`);
+    counts[t] = rows[0].n;
   }
   return counts;
 }
@@ -46,21 +47,11 @@ router.get('/api/rotation/status', rotationAuth, async (_req, res) => {
   }
 });
 
-// Everything, ordered and JSON-typed by Postgres itself (to_jsonb renders dates
-// and numerics as strings — no driver-side Date/locale surprises in the dump).
+// Everything the database holds — schema (live DDL) and data alike, so the
+// dump stays correct across migrations this code has never heard of.
 router.get('/api/rotation/dump', rotationAuth, async (_req, res) => {
   try {
-    const tables = {};
-    for (const t of TABLES) {
-      const orderBy = t.cols.includes('id') ? 'id' : t.cols.slice(0, 2).join(', ');
-      const { rows } = await pool.query(
-        `SELECT coalesce(jsonb_agg(to_jsonb(x.*) ORDER BY ${orderBy}), '[]') AS data
-         FROM ${t.name} x`
-      );
-      tables[t.name] = rows[0].data;
-    }
-    const counts = Object.fromEntries(Object.entries(tables).map(([k, v]) => [k, v.length]));
-    res.json({ format: DUMP_FORMAT, dumped_at: new Date().toISOString(), counts, tables });
+    res.json(await buildDump(pool));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'dump failed' });

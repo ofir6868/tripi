@@ -43,6 +43,7 @@ const { bootRestore } = require('./lib/restore');
 (async () => {
   try {
     await ensureDatabase();
+    console.log('rotation: restore engine v2 ready'); // beacon: lets operators confirm via logs that this build carries the rotation machinery
     await bootRestore(require('./lib/db').pool);
   } catch (err) {
     console.error('boot: database unavailable, serving anyway:', err.message);

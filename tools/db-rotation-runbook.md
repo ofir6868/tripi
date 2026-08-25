@@ -58,12 +58,20 @@ Start ~35 minutes before `expiresAt`.
 1. **Preflight.** `list_postgres_instances` → find `tripi-db*`, note its id and
    `expiresAt`. Get row counts (read-only MCP SQL): every table in
    `db/schema.js` `TABLES`.
-2. **Dump via MCP SQL** (read-only, chunked to keep results manageable): per
-   table `SELECT coalesce(jsonb_agg(to_jsonb(x.*) ORDER BY id), '[]') FROM
-   <table> x` — for large tables (`trip_items`) chunk by id range. Assemble
-   `{format: 1, dumped_at, counts, tables}` exactly as
-   `/api/rotation/dump` would (table order and columns: `db/schema.js`).
-   Verify assembled counts equal the live counts.
+2. **Dump via MCP SQL** (read-only, chunked to keep results manageable).
+   Build a **format-2** dump — schema-agnostic, so migrations added since this
+   code shipped survive: replicate the catalog queries in `lib/restore.js
+   buildDump()` (they are all plain SELECTs): FK-topo-sorted `tableOrder`
+   (pg_tables + pg_constraint), `ddl` statements (pg_attribute/format_type
+   column lists, pg_get_constraintdef, pg_indexes.indexdef, sequence
+   ownership), `sequences` last_values (pg_sequences), and per table
+   `SELECT coalesce(jsonb_agg(to_jsonb(x.*) ORDER BY <pk>), '[]') FROM <table> x`
+   — chunk large tables (`trip_items`) by id range. Assemble
+   `{format: 2, dumped_at, tableOrder, ddl, sequences, counts, tables}`
+   exactly as `/api/rotation/dump` produces. Verify counts equal live counts.
+   **Never dump from the fixed registry in `db/schema.js`** — it is a snapshot
+   that drifts (on 2026-08-25 it was already missing `push_log`,
+   `users.google_sub`, `trip_items.google_place_id`).
 3. **Escrow before expiry.** Encrypt with `DB_BACKUP_KEY`, push to the escrow
    branch as `backups/latest.json.enc` plus the dated copy (git or GitHub MCP —
    the branch exists). *The old database must not die before this is on GitHub.*
