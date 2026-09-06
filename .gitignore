@@ -3,3 +3,6 @@ node_modules/
 .claude/settings.local.json
 tools/ai-eval/runs/
 .DS_Store
+dist/
+node_modules/
+.env
