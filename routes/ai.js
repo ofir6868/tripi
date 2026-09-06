@@ -5,6 +5,7 @@ const { pool } = require('../lib/db');
 const { authRequired, authOptional, isAdmin } = require('../lib/auth');
 const { tripWithEditAuth, cleanDestinations } = require('../lib/trips');
 const { verifyPlaces } = require('../lib/places');
+const { placePhoto } = require('../lib/place-photos');
 // the Hebrew country name → ISO code table the client uses for flags, read here to tell
 // whether a stop landed in a country the traveller actually picked. It lives under
 // public/ because the browser and the service worker load it too — one table, so a
@@ -1872,6 +1873,197 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
   }
 });
 
+// =================================================================
+//  המלצות — the trip page's chat: a question about the trip's places, answered in
+//  Hebrew with recommendation cards that can drop straight into the itinerary
+// =================================================================
+//
+// Same rules as every other model call here. The weak model answers (a chat turn is
+// not where it has been shown to fail), and no place it names reaches the client
+// unverified: each card's place_query goes through verifyPlaces, a verdict of
+// mismatch/none drops the card and logs it, a verified one carries the geocoder's
+// coordinates and place_id into the stop when added. A card sitting in another
+// country is dropped by the same foreignCountryStops rule the builder uses. Photos
+// come from Wikipedia (free, keyless) and are never worth waiting for — the lookup
+// races the verification and a miss simply means no photo.
+
+const AI_RECS_DAILY_LIMIT = 30; // messages per user per day — a chat turn is one cheap call
+const AI_RECS_MAX_MESSAGE = 300;
+const AI_RECS_HISTORY = 8; // turns the model sees — enough for "and something cheaper?"
+const aiRecsUsage = new Map(); // 'u<userId>' → {date, count}
+const REC_CATS = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבות', 'קניות', 'לינה', 'נוף', 'חיי לילה'];
+const REC_COSTS = ['חינם', '₪', '₪₪', '₪₪₪'];
+
+const RECS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    text: { type: 'string' },
+    cards: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          title: { type: 'string' },
+          place_query: { type: 'string' },
+          blurb: { type: 'string' },
+          category: { type: 'string', enum: REC_CATS },
+          duration: { type: 'string' },
+          cost: { type: 'string', enum: REC_COSTS },
+          time: { type: 'string' },
+          area: { type: 'string' },
+        },
+        required: ['title', 'place_query', 'blurb', 'category', 'duration', 'cost', 'time', 'area'],
+      },
+    },
+  },
+  required: ['text', 'cards'],
+};
+
+function recsSystemPrompt({ trip, dests, items }) {
+  const destText = dests.length
+    ? dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ')
+    : [trip.destination, trip.country].filter(Boolean).join(', ');
+  const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
+  const dates = trip.start_date ? `, החל מ-${String(trip.start_date).slice(0, 10)}` : '';
+  const byDay = new Map();
+  for (const it of items) {
+    if (!byDay.has(it.day_number)) byDay.set(it.day_number, []);
+    byDay.get(it.day_number).push(it.title);
+  }
+  const itinerary = [...byDay.entries()].slice(0, 30)
+    .map(([d, titles]) => `יום ${d}: ${titles.slice(0, 6).join(' · ')}`).join('\n') || '(עדיין ריק)';
+  return `אתם המדריך המקומי של TRIP MAKER — מומחה לטיולים שמכיר את ${destText} לעומק, ועונים למטייל ישראלי שמתכנן את הטיול הזה.
+עונים בעברית, בגוף רבים ("אתם"), בחום ובענייניות. השדה text — עד 80 מילים.
+
+הטיול: "${trip.title}", ${trip.days} ימים${dates}. יעדים: ${destText}.
+המסלול הנוכחי:
+${itinerary}
+
+כרטיסים (cards):
+- כרטיס הוא מקום אמיתי אחד שאפשר להגיע אליו: אתר, מסעדה, שוק, פארק, שכונה, מוזיאון, חוף. לא רעיון כללי ולא "סיור" בלי מקום.
+- כשהשאלה מבקשת מקומות, מה לעשות, איפה לאכול או תכנון של יום — 3 עד 4 כרטיסים, ובתכנון יום גם שעת התחלה לכל אחד. כשהיא שאלת מידע או טיפים — 0 כרטיסים, והתשובה כולה ב-text.
+- אין להציע מקום שכבר נמצא במסלול.
+- title: שם המקום בעברית, כפי שמטייל ישראלי מכיר אותו (עד 50 תווים).
+- place_query: השם הרשמי באנגלית (או בשפה המקומית באותיות לטיניות), ואחריו העיר והמדינה מופרדים בפסיקים, כך שמנוע מפות ימצא אותו. למשל: "Mercato di Testaccio, Rome, Italy".
+- blurb: משפט-שניים קונקרטיים (עד 160 תווים): מה עושים שם, מתי הכי טוב להגיע, טיפ אחד.
+- category מתוך הרשימה. cost: חינם / ₪ / ₪₪ / ₪₪₪. duration בעברית קצרה ("שעה", "שעתיים", "חצי יום"). time: שעת התחלה מומלצת בפורמט HH:MM, או מחרוזת ריקה.
+- area: שם היעד מהטיול שהמקום שייך אליו, בדיוק באחת הצורות האלה: ${areaNames.map((a) => `"${a}"`).join(', ')}.
+- text מציג את הכרטיסים כשיש כאלה ("שלוש נקודות פתיחה:") ואינו חוזר על ה-blurb שלהם.
+כל מקום בכרטיס חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו; מקום שאינכם בטוחים בו לא נכנס לכרטיס.`;
+}
+
+function recsUserPrompt(history, message) {
+  const turns = history.slice(-AI_RECS_HISTORY)
+    .map((h) => `${h.role === 'user' ? 'מטייל' : 'מדריך'}: ${h.text}`).join('\n');
+  return (turns ? `השיחה עד כה:\n${turns}\n\n` : '') + `השאלה עכשיו:\n${message}`;
+}
+
+// the whole turn, model to verified cards — exported for tests, which stub fetch
+async function tripRecs({ trip, items, message, history, ph }) {
+  const dests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
+  const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
+  const raw = await aiJson({
+    system: recsSystemPrompt({ trip, dests, items }),
+    user: recsUserPrompt(history, message),
+    schemaName: 'trip_recs',
+    schema: RECS_SCHEMA,
+    maxTokens: 1400,
+    ph,
+  });
+  if (!raw) return null;
+
+  const cards = (Array.isArray(raw.cards) ? raw.cards : []).slice(0, 4).map((c) => ({
+    title: String(c.title || '').trim().slice(0, 80),
+    blurb: String(c.blurb || '').trim().slice(0, 240),
+    category: REC_CATS.includes(c.category) ? c.category : 'אטרקציה',
+    duration: String(c.duration || '').trim().slice(0, 30),
+    cost: REC_COSTS.includes(c.cost) ? c.cost : '₪₪',
+    time: cleanTime(c.time),
+    area: areaNames.includes(c.area) ? c.area : (areaNames[0] || null),
+    place_query: cleanPlaceQuery(c.place_query),
+    lat: null, lon: null, google_place_id: null, photos: [], photo_credit: null,
+  })).filter((c) => c.title && c.place_query);
+
+  const queries = [...new Set(cards.map((c) => c.place_query))];
+  const [verified] = await Promise.all([
+    verifyPlaces(queries, { timeoutMs: 4000 }),
+    Promise.all(cards.map(async (c) => {
+      const p = await placePhoto(c.place_query).catch(() => null);
+      if (p) { c.photos = [p.url]; c.photo_credit = p.credit; }
+    })),
+  ]);
+
+  const kept = [];
+  const entries = [];
+  for (const c of cards) {
+    const v = verified.get(c.place_query);
+    if (v && (v.verdict === 'mismatch' || v.verdict === 'none')) {
+      console.warn(`recs: dropped unverified place "${c.place_query}" (${v.verdict})`);
+      continue;
+    }
+    if (v && v.verdict === 'ok' && v.best) {
+      c.lat = v.best.lat; c.lon = v.best.lon; c.google_place_id = v.best.place_id || null;
+      entries.push({ card: c, place_query: c.place_query, cc: v.best.cc, lat: v.best.lat, lon: v.best.lon, geoWhere: v.best.where });
+    }
+    kept.push(c); // 'skipped' (geocoder quiet) fails open, uncoordinated — same as a build
+  }
+  const foreign = new Set(foreignCountryStops(entries, dests).map((e) => e.card));
+  for (const c of foreign) console.warn(`recs: dropped foreign place "${c.place_query}"`);
+  return {
+    text: String(raw.text || '').trim().slice(0, 1200),
+    cards: kept.filter((c) => !foreign.has(c)),
+    dropped: cards.length - kept.length + foreign.size,
+  };
+}
+
+router.post('/api/trips/code/:code/recs', authRequired, async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'ההמלצות לא זמינות כרגע' });
+    const b = req.body || {};
+    const message = String(b.message || '').trim();
+    if (!message) return res.status(400).json({ error: 'כתבו שאלה' });
+    if (message.length > AI_RECS_MAX_MESSAGE) {
+      return res.status(400).json({ error: `השאלה ארוכה מדי — עד ${AI_RECS_MAX_MESSAGE} תווים`});
+    }
+    const history = (Array.isArray(b.history) ? b.history : []).slice(-AI_RECS_HISTORY)
+      .map((h) => ({ role: h && h.role === 'user' ? 'user' : 'ai', text: String((h && h.text) || '').slice(0, 600) }))
+      .filter((h) => h.text);
+
+    const { rows } = await pool.query(
+      'SELECT id, title, destination, country, days, start_date, destinations FROM trips WHERE share_code = $1',
+      [req.params.code]
+    );
+    const trip = rows[0];
+    if (!trip) return res.status(404).json({ error: 'לא נמצא טיול עם הקוד הזה' });
+
+    // 30 questions a day per user; admins are counted but never capped, as everywhere here
+    const quotaKey = 'u' + req.user.id;
+    const today = new Date().toISOString().slice(0, 10);
+    const usage = aiRecsUsage.get(quotaKey);
+    const used = usage && usage.date === today ? usage.count : 0;
+    const admin = await isAdmin(req);
+    if (used >= AI_RECS_DAILY_LIMIT && !admin) {
+      return res.status(429).json({ error: 'ניצלתם את שאלות ההמלצות להיום — נסו שוב מחר' });
+    }
+
+    const { rows: items } = await pool.query(
+      'SELECT day_number, title FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
+    );
+    const result = await tripRecs({
+      trip, items, message, history,
+      ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
+    });
+    if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });
+    aiRecsUsage.set(quotaKey, { date: today, count: used + 1 }); // the model call is the budgeted resource
+    res.json({ ...result, remaining: admin ? null : AI_RECS_DAILY_LIMIT - used - 1 });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
 module.exports = router;
 // the edit route can only run on a trip that already exists in the DB, so tools/ai-eval
 // reaches the model through this instead — everything it measures happens in here
@@ -1884,5 +2076,6 @@ module.exports.daySpreadOutliers = daySpreadOutliers;
 module.exports.repairPlaces = repairPlaces;
 module.exports.foreignCountryStops = foreignCountryStops;
 module.exports.tripCountryCodes = tripCountryCodes;
+module.exports.tripRecs = tripRecs;
 // routes/trips.js runs this after a publish-to-gallery toggle — fire-and-forget
 module.exports.proofreadPublicTripCopy = proofreadPublicTripCopy;

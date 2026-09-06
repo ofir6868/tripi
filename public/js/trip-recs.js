@@ -1,12 +1,12 @@
 // המלצות — a chat with the AI about the area, answered with recommendation cards that
 // drop straight into the itinerary.
 //
-// The ANSWERS are a mock for now: canned Hebrew replies templated on the trip's own
-// destinations, with the destination pages' photos. Everything around them is real —
-// the thread persists per trip, a card's ➕ opens the day picker and goes through the
-// page's addItem (so the stop renders in both views like any other), and "תבחרו
-// בשבילי" lands on the emptiest day in the card's area. When the server endpoint
-// arrives, ask() is the one function to swap; the reply shape stays {text, cards}.
+// ask() is one call to POST /api/trips/code/:code/recs: the server runs the model,
+// verifies every place it names (an unverified one never reaches this file) and finds
+// a photo where Wikipedia has one. This side keeps the thread per trip, renders the
+// cards, and turns ➕ into the page's own addItem — with the verified coordinates and
+// place_id riding along, so the stop pins without a second geocode. "תבחרו בשבילי"
+// lands on the emptiest day in the card's area.
 const TripRecs = (() => {
   const esc = (s) => TRIPMAKER.esc(s);
   const IMG = (id, w = 720) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=${w}&q=70`;
@@ -43,83 +43,8 @@ const TripRecs = (() => {
   };
 
   // =================================================================
-  //  THE MOCK — {d} is the destination the answer is about
+  //  ASK — the server answers; a place without a photo gets the destination's
   // =================================================================
-
-  const POOL = {
-    food: [
-      { t: 'סיור אוכל רחוב ב{d}', b: 'שלוש-ארבע תחנות של אוכל מקומי במרחק הליכה, בדוכנים שהמקומיים עומדים בהם בתור. באים רעבים.', cat: 'אוכל', dur: 'כ-3 שעות', cost: '₪₪', time: '18:00' },
-      { t: 'השוק המרכזי של {d}', b: 'הכי טוב לפני 11:00 — פירות, גבינות ומאפים חמים. מקום מצוין לארוחת בוקר על הרגליים.', cat: 'אוכל', dur: 'שעה-שעתיים', cost: '₪', time: '09:30' },
-      { t: 'ארוחת ערב ברובע הישן של {d}', b: 'מסעדה משפחתית עם תפריט קצר שמתחלף לפי העונה. שווה להזמין מקום יום מראש.', cat: 'אוכל', dur: 'שעתיים', cost: '₪₪₪', time: '20:00' },
-    ],
-    nature: [
-      { t: 'תצפית הזריחה מעל {d}', b: 'עלייה קצרה של 25 דקות, ונוף פנורמי על כל האזור. כדאי להביא משהו חם לשתות.', cat: 'נוף', dur: 'שעה וחצי', cost: 'חינם', time: '06:30' },
-      { t: 'הפארק הגדול של {d}', b: 'הריאה הירוקה של העיר: שבילי הליכה, אגם קטן ופינות פיקניק. מושלם להפסקה בין אטרקציות.', cat: 'טבע', dur: 'שעה-שעתיים', cost: 'חינם', time: '11:00' },
-      { t: 'שביל הליכה בפאתי {d}', b: 'מסלול מעגלי קל של כ-6 ק"מ עם כמה נקודות תצפית. מתאים גם למשפחות עם ילדים.', cat: 'טבע', dur: 'כ-3 שעות', cost: 'חינם', time: '08:00' },
-    ],
-    beach: [
-      { t: 'החוף השקט של {d}', b: 'חוף חולי עם מים רדודים, שכפ"ץ להשכרה, ופחות תיירים מהחוף המרכזי.', cat: 'ים', dur: 'חצי יום', cost: '₪', time: '10:00' },
-      { t: 'שייט שקיעה מול חופי {d}', b: 'סירה קטנה, שעתיים על המים, והשמש שוקעת מאחורי הקו. מזמינים יום קודם.', cat: 'ים', dur: 'שעתיים', cost: '₪₪', time: '18:30' },
-      { t: 'מפרץ השנורקל ליד {d}', b: 'כניסה מהחוף, ראות מצוינת בבקרים, וציוד שמשכירים במקום.', cat: 'ים', dur: 'שעתיים-שלוש', cost: '₪', time: '09:00' },
-    ],
-    culture: [
-      { t: 'המוזיאון הראשי של {d}', b: 'האוסף שמספר את הסיפור של האזור. שעתיים מספיקות, וכרטיס מראש חוסך את התור.', cat: 'תרבות', dur: 'שעתיים', cost: '₪₪', time: '10:00' },
-      { t: 'סיור מודרך ברובע העתיק של {d}', b: 'שעתיים של סמטאות, כיכרות וסיפורים — הדרך הכי טובה להבין את המקום ביום הראשון.', cat: 'תרבות', dur: 'שעתיים', cost: '₪', time: '16:00' },
-      { t: 'הופעה מקומית בערב ב{d}', b: 'מוזיקה חיה במקום קטן שהתושבים אוהבים. הכניסה בדרך כלל חופשית או סמלית.', cat: 'חיי לילה', dur: 'שעתיים', cost: '₪', time: '21:00' },
-    ],
-    night: [
-      { t: 'ברים על הגג ב{d}', b: 'שניים-שלושה גגות במרחק הליכה זה מזה, עם נוף על העיר. מתחילים לפני השקיעה.', cat: 'חיי לילה', dur: 'ערב שלם', cost: '₪₪', time: '19:30' },
-      { t: 'הרחוב שלא נרדם ב{d}', b: 'הרחוב שבו כל המקומיים נפגשים בסופי שבוע: ברים קטנים, מוזיקה מהחלונות ואוכל עד מאוחר.', cat: 'חיי לילה', dur: 'ערב שלם', cost: '₪₪', time: '22:00' },
-      { t: 'ג׳אז בסמטה ב{d}', b: 'מועדון קטן עם הופעה כל ערב. שולחן ליד הבמה — להגיע חצי שעה לפני.', cat: 'חיי לילה', dur: 'שעתיים', cost: '₪₪', time: '21:00' },
-    ],
-    shop: [
-      { t: 'שוק הפשפשים של {d}', b: 'וינטג׳, מפות ישנות וחפצים שאין להם שם. פעם-פעמיים בשבוע, לבדוק את היום מראש.', cat: 'קניות', dur: 'שעתיים', cost: '₪', time: '10:00' },
-      { t: 'רחוב הבוטיקים ב{d}', b: 'מעצבים מקומיים, חנויות קונספט ובית קפה טוב באמצע.', cat: 'קניות', dur: 'שעתיים', cost: '₪₪', time: '15:00' },
-      { t: 'סדנת אומן מקומית ב{d}', b: 'קרמיקה, עור או זכוכית — תלוי באזור. מזכרת שעושים בעצמכם.', cat: 'קניות', dur: 'שעתיים', cost: '₪₪', time: '11:30' },
-    ],
-    kids: [
-      { t: 'האקווריום של {d}', b: 'שעתיים שהילדים לא ירצו לצאת מהן. מזג אוויר לא משנה.', cat: 'אטרקציה', dur: 'שעתיים', cost: '₪₪', time: '10:00' },
-      { t: 'פארק הקרוסלות של {d}', b: 'פארק שעשועים קטן ומקומי, בלי תורים של שעה. הכי כיף אחר הצהריים.', cat: 'אטרקציה', dur: 'שלוש שעות', cost: '₪₪', time: '15:00' },
-      { t: 'סדנת גלידה ב{d}', b: 'מכינים, טועמים, ולוקחים הביתה. שעה של שקט להורים.', cat: 'אוכל', dur: 'שעה', cost: '₪', time: '13:00' },
-    ],
-  };
-
-  const TOP = [{ pool: 'culture', i: 1 }, { pool: 'food', i: 1 }, { pool: 'nature', i: 0 }];
-  const DAY = [
-    { pool: 'culture', i: 1, time: '09:30' }, { pool: 'food', i: 1, time: '12:30' },
-    { pool: 'nature', i: 1, time: '16:00' }, { pool: 'food', i: 2, time: '20:00' },
-  ];
-
-  const TOPICS = [
-    { key: 'day', re: /יום שלם|תכנן|מסלול|יום אחד|תוכנית|לו"ז|לוז/ },
-    { key: 'kids', re: /ילד|משפח|תינוק/ },
-    { key: 'tips', re: /טיפ|כדאי לדעת|מקומי|כסף|מטבע|תחבורה|בטיח|טעויות/ },
-    { key: 'food', re: /אוכל|מסעד|לאכול|קפה|שוק|אוכלים|טעים|ארוחה|צמחוני|כשר/ },
-    { key: 'beach', re: /\bים\b|חוף|לשחות|שחייה|שנורקל|בריכ/ },
-    { key: 'nature', re: /טבע|נוף|הליכה|טרק|פארק|\bהר\b|הרים|מפל|יער/ },
-    { key: 'night', re: /לילה|\bבר\b|ברים|מסיב|בילוי|בערב|ג'אז|ג׳אז/ },
-    { key: 'shop', re: /קניות|שופינג|חנויות|מזכר|בוטיק/ },
-    { key: 'culture', re: /מוזיאון|תרבות|היסטור|אמנות|כנסי|מקדש|ארכיטקט|לראות|אטרקצי|חובה/ },
-  ];
-
-  const REPLY = {
-    top: 'הנה שלוש נקודות פתיחה טובות ב{d} — אחת להבין את המקום, אחת לאכול, ואחת לנשום:',
-    food: 'ב{d} אוכלים הכי טוב איפה שהמקומיים אוכלים: שווקים בבוקר, סמטאות בערב. שלוש תחנות שאני הייתי מתחיל מהן:',
-    nature: 'סביב {d} יש יותר ירוק ממה שנדמה מהמרכז. שלושה מקומות לצאת אליהם, מהקל לקצת יותר מאתגר:',
-    beach: 'הים ליד {d} הוא לא רק החוף המרכזי. הנה שלוש אופציות, כולל אחת לשעות הערב:',
-    culture: 'כדי להבין את {d} כדאי להתחיל מהסיפור שלה. שלושה מקומות שעושים את זה טוב:',
-    night: 'הלילה ב{d} מתחיל מאוחר ונגמר מאוחר יותר. שלושה מקומות לפי מצב הרוח:',
-    shop: 'קניות ב{d} זה בעיקר דברים שאין בבית. שלושה מקומות שלא מוכרים מגנטים:',
-    kids: 'עם ילדים ב{d} הסוד הוא לסירוגין: משהו פעיל, משהו רגוע, ומשהו מתוק. שלוש אופציות:',
-    day: 'הנה יום שלם ב{d}, מבוקר עד ערב: מתחילים ברובע העתיק כשעוד קריר, שוק לצהריים, אחר-צהריים ירוק, וארוחת ערב מקומית. אפשר להוסיף כל תחנה בנפרד — או את כל היום בלחיצה אחת.',
-  };
-
-  const tipsHtml = (d) => `כמה דברים שכדאי לדעת לפני ${esc(d)}:<ul>
-    <li>מזומן קטן תמיד עוזר בשווקים ובדוכנים — כרטיס מתקבל כמעט בכל מקום אחר.</li>
-    <li>כרטיס תחבורה יומי משתלם כבר מהנסיעה השלישית, ומונע התעסקות עם כרטיסים בודדים.</li>
-    <li>בשעות הצהריים החמות המקומיים בפנים — זה הזמן למוזיאון או לארוחה ארוכה, לא להליכה.</li>
-    <li>למקומות המבוקשים באמת (מוזיאון ראשי, תצפית, הופעה) מזמינים כרטיס מראש. השאר — פשוט מגיעים.</li>
-  </ul>שאלו אותי על משהו ספציפי ואביא המלצות שאפשר להכניס לטיול.`;
 
   const WELCOME = (d) => `היי! אני מכיר את ${esc(d)} די טוב 😊 שאלו אותי על מקומות, אוכל, טבע, ערב בחוץ או תכנון של יום שלם — וכל המלצה שתאהבו נכנסת לטיול בלחיצה על ➕.`;
 
@@ -127,47 +52,24 @@ const TripRecs = (() => {
     `מה חובה לראות ב${d}?`, 'איפה אוכלים טוב?', 'תכננו לי יום שלם', 'טבע ונופים באזור', 'מה עושים בערב?', 'טיפים למקומיים',
   ];
 
-  const fill = (s, d) => s.replace(/\{d\}/g, d);
-  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  function pickDest(q, ctx, turn) {
-    const dests = ctx.dests.filter(Boolean);
-    if (!dests.length) return ctx.trip.destination || 'האזור';
-    const named = dests.find((d) => q.includes(d));
-    return named || dests[turn % dests.length];
+  function fallbackPhoto(area, ctx) {
+    const id = DEST_PHOTOS[area] || DEST_PHOTOS[ctx.trip.country];
+    return id ? IMG(id) : (ctx.trip.cover_image || IMG(GENERIC[0]));
   }
 
-  function photosFor(d, n, ctx) {
-    const pool = [];
-    const push = (u) => { if (u && !pool.includes(u)) pool.push(u); };
-    push(DEST_PHOTOS[d] && IMG(DEST_PHOTOS[d]));
-    push(DEST_PHOTOS[ctx.trip.country] && IMG(DEST_PHOTOS[ctx.trip.country]));
-    push(ctx.trip.cover_image);
-    GENERIC.forEach((id) => push(IMG(id)));
-    const k = 1 + (n % 3);
-    return Array.from({ length: Math.min(k, pool.length) }, (_, i) => pool[(n + i) % pool.length]);
-  }
-
-  function card(tpl, d, time, n, ctx) {
-    return {
-      title: fill(tpl.t, d), blurb: fill(tpl.b, d), cat: tpl.cat, dur: tpl.dur, cost: tpl.cost,
-      time: time || tpl.time || null, area: d, photos: photosFor(d, n, ctx), added: null,
-    };
-  }
-
-  // the one function a real endpoint replaces: question in, {text|html, cards, kind} out
-  async function ask(question, ctx, turn) {
-    const q = question.trim();
-    const d = pickDest(q, ctx, turn);
-    const topic = (TOPICS.find((t) => t.re.test(q)) || { key: 'top' }).key;
-    await delay(700 + Math.random() * 800);
-    if (topic === 'tips') return { kind: 'tips', html: tipsHtml(d), cards: [] };
-    const picks = topic === 'day' ? DAY : (POOL[topic] ? POOL[topic].map((_, i) => ({ pool: topic, i })) : TOP);
-    return {
-      kind: topic,
-      text: fill(REPLY[topic] || REPLY.top, d),
-      cards: picks.map((p, n) => card(POOL[p.pool][p.i], d, p.time, n + turn, ctx)),
-    };
+  async function ask(question, ctx, history) {
+    const r = await TRIPMAKER.api(`/api/trips/code/${ctx.trip.share_code}/recs`, {
+      method: 'POST',
+      body: JSON.stringify({ message: question, history }),
+    });
+    const cards = (r.cards || []).map((c) => ({
+      title: c.title, blurb: c.blurb, cat: c.category, dur: c.duration, cost: c.cost,
+      time: c.time || null, area: c.area, place_query: c.place_query || null,
+      lat: c.lat ?? null, lon: c.lon ?? null, google_place_id: c.google_place_id || null,
+      photos: c.photos && c.photos.length ? c.photos : [fallbackPhoto(c.area, ctx)],
+      credit: c.photo_credit || null, added: null,
+    }));
+    return { kind: cards.length ? 'places' : 'text', text: r.text, cards, remaining: r.remaining };
   }
 
   // =================================================================
@@ -194,6 +96,7 @@ const TripRecs = (() => {
           <img src="${esc(c.photos[0])}" alt="" loading="lazy" onerror="this.style.opacity=0">
           ${c.photos.length > 1 ? `<span class="rec-dots">${c.photos.map((_, k) => `<i${k === 0 ? ' class="on"' : ''}></i>`).join('')}</span>` : ''}
           <span class="rec-cat">${em} ${esc(c.cat)}</span>
+          ${c.credit ? `<span class="rec-credit">${esc(c.credit)}</span>` : ''}
         </div>
         <div class="rec-body">
           <h4 class="rec-title">${esc(c.title)}</h4>
@@ -204,7 +107,7 @@ const TripRecs = (() => {
           </div>
         </div>
         <div class="rec-actions">
-          <a class="rec-map" href="${TRIPMAKER.mapsSearchUrl(`${c.title} ${c.area}`)}" target="_blank" rel="noopener">${ICON.map} מפה</a>
+          <a class="rec-map" href="${TRIPMAKER.mapsSearchUrl(c.place_query || `${c.title} ${c.area}`, c.google_place_id)}" target="_blank" rel="noopener">${ICON.map} מפה</a>
           ${c.added
             ? `<span class="rec-added">✓ נוסף ליום ${c.added}</span>`
             : `<button type="button" class="rec-add">${ICON.plus} הוספה לטיול</button>`}
@@ -221,8 +124,8 @@ const TripRecs = (() => {
         <div class="chat-col">
           <div class="chat-bubble">${m.html || esc(m.text || '')}</div>
           ${cards.length ? `<div class="rec-strip">${cards.map((c, j) => cardHtml(c, i, j)).join('')}</div>` : ''}
-          ${m.kind === 'day' && cards.some((c) => !c.added)
-            ? `<button type="button" class="rec-add-all" data-i="${i}">${ICON.plus} הוספת כל היום לתאריך אחד</button>` : ''}
+          ${cards.filter((c) => !c.added).length >= 2
+            ? `<button type="button" class="rec-add-all" data-i="${i}">${ICON.plus} הוספת כולם ליום אחד</button>` : ''}
         </div>
       </div>`;
   }
@@ -292,16 +195,26 @@ const TripRecs = (() => {
     async function send(text) {
       const q = text.trim();
       if (!q || busy) return;
+      // the server meters questions per user, so a question needs a user
+      if (!TRIPMAKER.user) {
+        msgs.push({ role: 'user', text: q });
+        msgs.push({ role: 'ai', html: `כדי לשאול צריך להיות מחוברים — זה לוקח רגע. <button type="button" class="chat-login">התחברות</button>` });
+        paint();
+        thread.querySelector('.chat-login:last-of-type')?.addEventListener('click', () => openAuthModal(() => location.reload(), 'login'));
+        return;
+      }
+      // what the model sees of the conversation: the last turns, text only
+      const history = msgs.filter((m) => m.text).slice(-8).map((m) => ({ role: m.role, text: m.text }));
       msgs.push({ role: 'user', text: q });
       turn++;
       busy = true;
       input.value = '';
       paint();
       try {
-        const reply = await ask(q, ctx, turn);
+        const reply = await ask(q, ctx, history);
         msgs.push({ role: 'ai', ...reply });
-      } catch {
-        msgs.push({ role: 'ai', text: 'משהו השתבש בדרך — נסו לשאול שוב בעוד רגע.' });
+      } catch (err) {
+        msgs.push({ role: 'ai', text: (err && err.message) || 'משהו השתבש בדרך — נסו לשאול שוב בעוד רגע.' });
       }
       busy = false;
       saveThread(ctx, msgs);
@@ -330,7 +243,8 @@ const TripRecs = (() => {
         for (const c of cards) {
           await ctx.addItem({
             day_number: day, title: c.title, category: c.cat, area: c.area, note: c.blurb,
-            time_label: c.time || null, place_query: `${c.title}, ${c.area}`,
+            time_label: c.time || null, place_query: c.place_query || `${c.title}, ${c.area}`,
+            lat: c.lat, lon: c.lon, google_place_id: c.google_place_id,
           });
         }
       } catch {

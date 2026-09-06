@@ -55,6 +55,24 @@
         });
       }
       if (rest === '/votes') return json(200, []);
+      // the recommendations chat, canned: the demo has no model behind it
+      if (rest === '/recs' && method === 'POST') {
+        const q = String(body.message || '');
+        const food = /אוכל|מסעד|לאכול|שוק/.test(q);
+        const cards = /טיפ|כדאי לדעת/.test(q) ? [] : (food ? [
+          { title: 'שוק קמפו דה פיורי', blurb: 'שוק הבוקר של מרכז רומא — פירות, גבינות ומאפים חמים. הכי טוב לפני 11:00.', category: 'אוכל', duration: 'שעה', cost: '₪', time: '09:30', area: 'רומא', place_query: 'Campo de\' Fiori, Rome, Italy', lat: 41.8955, lon: 12.4722, photos: [] },
+          { title: 'טרסטוורה — סיור אוכל רחוב', blurb: 'סופלי, פיצה אל טליו וקרואסון בסמטאות שהמקומיים אוכלים בהן. באים רעבים.', category: 'אוכל', duration: 'כ-3 שעות', cost: '₪₪', time: '18:00', area: 'רומא', place_query: 'Trastevere, Rome, Italy', lat: 41.8897, lon: 12.4694, photos: [] },
+          { title: 'שוק טסטאצ׳ו', blurb: 'שוק מקורה עם דוכני אוכל מצוינים — הטריפה והסופלי של רומא האמיתית.', category: 'אוכל', duration: 'שעה-שעתיים', cost: '₪', time: '12:30', area: 'רומא', place_query: 'Mercato di Testaccio, Rome, Italy', lat: 41.8757, lon: 12.4781, photos: [] },
+        ] : [
+          { title: 'הפנתאון', blurb: 'הכיפה השלמה ביותר מהעת העתיקה, חינם, ולהגיע מוקדם לפני הקבוצות.', category: 'תרבות', duration: 'שעה', cost: 'חינם', time: '09:00', area: 'רומא', place_query: 'Pantheon, Rome, Italy', lat: 41.8986, lon: 12.4769, photos: [] },
+          { title: 'גני וילה בורגזה', blurb: 'הריאה הירוקה של רומא — שכירת סירה באגם, ותצפית פינצ׳ו מעל פיאצה דל פופולו בשקיעה.', category: 'טבע', duration: 'שעתיים', cost: 'חינם', time: '17:00', area: 'רומא', place_query: 'Villa Borghese, Rome, Italy', lat: 41.9142, lon: 12.4922, photos: [] },
+          { title: 'טרסטוורה בערב', blurb: 'סמטאות, כיכר סנטה מריה, ומסעדות משפחתיות — הרובע לארוחת ערב ארוכה.', category: 'חיי לילה', duration: 'ערב', cost: '₪₪', time: '20:00', area: 'רומא', place_query: 'Trastevere, Rome, Italy', lat: 41.8897, lon: 12.4694, photos: [] },
+        ]);
+        const text = cards.length
+          ? (food ? 'ברומא אוכלים הכי טוב איפה שהמקומיים אוכלים — שווקים בבוקר וסמטאות בערב. שלוש נקודות פתיחה:' : 'הנה שלוש נקודות פתיחה טובות ברומא — אחת להבין את העיר, אחת לנשום, ואחת לערב:')
+          : 'כמה דברים שכדאי לדעת: קפה עומדים ליד הבר עולה אירו, אותו קפה בשולחן על הפיאצה — חמישה. לקולוסיאום ולוותיקן מזמינים כרטיס מראש; לכל השאר פשוט מגיעים.';
+        return json(200, { text, cards, remaining: 29 });
+      }
       if (rest === '/items' && method === 'POST') {
         if (!body.title) return json(400, { error: 'חסרה כותרת לתחנה' });
         const it = {
