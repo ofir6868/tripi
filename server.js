@@ -28,6 +28,11 @@ app.use(require('./lib/canonical-origin').canonicalOrigin);
 // 100kb (the default) is not enough for a long AI-built trip saved in one POST — a
 // hundred stops with notes, a place query and a place id each — and a body over the
 // limit answers as an HTML 413 the client can only call "unexpected"
+// the rotation restore body is a whole-database dump, far over the 2mb page limit — give
+// just that route its own ceiling, mounted before the global parser sees it
+app.use('/api/rotation', express.json({ limit: '25mb' }));
+app.use(require('./routes/rotation'));
+
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -50,9 +55,16 @@ app.use(require('./routes/pages'));
 
 // trip reminder pushes (countdowns + morning briefs) — in-process, no-op without VAPID keys
 require('./lib/reminders').start();
+// in-app monthly escrow backup — no-op unless DB_BACKUP_KEY + ESCROW_GITHUB_TOKEN are set
+require('./lib/rotation-backup').start();
 
-// schema + migrations + seed, idempotent, before the first request — and if the database
-// is down right now, the server still comes up and keeps trying (see lib/db-bootstrap.js)
-require('./lib/db-bootstrap').ensureSchema().then(() => {
-  app.listen(PORT, () => console.log(`TRIP MAKER running on http://localhost:${PORT}`));
-});
+// Boot order after a database rotation (tools/db-rotation-runbook.md): first re-discover
+// the live instance (DATABASE_URL may still name the deleted one), then bring the schema
+// up and self-restore from the escrow if the instance is fresh, and only then listen.
+const { ensureDatabase } = require('./lib/db');
+ensureDatabase()
+  .catch((err) => console.error(`db: could not resolve an instance at boot (${err.message}) — bootstrap will keep retrying`))
+  .then(() => require('./lib/db-bootstrap').ensureSchema())
+  .then(() => {
+    app.listen(PORT, () => console.log(`TRIP MAKER running on http://localhost:${PORT}`));
+  });
