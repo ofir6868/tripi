@@ -34,9 +34,9 @@
 
 "The geocoder going quiet must not pass in silence" — שירות חיצוני שמפסיק לענות חייב
 להשאיר עקבות: לוג, מדד, probe (`tools/hotel-content-probe.js`, `tools/ai-eval/places-audit.js`).
-תקלה שמכבה פיצ'ר בלי שגיאה גלויה — כמו עננה כתומה ב-Cloudflare שהופכת את כל
-המבקרים ל-IP אחד ומנטרלת את מגבלות ה-brute-force בלי שום הודעה (ראו הערת
-`trust proxy` ב-`server.js`) — היא הסוג המסוכן ביותר. כשמזהים דפוס כזה, כותבים
+תקלה שמכבה פיצ'ר בלי שגיאה גלויה — כמו proxy נוסף לפני השרת שהופך את כל
+המבקרים ל-IP אחד ומנטרל את מגבלות ה-brute-force בלי שום הודעה (ראו הערת
+`trust proxy` ב-`server.js` ו-`lib/client-ip.js`) — היא הסוג המסוכן ביותר. כשמזהים דפוס כזה, כותבים
 את ההסבר **ליד המתג**, בקוד, כדי שמי שיגע בו יידע מה הוא עומד לשבור.
 
 ### הגדרה אחת, אמת אחת
@@ -143,9 +143,15 @@
 
 ## 6. תפעול
 
-- **פריסה:** Render (Node + PostgreSQL). `tripmaker.co.il` על Cloudflare DNS
-  **ללא proxy (עננה אפורה) — בכוונה.** הדלקת העננה הכתומה מוסיפה hop ושוברת בשקט
-  את זיהוי ה-IP של ה-rate limiters. לפני שמשנים — לקרוא את ההערה ב-`server.js`.
+- **פריסה:** Render (Node + PostgreSQL). `tripmaker.co.il` על Cloudflare DNS **עם proxy
+  (עננה כתומה).** ה-proxy מוסיף hop, ולכן `req.ip` הגולמי הוא כתובת של קצה Cloudflare —
+  אחת לכל המבקרים. `lib/client-ip.js` פותר את זה: כשה-hop שהגיע אלינו הוא כתובת
+  Cloudflare אמיתית (מתוך הרשימה המפורסמת, מתרעננת יומית) הוא לוקח את המבקר מ-
+  `CF-Connecting-IP`; מכל peer אחר (המארח של onrender נשאר נגיש ישירות, ושם קל לזייף
+  את הכותרת) הוא לא נוגע. **לא** להעלות את `trust proxy` ל-2 במקום — זה בדיוק מה
+  שמאפשר למי שפונה ישירות לבחור לעצמו כתובת.
+  ב-Cloudflare, מצב SSL/TLS חייב להיות **Full (strict)**: ב-Flexible החיבור ל-Render
+  יוצא ב-http, Render מפנה ל-https, ומתקבלת לולאת הפניות.
 - **מקור אחד נכנס לאינדקס.** האפליקציה עונה גם על `tripmaker.co.il` ב-http, גם על
   `www.`, וגם על מארח ה-onrender — אותו HTML בדיוק בארבע כתובות. תגית `canonical`
   לבדה לא הספיקה: דוח הכיסוי של Search Console מ-2026-08-21 הראה את דף הבית פעמיים,

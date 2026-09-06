@@ -9,16 +9,17 @@ const PORT = process.env.PORT || 3000;
 // Render terminates TLS at its proxy — without this, req.ip (which the rate
 // limiters key on) would be the proxy's address, one shared bucket for everyone.
 //
-// The 1 is a hop count, so it is only correct while Render's proxy is the ONLY
-// one in front of us. tripmaker.co.il is on Cloudflare DNS deliberately unproxied
-// (grey cloud) to keep it that way. Turning the orange cloud on adds a second hop
-// and req.ip silently becomes a Cloudflare edge address — every visitor sharing
-// one bucket, which disables the login brute-force and share-code enumeration
-// limits without any error to notice. If that switch is ever flipped, the client
-// IP has to come from CF-Connecting-IP, believed only when the hop that reached
-// us is genuinely Cloudflare's (the onrender.com host stays directly reachable,
-// and that header is trivial to forge there).
+// The 1 is a hop count: Express believes exactly one proxy, Render's. tripmaker.co.il
+// sits behind Cloudflare's proxy (orange cloud), which adds a second hop, so on that
+// path req.ip here is a Cloudflare edge — every visitor sharing one bucket, and the
+// login brute-force and share-code enumeration limits silently off. clientIp, right
+// below, is what makes the orange cloud safe: when the hop that reached us is a genuine
+// Cloudflare address it swaps in CF-Connecting-IP, and from any other peer (the
+// onrender.com host stays directly reachable, and that header is trivial to forge there)
+// it leaves req.ip alone. Do not raise the hop count instead: a trusted second hop is
+// exactly what lets a direct caller pick their own address with a forged header.
 app.set('trust proxy', 1);
+app.use(require('./lib/client-ip').clientIp);
 
 // First in the chain, before anything can answer with a page: fold www., the bare http
 // scheme and the onrender.com host into the one origin we want indexed. See
@@ -57,6 +58,8 @@ app.use(require('./routes/pages'));
 require('./lib/reminders').start();
 // in-app monthly escrow backup — no-op unless DB_BACKUP_KEY + ESCROW_GITHUB_TOKEN are set
 require('./lib/rotation-backup').start();
+// Cloudflare's published edge ranges, refreshed daily — see lib/client-ip.js
+require('./lib/client-ip').start();
 
 // Boot order after a database rotation (tools/db-rotation-runbook.md): first re-discover
 // the live instance (DATABASE_URL may still name the deleted one), then bring the schema
