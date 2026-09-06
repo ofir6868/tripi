@@ -100,8 +100,8 @@
     }
   }
 
-  // the route loader plays at least one beat before fading out, so a fast
-  // response doesn't flash it on and off
+  // the compass loader holds until the wordmark has risen (1.2s + .8s) before
+  // fading out, so a fast response doesn't cut the brand mark off mid-reveal
   const loaderT0 = Date.now();
   function hideTripLoader() {
     const el = document.getElementById('trip-loader');
@@ -109,7 +109,7 @@
     setTimeout(() => {
       el.classList.add('done');
       setTimeout(() => el.remove(), 500);
-    }, Math.max(0, 1200 - (Date.now() - loaderT0)));
+    }, Math.max(0, 2000 - (Date.now() - loaderT0)));
   }
 
   async function load() {

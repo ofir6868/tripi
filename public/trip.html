@@ -23,29 +23,40 @@
 </head>
 <body>
 
-  <!-- full-screen trip loader: a pin retraces the dashed route while the trip
-       fetches — trip.js fades it out when the data lands (or on not-found) -->
+  <!-- full-screen trip loader: the TRIP MAKER compass draws + needle settles,
+       wordmark crossfades EN↔HE — trip.js fades it out when the trip data lands
+       (or on not-found) -->
   <div class="trip-loader" id="trip-loader" aria-hidden="true">
-    <svg width="320" height="130" viewBox="0 0 320 130">
-      <path id="tl-route" class="tl-route" d="M300,95 C250,15 195,115 140,45 C105,2 55,80 20,38" fill="none" stroke="rgba(255,180,95,.55)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="7 9"/>
-      <circle class="tl-wp" cx="300" cy="95" r="5" fill="#8fd8c4"/>
-      <circle class="tl-wp" cx="140" cy="45" r="5" fill="#8fd8c4" style="animation-delay:1.5s"/>
-      <circle class="tl-wp" cx="20" cy="38" r="5" fill="#8fd8c4" style="animation-delay:3s"/>
-      <g>
-        <circle class="tl-pin" r="9" fill="#0a1512" stroke="#ffb45f" stroke-width="3"/>
-        <animateMotion dur="4.5s" repeatCount="indefinite" keyPoints="1;0" keyTimes="0;1" calcMode="linear">
-          <mpath href="#tl-route"/>
-        </animateMotion>
-      </g>
+    <svg width="170" height="170" viewBox="0 0 512 512">
+      <circle class="es-ring" cx="256" cy="256" r="150" fill="none" stroke="rgba(245,239,227,.25)" stroke-width="14" stroke-linecap="round" stroke-dasharray="942" transform="rotate(-90 256 256)"/>
+      <path class="es-cross" d="M116 256 L256 216 L396 256 L256 296 Z" fill="rgba(143,216,196,.85)"/>
+      <g class="es-needle"><path d="M256 116 L296 256 L256 396 L216 256 Z" fill="url(#es-am)"/></g>
+      <circle class="es-hub" cx="256" cy="256" r="26" fill="#0a1512" stroke="#ffb45f" stroke-width="8"/>
+      <defs><linearGradient id="es-am" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb45f"/><stop offset="1" stop-color="#e8853a"/></linearGradient></defs>
     </svg>
-    <div class="tl-title">טוען את הטיול…</div>
-    <div class="tl-sub">עוד רגע יוצאים לדרך 🧳</div>
-    <div class="tl-chips">
-      <span class="skl"></span>
-      <span class="skl"></span>
-      <span class="skl"></span>
+    <div class="es-word">
+      <div class="es-logos">
+        <div class="es-latin" dir="ltr">
+          <span class="ls-trip"><b>T</b><b>R</b><b>I</b><b>P</b></span>
+          <span class="ls-maker"><b>M</b><b>A</b><b>K</b><b>E</b><b>R</b></span>
+        </div>
+        <div class="es-hebrew" dir="rtl">
+          <span class="ls-trip"><b>ט</b><b>ר</b><b>י</b><b>פ</b></span>
+          <span class="ls-maker"><b>מ</b><b>י</b><b>י</b><b>ק</b><b>ר</b></span>
+        </div>
+      </div>
+      <div class="es-tag">· מתכננים · משתפים · נוסעים ·</div>
     </div>
+    <div class="es-bar"><i></i></div>
   </div>
+  <script>
+    // wordmark rises at 1.2s showing TRIP MAKER and crossfades to Hebrew at 2.6s
+    // if the trip is still loading — trip.js owns the fade-out
+    setTimeout(() => {
+      const logos = document.querySelector('#trip-loader .es-logos');
+      if (logos) logos.classList.add('he');
+    }, 2600);
+  </script>
 
   <section class="trip-hero">
     <div class="hero-clip">

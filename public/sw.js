@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v39'; // bumped for מסמכים content tagging (doc-classify + doc-text)
+const VERSION = 'v40'; // bumped for the compass loader moving from the homepage to the trip page
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first
