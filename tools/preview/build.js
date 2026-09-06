@@ -66,7 +66,7 @@ html = html.replace('<body>\n', '<body>\n' + DEMO_BADGE);
 html = html.replace('</style>', DEMO_CSS + '\nhtml { font-size: 16px; }\n</style>');
 // hosts that wrap the file in their own document skeleton get the same content minus ours
 const bodyOnly = html
-  .replace(/^[\s\S]*?<title>/, '<title>').replace('</head>\n<body>\n', '\n').replace(/<\/body>\s*<\/html>\s*$/, '');
+  .replace(/^[\s\S]*?<title>[^<]*<\/title>/, '<title>TRIP MAKER Demo</title>').replace('</head>\n<body>\n', '\n').replace(/<\/body>\s*<\/html>\s*$/, '');
 fs.writeFileSync(path.join(DIST, 'preview.html'), html);
 fs.writeFileSync(path.join(DIST, 'preview-embed.html'), bodyOnly);
 const kb = (p) => Math.round(fs.statSync(p).size / 1024);
