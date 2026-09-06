@@ -83,18 +83,25 @@
       try {
         const trips = await TRIPMAKER.api('/api/my-trips');
         if (!trips.length) { grid.innerHTML = ''; document.getElementById('empty').style.display = ''; return; }
-        const drafts = trips.filter((t) => t.is_draft);
-        const rest = trips.filter((t) => !t.is_draft);
-        if (drafts.length) {
+        // three sections, in this order: trips friends shared with me (joined as a
+        // participant), my own drafts, then the trips I own. A section with nothing
+        // in it is skipped — except "הטיולים שלי", which explains itself instead
+        const shared = trips.filter((t) => !t.is_mine);
+        const drafts = trips.filter((t) => t.is_mine && t.is_draft);
+        const mine = trips.filter((t) => t.is_mine && !t.is_draft);
+        const section = (title, list) => `
+            <h2 class="my-sec">${title}</h2>
+            <div class="my-grid">${list.map(card).join('')}</div>`;
+        if (shared.length || drafts.length) {
+          const mineHint = drafts.length
+            ? 'כשמסיימים לתכנן טיוטה — הטיול עובר לכאן, עם קוד שיתוף'
+            : 'עוד לא תכננתם טיול משלכם — <a href="/plan">מתכננים אחד עכשיו</a>';
           wrap.innerHTML = `
-            <h2 class="my-sec">✍️ בתכנון</h2>
-            <div class="my-grid">${drafts.map(card).join('')}</div>
-            <h2 class="my-sec">🧳 הטיולים שלי</h2>
-            ${rest.length
-              ? `<div class="my-grid">${rest.map(card).join('')}</div>`
-              : '<div class="my-sec-hint">כשמסיימים לתכנן טיוטה — הטיול עובר לכאן, עם קוד שיתוף</div>'}`;
+            ${shared.length ? section('🤝 טיולים משותפים', shared) : ''}
+            ${drafts.length ? section('✍️ בתכנון', drafts) : ''}
+            ${mine.length ? section('🧳 הטיולים שלי', mine) : `<h2 class="my-sec">🧳 הטיולים שלי</h2><div class="my-sec-hint">${mineHint}</div>`}`;
         } else {
-          grid.innerHTML = rest.map(card).join('');
+          grid.innerHTML = mine.map(card).join('');
         }
         wrap.querySelectorAll('.tc-delete').forEach((b) => {
           b.addEventListener('click', async (e) => {
