@@ -81,11 +81,16 @@ const TripPages = (() => {
     setActive(null);
   }
 
+  // the budget page (trip-modals.js) is a sibling of ours with its own hash and
+  // listener; it takes over the screen the same way a tab does, and leaves it the same way
+  const budgetOpen = () => document.body.classList.contains('budget-open');
+
   function open(name) {
     if (!pages[name] || current === name) return;
     const state = { tripmakerPage: name };
-    if (current) {
+    if (current || budgetOpen()) {
       // tab to tab swaps the entry rather than stacking one — back returns to the itinerary
+      if (budgetOpen() && typeof TripModals !== 'undefined') TripModals.closeBudget();
       history.replaceState(state, '', `#${name}`);
     } else {
       // a reload that kept the hash is normalized first: one clean entry per open
@@ -122,7 +127,12 @@ const TripPages = (() => {
     document.querySelectorAll('.action-bar .tab-btn[data-page]').forEach((b) => {
       b.onclick = () => {
         const name = b.dataset.page;
-        if (!name) { if (current) close(); else onItinerary?.(); return; }
+        if (!name) {
+          if (current) close();
+          else if (budgetOpen()) history.back(); // the budget holds the top history entry
+          else onItinerary?.();
+          return;
+        }
         open(name);
       };
     });
@@ -292,5 +302,8 @@ const TripPages = (() => {
     });
   }
 
-  return { register, open, close, current: () => current, openFromHash, initDock, badge, toast, sheet, closeSheet };
+  // hide the open page without touching history — for a sibling page taking its place
+  const dismiss = () => hide();
+
+  return { register, open, close, dismiss, activate: setActive, current: () => current, openFromHash, initDock, badge, toast, sheet, closeSheet };
 })();

@@ -980,36 +980,62 @@ const TripModals = (() => {
 
   // =================================================================
   //  BUDGET PAGE
-  //  A full page, not a modal: it rides the URL hash (#budget /
-  //  #budget-settings) so the browser and phone back buttons walk out
-  //  of it naturally — and settings is a sub-page, not an inline div.
+  //  A full page over the trip, laid out like the other dock pages (המלצות /
+  //  מסמכים): the same head, the dock underneath on phones with the תקציב tab
+  //  lit. It rides the URL hash (#budget / #budget-settings) so the browser
+  //  and phone back buttons walk out of it naturally — and settings is a
+  //  sub-page, not an inline div.
   // =================================================================
 
   const budgetView = { mode: 'shared', view: 'plan', filter: null, openDays: new Set(), showSettings: false, skippedSetup: false };
   let budgetRender = null; // the open page's render(), so popstate can repaint it
 
-  // stroke icons for the page controls — inherit currentColor like every .ic
+  // stroke icons for the page — inherit currentColor like every .ic
   const BICON = {
     back: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
     gear: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
     users: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
     lock: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
+    chev: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>',
+    plus: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>',
+    x: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+    wallet: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>',
+    bed: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg>',
   };
 
-  // hash → screen: the back buttons only ever call history.back(); this listener
-  // is the single place that opens, closes and repaints the page afterwards
+  const isBudgetHash = () => location.hash === '#budget' || location.hash === '#budget-settings';
+
+  // one switch owns every "is the page open" side effect: the page itself, the body
+  // scroll lock, and the dock's תקציב tab lighting up the way any other tab does.
+  // Opening also dismisses whichever dock page was showing — the budget takes its place.
+  function setBudgetOpen(open) {
+    const page = document.getElementById('budget-page');
+    if (page) page.hidden = !open;
+    document.body.classList.toggle('budget-open', open);
+    if (typeof TripPages !== 'undefined') {
+      // the dock lights one tab: ours while we're open (the itinerary's goes dark), and
+      // whatever page is left — usually the itinerary — once we close
+      if (open) { TripPages.dismiss(); TripPages.activate('budget'); }
+      else TripPages.activate(TripPages.current());
+    }
+    const tab = document.getElementById('budget-btn');
+    if (tab) {
+      tab.classList.toggle('is-active', open);
+      if (open) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
+    }
+  }
+  // trip-pages.js calls this when a dock tab takes over the screen from the budget
+  const closeBudget = () => setBudgetOpen(false);
+
   window.addEventListener('popstate', () => {
     const page = document.getElementById('budget-page');
     if (!page || !budgetRender) return;
-    if (location.hash === '#budget' || location.hash === '#budget-settings') {
+    if (isBudgetHash()) {
       budgetView.showSettings = location.hash === '#budget-settings';
-      page.classList.add('open');
-      document.body.classList.add('budget-open');
+      setBudgetOpen(true);
       budgetRender();
-      page.scrollTop = 0;
     } else {
-      page.classList.remove('open');
-      document.body.classList.remove('budget-open');
+      setBudgetOpen(false);
     }
   });
 
@@ -1031,55 +1057,56 @@ const TripModals = (() => {
     return diff >= 1 && diff <= state.trip.days ? diff : null;
   }
 
-  function ringSvg(pct, colorVar, centerTop, centerBottom) {
-    const r = 62, c = 2 * Math.PI * r;
-    const fill = Math.min(Math.max(pct || 0, 0), 1);
-    return `
-      <div class="ring-wrap">
-        <svg viewBox="0 0 150 150" class="budget-ring" aria-hidden="true">
-          <circle cx="75" cy="75" r="${r}" fill="none" stroke="rgba(255,255,255,.09)" stroke-width="11"/>
-          <circle cx="75" cy="75" r="${r}" fill="none" stroke="${colorVar}" stroke-width="11"
-            stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - fill)}"
-            transform="rotate(-90 75 75)"/>
-        </svg>
-        <div class="ring-center">
-          <div class="rc-top">${centerTop}</div>
-          ${centerBottom ? `<div class="rc-bottom">${centerBottom}</div>` : ''}
-        </div>
-      </div>`;
-  }
+  const catOf = (key) => CATS.find((c) => c.key === key) || CATS[CATS.length - 1];
+  const currencyOptions = (selected) => Object.keys(CURRENCIES)
+    .map((c) => `<option value="${c}"${c === selected ? ' selected' : ''}>${CURRENCIES[c]} ${c}</option>`).join('');
 
   function openBudget(ctx) {
     const { state } = ctx;
     let page = document.getElementById('budget-page');
     if (!page) {
-      page = document.createElement('div');
+      page = document.createElement('section');
       page.id = 'budget-page';
-      page.className = 'budget-page';
+      page.className = 'trip-page budget-page';
+      page.hidden = true;
+      page.setAttribute('aria-label', 'תקציב');
       page.innerHTML = `
-        <div class="bp-head">
-          <button type="button" class="bp-back" aria-label="חזרה">${BICON.back}<span>חזרה</span></button>
-          <h2 class="bp-title"></h2>
+        <div class="tp-head">
+          <button type="button" class="bp-back tp-back" aria-label="חזרה">${BICON.back}<span>חזרה</span></button>
+          <div class="tp-titles">
+            <h2 class="tp-title bp-title"></h2>
+            <p class="tp-sub bp-sub"></p>
+          </div>
+          <div class="tp-tools">
+            <button type="button" class="btn btn-ghost bp-settings-btn" title="הגדרות תקציב" aria-label="הגדרות תקציב">${BICON.gear}<span>הגדרות</span></button>
+          </div>
         </div>
-        <div class="bp-inner">
-          <div class="bp-controls"></div>
-          <div class="bp-body"></div>
+        <div class="tp-body">
+          <div class="tp-inner bp-inner">
+            <div class="bp-controls"></div>
+            <div class="bp-body"></div>
+          </div>
         </div>`;
       document.body.appendChild(page);
-      page.querySelector('.bp-back').onclick = () => history.back();
+      page.querySelector('.tp-back').onclick = () => history.back();
     }
     const body = page.querySelector('.bp-body');
     const controls = page.querySelector('.bp-controls');
+    const scroller = page.querySelector('.tp-body');
 
     budgetView.showSettings = false;
-    page.classList.add('open');
-    document.body.classList.add('budget-open');
-    page.scrollTop = 0;
-    // one clean history entry per open — a reload that kept the hash is normalized first
-    if (location.hash === '#budget' || location.hash === '#budget-settings') {
-      history.replaceState(null, '', location.pathname + location.search);
+    // opened from another dock page: swap that page for this one, the way the tabs swap
+    // among themselves — back returns to the itinerary, not to the page left behind
+    const swapping = !!(history.state && history.state.tripmakerPage);
+    setBudgetOpen(true);
+    scroller.scrollTop = 0;
+    if (swapping) {
+      history.replaceState(null, '', '#budget');
+    } else {
+      // one clean history entry per open — a reload that kept the hash is normalized first
+      if (isBudgetHash()) history.replaceState(null, '', location.pathname + location.search);
+      history.pushState(null, '', '#budget');
     }
-    history.pushState(null, '', '#budget');
 
     const dToday = currentTripDay(state);
     if (dToday && !budgetView.openDays.size) budgetView.openDays.add(dToday);
@@ -1088,8 +1115,9 @@ const TripModals = (() => {
       budgetView.showSettings = true;
       history.pushState(null, '', '#budget-settings');
       render();
-      page.scrollTop = 0;
+      scroller.scrollTop = 0;
     }
+    page.querySelector('.bp-settings-btn').onclick = openSettings;
 
     function render() {
       const cur = curOf(state);
@@ -1100,52 +1128,73 @@ const TripModals = (() => {
       const isDraft = !!state.trip.is_draft;
       if (isDraft) budgetView.view = 'plan';
       const isActual = budgetView.view === 'actual';
-      page.querySelector('.bp-title').textContent = budgetView.showSettings ? 'הגדרות תקציב' : '💰 התקציב של הטיול';
-      if (budgetView.showSettings) { renderSettings(cur, personal, isPersonal); return; }
+      const title = page.querySelector('.bp-title');
+      const sub = page.querySelector('.bp-sub');
+      const gear = page.querySelector('.bp-settings-btn');
+
+      if (budgetView.showSettings) {
+        title.textContent = 'הגדרות תקציב';
+        sub.textContent = isPersonal
+          ? 'התקציב האישי שלכם — נשמר בדפדפן הזה בלבד'
+          : 'תקרה, מטבע ומספר מטיילים — משותפים לכל המשתתפים';
+        gear.hidden = true;
+        renderSettings(cur, personal, isPersonal);
+        return;
+      }
+      title.textContent = 'תקציב';
+      sub.textContent = isPersonal
+        ? 'החלק שלכם מהתכנון וההוצאות שלכם — נשמר בדפדפן הזה בלבד'
+        : 'הערכות לתחנות ולמלונות מול התקרה, וההוצאות בפועל — לכל המשתתפים';
+
       const planned = plannedTotals(state);
       const travelers = (state.budget && state.budget.travelers) || 1;
+      const cap = isPersonal ? personal.total : (state.budget ? +state.budget.total || null : null);
+      const needsSetup = isPersonal
+        ? personal.total == null && !personal.expenses.length
+        : !state.budget && !budgetView.skippedSetup;
+      gear.hidden = needsSetup;
 
       controls.innerHTML = `
-        <div class="seg bm-mode">
-          <button type="button" data-v="shared" class="${!isPersonal ? 'active' : ''}">${BICON.users} משותף</button>
-          <button type="button" data-v="personal" class="${isPersonal ? 'active' : ''}">${BICON.lock} אישי</button>
-        </div>
-        <div class="mode-hint">${isPersonal ? 'נשמר רק בדפדפן הזה — רק אתם רואים' : 'כל משתתפי הטיול רואים ועורכים'}</div>
-        ${isDraft ? '' : `
-        <div class="seg bm-view">
-          <button type="button" data-v="plan" class="${budgetView.view === 'plan' ? 'active' : ''}">תכנון</button>
-          <button type="button" data-v="actual" class="${budgetView.view === 'actual' ? 'active' : ''}">בפועל</button>
-        </div>`}`;
+        <div class="bp-switches">
+          ${isDraft ? '' : `
+          <div class="seg seg-sm bm-view" role="tablist" aria-label="תצוגה">
+            <button type="button" data-v="plan" class="${!isActual ? 'active' : ''}">תכנון</button>
+            <button type="button" data-v="actual" class="${isActual ? 'active' : ''}">בפועל</button>
+          </div>`}
+          <div class="seg seg-sm seg-quiet bm-mode" role="tablist" aria-label="תקציב משותף או אישי">
+            <button type="button" data-v="shared" class="${!isPersonal ? 'active' : ''}">${BICON.users}<span>משותף</span></button>
+            <button type="button" data-v="personal" class="${isPersonal ? 'active' : ''}">${BICON.lock}<span>אישי</span></button>
+          </div>
+        </div>`;
       controls.querySelectorAll('.bm-mode button').forEach((b) => {
-        b.onclick = () => { budgetView.mode = b.dataset.v; render(); };
+        b.onclick = () => { budgetView.mode = b.dataset.v; budgetView.filter = null; render(); };
       });
       controls.querySelectorAll('.bm-view button').forEach((b) => {
-        b.onclick = () => { budgetView.view = b.dataset.v; render(); };
+        b.onclick = () => { budgetView.view = b.dataset.v; budgetView.filter = null; render(); };
       });
 
       // ---- setup states ----
-      if (!isPersonal && !state.budget && !budgetView.skippedSetup) {
+      if (!isPersonal && needsSetup) {
         body.innerHTML = `
-          <div class="budget-setup">
-            <h3>כמה הטיול הזה הולך לעלות? 🤔</h3>
-            <p>קבעו תקציב, פזרו הערכות על הימים, ותדעו לפני כולם.</p>
+          <div class="bp-setup glass">
+            <div class="bp-setup-ic">${BICON.wallet}</div>
+            <h3>הגדרת תקציב לטיול</h3>
+            <p>קובעים תקרה ומספר מטיילים. ההערכות על התחנות והמלונות מסתכמות מולה, וההוצאות בפועל נרשמות תוך כדי הטיול.</p>
             <div class="form-grid">
               <div class="field span-2"><label>תקציב כולל</label>
                 <div class="money-field">
-                  <input type="number" min="0" class="bs-total" placeholder="10,000">
-                  <select class="bs-cur" aria-label="מטבע">
-                    ${Object.keys(CURRENCIES).map((c) => `<option value="${c}"${c === 'ILS' ? ' selected' : ''}>${CURRENCIES[c]} ${c}</option>`).join('')}
-                  </select>
+                  <input type="number" min="0" inputmode="decimal" class="bs-total" placeholder="10,000">
+                  <select class="bs-cur" aria-label="מטבע">${currencyOptions('ILS')}</select>
                 </div>
               </div>
-              <div class="field span-2"><label>כמה מטיילים?</label>
-                <div class="stepper"><button type="button" class="step-btn bs-minus">−</button>
+              <div class="field span-2"><label>מספר מטיילים</label>
+                <div class="stepper"><button type="button" class="step-btn bs-minus" aria-label="פחות">−</button>
                 <input type="number" class="bs-trav" value="2" min="1" max="50">
-                <button type="button" class="step-btn bs-plus">+</button></div></div>
+                <button type="button" class="step-btn bs-plus" aria-label="יותר">+</button></div></div>
             </div>
             <div class="form-error bs-err"></div>
-            <button type="button" class="btn btn-amber btn-lg bs-go" style="width:100%;justify-content:center">יאללה, קובעים תקציב 💪</button>
-            <button type="button" class="manual-link bs-skip">אפשר גם בלי תקציב — סתם לסמן מחירים על תחנות ולראות סכום</button>
+            <button type="button" class="btn btn-amber bs-go">קביעת תקציב</button>
+            <button type="button" class="manual-link bs-skip">להמשיך בלי תקרה — רק לסכם הערכות</button>
           </div>`;
         const trav = body.querySelector('.bs-trav');
         body.querySelector('.bs-minus').onclick = () => { trav.value = Math.max(+trav.value - 1, 1); };
@@ -1174,20 +1223,21 @@ const TripModals = (() => {
         };
         return;
       }
-      if (isPersonal && personal.total == null && !personal.expenses.length) {
+      if (isPersonal && needsSetup) {
         body.innerHTML = `
-          <div class="budget-setup">
-            <h3>תקציב אישי — רק שלכם 🔒</h3>
-            <p>שימו לב: נשמר בדפדפן הזה בלבד. מחליפים מכשיר — הוא לא עובר.</p>
-            <div class="field"><label>התקציב שלי (${sym(cur)})</label><input type="number" min="0" class="bp-total" placeholder="למשל: 4,000"></div>
+          <div class="bp-setup glass">
+            <div class="bp-setup-ic">${BICON.lock}</div>
+            <h3>תקציב אישי</h3>
+            <p>תקרה משלכם, לצד התקציב המשותף. נשמר בדפדפן הזה בלבד — רק אתם רואים אותו, והוא לא עובר למכשיר אחר.</p>
+            <div class="field"><label>התקציב שלי (${sym(cur)})</label><input type="number" min="0" inputmode="decimal" class="bp-total" placeholder="4,000"></div>
             <div class="form-error bp-err"></div>
-            <button type="button" class="btn btn-amber btn-lg bp-go" style="width:100%;justify-content:center">קביעת תקציב אישי</button>
+            <button type="button" class="btn btn-amber bp-go">קביעת תקציב אישי</button>
           </div>`;
         body.querySelector('.bp-go').onclick = () => {
           const v = +body.querySelector('.bp-total').value;
-          if (!(v > 0)) { body.querySelector('.bp-err').textContent = 'כמה? צריך סכום'; return; }
+          if (!(v > 0)) { body.querySelector('.bp-err').textContent = 'צריך סכום'; return; }
           if (!savePersonal(state, { total: v, expenses: [] })) {
-            body.querySelector('.bp-err').textContent = 'הדפדפן חוסם שמירה מקומית — תקציב אישי לא זמין כאן 🙈';
+            body.querySelector('.bp-err').textContent = 'הדפדפן חוסם שמירה מקומית — תקציב אישי לא זמין כאן';
             return;
           }
           render();
@@ -1195,62 +1245,102 @@ const TripModals = (() => {
         return;
       }
 
-      // ---- computed headline ----
+      // ---- headline: the figure, the cap, and how the two compare ----
       const actual = actualTotals(isPersonal ? personal.expenses : state.expenses);
       const plannedValue = isPersonal ? planned.total / Math.max(travelers, 1) : planned.total;
-      const value = budgetView.view === 'plan' ? plannedValue : actual.total;
-      const cap = isPersonal ? personal.total : (state.budget ? +state.budget.total || null : null);
+      const value = isActual ? actual.total : plannedValue;
       const pct = cap ? value / cap : 0;
-      const color = !cap ? 'var(--mint)' : pct > 1 ? 'var(--danger)' : pct >= 0.8 ? 'var(--amber)' : 'var(--mint)';
-      let caption;
-      if (!cap) caption = budgetView.view === 'plan' ? 'סה"כ מתוכנן (בלי תקרה)' : 'סה"כ הוצאות (בלי תקרה)';
-      else if (pct > 1) caption = `חריגה של ${Math.round((pct - 1) * 100)}% מהתקציב 😅`;
-      else if (pct >= 0.8) caption = `נשאר לכם רק ${Math.round((1 - pct) * 100)}% מהתקציב 👀`;
-      else caption = `מתוך ${fmt(cap, cur)} · נשאר ${fmt(cap - value, cur)}`;
+      const tone = !cap ? '' : pct > 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok';
+      let status;
+      if (!cap) status = 'בלי תקרה';
+      else if (pct > 1) status = `חריגה של ${fmt(value - cap, cur)}`;
+      else status = `נשאר ${fmt(cap - value, cur)}`;
+      const perPerson = !isPersonal && travelers > 1 && value > 0
+        ? `<span>≈ ${fmt(value / travelers, cur)} לאדם · <button type="button" class="bs-link pp-edit">${travelers} מטיילים</button></span>`
+        : '';
+      const summaryHtml = `
+        <section class="bp-summary glass${tone ? ' ' + tone : ''}" aria-live="polite">
+          <div class="bs-row">
+            <span class="bs-label">${isActual ? 'הוצאות בפועל' : 'סה"כ מתוכנן'}</span>
+            ${cap ? `<span class="bs-pct">${Math.round(pct * 100)}%</span>` : ''}
+          </div>
+          <div class="bs-figure"><b>${fmt(value, cur)}</b>${cap ? `<span>מתוך ${fmt(cap, cur)}</span>` : ''}</div>
+          ${cap ? `<div class="bs-track"><span class="bs-fill" style="width:${Math.min(pct, 1) * 100}%"></span></div>` : ''}
+          <div class="bs-meta">
+            <span>${status}${!cap && !isPersonal ? ` · <button type="button" class="bs-link pp-edit">הגדרת תקרה</button>` : ''}</span>
+            ${perPerson}
+          </div>
+        </section>`;
 
-      const catTotals = budgetView.view === 'plan'
-        ? (isPersonal ? Object.fromEntries(Object.entries(planned.byCat).map(([k, v]) => [k, v / Math.max(travelers, 1)])) : planned.byCat)
-        : actual.byCat;
-      const maxCat = Math.max(...Object.values(catTotals), 1);
-      const hasCosts = Object.values(catTotals).some((v) => v > 0);
+      // ---- categories: share of the total, tap one to filter the lists below ----
+      const catTotals = isActual
+        ? actual.byCat
+        : (isPersonal ? Object.fromEntries(Object.entries(planned.byCat).map(([k, v]) => [k, v / Math.max(travelers, 1)])) : planned.byCat);
+      const catSum = Object.values(catTotals).reduce((a, b) => a + b, 0);
+      let catsHtml;
+      if (catSum > 0) {
+        catsHtml = `
+        <section class="bp-section">
+          <h3 class="bp-section-title">לפי קטגוריה
+            ${budgetView.filter ? `<button type="button" class="bp-chip clear-filter" title="ביטול הסינון">${esc(budgetView.filter)} ${BICON.x}</button>` : ''}
+          </h3>
+          <div class="bp-card">${CATS.map((c) => {
+            const v = catTotals[c.key] || 0;
+            if (!v) return '';
+            const share = v / catSum;
+            return `
+            <button type="button" class="bp-cat${budgetView.filter === c.key ? ' active' : ''}" data-cat="${c.key}" aria-pressed="${budgetView.filter === c.key}">
+              <span class="bc-emoji">${c.emoji}</span>
+              <span class="bc-main">
+                <span class="bc-head"><span class="bc-name">${c.key}</span><span class="bc-amount">${fmt(v, cur)}</span></span>
+                <span class="bc-track"><span class="bc-fill" style="width:${Math.max(Math.round(share * 100), 1)}%"></span></span>
+              </span>
+              <span class="bc-share">${Math.round(share * 100)}%</span>
+            </button>`;
+          }).join('')}</div>
+        </section>`;
+      } else if (isActual) {
+        catsHtml = '<p class="bp-note">עוד לא נרשמו הוצאות. מוסיפים אותן כאן, תוך כדי הטיול.</p>';
+      } else if (isPersonal) {
+        catsHtml = '<p class="bp-note">ההערכות מנוהלות בתקציב המשותף. ברגע שיהיו, כאן יופיע החלק שלכם.</p>';
+      } else {
+        catsHtml = '<p class="bp-note">עוד אין הערכות. מוסיפים סכום לכל תחנה בפירוט הימים למטה, או דרך סימן המטבע ליד התחנה במסלול.</p>';
+      }
+
+      // ---- quick add (בפועל only) ----
+      const addHtml = isActual ? `
+        <section class="bp-section">
+          <h3 class="bp-section-title">הוספת הוצאה</h3>
+          <div class="bp-card bp-add">
+            <div class="ba-row">
+              <label class="ba-amount"><span>${sym(cur)}</span><input type="number" min="0" inputmode="decimal" class="qa-amount" placeholder="0" aria-label="סכום"></label>
+              <input type="text" class="qa-title" maxlength="160" placeholder="על מה? למשל: ארוחת ערב" aria-label="תיאור">
+            </div>
+            <div class="ba-row">
+              <select class="qa-cat" aria-label="קטגוריה">${CATS.map((c) => `<option value="${c.key}"${c.key === 'אחר' ? ' selected' : ''}>${c.emoji} ${c.key}</option>`).join('')}</select>
+              <select class="qa-day" aria-label="יום"><option value="">בלי יום</option>${Array.from({ length: state.trip.days }, (_, i) =>
+                `<option value="${i + 1}"${dToday === i + 1 ? ' selected' : ''}>יום ${i + 1}</option>`).join('')}</select>
+              <button type="button" class="btn btn-amber qa-add">${BICON.plus}<span>הוספה</span></button>
+            </div>
+            <div class="ba-hint qa-hint">${isPersonal ? 'נשמרת רק אצלכם, בדפדפן הזה' : 'נרשמת ב"בפועל" של כל המשתתפים'}</div>
+          </div>
+        </section>` : '';
+
+      const listHtml = isPersonal
+        ? (isActual ? personalListHtml(personal, cur) : '')
+        : dayAccordionHtml(cur);
 
       body.innerHTML = `
-        <div class="ring-section">
-          ${ringSvg(cap ? pct : (value > 0 ? 1 : 0), color, fmt(value, cur), caption)}
-          ${!isPersonal && travelers > 1 && value > 0 ? `<div class="per-person">≈ ${fmt(value / travelers, cur)} לאדם <button type="button" class="pp-edit">(${travelers} מטיילים)</button></div>` : ''}
-          <button type="button" class="bm-settings-btn" title="הגדרות תקציב" aria-label="הגדרות תקציב">${BICON.gear}</button>
-        </div>
-        ${hasCosts ? `<div class="cat-bars">${CATS.map((c) => {
-          const v = catTotals[c.key] || 0;
-          if (!v) return '';
-          return `
-          <button type="button" class="cat-bar${budgetView.filter === c.key ? ' active' : ''}" data-cat="${c.key}">
-            <span class="cb-label">${c.emoji} ${c.key}</span>
-            <span class="cb-track"><span class="cb-fill" style="width:${Math.round((v / maxCat) * 100)}%"></span></span>
-            <span class="cb-amount">${fmt(v, cur)}</span>
-          </button>`;
-        }).join('')}</div>` : (budgetView.view === 'plan' && !isPersonal ? '<div class="mw-footnote">לחצו על ₪ — ליד כל תחנה כדי להוסיף הערכה ✍️</div>' : '')}
-        ${budgetView.filter ? `<button type="button" class="day-tab clear-filter">סינון: ${esc(budgetView.filter)} ✕</button>` : ''}
-        ${isActual ? `
-        <div class="qa-row">
-          <input type="number" min="0" class="qa-amount" placeholder="${sym(cur)} סכום">
-          <input type="text" class="qa-title" maxlength="160" placeholder="על מה? ראמן ששווה כל שקל 🍜">
-          <select class="qa-cat">${CATS.map((c) => `<option value="${c.key}"${c.key === 'אחר' ? ' selected' : ''}>${c.emoji} ${c.key}</option>`).join('')}</select>
-          <select class="qa-day"><option value="">בלי יום</option>${Array.from({ length: state.trip.days }, (_, i) =>
-            `<option value="${i + 1}"${dToday === i + 1 ? ' selected' : ''}>יום ${i + 1}</option>`).join('')}</select>
-          <button type="button" class="btn btn-amber qa-add">הוספה</button>
-        </div>
-        <div class="qa-hint">${isPersonal ? 'הוצאה אישית — נשמרת רק אצלכם' : 'הוצאה בפועל — נכנסת ל"בפועל" של כולם'}</div>` : ''}
-        ${isPersonal
-          ? (isActual ? personalListHtml(personal, cur) : '<div class="mw-footnote">ההערכות מנוהלות במצב 👥 משותף — כאן רואים כמה מהתכנון נופל עליכם</div>')
-          : dayAccordionHtml(cur)}
-        ${!state.canEdit && !isPersonal ? '<div class="mw-footnote">רק משתתפי הטיול עורכים את התקציב — בקשו קישור הזמנה מהמארגנים</div>' : ''}
+        ${summaryHtml}
+        ${catsHtml}
+        ${addHtml}
+        ${listHtml}
+        ${!state.canEdit && !isPersonal ? '<p class="bp-note">רק משתתפי הטיול עורכים את התקציב — בקשו קישור הזמנה מהמארגנים.</p>' : ''}
       `;
 
       // ---- wiring ----
-      body.querySelector('.bm-settings-btn').onclick = openSettings;
-      body.querySelector('.pp-edit')?.addEventListener('click', openSettings);
-      body.querySelectorAll('.cat-bar').forEach((b) => {
+      body.querySelectorAll('.pp-edit').forEach((b) => { b.onclick = openSettings; });
+      body.querySelectorAll('.bp-cat').forEach((b) => {
         b.onclick = () => { budgetView.filter = budgetView.filter === b.dataset.cat ? null : b.dataset.cat; render(); };
       });
       body.querySelector('.clear-filter')?.addEventListener('click', () => { budgetView.filter = null; render(); });
@@ -1260,9 +1350,9 @@ const TripModals = (() => {
         const btn = e.currentTarget; // currentTarget is null after an await
         const amount = +body.querySelector('.qa-amount').value;
         const title = body.querySelector('.qa-title').value.trim();
-        const err = (m) => { body.querySelector('.qa-hint').innerHTML = `<span style="color:var(--danger)">${m}</span>`; };
+        const err = (m) => { body.querySelector('.qa-hint').innerHTML = `<span class="ba-err">${m}</span>`; };
         if (!(amount > 0)) return err('חסר סכום');
-        if (!title) return err('על מה הוצאתם?');
+        if (!title) return err('על מה ההוצאה?');
         const expense = {
           title, amount,
           category: body.querySelector('.qa-cat').value,
@@ -1270,7 +1360,7 @@ const TripModals = (() => {
         };
         if (isPersonal) {
           personal.expenses.unshift({ ...expense, ts: Date.now() });
-          if (!savePersonal(state, personal)) return err('הדפדפן חוסם שמירה מקומית 🙈');
+          if (!savePersonal(state, personal)) return err('הדפדפן חוסם שמירה מקומית');
           render();
           return;
         }
@@ -1291,14 +1381,17 @@ const TripModals = (() => {
     }
 
     // settings sub-page: swaps the whole screen (back = history.back(), like the
-    // page itself) — holds the total+currency form and the "אפס תקציב" action
+    // page itself) — holds the total+currency form and the reset action
     function renderSettings(cur, personal, isPersonal) {
       controls.innerHTML = '';
-      const resetRow = (hint) => `
-        <div class="bp-danger">
-          <button type="button" class="btn btn-danger st-reset">אפס תקציב</button>
-          <span class="bp-danger-hint">${hint}</span>
-        </div>`;
+      const resetSection = (hint) => `
+        <section class="bp-section bp-danger">
+          <h3 class="bp-section-title">איפוס</h3>
+          <div class="bp-card">
+            <p>${hint}</p>
+            <button type="button" class="btn btn-danger st-reset">איפוס תקציב</button>
+          </div>
+        </section>`;
       const wireReset = (confirmMsg, doReset) => {
         body.querySelector('.st-reset').onclick = async (e) => {
           const btn = e.currentTarget;
@@ -1311,12 +1404,14 @@ const TripModals = (() => {
 
       if (isPersonal) {
         body.innerHTML = `
-          <div class="bm-settings glass">
-            <div class="field"><label>התקציב האישי שלי (${sym(cur)})</label>
-              <input type="number" min="0" class="st-ptotal" value="${personal.total || ''}"></div>
-            <button type="button" class="btn btn-amber st-save" style="width:100%;justify-content:center">שמירה</button>
-          </div>
-          ${resetRow('מוחק את התקציב וההוצאות האישיות ששמורים בדפדפן הזה')}`;
+          <section class="bp-section">
+            <div class="bp-card bp-form">
+              <div class="field"><label>התקציב האישי שלי (${sym(cur)})</label>
+                <input type="number" min="0" inputmode="decimal" class="st-ptotal" value="${personal.total || ''}" placeholder="בלי תקרה"></div>
+              <button type="button" class="btn btn-amber st-save">שמירה</button>
+            </div>
+          </section>
+          ${resetSection('מוחק את התקציב וההוצאות האישיות ששמורים בדפדפן הזה.')}`;
         body.querySelector('.st-save').onclick = () => {
           savePersonal(state, { ...personal, total: +body.querySelector('.st-ptotal').value || null });
           history.back();
@@ -1330,25 +1425,25 @@ const TripModals = (() => {
 
       const b = state.budget || { total: null, currency: 'ILS', travelers: 2 };
       body.innerHTML = `
-        <div class="bm-settings glass">
-          <div class="form-grid">
-            <div class="field span-2"><label>תקציב כולל</label>
-              <div class="money-field">
-                <input type="number" min="0" class="st-total" value="${b.total ? Math.round(+b.total) : ''}" placeholder="בלי תקרה">
-                <select class="st-cur" aria-label="מטבע">
-                  ${Object.keys(CURRENCIES).map((c) => `<option value="${c}"${c === b.currency ? ' selected' : ''}>${CURRENCIES[c]} ${c}</option>`).join('')}
-                </select>
+        <section class="bp-section">
+          <div class="bp-card bp-form">
+            <div class="form-grid">
+              <div class="field span-2"><label>תקציב כולל</label>
+                <div class="money-field">
+                  <input type="number" min="0" inputmode="decimal" class="st-total" value="${b.total ? Math.round(+b.total) : ''}" placeholder="בלי תקרה">
+                  <select class="st-cur" aria-label="מטבע">${currencyOptions(b.currency)}</select>
+                </div>
               </div>
+              <div class="field span-2"><label>מספר מטיילים</label>
+                <div class="stepper"><button type="button" class="step-btn st-minus" aria-label="פחות">−</button>
+                <input type="number" class="st-trav" value="${b.travelers}" min="1" max="50">
+                <button type="button" class="step-btn st-plus" aria-label="יותר">+</button></div></div>
             </div>
-            <div class="field span-2"><label>כמה מטיילים?</label>
-              <div class="stepper"><button type="button" class="step-btn st-minus">−</button>
-              <input type="number" class="st-trav" value="${b.travelers}" min="1" max="50">
-              <button type="button" class="step-btn st-plus">+</button></div></div>
+            <div class="form-error st-err"></div>
+            <button type="button" class="btn btn-amber st-save">שמירת הגדרות</button>
           </div>
-          <div class="form-error st-err"></div>
-          <button type="button" class="btn btn-amber st-save" style="width:100%;justify-content:center">שמירת הגדרות</button>
-        </div>
-        ${resetRow('מוחק את התקרה, המטבע ומספר המטיילים — ההערכות על התחנות וההוצאות נשארות')}`;
+        </section>
+        ${resetSection('מוחק את התקרה, המטבע ומספר המטיילים לכל המשתתפים. ההערכות על התחנות וההוצאות נשארות.')}`;
       const trav = body.querySelector('.st-trav');
       body.querySelector('.st-minus').onclick = () => { trav.value = Math.max(+trav.value - 1, 1); };
       body.querySelector('.st-plus').onclick = () => { trav.value = Math.min(+trav.value + 1, 50); };
@@ -1378,16 +1473,26 @@ const TripModals = (() => {
       });
     }
 
+    // one expense line — the same row in the personal list and the day groups
+    function expenseRowHtml(e, cur, delAttr) {
+      return `
+        <div class="bd-item bd-exp">
+          <span class="bi-cat">${catOf(e.category).emoji}</span>
+          <span class="bi-title">${esc(e.title)}${e.paid_by ? ` <small>· ${esc(e.paid_by)}</small>` : ''}${e.day_number && delAttr.startsWith('data-i') ? ` <small>· יום ${e.day_number}</small>` : ''}</span>
+          <span class="bi-amount">${fmt(e.amount, cur)}</span>
+          ${delAttr ? `<button type="button" class="er-del" ${delAttr} aria-label="מחיקה">${BICON.x}</button>` : ''}
+        </div>`;
+    }
+
     function personalListHtml(personal, cur) {
       const list = personal.expenses.filter((e) => !budgetView.filter || e.category === budgetView.filter);
-      if (!list.length) return '<div class="empty-day">עוד אין הוצאות אישיות — מוסיפים למעלה ⤴</div>';
-      return `<div class="expense-list">${list.map((e, i) => `
-        <div class="expense-row">
-          <span class="er-cat">${(CATS.find((c) => c.key === e.category) || CATS[5]).emoji}</span>
-          <span class="er-title">${esc(e.title)}${e.day_number ? ` <small>· יום ${e.day_number}</small>` : ''}</span>
-          <span class="er-amount">${fmt(e.amount, cur)}</span>
-          <button type="button" class="er-del" data-i="${i}">✕</button>
-        </div>`).join('')}</div>`;
+      return `
+        <section class="bp-section">
+          <h3 class="bp-section-title">ההוצאות שלי</h3>
+          ${list.length
+            ? `<div class="bp-card bp-list">${list.map((e) => expenseRowHtml(e, cur, `data-i="${personal.expenses.indexOf(e)}"`)).join('')}</div>`
+            : '<p class="bp-note">עוד אין הוצאות אישיות.</p>'}
+        </section>`;
     }
 
     function dayAccordionHtml(cur) {
@@ -1397,6 +1502,7 @@ const TripModals = (() => {
       const blocks = destBlocks(state);
       const rows = [];
       const generalExp = isActual ? state.expenses.filter((e) => !e.day_number || e.day_number > state.trip.days) : [];
+      const delAttr = (e) => (state.canEdit ? `data-id="${e.id}"` : '');
       for (let d = 1; d <= state.trip.days; d++) {
         const items = isActual ? [] : state.items.filter((it) => it.day_number === d &&
           (!budgetView.filter || budgetCatOf(it.category) === budgetView.filter));
@@ -1408,57 +1514,51 @@ const TripModals = (() => {
         const block = blocks.find((b) => d >= b.from && d <= b.to);
         const open = budgetView.openDays.has(d);
         rows.push(`
-        <div class="bday${open ? ' open' : ''}" data-day="${d}">
-          <button type="button" class="bday-head">
-            <span class="bd-caret">${open ? '▾' : '◂'}</span>
-            <span class="bd-title">יום ${d}${block ? ` · ${esc(block.name)}` : ''}</span>
+        <div class="bp-day${open ? ' open' : ''}${dToday === d ? ' today' : ''}" data-day="${d}">
+          <button type="button" class="bd-head" aria-expanded="${open}">
+            <span class="bd-chev">${BICON.chev}</span>
+            <span class="bd-title">יום ${d}${block ? `<small>${esc(block.name)}</small>` : ''}${dToday === d ? '<small class="bd-today">היום</small>' : ''}</span>
             <span class="bd-total">${byDay[d] ? fmt(byDay[d], cur) : ''}</span>
           </button>
-          ${open ? `<div class="bday-body">
+          ${open ? `<div class="bd-body">
             ${items.map((it) => `
-              <div class="bitem-row${it.category === 'נסיעה' ? ' travel' : ''}">
-                ${it.time_label ? `<span class="bi-time">${esc(it.time_label)}</span>` : ''}
+              <div class="bd-item${it.category === 'נסיעה' ? ' travel' : ''}">
+                <span class="bi-time">${it.time_label ? esc(it.time_label) : ''}</span>
                 <span class="bi-title">${it.category === 'נסיעה' ? travelIcon(it) + ' ' : ''}${esc(it.title)}</span>
                 ${state.canEdit
-                  ? `<input type="number" min="0" class="cost-input" data-item="${it.id}" placeholder="הערכה" value="${it.cost ? Math.round(+it.cost) : ''}" title="עלות משוערת (${sym(cur)})">`
-                  : `<span class="bi-cost">${it.cost ? fmt(it.cost, cur) : `${sym(cur)} —`}</span>`}
+                  ? `<label class="bi-cost"><span>${sym(cur)}</span><input type="number" min="0" inputmode="decimal" class="cost-input" data-item="${it.id}" placeholder="הערכה" value="${it.cost ? Math.round(+it.cost) : ''}" title="עלות משוערת (${sym(cur)})"></label>`
+                  : `<span class="bi-amount${it.cost ? '' : ' muted'}">${it.cost ? fmt(it.cost, cur) : '—'}</span>`}
               </div>`).join('')}
             ${hotels.map((h) => {
               const nights = h.night_end - h.night_start + 1;
-              return `<button type="button" class="bhotel-row" data-open-hotels>
-                🏨 ${esc(h.name)} · ${nights === 1 ? 'לילה אחד' : nights + ' לילות'}${h.price_total ? ` · ${fmt(+h.price_total / nights, cur)} ללילה בממוצע` : ''}
+              return `<button type="button" class="bd-hotel" data-open-hotels>
+                ${BICON.bed}<span class="bh-name">${esc(h.name)}</span>
+                <span class="bh-meta">${nights === 1 ? 'לילה אחד' : nights + ' לילות'}${h.price_total ? ` · ${fmt(+h.price_total / nights, cur)} ללילה` : ''}</span>
               </button>`;
             }).join('')}
-            ${exps.map((e) => `
-              <div class="expense-row">
-                <span class="er-cat">💸</span>
-                <span class="er-title">${esc(e.title)}${e.paid_by ? ` <small>· ${esc(e.paid_by)}</small>` : ''}</span>
-                <span class="er-amount">${fmt(e.amount, cur)}</span>
-                ${state.canEdit ? `<button type="button" class="er-del" data-id="${e.id}">✕</button>` : ''}
-              </div>`).join('')}
-            ${!items.length && !hotels.length && !exps.length ? `<div class="empty-day" style="padding:8px">${isActual ? 'יום בלי הוצאות' : 'יום בלי הערכות'}</div>` : ''}
+            ${exps.map((e) => expenseRowHtml(e, cur, delAttr(e))).join('')}
+            ${!items.length && !hotels.length && !exps.length ? `<div class="bd-empty">${isActual ? 'אין הוצאות ביום הזה' : 'אין תחנות ביום הזה'}</div>` : ''}
           </div>` : ''}
         </div>`);
       }
-      const generalHtml = generalExp.length && (!budgetView.filter || generalExp.some((e) => e.category === budgetView.filter)) ? `
-        <div class="bday open">
-          <div class="bday-head" style="cursor:default"><span class="bd-title">הוצאות כלליות</span></div>
-          <div class="bday-body">${generalExp
-            .filter((e) => !budgetView.filter || e.category === budgetView.filter)
-            .map((e) => `
-            <div class="expense-row">
-              <span class="er-cat">💸</span>
-              <span class="er-title">${esc(e.title)}${e.paid_by ? ` <small>· ${esc(e.paid_by)}</small>` : ''}</span>
-              <span class="er-amount">${fmt(e.amount, cur)}</span>
-              ${state.canEdit ? `<button type="button" class="er-del" data-id="${e.id}">✕</button>` : ''}
-            </div>`).join('')}</div>
+      const generalList = generalExp.filter((e) => !budgetView.filter || e.category === budgetView.filter);
+      const generalHtml = generalList.length ? `
+        <div class="bp-day open">
+          <div class="bd-head static"><span class="bd-title">הוצאות כלליות<small>בלי יום</small></span>
+            <span class="bd-total">${fmt(generalList.reduce((a, e) => a + (+e.amount || 0), 0), cur)}</span></div>
+          <div class="bd-body">${generalList.map((e) => expenseRowHtml(e, cur, delAttr(e))).join('')}</div>
         </div>` : '';
-      return `<div class="bday-list">${rows.join('')}${generalHtml}</div>`;
+      if (!rows.length && !generalHtml) return '';
+      return `
+        <section class="bp-section">
+          <h3 class="bp-section-title">${isActual ? 'הוצאות לפי ימים' : 'הערכות לפי ימים'}</h3>
+          <div class="bp-card bp-days">${rows.join('')}${generalHtml}</div>
+        </section>`;
     }
 
     function wireLists(cur, personal, isPersonal) {
-      body.querySelectorAll('.bday-head').forEach((h) => {
-        const day = +h.closest('.bday').dataset.day;
+      body.querySelectorAll('.bd-head').forEach((h) => {
+        const day = +h.closest('.bp-day').dataset.day;
         if (!day) return;
         h.onclick = () => {
           if (budgetView.openDays.has(day)) budgetView.openDays.delete(day);
@@ -1543,5 +1643,5 @@ const TripModals = (() => {
     return lines;
   }
 
-  return { openHotels, openBudget, travelIcon, plannedTotals, plannedByDay, budgetButtonState, heroChip, dayHotelLines, uncoveredRuns, fmt, curOf, nightCardHtml, mountNightCards };
+  return { openHotels, openBudget, closeBudget, travelIcon, plannedTotals, plannedByDay, budgetButtonState, heroChip, dayHotelLines, uncoveredRuns, fmt, curOf, nightCardHtml, mountNightCards };
 })();
