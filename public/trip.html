@@ -63,42 +63,65 @@
     </div>
   </section>
 
-  <div class="action-bar glass">
+  <!-- the trip's toolbar. On desktop it's the sticky row under the header; on a phone
+       it's the floating dock at the bottom — a tab bar: מסלול / המלצות / מסמכים / תקציב
+       (+ the draft "שמירה" pill), with the secondary actions folded into "עוד".
+       trip-pages.js owns the tabs and the "עוד" sheet; trip.js wires every action
+       button exactly as before, so the sheet's rows just click the hidden buttons. -->
+  <nav class="action-bar glass" id="action-bar" aria-label="פעולות הטיול">
     <div class="action-row" id="action-row">
+      <button class="action-btn tab-btn phone-only is-active" id="itinerary-btn" data-page="" aria-current="page">
+        <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h6a3.5 3.5 0 0 0 0-7h-4a3.5 3.5 0 0 1 0-7h6"/></svg></span>
+        <span class="ab-label">מסלול</span>
+      </button>
+      <button class="action-btn tab-btn" id="recs-btn" data-page="recs" title="המלצות — שיחה עם ה-AI על האזור והמקומות">
+        <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="m19 15 .8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/><path d="m5 2 .6 1.6 1.6.6-1.6.6L5 6.4l-.6-1.6-1.6-.6 1.6-.6z"/></svg></span>
+        <span class="ab-label">המלצות</span>
+      </button>
+      <button class="action-btn tab-btn" id="docs-btn" data-page="docs" title="מסמכי הטיול — נשמרים במכשיר הזה בלבד">
+        <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg></span>
+        <span class="ab-label">מסמכים</span>
+      </button>
+      <span class="ab-sep" aria-hidden="true"></span>
       <button class="action-btn finish" id="finish-btn" style="display:none" title="שמירת הטיול — הטיול מקבל קוד שיתוף">
-        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></span>
         <span class="ab-label">שמירת הטיול</span>
       </button>
-      <button class="action-btn" id="like-btn" style="display:none" title="אהבתי את הטיול">
-        <svg class="ic ic-heart" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.51 4.04 3 5.5l7 7Z"/></svg>
-        <span class="ab-label" id="like-count">0</span>
-      </button>
       <button class="action-btn" id="budget-btn" style="display:none">
-        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
+        <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg></span>
         <span class="ab-label" id="budget-label">תקציב</span>
       </button>
-      <button class="action-btn" id="hotels-btn" style="display:none">
-        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg>
+      <!-- secondary on phones: these live in the "עוד" sheet there -->
+      <button class="action-btn secondary" id="hotels-btn" style="display:none">
+        <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg></span>
         <span class="ab-label">מלונות</span>
       </button>
-      <button class="action-btn" id="print-btn" title="הדפסה או שמירה כ-PDF">
-        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-        <span class="ab-label">PDF</span>
-      </button>
-      <button class="action-btn" id="ics-btn" style="display:none" title="הורדת המסלול כקובץ יומן (ICS) — נפתח בגוגל קלנדר, אאוטלוק או יומן אפל">
-        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="M12 14v4"/><path d="M10 16h4"/></svg>
-        <span class="ab-label">יומן</span>
-      </button>
-      <button class="action-btn" id="participants-btn" style="display:none">
-        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <button class="action-btn secondary" id="participants-btn" style="display:none">
+        <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
         <span class="ab-label" id="participants-label">משתתפים</span>
       </button>
-      <button class="action-btn" id="clone-btn" style="display:none" title="יוצר עותק אישי של הטיול שאפשר לערוך בחופשיות">
-        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      <button class="action-btn secondary" id="like-btn" style="display:none" title="אהבתי את הטיול">
+        <span class="ab-ic"><svg class="ic ic-heart" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.51 4.04 3 5.5l7 7Z"/></svg></span>
+        <span class="ab-label" id="like-count">0</span>
+      </button>
+      <button class="action-btn secondary" id="ics-btn" style="display:none" title="הורדת המסלול כקובץ יומן (ICS) — נפתח בגוגל קלנדר, אאוטלוק או יומן אפל">
+        <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="M12 14v4"/><path d="M10 16h4"/></svg></span>
+        <span class="ab-label">יומן</span>
+      </button>
+      <button class="action-btn secondary" id="print-btn" title="הדפסה או שמירה כ-PDF">
+        <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></span>
+        <span class="ab-label">PDF</span>
+      </button>
+      <button class="action-btn secondary" id="clone-btn" style="display:none" title="יוצר עותק אישי של הטיול שאפשר לערוך בחופשיות">
+        <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
         <span class="ab-label" id="clone-label">שכפול</span>
       </button>
+      <button class="action-btn tab-btn phone-only" id="more-btn" title="עוד פעולות">
+        <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span>
+        <span class="ab-label">עוד</span>
+      </button>
     </div>
-  </div>
+  </nav>
 
   <div class="trip-layout" id="trip-layout">
     <main>
@@ -267,6 +290,9 @@
   <script src="/js/push.js"></script>
   <script src="/js/webmcp.js"></script>
   <script src="/js/webmcp-tools.js"></script>
+  <script src="/js/trip-pages.js"></script>
+  <script src="/js/trip-recs.js"></script>
+  <script src="/js/trip-docs.js"></script>
   <script src="/js/trip-modals.js"></script>
   <script src="/js/trip-arrange.js"></script>
   <script src="/js/trip-calendar.js"></script>

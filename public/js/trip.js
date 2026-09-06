@@ -1297,6 +1297,34 @@
     }
     updateAmbient();
 
+    // ---- the dock's pages: המלצות (AI chat, mocked for now) and מסמכים (on-device) ----
+    // One context for both: the trip, its live items, edit rights, and the same addItem
+    // the stop sheet uses — so a recommendation lands in the itinerary like any other stop
+    const pageCtx = {
+      trip, state, canEdit, inviteToken, requireSignup, addItem, dayDate,
+      dests: tripDests.length ? tripDests.map((d) => d.name) : [trip.destination].filter(Boolean),
+      defaultArea: (day) => (multiDest() ? defaultAreaForDay(day) : (tripDests[0]?.name || trip.destination || null)),
+    };
+    TripPages.register('recs', {
+      title: '✨ המלצות <span class="tp-beta">בטא</span>',
+      sub: 'דברו עם ה-AI על האזור והמקומות, וקבלו מידע, תמונות והמלצות לתחנות ומסלולים בטיול שלכם',
+      render: (slots) => TripRecs.render(slots, pageCtx),
+    });
+    TripPages.register('docs', {
+      title: '🗂️ מסמכים',
+      sub: 'כרטיסי טיסה, דרכון, הזמנות וביטוח — מתויגים לתיקיות אוטומטית, ונשמרים במכשיר הזה בלבד',
+      render: (slots) => TripDocs.render(slots, pageCtx),
+      onClose: () => pageCtx.onDocsClose?.(),
+    });
+    TripPages.initDock({
+      onItinerary: () => {
+        const top = document.getElementById('days-container').getBoundingClientRect().top + window.scrollY - 96;
+        window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      },
+    });
+    TripDocs.count(pageCtx).then((n) => TripPages.badge('docs', n));
+    TripPages.openFromHash();
+
     // a /trip/CODE#budget link (or a reload mid-budget) lands straight on the budget page
     if ((location.hash === '#budget' || location.hash === '#budget-settings') && canEdit) {
       TripModals.openBudget(modalCtx);
