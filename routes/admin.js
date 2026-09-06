@@ -94,8 +94,12 @@ router.post('/api/admin/users', authRequired, adminRequired, async (req, res) =>
 // ON DELETE SET NULL) — ?trips=delete removes those trips too, which cascades to
 // their stops, hotels and expenses.
 router.delete('/api/admin/users/:id', authRequired, adminRequired, async (req, res) => {
-  const client = await pool.connect();
+  // acquired inside the try: when the database is unreachable this rejects, and an
+  // await outside the try would leave the request hanging until the platform gave up
+  // on it with a non-JSON 5xx the client can only call "unexpected"
+  let client = null;
   try {
+    client = await pool.connect();
     const id = parseInt(req.params.id, 10);
     // deleting your own account mid-session would leave the panel authenticated as a ghost
     if (id === req.user.id) return res.status(400).json({ error: 'אי אפשר למחוק את המשתמש שלכם' });
@@ -116,11 +120,11 @@ router.delete('/api/admin/users/:id', authRequired, adminRequired, async (req, r
     await client.query('COMMIT');
     res.json({ ok: true, trips_deleted: tripsDeleted, trips_orphaned: dropTrips ? 0 : owned });
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error(err);
-    res.status(500).json({ error: 'שגיאת שרת' });
+    res.status(client ? 500 : 503).json({ error: client ? 'שגיאת שרת' : 'מסד הנתונים לא זמין כרגע — נסו שוב בעוד רגע' });
   } finally {
-    client.release();
+    if (client) client.release();
   }
 });
 

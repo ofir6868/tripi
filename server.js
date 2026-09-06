@@ -25,7 +25,10 @@ app.set('trust proxy', 1);
 // lib/canonical-origin.js for what the duplicates cost us in Search Console.
 app.use(require('./lib/canonical-origin').canonicalOrigin);
 
-app.use(express.json());
+// 100kb (the default) is not enough for a long AI-built trip saved in one POST — a
+// hundred stops with notes, a place query and a place id each — and a body over the
+// limit answers as an HTML 413 the client can only call "unexpected"
+app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Routers mount at the root and keep their full paths internally, so every route
@@ -48,4 +51,8 @@ app.use(require('./routes/pages'));
 // trip reminder pushes (countdowns + morning briefs) — in-process, no-op without VAPID keys
 require('./lib/reminders').start();
 
-app.listen(PORT, () => console.log(`TRIP MAKER running on http://localhost:${PORT}`));
+// schema + migrations + seed, idempotent, before the first request — and if the database
+// is down right now, the server still comes up and keeps trying (see lib/db-bootstrap.js)
+require('./lib/db-bootstrap').ensureSchema().then(() => {
+  app.listen(PORT, () => console.log(`TRIP MAKER running on http://localhost:${PORT}`));
+});

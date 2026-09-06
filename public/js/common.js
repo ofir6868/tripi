@@ -49,7 +49,9 @@ const TRIPMAKER = {
     if (this.token) headers.Authorization = 'Bearer ' + this.token;
     const res = await fetch(path, { ...opts, headers });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'שגיאה לא צפויה');
+    // a platform error page (502/504 from the proxy, a body the parser refused) carries
+    // no JSON — say the status, so the message points at the server and not at the app
+    if (!res.ok) throw new Error(data.error || `השרת לא ענה כראוי (שגיאה ${res.status})`);
     return data;
   },
   esc(s) {

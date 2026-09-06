@@ -699,8 +699,12 @@ router.delete('/api/trips/code/:code/expenses/:expenseId', authOptional, async (
 // ---- clone a trip into my account ----
 
 router.post('/api/trips/code/:code/clone', authRequired, async (req, res) => {
-  const client = await pool.connect();
+  // acquired inside the try: when the database is unreachable this rejects, and an
+  // await outside the try would leave the request hanging until the platform gave up
+  // on it with a non-JSON 5xx the client can only call "unexpected"
+  let client = null;
   try {
+    client = await pool.connect();
     const { rows } = await pool.query(`SELECT * FROM trips WHERE share_code = $1`, [req.params.code]);
     const src = rows[0];
     if (!src) return res.status(404).json({ error: 'הטיול לא נמצא' });
@@ -733,11 +737,11 @@ router.post('/api/trips/code/:code/clone', authRequired, async (req, res) => {
     await client.query('COMMIT');
     res.json(t.rows[0]);
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error(err);
-    res.status(500).json({ error: 'שגיאת שרת' });
+    res.status(client ? 500 : 503).json({ error: client ? 'שגיאת שרת' : 'מסד הנתונים לא זמין כרגע — נסו שוב בעוד רגע' });
   } finally {
-    client.release();
+    if (client) client.release();
   }
 });
 
@@ -820,8 +824,12 @@ router.get('/api/my-trips', authRequired, async (req, res) => {
 });
 
 router.post('/api/trips', authRequired, async (req, res) => {
-  const client = await pool.connect();
+  // acquired inside the try: when the database is unreachable this rejects, and an
+  // await outside the try would leave the request hanging until the platform gave up
+  // on it with a non-JSON 5xx the client can only call "unexpected"
+  let client = null;
   try {
+    client = await pool.connect();
     const { title, destination, country, description, cover_image, start_date, end_date, days, emoji, items, destinations, draft } = req.body || {};
     const dests = cleanDestinations(destinations);
     // destination display text: explicit field, or derived from the destinations list
@@ -867,11 +875,11 @@ router.post('/api/trips', authRequired, async (req, res) => {
     await client.query('COMMIT');
     res.json(trip);
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error(err);
-    res.status(500).json({ error: 'שגיאת שרת' });
+    res.status(client ? 500 : 503).json({ error: client ? 'שגיאת שרת' : 'מסד הנתונים לא זמין כרגע — נסו שוב בעוד רגע' });
   } finally {
-    client.release();
+    if (client) client.release();
   }
 });
 

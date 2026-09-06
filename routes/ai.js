@@ -1712,8 +1712,12 @@ async function aiEditOps(args) {
 }
 
 router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
-  const client = await pool.connect();
+  // acquired inside the try: when the database is unreachable this rejects, and an
+  // await outside the try would leave the request hanging until the platform gave up
+  // on it with a non-JSON 5xx the client can only call "unexpected"
+  let client = null;
   try {
+    client = await pool.connect();
     if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'עריכת AI לא זמינה כרגע' });
     const trip = await tripWithEditAuth(req, res);
     if (!trip) return;
@@ -1865,11 +1869,11 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
       remaining: admin ? null : AI_EDIT_DAILY_LIMIT - used - 1, // null = unlimited (admin)
     });
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error(err);
-    res.status(500).json({ error: 'שגיאת שרת' });
+    res.status(client ? 500 : 503).json({ error: client ? 'שגיאת שרת' : 'מסד הנתונים לא זמין כרגע — נסו שוב בעוד רגע' });
   } finally {
-    client.release();
+    if (client) client.release();
   }
 });
 

@@ -1,15 +1,9 @@
-// One-time database setup: schema + seed of curated public trips.
+// Database setup: schema + seed of curated public trips. Idempotent — the schema is
+// all IF NOT EXISTS and the seed only runs into a database with no public trips.
 // Usage: DATABASE_URL=postgres://... node db/setup.js
+// The server also runs setup(pool) on boot (lib/db-bootstrap.js), so a fresh database
+// — the free-tier one expired and was replaced — needs no manual step to come alive.
 require('../lib/env');
-const { Pool } = require('pg');
-
-const url = process.env.DATABASE_URL;
-const pool = new Pool({
-  connectionString: url,
-  ssl: url && url.includes('render.com')
-    ? { rejectUnauthorized: false }
-    : (process.env.PGSSL === 'true' ? { rejectUnauthorized: false } : false),
-});
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -265,18 +259,17 @@ const TRIPS = [
   },
 ];
 
-async function main() {
-  console.log('Creating schema...');
+async function setup(pool, log = console.log) {
+  log('Creating schema...');
   await pool.query(SCHEMA);
 
   const { rows } = await pool.query('SELECT count(*)::int AS n FROM trips WHERE is_public = true');
   if (rows[0].n > 0) {
-    console.log(`Seed skipped — ${rows[0].n} public trips already exist.`);
-    await pool.end();
+    log(`Seed skipped — ${rows[0].n} public trips already exist.`);
     return;
   }
 
-  console.log('Seeding suggested trips...');
+  log('Seeding suggested trips...');
   for (const t of TRIPS) {
     const res = await pool.query(
       `INSERT INTO trips (title, destination, country, description, cover_image, days, share_code, is_public, emoji)
@@ -292,10 +285,21 @@ async function main() {
         [tripId, it.day, it.time, it.title, it.note, it.place, it.cat, i]
       );
     }
-    console.log(`  + ${t.title} (${t.share_code})`);
+    log(`  + ${t.title} (${t.share_code})`);
   }
-  console.log('Done.');
-  await pool.end();
+  log('Done.');
 }
 
-main().catch((err) => { console.error(err); process.exit(1); });
+module.exports = { setup, SCHEMA };
+
+if (require.main === module) {
+  const { Pool } = require('pg');
+  const url = process.env.DATABASE_URL;
+  const pool = new Pool({
+    connectionString: url,
+    ssl: url && url.includes('render.com')
+      ? { rejectUnauthorized: false }
+      : (process.env.PGSSL === 'true' ? { rejectUnauthorized: false } : false),
+  });
+  setup(pool).then(() => pool.end()).catch((err) => { console.error(err); process.exit(1); });
+}
