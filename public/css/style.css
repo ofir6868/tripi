@@ -3479,6 +3479,24 @@ body.page-open { overflow: hidden; }
 .dt-name { padding: 8px 10px 2px; font-size: .84rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: ltr; text-align: right; }
 .dt-tags { display: flex; gap: 6px; align-items: center; padding: 0 10px 10px; font-size: .72rem; color: var(--paper-dim); }
 .dt-tags .auto { color: var(--amber); }
+.dt-tags .scan { color: var(--amber); animation: docs-scan-pulse 1.2s ease-in-out infinite; }
+.doc-tile.is-scanning { border-color: rgba(255, 180, 95, .3); }
+/* the content pass, while it runs: one line above the folders, the current step */
+.docs-scan {
+  display: flex; gap: 8px; align-items: center;
+  padding: 8px 12px; border-radius: 12px; margin-bottom: 10px;
+  background: rgba(255, 180, 95, .08); border: 1px solid rgba(255, 180, 95, .25);
+  font-size: .8rem; color: var(--amber); line-height: 1.4;
+}
+.docs-scan-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ds-spin {
+  flex: none; width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid rgba(255, 180, 95, .3); border-top-color: var(--amber);
+  animation: ds-spin .8s linear infinite;
+}
+@keyframes ds-spin { to { transform: rotate(360deg); } }
+@keyframes docs-scan-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .ds-spin, .dt-tags .scan { animation: none; } }
 .docs-empty { text-align: center; padding: 34px 18px 26px; border-radius: var(--radius); }
 .de-icons { font-size: 2rem; letter-spacing: .25em; margin-bottom: 10px; }
 .docs-empty h3 { font-family: var(--font-display); font-size: 1.3rem; margin-bottom: 8px; }

@@ -1,30 +1,24 @@
 // מסמכים — the trip's important papers: flight tickets, passport, bookings, insurance.
 //
 // Nothing here leaves the phone. Files live in IndexedDB on this device, keyed by the
-// signed-in user AND the trip, and the folder tagging runs in the browser on the file
-// NAME only — never on the contents, never on a server. There is no upload path on
-// purpose: a passport scan that never reaches us is a passport scan we never have to
-// protect. The cost is honest and shown in the page: another phone, or cleared site
-// data, and the documents are gone.
+// signed-in user AND the trip, and the folder tagging runs in the browser: first on the
+// file NAME (instant, at save time), then on the document's own TEXT — a PDF's text
+// layer, or OCR of a photo, read on the device by doc-text.js — never on a server.
+// There is no upload path on purpose: a passport scan that never reaches us is a
+// passport scan we never have to protect. The cost is honest and shown in the page:
+// another phone, or cleared site data, and the documents are gone.
+//
+// The content pass is a background queue, one document at a time (OCR is memory), and
+// it only ever touches documents the user hasn't filed by hand: a folder you picked is
+// yours, whatever the text says. The rules live in doc-classify.js, with a fixture
+// check in tools/docs-classify-check.js.
 const TripDocs = (() => {
   const esc = (s) => TRIPMAKER.esc(s);
   const DB_NAME = 'tripmaker-docs';
   const STORE = 'docs';
   const MAX_BYTES = 25 * 1024 * 1024;
 
-  // the folders, and the file-name clues that sort a document into each — the
-  // "smart tagging". Heuristic on purpose: it runs on-device, in a browser, on a name.
-  const FOLDERS = [
-    { key: 'flights', name: 'טיסות', emoji: '✈️', re: /flight|boarding|e-?ticket|ticket|\bpnr\b|airline|el ?al|wizz|ryanair|easyjet|lufthansa|טיס|כרטיס|עלייה למטוס/i },
-    { key: 'id', name: 'דרכון וזהות', emoji: '🛂', re: /passport|visa|\besta\b|\beta\b|\bid\b|identity|driv|licen[cs]e|דרכון|ויזה|תעודת|זהות|רישיון/i },
-    { key: 'stay', name: 'לינה', emoji: '🏨', re: /hotel|booking|airbnb|hostel|reserv|confirm|check-?in|מלון|הזמנ|לינה|צימר|דירה|אירוח/i },
-    { key: 'insurance', name: 'ביטוח', emoji: '🛡️', re: /insur|policy|ביטוח|פוליסה/i },
-    { key: 'car', name: 'רכב', emoji: '🚗', re: /\bcar\b|rental|hertz|avis|sixt|europcar|budget|voucher|parking|רכב|השכר|חניה|שאטל/i },
-    { key: 'health', name: 'בריאות', emoji: '💊', re: /vaccin|covid|medic|prescri|health|pharm|חיסון|רפואי|מרשם|תרופ|קופת/i },
-    { key: 'money', name: 'כסף וקבלות', emoji: '🧾', re: /receipt|invoice|payment|refund|קבלה|חשבונית|תשלום|החזר/i },
-    { key: 'other', name: 'אחר', emoji: '📄' },
-  ];
-  const folderOf = (key) => FOLDERS.find((f) => f.key === key) || FOLDERS[FOLDERS.length - 1];
+  const { FOLDERS, folderOf } = DocClassify;
 
   const ICON = {
     plus: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>',
@@ -72,14 +66,9 @@ const TripDocs = (() => {
 
   // ---- helpers ----
 
-  function classify(file) {
-    for (const f of FOLDERS) {
-      if (!f.re) continue;
-      const m = file.name.match(f.re);
-      if (m) return { folder: f.key, tags: [m[0]] };
-    }
-    return { folder: 'other', tags: [] };
-  }
+  // the instant tag, from the name alone — what a document is filed under the moment
+  // it's saved. The content pass may move it later.
+  const classify = (file) => DocClassify.classify({ name: file.name });
 
   // a small JPEG of an image, for the tile — the original stays untouched
   function makeThumb(file) {
@@ -107,9 +96,14 @@ const TripDocs = (() => {
   const fmtDate = (t) => new Date(t).toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
   const isImage = (d) => /^image\//.test(d.type);
   const isPdf = (d) => d.type === 'application/pdf' || /\.pdf$/i.test(d.name);
-  const kindEmoji = (d) => (isPdf(d) ? '📕' : isImage(d) ? '🖼️' : '📄');
+  const isTextish = (d) => /\.(docx|txt|md|html?|eml|csv|rtf)$/i.test(d.name) || /^text\//.test(d.type || '');
+  const kindEmoji = (d) => (isPdf(d) ? '📕' : isImage(d) ? '🖼️' : isTextish(d) ? '📝' : '📄');
+  const ACCEPT = 'image/*,application/pdf,.pdf,.txt,.md,.html,.htm,.eml,.docx';
 
-  const PRIVACY = `${ICON.lock}<span>נשמר במכשיר הזה בלבד — לא עולה לשרת ולא נשלח למשתתפי הטיול. במכשיר אחר, או אחרי מחיקת נתוני האתר, המסמכים לא יהיו כאן.</span>`;
+  // how the text was read, for the sheet — honest about which rung did the work
+  const READ_LABEL = { pdf: 'טקסט ה-PDF', 'pdf-ocr': 'OCR במכשיר', 'pdf-native': 'OCR במכשיר', ocr: 'OCR במכשיר', native: 'OCR במכשיר', text: 'הטקסט', docx: 'הטקסט' };
+
+  const PRIVACY = `${ICON.lock}<span>נשמר במכשיר הזה בלבד — לא עולה לשרת ולא נשלח למשתתפי הטיול. גם זיהוי הטקסט לתיוג רץ בדפדפן, על המכשיר. במכשיר אחר, או אחרי מחיקת נתוני האתר, המסמכים לא יהיו כאן.</span>`;
 
   // =================================================================
   //  RENDER
@@ -143,7 +137,7 @@ const TripDocs = (() => {
 
     tools.innerHTML = `
       <button type="button" class="btn btn-amber docs-add" id="docs-add">${ICON.plus}<span>הוספה</span></button>
-      <input type="file" id="docs-file" multiple accept="image/*,application/pdf" hidden>`;
+      <input type="file" id="docs-file" multiple accept="${ACCEPT}" hidden>`;
     const fileInput = tools.querySelector('#docs-file');
     tools.querySelector('#docs-add').onclick = () => fileInput.click();
     fileInput.onchange = () => { importFiles([...fileInput.files]); fileInput.value = ''; };
@@ -156,6 +150,10 @@ const TripDocs = (() => {
       }
       docs.sort((a, b) => b.addedAt - a.addedAt);
       TripPages.badge('docs', docs.length);
+      // anything still on its name-only tag gets the content pass — new documents, and
+      // the ones saved before the page could read them. Queued before the paint, so the
+      // tiles come up already marked as being read.
+      docs.filter((d) => d.auto && !d.scanned).forEach(enqueue);
       paint();
     }
 
@@ -181,6 +179,7 @@ const TripDocs = (() => {
       body.innerHTML = `
         <div class="tp-inner">
           <div class="docs-privacy">${PRIVACY}</div>
+          ${scanning.size ? `<div class="docs-scan" role="status"><span class="ds-spin" aria-hidden="true"></span><span class="docs-scan-text">${esc(scanStatus || 'מזהים את סוג המסמך לפי התוכן…')}</span></div>` : ''}
           <div class="docs-folders" role="tablist">
             <button type="button" role="tab" class="docs-folder${folder === 'all' ? ' on' : ''}" data-f="all">הכל<b>${docs.length}</b></button>
             ${FOLDERS.filter((f) => counts[f.key]).map((f) =>
@@ -189,11 +188,13 @@ const TripDocs = (() => {
           <div class="docs-grid">
             ${shown.map((d) => {
               const f = folderOf(d.folder);
+              const mark = scanning.has(d.id) ? '<span class="scan" title="מזהים את סוג המסמך לפי התוכן">🔍</span>'
+                : d.auto ? `<span class="auto" title="${d.via === 'content' ? 'תויג אוטומטית לפי התוכן' : 'תויג אוטומטית לפי שם הקובץ'}">✨</span>` : '';
               return `
-                <button type="button" class="doc-tile" data-id="${d.id}" aria-label="${esc(d.name)}">
+                <button type="button" class="doc-tile${scanning.has(d.id) ? ' is-scanning' : ''}" data-id="${d.id}" aria-label="${esc(d.name)}">
                   <span class="dt-thumb">${d.thumb ? `<img src="${d.thumb}" alt="">` : `<span>${kindEmoji(d)}</span>`}</span>
                   <span class="dt-name">${esc(d.name)}</span>
-                  <span class="dt-tags"><span>${f.emoji} ${f.name}</span>${d.auto ? '<span class="auto" title="תויג אוטומטית">✨</span>' : ''}</span>
+                  <span class="dt-tags"><span>${f.emoji} ${f.name}</span>${mark}</span>
                 </button>`;
             }).join('')}
           </div>
@@ -211,9 +212,9 @@ const TripDocs = (() => {
       for (const f of files) {
         if (f.size > MAX_BYTES) { skipped++; continue; }
         try {
-          const { folder: fk, tags } = classify(f);
+          const { folder: fk, tags, via } = classify(f);
           const thumb = await makeThumb(f);
-          await add({ owner, name: f.name, type: f.type, size: f.size, addedAt: Date.now(), folder: fk, tags, auto: true, blob: f, thumb });
+          await add({ owner, name: f.name, type: f.type, size: f.size, addedAt: Date.now(), folder: fk, tags, via, auto: true, scanned: false, blob: f, thumb });
           added++;
         } catch { skipped++; }
       }
@@ -225,6 +226,81 @@ const TripDocs = (() => {
       else if (added) TripPages.toast(`${added} נשמרו, ${skipped} דולגו (עד 25MB לקובץ)`);
       else TripPages.toast('לא נשמר — קובץ גדול מדי או לא נתמך');
       TRIPMAKER.track?.('docs_add', { code: ctx.trip.share_code, count: added });
+    }
+
+    // ---- the content pass: one document at a time, in the background ----
+    //
+    // A document is saved and on screen under its name-based tag before any of this
+    // runs, so a slow OCR (or one that never finishes) costs nothing but the upgrade.
+
+    const scanning = new Set(); // ids in the queue or under the engine right now
+    const queue = [];
+    let pumping = false;
+    let scanStatus = '';
+
+    function enqueue(d) {
+      if (!d.auto || d.scanned || scanning.has(d.id)) return;
+      scanning.add(d.id);
+      queue.push(d.id);
+      setTimeout(pump, 0); // after the paint that follows the enqueue loop
+    }
+
+    function setStatus(msg) {
+      scanStatus = msg;
+      const el = body.querySelector('.docs-scan-text');
+      if (el) el.textContent = msg;
+    }
+
+    async function pump() {
+      if (pumping) return;
+      pumping = true;
+      let changed = 0;
+      let last = null;
+      while (queue.length) {
+        const id = queue.shift();
+        const d = docs.find((x) => x.id === id);
+        if (d) {
+          setStatus(`מזהים את סוג המסמך: ${d.name}`);
+          try {
+            const moved = await analyze(d);
+            if (moved) { changed++; last = moved; }
+          } catch { /* the name-based tag stands */ }
+        }
+        scanning.delete(id);
+        paint();
+      }
+      pumping = false;
+      scanStatus = '';
+      DocText.release(); // the OCR engine holds real memory; the batch is over
+      if (changed === 1) TripPages.toast(`✨ תויג לפי התוכן: ${folderOf(last.folder).emoji} ${folderOf(last.folder).name}`, 'ok');
+      else if (changed > 1) TripPages.toast(`✨ ${changed} מסמכים תויגו לפי התוכן`, 'ok');
+    }
+
+    // returns the document when the content pass moved it to another folder
+    async function analyze(d) {
+      const { text, via: read, kind } = await DocText.extract(d.blob, { onStatus: setStatus });
+      // the list may have been reloaded, or the document deleted, while the engine ran
+      const cur = docs.find((x) => x.id === d.id);
+      if (!cur) return null;
+      if (!cur.auto) { cur.scanned = true; await put(cur); return null; } // filed by hand meanwhile — their pick stands
+      const c = DocClassify.classify({ name: cur.name, text });
+      const moved = c.folder !== cur.folder;
+      Object.assign(cur, { folder: c.folder, tags: c.tags, via: c.via, read, scanned: true });
+      await put(cur);
+      TRIPMAKER.track?.('docs_scan', { code: ctx.trip.share_code, kind, read, folder: c.folder, moved });
+      return moved ? cur : null;
+    }
+
+    function autoLine(d) {
+      if (scanning.has(d.id)) return '🔍 מזהים את סוג המסמך לפי התוכן…';
+      if (!d.auto) return 'תיקייה שבחרתם ידנית';
+      const reasons = d.tags?.length ? ` ("${d.tags.map(esc).join('", "')}")` : '';
+      if (d.via === 'content') return `✨ תויג אוטומטית לפי תוכן המסמך${READ_LABEL[d.read] ? ` — ${READ_LABEL[d.read]}` : ''}${reasons} — אפשר לשנות`;
+      if (d.folder === 'other') {
+        if (!d.scanned) return 'עוד לא זוהה סוג המסמך — בחרו תיקייה';
+        return d.read && d.read !== 'none' ? 'לא זוהה סוג המסמך מתוך התוכן — בחרו תיקייה' : 'לא הצלחנו לקרוא את המסמך במכשיר הזה — בחרו תיקייה';
+      }
+      return `✨ תויג אוטומטית לפי שם הקובץ${reasons} — אפשר לשנות`;
     }
 
     function openDoc(d) {
@@ -242,7 +318,7 @@ const TripDocs = (() => {
             <label for="ds-folder">תיקייה</label>
             <select id="ds-folder">${FOLDERS.map((x) => `<option value="${x.key}"${x.key === d.folder ? ' selected' : ''}>${x.emoji} ${x.name}</option>`).join('')}</select>
           </div>
-          <div class="ds-auto">${d.auto ? `✨ תויג אוטומטית לפי שם הקובץ${d.tags?.[0] ? ` ("${esc(d.tags[0])}")` : ''} — אפשר לשנות` : 'תיקייה שבחרתם ידנית'}</div>
+          <div class="ds-auto">${autoLine(d)}</div>
           <div class="ds-actions">
             <a class="btn btn-amber" href="${url}" target="_blank" rel="noopener">${ICON.open} פתיחה</a>
             ${canShare ? `<button type="button" class="btn btn-ghost ds-share">${ICON.share} שיתוף</button>` : ''}
@@ -253,7 +329,7 @@ const TripDocs = (() => {
           bodyEl.querySelector('.ds-preview')?.addEventListener('click', () => TRIPMAKER.openLightbox(url));
           bodyEl.querySelector('#ds-folder').onchange = async (e) => {
             d.folder = e.target.value;
-            d.auto = false;
+            d.auto = false; // from here on the content pass leaves this one alone
             try { await put(d); } catch { TripPages.toast('השינוי לא נשמר'); return; }
             bodyEl.querySelector('.ds-auto').textContent = `הועבר ל${folderOf(d.folder).name}`;
             paint();

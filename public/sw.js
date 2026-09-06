@@ -2,13 +2,13 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v38'; // bumped for the trip dock tabs + המלצות/מסמכים pages
+const VERSION = 'v39'; // bumped for מסמכים content tagging (doc-classify + doc-text)
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first
 const STATIC = [
   '/css/style.css', '/js/common.js', '/js/geo.js', '/js/home.js', '/js/trip.js',
-  '/js/trip-pages.js', '/js/trip-recs.js', '/js/trip-docs.js',
+  '/js/trip-pages.js', '/js/trip-recs.js', '/js/trip-docs.js', '/js/doc-classify.js', '/js/doc-text.js',
   '/js/trip-modals.js', '/js/trip-arrange.js', '/js/trip-calendar.js', '/js/trip-map.js',
   '/js/plan.js', '/js/admin.js',
   '/js/countries.js', '/js/destinations.js', '/js/datepicker.js', '/js/push.js', '/js/webmcp.js', '/js/webmcp-tools.js',
@@ -50,9 +50,11 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
 
-  // external requests (fonts, images, APIs) — network with cache fallback for fonts/images
+  // external requests (fonts, images, APIs) — network with cache fallback for fonts/images,
+  // and for the pinned OCR / PDF engines the מסמכים page pulls from jsDelivr, so a document
+  // added at the gate can still be read after the engines were fetched once
   if (url.origin !== location.origin) {
-    if (url.hostname.includes('fonts.g') || url.hostname.includes('unsplash')) {
+    if (url.hostname.includes('fonts.g') || url.hostname.includes('unsplash') || url.hostname === 'cdn.jsdelivr.net') {
       e.respondWith(
         caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
           e.waitUntil(putRuntime(e.request, res.clone()));
