@@ -77,6 +77,8 @@ npm start          # http://localhost:3000
 | `JWT_SECRET` | סוד לחתימת טוקנים |
 | `PORT` | פורט (ברירת מחדל 3000) |
 | `CANONICAL_ORIGIN` | אופציונלי — המקור היחיד שמותר להיכנס לאינדקס. ברירת מחדל `https://tripmaker.co.il` (מתוך `SITE` ב-`lib/seo.js`). כל בקשת GET לדף שמגיעה למארח או לסכימה אחרים מקבלת 301 לכאן |
+| `GOOGLE_PLACES_API_KEY` | מפתח Google Places (New) — אוטוקומפליט של יעדים, וגם תמונות המקומות בכרטיסי ההמלצות. בלעדיו התמונות נופלות חזרה לוויקיפדיה |
+| `PLACE_PHOTO_MONTHLY_LIMIT` | תקרת בקשות תמונה ל-Google בחודש (ברירת מחדל 900 — מתחת למכסת החינם של 1,000). מעבר לתקרה, תמונות מגיעות מוויקיפדיה. כל מקום נמשך פעם אחת ונשמר בקאש |
 | `GOOGLE_CLIENT_ID` | OAuth 2.0 Client ID מ-Google Cloud |
 | `GOOGLE_CLIENT_SECRET` | OAuth 2.0 Client Secret מ-Google Cloud |
 | `GOOGLE_REDIRECT_URI` | אופציונלי — ברירת מחדל `{origin}/api/auth/google/callback` (בפרודקשן: `https://tripi-caw3.onrender.com/api/auth/google/callback`) |

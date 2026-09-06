@@ -1990,14 +1990,10 @@ async function tripRecs({ trip, items, message, history, ph }) {
     lat: null, lon: null, google_place_id: null, photos: [], photo_credit: null,
   })).filter((c) => c.title && c.place_query);
 
+  // verify first — the verdict carries the place_id that a real Google photo needs, and
+  // there's no point paying for a photo of a card that's about to be dropped
   const queries = [...new Set(cards.map((c) => c.place_query))];
-  const [verified] = await Promise.all([
-    verifyPlaces(queries, { timeoutMs: 4000 }),
-    Promise.all(cards.map(async (c) => {
-      const p = await placePhoto(c.place_query).catch(() => null);
-      if (p) { c.photos = [p.url]; c.photo_credit = p.credit; }
-    })),
-  ]);
+  const verified = await verifyPlaces(queries, { timeoutMs: 4000 });
 
   const kept = [];
   const entries = [];
@@ -2015,10 +2011,20 @@ async function tripRecs({ trip, items, message, history, ph }) {
   }
   const foreign = new Set(foreignCountryStops(entries, dests).map((e) => e.card));
   for (const c of foreign) console.warn(`recs: dropped foreign place "${c.place_query}"`);
+  const survivors = kept.filter((c) => !foreign.has(c));
+
+  // photos for the survivors only: a real Google photo when the place verified with an id,
+  // Wikipedia otherwise — placePhoto decides, and a failure just leaves the card imageless
+  // (the client falls back to the destination's own picture)
+  await Promise.all(survivors.map(async (c) => {
+    const p = await placePhoto(c.place_query, { placeId: c.google_place_id }).catch(() => null);
+    if (p) { c.photos = [p.url]; c.photo_credit = p.credit; }
+  }));
+
   return {
     text: String(raw.text || '').trim().slice(0, 1200),
-    cards: kept.filter((c) => !foreign.has(c)),
-    dropped: cards.length - kept.length + foreign.size,
+    cards: survivors,
+    dropped: cards.length - survivors.length,
   };
 }
 
