@@ -1421,7 +1421,10 @@
       const isDraft = !!trip.is_draft;
       document.querySelector('.ticket').style.display = isDraft ? 'none' : '';
       draftCard.style.display = isDraft && canEdit ? '' : 'none';
-      finishBtn.style.display = isDraft && (isOwner || isAdmin) ? '' : 'none';
+      const showFinish = isDraft && (isOwner || isAdmin);
+      finishBtn.style.display = showFinish ? '' : 'none';
+      // the phone dock folds the budget tab into "עוד" while the save pill takes its room
+      document.getElementById('action-bar').classList.toggle('has-finish', showFinish);
       document.getElementById('code-chip').style.display = isDraft ? 'none' : '';
       // no cloning something half-planned — the button (and the viewer end-cap
       // that fronts it) come back the moment planning is finished

@@ -75,8 +75,9 @@
   </section>
 
   <!-- the trip's toolbar. On desktop it's the sticky row under the header; on a phone
-       it's the floating dock at the bottom — a tab bar: מסלול / המלצות / מסמכים / תקציב
-       (+ the draft "שמירה" pill), with the secondary actions folded into "עוד".
+       it's the floating dock at the bottom — a tab bar: מסלול / המלצות / מסמכים / תקציב / עוד,
+       with the secondary actions folded into "עוד". On a draft the "שמירה" pill takes the
+       last (leftmost) slot and תקציב folds into "עוד" too, so the dock never overcrowds.
        trip-pages.js owns the tabs and the "עוד" sheet; trip.js wires every action
        button exactly as before, so the sheet's rows just click the hidden buttons. -->
   <nav class="action-bar glass" id="action-bar" aria-label="פעולות הטיול">

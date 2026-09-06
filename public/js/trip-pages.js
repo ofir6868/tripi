@@ -239,9 +239,13 @@ const TripPages = (() => {
   //
   // The rows mirror the toolbar buttons that are hidden on phones — each row clicks
   // its button, so every action keeps the exact wiring (and visibility rules) trip.js
-  // gives it. A row only shows while its button is offered.
+  // gives it. A row only shows while its button is offered *and* the dock isn't already
+  // showing it: the budget tab, say, sits in the dock until the draft's save pill needs
+  // the room, and then it lives here instead.
 
   const MORE_ACTIONS = [
+    { id: 'budget-btn', title: 'תקציב', cls: (el) => (el.classList.contains('over') ? 'over' : el.classList.contains('warn') ? 'warn' : ''),
+      desc: () => { const l = document.getElementById('budget-label')?.textContent; return l && l !== 'תקציב' ? `${l} מהתקציב כבר מתוכנן` : 'כמה זה עולה — התקרה, ההוצאות והחלוקה'; } },
     { id: 'hotels-btn', title: 'מלונות', desc: 'איפה ישנים — לילות, הזמנות ומחירים' },
     { id: 'participants-btn', title: () => document.getElementById('participants-label')?.textContent || 'משתתפים', desc: 'מי מתכנן איתכם, וקישור ההזמנה' },
     { id: 'wa-share', title: 'שיתוף בוואטסאפ', desc: 'שולחים את המסלול לחברים' },
@@ -256,17 +260,22 @@ const TripPages = (() => {
     if (!el || el.style.display === 'none') return false;
     return !el.closest('[style*="display: none"], [style*="display:none"], [hidden]');
   }
+  // offered, but folded away by the dock's CSS rather than shown as a tab
+  function isFolded(el) {
+    return isOffered(el) && getComputedStyle(el).display === 'none';
+  }
 
   function openMore() {
-    const rows = MORE_ACTIONS.filter((a) => isOffered(document.getElementById(a.id)));
+    const rows = MORE_ACTIONS.filter((a) => isFolded(document.getElementById(a.id)));
     const html = `<div class="more-list">${rows.map((a) => {
       const src = document.getElementById(a.id);
       const svg = src.querySelector('svg')?.cloneNode(true);
       if (svg) svg.setAttribute('class', 'ic');
       const t = typeof a.title === 'function' ? a.title() : a.title;
       const d = typeof a.desc === 'function' ? a.desc() : a.desc;
+      const extra = [src.classList.contains('liked') ? 'liked' : '', a.cls ? a.cls(src) : ''].filter(Boolean).map((c) => ' ' + c).join('');
       return `
-        <button type="button" class="more-row${src.classList.contains('liked') ? ' liked' : ''}" data-for="${a.id}">
+        <button type="button" class="more-row${extra}" data-for="${a.id}">
           <span class="mr-ic">${svg ? svg.outerHTML : ''}</span>
           <span class="mr-text"><b>${esc(t)}</b><small>${esc(d)}</small></span>
           <span class="mr-chev" aria-hidden="true">‹</span>
