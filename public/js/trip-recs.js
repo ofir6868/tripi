@@ -359,7 +359,11 @@ const TripRecs = (() => {
     const { trip } = ctx;
     const hasDates = !!trip.start_date;
     const counts = {};
-    for (const it of ctx.state.items) counts[it.day_number] = (counts[it.day_number] || 0) + 1;
+    const byDay = {};
+    for (const it of ctx.state.items) {
+      counts[it.day_number] = (counts[it.day_number] || 0) + 1;
+      (byDay[it.day_number] ||= []).push(it);
+    }
     const areas = [...new Set(Array.from({ length: trip.days }, (_, i) => ctx.defaultArea(i + 1)).filter(Boolean))];
     const multi = areas.length > 1;
     const color = (a) => AREA_COLORS[areas.indexOf(a) % AREA_COLORS.length];
@@ -380,7 +384,8 @@ const TripRecs = (() => {
           ${styles.length ? ` style="${styles.join(';')}"` : ''}>
           <span class="cc-head"><span class="cc-num">${d}</span><span class="cc-date">${dateLabel}</span></span>
           ${multi && area ? `<span class="cc-area">${esc(area)}</span>` : ''}
-          <span class="wc-count">${countLabel(n)}</span>
+          <span class="cc-dots" aria-hidden="true">${(byDay[d] || []).slice(0, 4).map((it) =>
+            `<i${it.category === 'נסיעה' ? ' class="travel"' : ''}></i>`).join('')}${n > 4 ? '<em>+</em>' : ''}</span>
         </button>`);
     }
 

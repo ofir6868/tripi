@@ -16,7 +16,7 @@ const SHIM_TAGS = '  <script src="/js/preview-mock.js"></script>\n  <script src=
 const DEMO_BADGE = `  <div class="demo-badge" title="תצוגת דמו — API מדומה, שום דבר לא נשמר בשרת">DEMO</div>\n`;
 const DEMO_CSS = `
 /* demo build only */
-.demo-badge { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 9998;
+.demo-badge { position: fixed; top: calc(8px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 110;
   padding: 2px 9px; border-radius: 999px; font: 800 .62rem/1.6 system-ui, sans-serif; letter-spacing: .12em;
   color: #2a1500; background: #ffb45f; pointer-events: none; opacity: .9; }
 @media (max-width: 640px) { .demo-badge { top: auto; bottom: calc(var(--dock-h, 66px) + 18px + env(safe-area-inset-bottom)); } }
