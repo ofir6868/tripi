@@ -1056,6 +1056,9 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
   .dp-day { min-height: 38px; font-size: .95rem; }
 }
 
+/* the draft card's save button pulses with the same ring as the bar's */
+#draft-finish-btn { animation: save-pulse 1.9s ease-out infinite; }
+
 /* ---------- trip sidebar: weather + hotels ---------- */
 
 .side-card { padding: 18px; }
@@ -1433,13 +1436,28 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 }
 .action-btn.liked { color: #ff8896; }
 .action-btn.liked .ic-heart { fill: currentColor; }
-/* the draft ceremony button — the one amber action in the bar */
-.action-btn.finish { color: var(--amber); background: rgba(255, 180, 95, .12); font-weight: 800; }
+/* the draft ceremony button — the one amber action in the bar. It's filled and it
+   breathes: a draft that never gets saved has no share code, so this is the one
+   button on the page that's allowed to ask for the tap */
+.action-btn.finish {
+  color: #2a1500; font-weight: 800;
+  background: linear-gradient(135deg, var(--amber), var(--amber-deep));
+  animation: save-pulse 1.9s ease-out infinite;
+}
+.action-btn.finish .ab-ic { background: rgba(255, 255, 255, .22); }
+@keyframes save-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 180, 95, .6), 0 8px 22px -10px rgba(232, 133, 58, .8); }
+  70% { box-shadow: 0 0 0 10px rgba(255, 180, 95, 0), 0 8px 22px -10px rgba(232, 133, 58, .8); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 180, 95, 0), 0 8px 22px -10px rgba(232, 133, 58, .8); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .action-btn.finish, #draft-finish-btn { animation: none; box-shadow: 0 0 0 3px rgba(255, 180, 95, .35); }
+}
 /* hover only where a pointer really hovers — on touch it sticks after the tap
    and leaves a button looking permanently selected */
 @media (hover: hover) {
   .action-btn:hover { background: var(--glass-strong); color: var(--paper); }
-  .action-btn.finish:hover { background: rgba(255, 180, 95, .22); color: var(--amber); }
+  .action-btn.finish:hover { background: linear-gradient(135deg, #ffc985, var(--amber)); color: #2a1500; }
 }
 
 /* the icon sits in its own pill so the active tab can light it up (the dock on phones) */
@@ -2859,6 +2877,39 @@ body.cal-full-open { overflow: hidden; }
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
 }
 .dragging .arrange-done { pointer-events: none; opacity: 0.35; }
+/* the bin: a strip across the top of the screen while a stop is in the air. It
+   covers the header on purpose — nothing up there matters mid-drag — and lights
+   up red as the ghost crosses into it. Geometry-only: pointer-events stay off so
+   the drag's own hit-testing is the single source of truth. */
+@keyframes trash-in { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: none; } }
+.arrange-trash {
+  position: fixed; z-index: 1999;
+  top: calc(10px + env(safe-area-inset-top));
+  right: calc(14px + env(safe-area-inset-right));
+  left: calc(14px + env(safe-area-inset-left));
+  max-width: 1120px; margin: 0 auto;
+  min-height: 62px; padding: 12px 18px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  border-radius: 999px;
+  border: 2px dashed rgba(255, 120, 120, .55);
+  background: rgba(60, 12, 12, .72);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  color: #ffb4b4; font-weight: 700; font-size: .95rem;
+  pointer-events: none; user-select: none;
+  animation: trash-in .18s ease-out;
+  transition: background .15s ease, border-color .15s ease, color .15s ease, transform .15s ease;
+}
+.arrange-trash .ic { width: 20px; height: 20px; flex: none; }
+.arrange-trash.hot {
+  background: rgba(190, 40, 40, .92); border-color: #ff8f8f; border-style: solid;
+  color: #fff; transform: scale(1.03);
+  box-shadow: 0 10px 30px rgba(190, 40, 40, .45);
+}
+.drag-ghost.over-trash { opacity: .7; scale: .92; }
+@media (prefers-reduced-motion: reduce) {
+  .arrange-trash { animation: none; }
+  .arrange-trash.hot { transform: none; }
+}
 
 /* ---------- iOS: fields a finger can tap without the page zooming ----------
    Mobile Safari force-zooms on focus whenever the focused field computes under

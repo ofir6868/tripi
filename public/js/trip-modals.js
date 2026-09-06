@@ -594,19 +594,22 @@ const TripModals = (() => {
     chevron: '<svg class="ic nc-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>',
   };
 
-  // A collapsed night stays collapsed — on a two-week trip there are thirteen of
-  // these, and someone who has already decided about a night should not have to
-  // dismiss it again on every visit. Per trip, per night, in localStorage.
-  const collapsedKey = (state) => 'tripmaker_nights_min_' + state.trip.share_code;
+  // Every night starts collapsed — thirteen open hotel rails on a two-week trip
+  // bury the itinerary they sit between. A night someone opened stays open on the
+  // next visit, so a hotel still being chosen doesn't have to be dug out again.
+  // Per trip, per night, in localStorage; the set stored is the OPEN nights.
+  const openKey = (state) => 'tripmaker_nights_open_' + state.trip.share_code;
 
-  function collapsedNights(state) {
-    try { return new Set(JSON.parse(localStorage.getItem(collapsedKey(state)) || '[]')); } catch { return new Set(); }
+  function openNights(state) {
+    try { return new Set(JSON.parse(localStorage.getItem(openKey(state)) || '[]')); } catch { return new Set(); }
   }
 
+  const isNightCollapsed = (state, night) => !openNights(state).has(night);
+
   function setNightCollapsed(state, night, on) {
-    const s = collapsedNights(state);
-    if (on) s.add(night); else s.delete(night);
-    try { localStorage.setItem(collapsedKey(state), JSON.stringify([...s])); } catch { /* private mode — collapse still works for this visit */ }
+    const s = openNights(state);
+    if (on) s.delete(night); else s.add(night);
+    try { localStorage.setItem(openKey(state), JSON.stringify([...s])); } catch { /* private mode — the toggle still works for this visit */ }
   }
 
   const dm = (iso) => (iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}` : '');
@@ -663,7 +666,7 @@ const TripModals = (() => {
       ? `היום מסתיים ב${esc(anchor.after)} — אלה המלונות הקרובים ביותר`
       : `מלונות ב${esc((anchor && anchor.area) || state.trip.destination || '')}`;
 
-    const shut = collapsedNights(state).has(night);
+    const shut = isNightCollapsed(state, night);
     return `
       <div class="night-card${shut ? ' collapsed' : ''}" data-night="${night}">
         <button type="button" class="nc-head" data-toggle-night="${night}" aria-expanded="${!shut}">

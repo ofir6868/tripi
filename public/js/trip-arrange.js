@@ -93,6 +93,26 @@ const TripArrange = (() => {
     card.classList.add('drag-src');
     document.body.classList.add('dragging');
     if (card.setPointerCapture) try { card.setPointerCapture(pointerId); } catch { /* gone mid-gesture */ }
+    // the bin: a fixed strip across the top of the screen, there only while a
+    // card is in the air — carrying a stop up to it deletes the stop (after the
+    // same confirm the trash buttons ask for). Hit-tested by geometry like the
+    // day containers, so it never intercepts the pointer itself.
+    let trash = null;
+    let overTrash = false;
+    if (opts.deleteStop) {
+      trash = document.createElement('div');
+      trash.className = 'arrange-trash';
+      trash.setAttribute('aria-hidden', 'true');
+      trash.innerHTML = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span>גררו לכאן למחיקת התחנה</span>';
+      document.body.appendChild(trash);
+    }
+    const setOverTrash = (on) => {
+      if (on === overTrash) return;
+      overTrash = on;
+      trash.classList.toggle('hot', on);
+      ghost.classList.toggle('over-trash', on);
+      if (on && navigator.vibrate) navigator.vibrate(8);
+    };
 
     let chipDay = null; // fallback surface (the day strip) — no live preview there
     // dragging against the viewport edge scrolls the page, iPhone-style — without
@@ -140,6 +160,12 @@ const TripArrange = (() => {
     const evaluate = () => {
       clearHints();
       chipDay = null;
+      if (trash) {
+        const r = trash.getBoundingClientRect();
+        const inBin = lastX >= r.left && lastX <= r.right && lastY <= r.bottom + 6;
+        setOverTrash(inBin);
+        if (inBin) return; // the placeholder stays put — nothing to preview for a delete
+      }
       // NEAREST container, not strict containment: a fast drag spends half its life
       // over the gaps between days (headers, margins), and a placeholder that stops
       // updating there is the "floating card, nothing moves" bug
@@ -204,6 +230,7 @@ const TripArrange = (() => {
       ghost.style.transform = `translate(${lastX - x0}px, ${lastY - y0}px)`;
       const EDGE = 80;
       scrollDir = lastY < EDGE ? -14 : lastY > innerHeight - EDGE ? 14 : 0;
+      if (trash && lastY <= trash.getBoundingClientRect().bottom + 6) scrollDir = 0;
       if (scrollDir && !scrollRaf) scrollRaf = requestAnimationFrame(autoScroll);
       requestEvaluate();
     };
@@ -218,12 +245,19 @@ const TripArrange = (() => {
       if (evalTimer) clearTimeout(evalTimer);
       document.body.classList.remove('dragging');
       ghost.remove();
+      if (trash) trash.remove();
       card.classList.remove('drag-src');
       const chip = chipDay;
+      const binned = overTrash && ev.type !== 'pointercancel';
       clearHints();
       refresh();
       try {
         if (ev.type === 'pointercancel') opts.rerender(); // undo the preview
+        else if (binned) {
+          // a drop in the bin, declined, is just a cancelled drag
+          if (confirm('למחוק את התחנה?')) await opts.deleteStop(id);
+          else opts.rerender();
+        }
         else if (chip != null && opts.moveToDay) await opts.moveToDay(id, chip);
         else if (opts.containers) {
           // the DOM as arranged is the truth — hand each visible day's order back
@@ -280,6 +314,8 @@ const TripArrange = (() => {
   //   dayOf(el)   container element → day number
   //   commit(layout)      persist [{day, ids-in-visual-order}] — the dealt-hours rule
   //   moveToDay(id, day)  fallback for dayTargets (optional)
+  //   deleteStop(id)      delete a stop dropped in the bin at the top (optional —
+  //                       the bin only appears when a view provides this)
   //   dayTargets  [{ selector, getDay(el) }] drop surfaces with no live preview
   //   rerender()  repaint the view (drag cancelled or commit failed)
   function attach(scope, opts) {

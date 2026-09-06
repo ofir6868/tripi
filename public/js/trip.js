@@ -611,6 +611,7 @@
         commit: applyArrangement,
         dayTargets: [{ selector: '.day-block', getDay: (el) => +el.dataset.day }],
         moveToDay: moveStopToDay,
+        deleteStop: (id) => deleteItem(tripItems.find((it) => it.id === id)),
         rerender: renderItinerary,
       });
     }

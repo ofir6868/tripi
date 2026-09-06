@@ -280,6 +280,7 @@ const TripCalendar = (() => {
       commit: ctx.arrangeCommit,
       dayTargets: [{ selector: '.cal-wday', getDay: (el) => +el.dataset.day }],
       moveToDay: ctx.moveItemToDay,
+      deleteStop: (id) => ctx.deleteItem(ctx.state.items.find((x) => x.id === id)),
       rerender: () => render(lastContainer, lastCtx),
     });
   }
@@ -364,6 +365,7 @@ const TripCalendar = (() => {
       commit: ctx.arrangeCommit,
       dayTargets: [{ selector: '.cds-btn', getDay: (el) => +el.dataset.day }],
       moveToDay: ctx.moveItemToDay,
+      deleteStop: (id) => ctx.deleteItem(ctx.state.items.find((x) => x.id === id)),
       rerender: () => render(lastContainer, lastCtx),
     });
   }
