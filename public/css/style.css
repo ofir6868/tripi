@@ -245,9 +245,17 @@ body::after {
       rgba(10, 21, 18, .78) 0%,
       rgba(10, 21, 18, .38) 42%,
       rgba(10, 21, 18, .80) 84%,
-      rgba(10, 21, 18, .90) 100%),
+      rgba(10, 21, 18, .90) 96%,
+      var(--ink) 100%),
     radial-gradient(70% 55% at 50% 42%, transparent 30%, rgba(10, 21, 18, .55) 100%);
 }
+/* The veil ends in the solid page colour (not 90%) because of the overscroll
+   stretch on Android (Samsung Internet, Chrome): while the page is rubber-banding
+   at the top, the compositor scales the content and the mask below with
+   different pixel snapping, so for a frame the bottom row of the clip is drawn
+   unmasked. The mask below normally hides that row; when it doesn't, the row
+   is the photo behind a 90% veil — a visible bright hairline. With an opaque
+   ink veil there, the exposed row is the page background itself. */
 /* photo + veil dissolve into the page background as one image, so there is no
    seam where the section below starts — the fade lands on the page's own
    atmosphere.
@@ -274,10 +282,16 @@ body::after {
     rgba(0, 0, 0, .32) 81%,
     rgba(0, 0, 0, .16) 87.5%,
     rgba(0, 0, 0, .04) 94%,
-    transparent 100%);
+    transparent calc(100% - 4px));
   -webkit-mask-image: var(--hero-fade);
   mask-image: var(--hero-fade);
 }
+/* The ramp lands on transparent 4px before the clip's edge (not at 100%) for
+   the same Android overscroll-stretch reason described at .hero-veil: the mask
+   can sit a pixel off the content while the page rubber-bands, and a ramp that
+   only reaches zero exactly at the edge then leaves the last row faintly
+   visible. A short fully-transparent band means the edge cuts through pixels
+   that are already invisible, wherever the mask happens to land. */
 
 .hero-kicker {
   font-weight: 600; letter-spacing: .28em; font-size: .8rem;
