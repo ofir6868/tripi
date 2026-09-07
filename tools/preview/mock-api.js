@@ -230,6 +230,17 @@
       if (rest === '/recs' && method === 'POST') {
         const q = String(body.message || '');
         if (/מכסה/.test(q)) return json(429, { error: 'ניצלתם את שאלות ההמלצות להיום', quota: 'recs' });
+        // אוטומטי + an explicit change request → a proposal, no cards
+        if (body.mode === 'auto' && /תוסיף|תכניס|תמחק|תוריד|תזיז/.test(q)) {
+          const last = items[items.length - 1];
+          const ops = /תמחק|תוריד/.test(q)
+            ? [{ action: 'delete', id: last.id, day_number: null, time_label: null, title: null, note: null, place_query: null, category: null, area: null, cost: null }]
+            : [{ action: 'add', id: null, day_number: 5, time_label: '10:00', title: 'שוק קמפו דה פיורי', note: 'שוק הבוקר — לפני 11:00', place_query: 'Campo de\' Fiori, Rome, Italy', category: 'אוכל', area: 'רומא', cost: null, lat: 41.8955, lon: 12.4722 }];
+          const changes = ops.map((o) => o.action === 'delete'
+            ? { kind: 'delete', title: last.title, when: `יום ${last.day_number}` }
+            : { kind: 'add', title: o.title, when: 'יום 5 · 10:00', note: o.note });
+          return json(200, { text: /תמחק|תוריד/.test(q) ? 'אני מציע להוריד את התחנה הזו מהמסלול. מאשרים?' : 'אני מציע לפתוח את יום 5 בשוק קמפו דה פיורי — בוקר של פירות, גבינות ומאפים. מאשרים?', cards: [], ops, changes, remaining: 27 });
+        }
         const food = /אוכל|מסעד|לאכול|שוק/.test(q);
         const cards = /טיפ|כדאי לדעת/.test(q) ? [] : (food ? [
           { title: 'שוק קמפו דה פיורי', blurb: 'שוק הבוקר של מרכז רומא — פירות, גבינות ומאפים חמים. הכי טוב לפני 11:00.', category: 'אוכל', duration: 'שעה', cost: '₪', time: '09:30', area: 'רומא', place_query: 'Campo de\' Fiori, Rome, Italy', lat: 41.8955, lon: 12.4722, photos: [] },
@@ -244,6 +255,27 @@
           ? (food ? 'ברומא אוכלים הכי טוב איפה שהמקומיים אוכלים — שווקים בבוקר וסמטאות בערב. שלוש נקודות פתיחה:' : 'הנה שלוש נקודות פתיחה טובות ברומא — אחת להבין את העיר, אחת לנשום, ואחת לערב:')
           : 'כמה דברים שכדאי לדעת: קפה עומדים ליד הבר עולה אירו, אותו קפה בשולחן על הפיאצה — חמישה. לקולוסיאום ולוותיקן מזמינים כרטיס מראש; לכל השאר פשוט מגיעים.';
         return json(200, { text, cards, remaining: 29 });
+      }
+      if (rest === '/recs/apply' && method === 'POST') {
+        const undo = { added: [], updated: [], deleted: [] };
+        let added = 0, removed = 0;
+        for (const op of body.ops || []) {
+          if (op.action === 'add') {
+            const it = { id: nextId++, trip_id: 1, day_number: op.day_number, time_label: op.time_label, title: op.title, note: op.note, place_query: op.place_query,
+              category: op.category, area: op.area, lat: op.lat ?? null, lon: op.lon ?? null, cost: op.cost, google_place_id: null, sort_order: nextId };
+            items.push(it); undo.added.push(it.id); added++;
+          } else if (op.action === 'delete') {
+            const it = items.find((x) => x.id === op.id);
+            if (it) { undo.deleted.push(it); items = items.filter((x) => x !== it); removed++; }
+          }
+        }
+        return json(200, { applied: { added, updated: 0, removed }, undo: added + removed ? undo : null, items });
+      }
+      if (rest === '/recs/undo' && method === 'POST') {
+        const u = body.undo || {};
+        items = items.filter((x) => !(u.added || []).includes(x.id));
+        for (const it of u.deleted || []) items.push({ ...it, id: nextId++ });
+        return json(200, { undone: true, items });
       }
       if (rest === '/items' && method === 'POST') {
         if (!body.title) return json(400, { error: 'חסרה כותרת לתחנה' });

@@ -1,5 +1,7 @@
 // המלצות — a chat with the AI about the area, answered with recommendation cards that
-// drop straight into the itinerary.
+// drop straight into the itinerary. In אוטומטי mode (editors only) an explicit "add /
+// remove / move X" comes back as a proposal card instead — the planning chat's card,
+// written on approval through /recs/apply, reversible through /recs/undo.
 //
 // ask() is one call to POST /api/trips/code/:code/recs: the server runs the model,
 // verifies every place it names (an unverified one never reaches this file) and finds
@@ -36,6 +38,10 @@ const TripRecs = (() => {
   const AREA_COLORS = ['#ffb45f', '#8fd8c4', '#c9a7ff', '#7fb8ff', '#ff9db1', '#ffd166'];
   const DOW = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 
+  const MODE_ICON = {
+    auto: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 8-12h-6z"/></svg>',
+    hand: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0v1"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-5.9-2.4L3 15.2a2 2 0 0 1 3-2.6L8 15"/></svg>',
+  };
   const ICON = {
     plus: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>',
     map: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>',
@@ -57,13 +63,19 @@ const TripRecs = (() => {
     return id ? IMG(id) : (ctx.trip.cover_image || IMG(GENERIC[0]));
   }
 
-  async function ask(question, ctx, history) {
+  // `mode`: אוטומטי lets the model answer an explicit change request with a proposal
+  // (ops), shown as the same card the planning chat uses and written only on approval
+  async function ask(question, ctx, history, mode = 'manual') {
     const r = await TRIPMAKER.api(`/api/trips/code/${ctx.trip.share_code}/recs`, {
       method: 'POST',
-      body: JSON.stringify({ message: question, history }),
+      body: JSON.stringify({ message: question, history, mode }),
     });
     const cards = (r.cards || []).map((c) => fromServerCard(c, ctx));
-    return { kind: cards.length ? 'places' : 'text', text: r.text, cards, remaining: r.remaining };
+    const out = { kind: cards.length ? 'places' : 'text', text: r.text, cards, remaining: r.remaining, payload: {} };
+    if (Array.isArray(r.ops) && r.ops.length) {
+      out.payload = { ops: r.ops, changes: r.changes || [], decision: 'pending', undo: null };
+    }
+    return out;
   }
 
   // =================================================================
@@ -109,7 +121,7 @@ const TripRecs = (() => {
       </article>`;
   }
 
-  function msgHtml(m, i) {
+  function msgHtml(m, i, latestApplied) {
     if (m.role === 'user') return `<div class="chat-msg user"><div class="chat-bubble">${esc(m.text)}</div></div>`;
     if (m.quota) return TripPlan.quotaMsgHtml(m, TripPlan.referral(), '✨'); // the day's allowance is spent — the gentle card
     const cards = m.cards || [];
@@ -121,6 +133,7 @@ const TripRecs = (() => {
           ${cards.length ? `<div class="rec-strip">${cards.map((c, j) => cardHtml(c, i, j)).join('')}</div>` : ''}
           ${cards.filter((c) => !c.added).length >= 2
             ? `<button type="button" class="rec-add-all" data-i="${i}">${ICON.plus} הוספת כולם ליום אחד</button>` : ''}
+          ${m.payload && m.payload.changes ? TripPlan.changeCardHtml(m, latestApplied) : ''}
         </div>
       </div>`;
   }
@@ -130,33 +143,107 @@ const TripRecs = (() => {
     page.classList.add('page-chat');
     const mainDest = ctx.dests[0] || ctx.trip.destination || 'האזור';
     let msgs = loadThread(ctx);
+    // proposal cards need a stable id to answer to — local, monotonic, survives a reload
+    let nextId = msgs.reduce((m, x) => Math.max(m, x.id || 0), 0) + 1;
+    msgs.forEach((m) => { if (!m.id) m.id = nextId++; });
     let turn = msgs.filter((m) => m.role === 'user').length;
     let busy = false;
+    // ידני: exactly the chat as it always was. אוטומטי: an explicit "add / remove / move
+    // X" comes back as a proposal card — for someone who may edit the trip. Remembered
+    // per trip in this browser, like the thread.
+    const modeKey = `tripmaker_recs_mode_${ctx.trip.share_code}`;
+    let mode = ctx.canEdit && localStorage.getItem(modeKey) === 'auto' ? 'auto' : 'manual';
 
     body.innerHTML = '<div class="chat-thread" id="chat-thread"></div>';
     foot.innerHTML = `
       <div class="chat-chips" id="chat-chips">${QUICK(mainDest).map((q) =>
         `<button type="button" class="chat-chip">${esc(q)}</button>`).join('')}</div>
       <form class="chat-form" id="chat-form">
+        ${ctx.canEdit ? '<button type="button" class="plan-mode" id="recs-mode" aria-live="polite"></button>' : ''}
         <input type="text" id="chat-input" maxlength="300" placeholder="שאלו על ${esc(mainDest)}…" autocomplete="off" enterkeyhint="send">
         <button type="submit" class="chat-send" aria-label="שליחה">${ICON.send}</button>
-      </form>`;
+      </form>
+      <small class="chat-left" id="recs-left" hidden></small>`;
     const thread = body.querySelector('#chat-thread');
     const input = foot.querySelector('#chat-input');
+    const modeBtn = foot.querySelector('#recs-mode');
+    const leftEl = foot.querySelector('#recs-left');
+    const RECS_NOUN = { one: 'שאלה', many: 'שאלות', last: 'השאלה האחרונה' };
 
     const scrollDown = () => { body.scrollTop = body.scrollHeight; };
+    const latestApplied = () => {
+      for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].payload && msgs[i].payload.decision === 'applied') return msgs[i].id;
+      return null;
+    };
+
+    function paintMode() {
+      if (!modeBtn) return;
+      const auto = mode === 'auto';
+      modeBtn.className = `plan-mode ${auto ? 'auto' : 'manual'}`;
+      modeBtn.innerHTML = `${auto ? MODE_ICON.auto : MODE_ICON.hand}<span>${auto ? 'אוטומטי' : 'ידני'}</span>`;
+      modeBtn.title = auto
+        ? 'מצב אוטומטי: כשמבקשים במפורש לשנות את המסלול, ה-AI מציע את השינוי לאישור. לחיצה עוברת למצב ידני'
+        : 'מצב ידני: ה-AI רק ממליץ — כל המלצה נכנסת לטיול בלחיצה על ➕. לחיצה עוברת למצב אוטומטי';
+      input.placeholder = auto ? 'שאלו, או בקשו שינוי במסלול…' : `שאלו על ${mainDest}…`;
+    }
 
     function paint() {
-      thread.innerHTML = msgHtml({ role: 'ai', html: WELCOME(mainDest) }, -1) + msgs.map(msgHtml).join('');
+      const la = latestApplied();
+      thread.innerHTML = msgHtml({ role: 'ai', html: WELCOME(mainDest) }, -1) + msgs.map((m, i) => msgHtml(m, i, la)).join('');
       if (busy) thread.insertAdjacentHTML('beforeend', `
         <div class="chat-msg ai"><span class="chat-avatar" aria-hidden="true">✨</span>
           <div class="chat-bubble chat-typing" aria-label="חושב…"><i></i><i></i><i></i></div></div>`);
+      paintMode();
       scrollDown();
+    }
+
+    // the proposal card's buttons: the ops (or the recorded inverse) go to the server,
+    // and the decision is written into the thread in the traveller's words, so the next
+    // question's history carries it
+    async function decide(id, decision, btn) {
+      const m = msgs.find((x) => x.id === id);
+      if (!m || !m.payload || busy) return;
+      btn.disabled = true;
+      const base = `/api/trips/code/${ctx.trip.share_code}/recs`;
+      const titles = (m.payload.changes || []).map((c) => c.title).join(', ');
+      try {
+        if (decision === 'accept') {
+          const r = await TRIPMAKER.api(`${base}/apply`, { method: 'POST', body: JSON.stringify({ ops: m.payload.ops }) });
+          const changed = r.applied && (r.applied.added + r.applied.updated + r.applied.removed) > 0;
+          m.payload.decision = changed ? 'applied' : 'rejected';
+          m.payload.undo = changed ? r.undo : null;
+          if (r.items) ctx.replaceItems(r.items);
+          msgs.push({ id: nextId++, role: 'user', text: `✓ אישרתי את השינויים${titles ? ': ' + titles : ''}` });
+          TripPages.toast('המסלול עודכן ✓', 'ok');
+        } else if (decision === 'reject') {
+          m.payload.decision = 'rejected';
+          msgs.push({ id: nextId++, role: 'user', text: `לא עכשיו — בלי ${titles || 'ההצעה הזו'}` });
+        } else {
+          const r = await TRIPMAKER.api(`${base}/undo`, { method: 'POST', body: JSON.stringify({ undo: m.payload.undo }) });
+          m.payload.decision = 'undone';
+          m.payload.undo = null;
+          if (r.items) ctx.replaceItems(r.items);
+          TripPages.toast('השינוי בוטל');
+        }
+        TRIPMAKER.track?.('recs_decide', { code: ctx.trip.share_code, decision });
+      } catch (err) {
+        btn.disabled = false;
+        TripPages.toast((err && err.message) || 'לא הצלחתי — נסו שוב');
+        return;
+      }
+      saveThread(ctx, msgs);
+      paint();
     }
 
     // one delegated handler for everything inside the thread
     thread.addEventListener('click', (e) => {
       if (TripPlan.handleCardClick(e, ctx)) return;
+      const accept = e.target.closest('.pc-accept');
+      if (accept) { decide(+accept.dataset.id, 'accept', accept); return; }
+      const reject = e.target.closest('.pc-reject');
+      if (reject) { decide(+reject.dataset.id, 'reject', reject); return; }
+      const undo = e.target.closest('.pc-undo');
+      if (undo) { decide(+undo.dataset.id, 'undo', undo); return; }
       const media = e.target.closest('.rec-media');
       if (media) { cyclePhoto(media); return; }
       const add = e.target.closest('.rec-add');
@@ -193,17 +280,19 @@ const TripRecs = (() => {
       }
       // what the model sees of the conversation: the last turns, text only
       const history = msgs.filter((m) => m.text).slice(-8).map((m) => ({ role: m.role, text: m.text }));
-      msgs.push({ role: 'user', text: q });
+      msgs.push({ id: nextId++, role: 'user', text: q });
       turn++;
       busy = true;
       input.value = '';
       paint();
       try {
-        const reply = await ask(q, ctx, history);
-        msgs.push({ role: 'ai', ...reply });
+        const reply = await ask(q, ctx, history, mode);
+        msgs.push({ id: nextId++, role: 'ai', ...reply });
+        if (reply.remaining !== undefined) TripPlan.leftLine(leftEl, reply.remaining, RECS_NOUN);
       } catch (err) {
         if (err && err.quota) {
           busy = false;
+          TripPlan.leftLine(leftEl, 0, RECS_NOUN);
           msgs.push(TripPlan.quotaMsg(err.quota));
           paint();
           TripPlan.loadReferral().then(paint); // the referral numbers fill the card as they arrive
@@ -219,6 +308,14 @@ const TripRecs = (() => {
 
     foot.querySelector('#chat-form').onsubmit = (e) => { e.preventDefault(); send(input.value); };
     foot.querySelectorAll('.chat-chip').forEach((b) => { b.onclick = () => send(b.textContent); });
+    if (modeBtn) {
+      modeBtn.onclick = () => {
+        mode = mode === 'auto' ? 'manual' : 'auto';
+        try { localStorage.setItem(modeKey, mode); } catch { /* per-visit then */ }
+        paintMode();
+        TRIPMAKER.track?.('recs_mode', { code: ctx.trip.share_code, mode });
+      };
+    }
 
     paint();
   }

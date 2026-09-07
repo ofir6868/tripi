@@ -342,30 +342,6 @@ async function planTurn({ trip, items, state, mode, history, message, pendingPro
   };
 }
 
-// ---------- undo: the exact inverse the writer recorded, replayed server-side ----------
-async function undoApplied(client, trip, undo) {
-  for (const id of undo.added || []) {
-    await client.query('DELETE FROM trip_items WHERE id = $1 AND trip_id = $2', [id, trip.id]);
-  }
-  for (const u of undo.updated || []) {
-    const cols = Object.keys(u.fields || {});
-    if (!cols.length) continue;
-    const vals = cols.map((c) => u.fields[c]);
-    await client.query(
-      `UPDATE trip_items SET ${cols.map((c, i) => `${c} = $${i + 1}`).join(', ')} WHERE id = $${cols.length + 1} AND trip_id = $${cols.length + 2}`,
-      [...vals, u.id, trip.id]
-    );
-  }
-  for (const it of undo.deleted || []) {
-    await client.query(
-      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-      [trip.id, it.day_number, it.time_label, it.title, it.note, it.place_query, it.category, it.area,
-       it.lat, it.lon, it.google_place_id, it.cost, it.sort_order ?? 0]
-    );
-  }
-}
-
 // what a turn does to the trip and its memory, inside one transaction: facts, areas
 // and pending questions folded into the state; the ops written (auto) or parked on the
 // message as a proposal (manual); a spoken "yes" applied to the proposal it answered.
@@ -575,7 +551,7 @@ router.post('/api/trips/code/:code/plan/decide', authRequired, async (req, res) 
     const patch = {};
     await client.query('BEGIN');
     if (decision === 'undo') {
-      await undoApplied(client, trip, p.undo);
+      await ai.undoApplied(client, trip, p.undo);
       patch.decision = 'undone';
       patch.undo = null;
     } else if (decision === 'reject') {

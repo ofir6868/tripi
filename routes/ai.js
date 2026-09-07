@@ -3,7 +3,7 @@ const express = require('express');
 const { randomUUID } = require('crypto');
 const { pool } = require('../lib/db');
 const { authRequired, authOptional } = require('../lib/auth');
-const { tripWithEditAuth, cleanDestinations } = require('../lib/trips');
+const { tripWithEditAuth, cleanDestinations, isParticipant } = require('../lib/trips');
 const { verifyPlaces } = require('../lib/places');
 const { placePhoto } = require('../lib/place-photos');
 // the Hebrew country name → ISO code table the client uses for flags, read here to tell
@@ -1838,6 +1838,31 @@ async function applyEditOps(client, trip, items, ops, { area = null, from = 1, t
   return { added, updated, removed, undoOps };
 }
 
+// the exact inverse applyEditOps recorded, replayed: added rows go, updated columns
+// return to their pre-edit values, deleted rows come back in their old slot
+async function undoApplied(client, trip, undo) {
+  for (const id of undo.added || []) {
+    await client.query('DELETE FROM trip_items WHERE id = $1 AND trip_id = $2', [id, trip.id]);
+  }
+  for (const u of undo.updated || []) {
+    const cols = Object.keys(u.fields || {});
+    if (!cols.length) continue;
+    const vals = cols.map((c) => u.fields[c]);
+    await client.query(
+      `UPDATE trip_items SET ${cols.map((c, i) => `${c} = $${i + 1}`).join(', ')} WHERE id = $${cols.length + 1} AND trip_id = $${cols.length + 2}`,
+      [...vals, u.id, trip.id]
+    );
+  }
+  for (const it of undo.deleted || []) {
+    await client.query(
+      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [trip.id, it.day_number, it.time_label, it.title, it.note, it.place_query, it.category, it.area,
+       it.lat, it.lon, it.google_place_id, it.cost, it.sort_order ?? 0]
+    );
+  }
+}
+
 router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
   // acquired inside the try: when the database is unreachable this rejects, and an
   // await outside the try would leave the request hanging until the platform gave up
@@ -1977,7 +2002,7 @@ const RECS_SCHEMA = {
   required: ['text', 'cards'],
 };
 
-function recsSystemPrompt({ trip, dests, items }) {
+function recsSystemPrompt({ trip, dests, items, edit = false }) {
   const destText = dests.length
     ? dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ')
     : [trip.destination, trip.country].filter(Boolean).join(', ');
@@ -1988,8 +2013,19 @@ function recsSystemPrompt({ trip, dests, items }) {
     if (!byDay.has(it.day_number)) byDay.set(it.day_number, []);
     byDay.get(it.day_number).push(it.title);
   }
-  const itinerary = [...byDay.entries()].slice(0, 30)
-    .map(([d, titles]) => `יום ${d}: ${titles.slice(0, 6).join(' · ')}`).join('\n') || '(עדיין ריק)';
+  // in edit mode the stops carry their ids — an op has to name the stop it touches
+  const itinerary = edit
+    ? (items.map((it) => `#${it.id} | יום ${it.day_number} | ${it.time_label || '--:--'} | [${it.category || 'כללי'}] ${it.title}` +
+        (areaNames.length > 1 && it.area ? ` | אזור: ${it.area}` : '')).join('\n') || '(עדיין ריק)')
+    : ([...byDay.entries()].slice(0, 30)
+      .map(([d, titles]) => `יום ${d}: ${titles.slice(0, 6).join(' · ')}`).join('\n') || '(עדיין ריק)');
+  const editRules = edit ? `
+
+עריכת המסלול (ops): המטיילים אפשרו לכם לשנות את המסלול בעצמכם, וכל שינוי שתציעו מוצג להם ככרטיס לאישור לפני שהוא נכנס.
+- ops חוזר לא ריק אך ורק כשהבקשה היא במפורש לשנות את המסלול: "תוסיף את זה ליום 3", "תוריד את המוזיאון", "תזיז את השוק לבוקר", "תחליף את הארוחה במשהו אחר", "תכניס לי יום שלם ב…". כל שאלה אחרת — מה יש, מה כדאי, איפה אוכלים, טיפים, "תכננו לי יום" בלי בקשה להכניס — היא המלצה: ops ריק, ו-cards כרגיל.
+- כשמציעים שינוי: text מנוסח כהצעה ("אני מציע להוסיף… מאשרים?") ובלי cards כפולים של אותם מקומות.
+- add: title קצר בעברית, note טיפ פרקטי קצר, time_label בפורמט HH:MM או null, day_number בין 1 ל-${trip.days}, place_query באנגלית עם עיר ומדינה רק למקום אמיתי (אחרת null), cost הערכה לאדם בש"ח או null, category מתוך: ${AI_CATEGORIES.join(', ')}, area מתוך: ${areaNames.map((a) => `"${a}"`).join(', ')}.
+- update/delete: id של תחנה קיימת מהמסלול למעלה; ב-update null בכל שדה שלא משתנה. לא נוגעים בתחנות שלא התבקשו.` : '';
   return `אתם המדריך המקומי של TRIP MAKER — מומחה לטיולים שמכיר את ${destText} לעומק, ועונים למטייל ישראלי שמתכנן את הטיול הזה.
 עונים בעברית, בגוף רבים ("אתם"), בחום ובענייניות. השדה text — עד 80 מילים.
 
@@ -2007,7 +2043,57 @@ ${itinerary}
 - category מתוך הרשימה. cost: חינם / ₪ / ₪₪ / ₪₪₪. duration בעברית קצרה ("שעה", "שעתיים", "חצי יום"). time: שעת התחלה מומלצת בפורמט HH:MM, או מחרוזת ריקה.
 - area: שם היעד מהטיול שהמקום שייך אליו, בדיוק באחת הצורות האלה: ${areaNames.map((a) => `"${a}"`).join(', ')}.
 - text מציג את הכרטיסים כשיש כאלה ("שלוש נקודות פתיחה:") ואינו חוזר על ה-blurb שלהם.
-כל מקום בכרטיס חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו; מקום שאינכם בטוחים בו לא נכנס לכרטיס.`;
+כל מקום בכרטיס חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו; מקום שאינכם בטוחים בו לא נכנס לכרטיס.${editRules}`;
+}
+
+// the recs schema with ops on it — the same op shape the editor and the planner use
+const RECS_EDIT_SCHEMA = {
+  ...RECS_SCHEMA,
+  properties: {
+    ...RECS_SCHEMA.properties,
+    ops: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['action', 'id', 'day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area', 'cost'],
+        properties: {
+          action: { type: 'string', enum: ['add', 'update', 'delete'] },
+          id: { type: ['integer', 'null'] },
+          day_number: { type: ['integer', 'null'] },
+          time_label: { type: ['string', 'null'] },
+          title: { type: ['string', 'null'] },
+          note: { type: ['string', 'null'] },
+          place_query: { type: ['string', 'null'] },
+          category: { type: ['string', 'null'] },
+          area: { type: ['string', 'null'] },
+          cost: { type: ['integer', 'null'] },
+        },
+      },
+    },
+  },
+  required: [...RECS_SCHEMA.required, 'ops'],
+};
+
+// a proposed change as one line for the card (the planner's describeOp, same shape)
+function describeRecOp(op, byId) {
+  const when = (o, cur) => {
+    const d = o.day_number != null ? o.day_number : (cur ? cur.day_number : null);
+    const t = o.time_label != null ? o.time_label : (cur ? cur.time_label : null);
+    return d != null ? `יום ${d}${t ? ' · ' + t : ''}` : '';
+  };
+  if (op.action === 'add') return { kind: 'add', title: op.title, when: when(op), note: op.note || '' };
+  const cur = byId.get(op.id);
+  if (op.action === 'delete') return { kind: 'delete', title: cur ? cur.title : `#${op.id}`, when: cur ? when({}, cur) : '' };
+  const changes = [];
+  if (op.day_number != null && cur && op.day_number !== cur.day_number) changes.push(`ליום ${op.day_number}`);
+  if (op.time_label != null && cur && op.time_label !== cur.time_label) changes.push(`לשעה ${op.time_label}`);
+  if (op.title != null && cur && op.title !== cur.title) changes.push(`שם: ${op.title}`);
+  if (op.place_query != null) changes.push('מקום אחר');
+  if (op.note != null) changes.push('הערה');
+  if (op.category != null && cur && op.category !== cur.category) changes.push(op.category);
+  if (op.area != null && cur && op.area !== cur.area) changes.push(`אזור ${op.area}`);
+  return { kind: 'update', title: cur ? cur.title : `#${op.id}`, when: cur ? when(op, cur) : '', changes };
 }
 
 function recsUserPrompt(history, message) {
@@ -2017,25 +2103,101 @@ function recsUserPrompt(history, message) {
 }
 
 // the whole turn, model to verified cards — exported for tests, which stub fetch
-async function tripRecs({ trip, items, message, history, ph }) {
+// `edit`: the traveller switched the chat to אוטומטי — the model may answer an explicit
+// change request with ops (verified like the editor's, returned as a proposal, never
+// written here). The strong model then, for the same reason the planner uses it: an op
+// names a place straight into the itinerary.
+async function tripRecs({ trip, items, message, history, edit = false, ph }) {
   const dests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
   const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
   const raw = await aiJson({
-    system: recsSystemPrompt({ trip, dests, items }),
+    system: recsSystemPrompt({ trip, dests, items, edit }),
     user: recsUserPrompt(history, message),
-    schemaName: 'trip_recs',
-    schema: RECS_SCHEMA,
-    maxTokens: 1400,
+    schemaName: edit ? 'trip_recs_edit' : 'trip_recs',
+    schema: edit ? RECS_EDIT_SCHEMA : RECS_SCHEMA,
+    maxTokens: edit ? 2400 : 1400,
+    model: edit ? AI_MODEL_STRONG : AI_MODEL_WEAK,
     ph,
   });
   if (!raw) return null;
   const { cards: survivors, dropped } = await verifyRecCards(raw.cards, { dests, areaNames });
-  return {
+  const out = {
     text: String(raw.text || '').trim().slice(0, 1200),
     cards: survivors,
     dropped,
   };
+  if (edit && Array.isArray(raw.ops) && raw.ops.length) {
+    const verified = await verifyEditOps({ ops: raw.ops.slice(0, 20) }, {
+      items, dests, destText: trip.destination, title: trip.title, ph,
+    });
+    if (verified.ops.length) {
+      const byId = new Map(items.map((it) => [it.id, it]));
+      out.ops = verified.ops;
+      out.changes = verified.ops.map((op) => describeRecOp(op, byId));
+      // a proposal that repeats its own places as cards is the same thing twice
+      out.cards = [];
+    }
+  }
+  return out;
 }
+
+// the two halves of a proposal the recs chat accepted — the ops written, or the
+// recorded inverse replayed — for anyone who may edit the trip. The ops arrive from
+// the client (the recs thread lives in the browser, not on the server), which is fine:
+// applyEditOps sanitizes every field, and an editor could have made the same change by
+// hand. A viewer without edit rights is refused by tripWithEditAuth.
+async function applyClientOps(req, res, mode) {
+  let client = null;
+  try {
+    client = await pool.connect();
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const b = req.body || {};
+    await client.query('BEGIN');
+    let result = null;
+    if (mode === 'apply') {
+      const ops = (Array.isArray(b.ops) ? b.ops : []).slice(0, 20)
+        .filter((op) => op && ['add', 'update', 'delete'].includes(op.action));
+      if (!ops.length) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'אין שינויים לבצע' }); }
+      const items = await client.query(
+        'SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
+      ).then((r) => r.rows);
+      const r = await applyEditOps(client, trip, items, ops);
+      const changed = r.added + r.updated + r.removed > 0;
+      result = { applied: { added: r.added, updated: r.updated, removed: r.removed }, undo: changed ? r.undoOps : null };
+    } else {
+      const u = b.undo && typeof b.undo === 'object' ? b.undo : null;
+      if (!u) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'אין מה לבטל' }); }
+      await undoApplied(client, trip, {
+        added: (Array.isArray(u.added) ? u.added : []).map((id) => parseInt(id, 10)).filter(Number.isInteger),
+        updated: (Array.isArray(u.updated) ? u.updated : []).filter((x) => x && Number.isInteger(+x.id) && x.fields && typeof x.fields === 'object')
+          .map((x) => ({ id: +x.id, fields: Object.fromEntries(Object.entries(x.fields)
+            .filter(([k]) => ['day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area', 'lat', 'lon', 'google_place_id', 'cost'].includes(k))) })),
+        deleted: (Array.isArray(u.deleted) ? u.deleted : []).filter((it) => it && it.title).slice(0, 20).map((it) => ({
+          day_number: clampDay(it.day_number, trip.days), time_label: cleanTime(it.time_label), title: String(it.title).slice(0, 200),
+          note: it.note ? String(it.note).slice(0, 500) : null, place_query: cleanPlaceQuery(it.place_query), category: it.category ? String(it.category).slice(0, 40) : null,
+          area: it.area ? String(it.area).slice(0, 80) : null, lat: Number.isFinite(+it.lat) && it.lat !== null ? +it.lat : null,
+          lon: Number.isFinite(+it.lon) && it.lon !== null ? +it.lon : null, google_place_id: it.google_place_id ? String(it.google_place_id).slice(0, 300) : null,
+          cost: cleanCost(it.cost), sort_order: parseInt(it.sort_order, 10) || 0,
+        })),
+      });
+      result = { undone: true };
+    }
+    const fresh = await client.query(
+      'SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
+    );
+    await client.query('COMMIT');
+    res.json({ ...result, items: fresh.rows });
+  } catch (err) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error(err);
+    res.status(client ? 500 : 503).json({ error: client ? 'שגיאת שרת' : 'מסד הנתונים לא זמין כרגע — נסו שוב בעוד רגע' });
+  } finally {
+    if (client) client.release();
+  }
+}
+router.post('/api/trips/code/:code/recs/apply', authOptional, (req, res) => applyClientOps(req, res, 'apply'));
+router.post('/api/trips/code/:code/recs/undo', authOptional, (req, res) => applyClientOps(req, res, 'undo'));
 
 // model-proposed place cards → verified, geolocated, photographed cards; what the
 // recs chat and the planning chat both show. Returns the survivors and how many fell.
@@ -2100,21 +2262,24 @@ router.post('/api/trips/code/:code/recs', authRequired, async (req, res) => {
       .filter((h) => h.text);
 
     const { rows } = await pool.query(
-      'SELECT id, title, destination, country, days, start_date, destinations FROM trips WHERE share_code = $1',
+      'SELECT id, owner_id, title, destination, country, days, start_date, destinations FROM trips WHERE share_code = $1',
       [req.params.code]
     );
     const trip = rows[0];
     if (!trip) return res.status(404).json({ error: 'לא נמצא טיול עם הקוד הזה' });
+    // אוטומטי: the chat may propose changes — only for someone who could make them by hand
+    const edit = b.mode === 'auto' && (req.user.id === trip.owner_id
+      || await isParticipant(trip.id, req.user.id) || await isAdmin(req));
 
     // 30 questions a day per user; admins are counted but never capped, as everywhere here
     const quota = await recsMeter.check(req);
     if (!quota) return exhausted(res, 'recs', 'ניצלתם את שאלות ההמלצות להיום — נסו שוב מחר');
 
     const { rows: items } = await pool.query(
-      'SELECT day_number, title FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
+      'SELECT id, day_number, time_label, title, category, area, place_query FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
     );
     const result = await tripRecs({
-      trip, items, message, history,
+      trip, items, message, history, edit,
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
     if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });
@@ -2147,6 +2312,7 @@ module.exports.buildQuota = buildQuota;
 module.exports.buildErrorMessage = buildErrorMessage;
 module.exports.BUILD_EXHAUSTED = BUILD_EXHAUSTED;
 module.exports.applyEditOps = applyEditOps;
+module.exports.undoApplied = undoApplied;
 module.exports.verifyEditOps = verifyEditOps;
 module.exports.verifyRecCards = verifyRecCards;
 module.exports.REC_CATS = REC_CATS;

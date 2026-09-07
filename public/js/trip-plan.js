@@ -237,8 +237,11 @@ const TripPlan = (() => {
         <button type="button" class="plan-mode" id="plan-mode" aria-live="polite"></button>
         <input type="text" id="plan-input" maxlength="400" placeholder="כתבו לי מה תרצו…" autocomplete="off" enterkeyhint="send">
         <button type="submit" class="chat-send" aria-label="שליחה">${ICON.send}</button>
-      </form>`;
+      </form>
+      <small class="chat-left" id="plan-left" hidden></small>`;
     const thread = body.querySelector('#plan-thread');
+    const leftEl = foot.querySelector('#plan-left');
+    const PLAN_NOUN = { one: 'הודעת תכנון', many: 'הודעות תכנון', last: 'הודעת התכנון האחרונה' };
     const chips = foot.querySelector('#plan-chips');
     const input = foot.querySelector('#plan-input');
     const modeBtn = foot.querySelector('#plan-mode');
@@ -305,6 +308,7 @@ const TripPlan = (() => {
     // the day's allowance is spent: the gentle card, with the referral numbers filled
     // in as soon as they arrive
     async function outOfQuota(kind) {
+      if (kind === 'plan') leftLine(leftEl, 0, PLAN_NOUN);
       msgs.push(quotaMsg(kind));
       paint();
       await loadReferral();
@@ -360,6 +364,7 @@ const TripPlan = (() => {
         }
         msgs.push(shape(r.message));
         if (r.items) ctx.replaceItems(r.items);
+        if (r.remaining !== undefined) leftLine(leftEl, r.remaining, PLAN_NOUN);
         await promoteAreas();
         TRIPMAKER.track?.('plan_turn', { code: ctx.trip.share_code, stage: state.stage, mode: state.mode });
         busy = false;
@@ -393,6 +398,7 @@ const TripPlan = (() => {
         }
         if (r.follow) msgs.push(shape(r.follow));
         if (r.items) ctx.replaceItems(r.items);
+        if (r.remaining !== undefined) leftLine(leftEl, r.remaining, PLAN_NOUN);
         busy = false;
         if (r.quota) { outOfQuota(r.quota); return; }
         TripPages.toast(decision === 'accept' ? 'המסלול עודכן ✓' : decision === 'undo' ? 'השינוי בוטל' : 'ההצעה נדחתה', decision === 'accept' ? 'ok' : undefined);
@@ -530,5 +536,14 @@ const TripPlan = (() => {
   }
 
   // the quota card and its handler are shared with the recommendations chat
-  return { render, quotaMsg, quotaMsgHtml, handleCardClick, loadReferral, referral: () => referralInfo };
+  // the "N left today" line under a composer — null (admin) shows nothing
+  function leftLine(el, remaining, noun) {
+    if (!el) return;
+    if (remaining == null) { el.hidden = true; return; }
+    el.hidden = false;
+    el.textContent = remaining <= 0 ? `זו הייתה ${noun.last} להיום` : `נשאר${remaining === 1 ? 'ה' : 'ו'} ${remaining} ${remaining === 1 ? noun.one : noun.many} להיום`;
+    el.classList.toggle('low', remaining <= 5);
+  }
+
+  return { render, quotaMsg, quotaMsgHtml, handleCardClick, loadReferral, referral: () => referralInfo, changeCardHtml, leftLine };
 })();

@@ -3305,6 +3305,11 @@ body.page-open { overflow: hidden; }
 .pc-areas .region-palette { margin-top: 10px; }
 .pc-areas .pc-foot { margin-top: 12px; }
 
+/* "N left today" under the composer — quiet, amber once it gets low */
+.chat-left { display: block; width: min(760px, 100%); margin: -8px auto 0; padding: 0 clamp(12px, 4vw, 24px) 10px; font-size: .74rem; color: var(--paper-dim); text-align: center; }
+.chat-left.low { color: var(--amber); }
+.chat-left[hidden] { display: none; }
+
 /* the composer's mode switch: ידני asks before every change, אוטומטי just does it */
 .plan-mode {
   flex: none; display: inline-flex; align-items: center; gap: 5px;
