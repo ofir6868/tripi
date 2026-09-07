@@ -160,12 +160,15 @@
     document.getElementById('trip-meta').innerHTML = meta.join('');
 
     document.getElementById('trip-layout').style.display = '';
-    // re-rendered when an AI edit rewrites a description the change made untrue
+    // re-rendered when an AI edit rewrites a description the change made untrue —
+    // including into or out of nothing: a trip with no description shows no block
+    // at all (a placeholder would only be a gap between the hero and the itinerary)
     function renderDesc() {
-      document.getElementById('trip-desc').innerHTML =
-        `<div class="trip-desc-text" id="trip-desc-text">${
-          trip.description ? TRIPMAKER.esc(trip.description) : 'עוד אין תיאור לטיול הזה — אבל המסלול מדבר בעד עצמו 🙂'
-        }</div>` +
+      const el = document.getElementById('trip-desc');
+      if (!trip.description) { el.innerHTML = ''; el.style.display = 'none'; return; }
+      el.style.display = '';
+      el.innerHTML =
+        `<div class="trip-desc-text" id="trip-desc-text">${TRIPMAKER.esc(trip.description)}</div>` +
         `<button type="button" class="trip-desc-toggle" id="trip-desc-toggle" hidden>הצג עוד</button>`;
       setupDescToggle();
     }
