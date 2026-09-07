@@ -373,20 +373,36 @@ const TripPlan = (() => {
       }
     }
 
+    // a tap on the card is an answer: the server writes (or refuses) the proposal, then
+    // hears the decision as a turn and comes back with the next step — so the thread
+    // shows the traveller's "✓ אישרתי…" and the AI's reply, exactly like a typed one
     async function decide(id, decision, btn) {
       if (busy) return;
       btn.disabled = true;
+      const answered = decision !== 'undo';
+      if (answered) { busy = true; paint(); }
       try {
         const r = await api(ctx, '/decide', { method: 'POST', body: JSON.stringify({ message_id: id, decision }) });
         const i = msgs.findIndex((m) => m.id === id);
         if (i !== -1) msgs[i] = shape(r.message);
+        if (r.said) msgs.push({ role: 'user', text: r.said, payload: {} });
+        if (r.state) { state = r.state; ctx.trip.plan_state = state; }
+        if (r.approved_message_id) {
+          const m = msgs.find((x) => x.id === r.approved_message_id);
+          if (m) m.payload = { ...m.payload, decision: 'applied', undo: true };
+        }
+        if (r.follow) msgs.push(shape(r.follow));
         if (r.items) ctx.replaceItems(r.items);
+        busy = false;
+        if (r.quota) { outOfQuota(r.quota); return; }
         TripPages.toast(decision === 'accept' ? 'המסלול עודכן ✓' : decision === 'undo' ? 'השינוי בוטל' : 'ההצעה נדחתה', decision === 'accept' ? 'ok' : undefined);
         TRIPMAKER.track?.('plan_decide', { code: ctx.trip.share_code, decision });
+        await promoteAreas();
+        if (r.follow && r.follow.payload && r.follow.payload.build === 'once') { paint(); build(false); return; }
       } catch (err) {
+        busy = false;
         btn.disabled = false;
         TripPages.toast((err && err.message) || 'לא הצלחתי — נסו שוב');
-        return;
       }
       paint();
     }

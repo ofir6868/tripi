@@ -161,13 +161,20 @@
       if (rest === '/decide') {
         const m = planMsgs.find((x) => x.id === +body.message_id);
         if (!m) return json(404, { error: 'לא נמצא' });
-        if (body.decision === 'accept') applyOps(m);
-        else if (body.decision === 'reject') m.payload.decision = 'rejected';
-        else if (body.decision === 'undo') {
+        if (body.decision === 'undo') {
           draftItems = draftItems.filter((x) => !(m.payload.undo.added || []).includes(x.id));
           m.payload.decision = 'undone'; m.payload.undo = null;
+          return json(200, { message: m, items: draftItems });
         }
-        return json(200, { message: m, items: draftItems });
+        if (body.decision === 'accept') applyOps(m); else m.payload.decision = 'rejected';
+        // the decision is a turn: the AI answers it with the next step
+        const titles = (m.payload.changes || []).map((c) => c.title).join(', ');
+        const said = body.decision === 'accept' ? `✓ אישרתי את השינויים: ${titles}` : `לא עכשיו — בלי ${titles}`;
+        planMsg('user', said);
+        const follow = body.decision === 'accept'
+          ? planMsg('ai', 'מעולה, הטיסות במסלול. עכשיו הימים: נתחיל מטוקיו — ליום 2 אני חושב על סנסוג׳י ואסאקוסה בבוקר ושיבויה בערב. מתאים, או שתעדיפו התחלה רגועה יותר?', { suggestions: ['מתאים', 'משהו רגוע יותר'] })
+          : planMsg('ai', 'אין בעיה. רוצים שנשאיר את הטיסות בחוץ בינתיים ונעבור לימים, או להזין אותן אחרת?', { suggestions: ['נעבור לימים', 'טיסה רק ביום 1'] });
+        return json(200, { message: m, items: draftItems, said, follow, state: draft.plan_state, remaining: 40 });
       }
       if (rest === '/build') {
         const fill = !!body.fill;

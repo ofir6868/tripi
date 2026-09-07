@@ -366,6 +366,68 @@ async function undoApplied(client, trip, undo) {
   }
 }
 
+// what a turn does to the trip and its memory, inside one transaction: facts, areas
+// and pending questions folded into the state; the ops written (auto) or parked on the
+// message as a proposal (manual); a spoken "yes" applied to the proposal it answered.
+// Returns the AI's stored row, the fresh item list when anything was written, and the
+// id of the earlier proposal a spoken approval flipped.
+async function recordTurn(client, trip, state, items, turn, waiting) {
+  // the memory: facts replace, areas replace when valid, pending questions shrink to
+  // what the model says is left (never grow — it cannot invent a clarifying question)
+  state.stage = turn.stage;
+  if (turn.facts.length || state.facts.length) state.facts = turn.facts.length ? turn.facts : state.facts;
+  if (turn.areas) state.areas = turn.areas;
+  if (state.pending.length) {
+    const left = new Set(turn.pendingQuestions);
+    state.pending = state.pending.filter((q) => left.has(q.question));
+    if (state.stage === 'clarify' && !state.pending.length) state.stage = 'choose';
+  }
+  if (turn.buildNow) { state.build = 'once'; state.stage = 'choose'; }
+  else if (state.stage !== 'clarify' && state.stage !== 'choose') state.build = 'steps';
+
+  const byId = new Map(items.map((it) => [it.id, it]));
+  const payload = {
+    suggestions: turn.suggestions,
+    cards: turn.cards,
+    build: turn.buildNow ? 'once' : null,
+  };
+  // the trip looks settled: one invitation to bring co-planners in, offered once
+  if (turn.tripReady && !state.invited && !turn.buildNow) { payload.invite = true; state.invited = true; }
+  let fresh = null;
+  let approvedId = null;
+  await client.query('BEGIN');
+  if (turn.approvePending && waiting) {
+    // "yes" in words: the proposal that was waiting is written, and its own card
+    // flips to done — the new turn carries no changes of its own
+    const cur = await loadItems(client, trip.id);
+    const r = await ai.applyEditOps(client, trip, cur, waiting.payload.ops || []);
+    const changed = r.added + r.updated + r.removed > 0;
+    await client.query(
+      `UPDATE trip_plan_messages SET payload = payload || $1 WHERE id = $2`,
+      [JSON.stringify({ decision: changed ? 'applied' : 'rejected', undo: changed ? r.undoOps : null, applied: { added: r.added, updated: r.updated, removed: r.removed } }), waiting.id]
+    );
+    approvedId = waiting.id;
+    fresh = await loadItems(client, trip.id);
+  } else if (turn.ops.length) {
+    payload.ops = turn.ops;
+    payload.changes = turn.ops.map((op) => describeOp(op, byId));
+    if (state.mode === 'auto') {
+      const r = await ai.applyEditOps(client, trip, items, turn.ops);
+      const changed = r.added + r.updated + r.removed > 0;
+      payload.decision = changed ? 'applied' : 'rejected';
+      payload.undo = changed ? r.undoOps : null;
+      payload.applied = { added: r.added, updated: r.updated, removed: r.removed };
+      fresh = await loadItems(client, trip.id);
+    } else {
+      payload.decision = 'pending';
+    }
+  }
+  const row = await addMessage(client, trip.id, null, 'ai', turn.text, payload);
+  await saveState(client, trip.id, state);
+  await client.query('COMMIT');
+  return { row, fresh, approvedId };
+}
+
 // ---------- routes ----------
 
 // the thread + the planning memory; the opening message is minted on the first load
@@ -461,64 +523,13 @@ router.post('/api/trips/code/:code/plan', authRequired, async (req, res) => {
     if (!turn) return res.status(502).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });
     quota.spend();
 
-    // the memory: facts replace, areas replace when valid, pending questions shrink to
-    // what the model says is left (never grow — it cannot invent a clarifying question)
-    state.stage = turn.stage;
-    if (turn.facts.length || state.facts.length) state.facts = turn.facts.length ? turn.facts : state.facts;
-    if (turn.areas) state.areas = turn.areas;
-    if (state.pending.length) {
-      const left = new Set(turn.pendingQuestions);
-      state.pending = state.pending.filter((q) => left.has(q.question));
-      if (state.stage === 'clarify' && !state.pending.length) state.stage = 'choose';
-    }
-    if (turn.buildNow) { state.build = 'once'; state.stage = 'choose'; }
-    else if (state.stage !== 'clarify' && state.stage !== 'choose') state.build = 'steps';
-
-    const byId = new Map(items.map((it) => [it.id, it]));
-    const payload = {
-      suggestions: turn.suggestions,
-      cards: turn.cards,
-      build: turn.buildNow ? 'once' : null,
-    };
-    // the trip looks settled: one invitation to bring co-planners in, offered once
-    if (turn.tripReady && !state.invited && !turn.buildNow) { payload.invite = true; state.invited = true; }
-    let fresh = null;
-    await client.query('BEGIN');
-    if (turn.approvePending && waiting) {
-      // "yes" in words: the proposal that was waiting is written, and its own card
-      // flips to done — the new turn carries no changes of its own
-      const cur = await loadItems(client, trip.id);
-      const r = await ai.applyEditOps(client, trip, cur, waiting.payload.ops || []);
-      const changed = r.added + r.updated + r.removed > 0;
-      await client.query(
-        `UPDATE trip_plan_messages SET payload = payload || $1 WHERE id = $2`,
-        [JSON.stringify({ decision: changed ? 'applied' : 'rejected', undo: changed ? r.undoOps : null, applied: { added: r.added, updated: r.updated, removed: r.removed } }), waiting.id]
-      );
-      payload.approved_message_id = waiting.id;
-      fresh = await loadItems(client, trip.id);
-    } else if (turn.ops.length) {
-      payload.ops = turn.ops;
-      payload.changes = turn.ops.map((op) => describeOp(op, byId));
-      if (state.mode === 'auto') {
-        const r = await ai.applyEditOps(client, trip, items, turn.ops);
-        const changed = r.added + r.updated + r.removed > 0;
-        payload.decision = changed ? 'applied' : 'rejected';
-        payload.undo = changed ? r.undoOps : null;
-        payload.applied = { added: r.added, updated: r.updated, removed: r.removed };
-        fresh = await loadItems(client, trip.id);
-      } else {
-        payload.decision = 'pending';
-      }
-    }
-    const row = await addMessage(client, trip.id, null, 'ai', turn.text, payload);
-    await saveState(client, trip.id, state);
-    await client.query('COMMIT');
+    const { row, fresh, approvedId } = await recordTurn(client, trip, state, items, turn, waiting);
 
     res.json({
       message: row,
       state,
       items: fresh,
-      approved_message_id: payload.approved_message_id || null,
+      approved_message_id: approvedId,
       remaining: quota.remaining,
     });
   } catch (err) {
@@ -582,7 +593,37 @@ router.post('/api/trips/code/:code/plan/decide', authRequired, async (req, res) 
     );
     const items = await loadItems(client, trip.id);
     await client.query('COMMIT');
-    res.json({ message: upd[0], items });
+
+    // A tap on the card is an answer, and the AI has to hear it or the conversation
+    // stalls right after its first proposal — the traveller approved, and nothing came
+    // next. So the decision is written as their turn and answered like one: after an
+    // approval the AI moves to the next step, after a refusal it offers another way.
+    // An undo is not a reply. A spent quota skips the answer, and says so.
+    if (decision === 'undo') return res.json({ message: upd[0], items });
+    const titles = (p.changes || []).map((c) => c.title).join(', ');
+    const said = decision === 'accept'
+      ? `✓ אישרתי את השינויים${titles ? ': ' + titles : ''}`
+      : `לא עכשיו — בלי ${titles || 'ההצעה הזו'}`;
+    const quota = await planMeter.check(req);
+    await client.query('BEGIN');
+    await addMessage(client, trip.id, req.user.id, 'user', said);
+    await client.query('COMMIT');
+    if (!quota) return res.json({ message: upd[0], items, quota: 'plan' });
+    const state = trip.plan_state;
+    const thread = await loadThread(trip.id);
+    const history = thread.slice(-PLAN_HISTORY).map((m) => ({ role: m.role, text: historyLine(m) }));
+    const turn = await planTurn({
+      trip, items, state, mode: state.mode, history,
+      message: said + (decision === 'accept'
+        ? '\n(השינויים כבר בוצעו במסלול — אל תציעו אותם שוב; המשיכו לצעד הבא של השלב הנוכחי, או לשלב הבא.)'
+        : '\n(ההצעה נדחתה ולא בוצעה — הציעו חלופה אחרת, או שאלו מה היו מעדיפים.)'),
+      pendingProposal: null,
+      ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
+    });
+    if (!turn) return res.json({ message: upd[0], items, said });
+    quota.spend();
+    const answer = await recordTurn(client, trip, state, items, turn, null);
+    res.json({ message: upd[0], items: answer.fresh || items, said, follow: answer.row, state, approved_message_id: answer.approvedId, remaining: quota.remaining });
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error(err);
