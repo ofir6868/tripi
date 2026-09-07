@@ -5,8 +5,8 @@
 // file NAME (instant, at save time), then on the document's own TEXT — a PDF's text
 // layer, or OCR of a photo, read on the device by doc-text.js — never on a server.
 // There is no upload path on purpose: a passport scan that never reaches us is a
-// passport scan we never have to protect. The cost is honest and shown in the page:
-// another phone, or cleared site data, and the documents are gone.
+// passport scan we never have to protect. The cost is real, and the page no longer
+// spells it out: another phone, or cleared site data, and the documents are gone.
 //
 // The content pass is a background queue, one document at a time (OCR is memory), and
 // it only ever touches documents the user hasn't filed by hand: a folder you picked is
@@ -103,7 +103,7 @@ const TripDocs = (() => {
   // how the text was read, for the sheet — honest about which rung did the work
   const READ_LABEL = { pdf: 'טקסט ה-PDF', 'pdf-ocr': 'OCR במכשיר', 'pdf-native': 'OCR במכשיר', ocr: 'OCR במכשיר', native: 'OCR במכשיר', text: 'הטקסט', docx: 'הטקסט' };
 
-  const PRIVACY = `${ICON.lock}<span>נשמר במכשיר הזה בלבד — לא עולה לשרת ולא נשלח לאף אחד. במכשיר אחר המסמכים לא יופיעו.</span>`;
+  const PRIVACY = `${ICON.lock}<span>שמור ומאובטח במכשיר הזה בלבד — לא עולה לשרת ולא נשלח לאף אחד.</span>`;
 
   // =================================================================
   //  RENDER
