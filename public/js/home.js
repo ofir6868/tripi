@@ -3,8 +3,11 @@
   let mode = 'dest';
   const box = document.querySelector('.search-box');
   const input = document.getElementById('search-input');
+  const promptSubmit = document.getElementById('prompt-submit');
   const hint = document.getElementById('search-hint');
   const results = document.getElementById('search-results');
+  const isPhrase = (q) => q.split(/\s+/).filter(Boolean).length >= 2;
+  const isAiFallback = (q) => isPhrase(q) && !DESTINATIONS.searchWithCountry(q, 1).length;
 
   // the dropdown used to be an absolutely-positioned child of .search-box, glued to
   // the input via normal document flow. That put it inside the hero's isolated
@@ -47,6 +50,7 @@
       tab.classList.add('active');
       mode = tab.dataset.mode;
       closeResults();
+      promptSubmit.hidden = true;
       hint.textContent = '';
       input.value = '';
       if (mode === 'code') {
@@ -58,7 +62,7 @@
         input.classList.remove('code-mode');
         input.placeholder = 'לאן חולמים לנסוע? נסו: רומא, טוקיו, גולן…';
         input.inputMode = 'text';
-        input.maxLength = 80;
+        input.maxLength = 500;
       }
       input.focus();
     });
@@ -99,10 +103,8 @@
 
   const GO_ARROW = '<svg class="ic sr-go" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>';
 
-  // section 1 — creation, and it is rendered from the in-memory destination index,
-  // so it is on screen before the trips request even leaves the browser. A matched
-  // destination carries its country code (flag + a country the AI can anchor on);
-  // the free-text CTA only appears when the index recognised nothing at all.
+  // Normal destination matches stay the primary flow. A free-text AI request is
+  // handled separately only when a long query produced no destination match.
   function planCtaHtml(q) {
     const hits = DESTINATIONS.searchWithCountry(q, 3);
     if (!hits.length) {
@@ -129,6 +131,32 @@
         </a>`;
     }).join('');
   }
+
+  let promptBusy = false;
+  async function goPrompt(prompt) {
+    if (promptBusy) return;
+    promptBusy = true;
+    closeResults();
+    input.disabled = true;
+    promptSubmit.disabled = true;
+    hint.textContent = 'ה-AI מבין לאן תרצו לנסוע…';
+    try {
+      const intake = await TRIPMAKER.api('/api/ai/resolve-trip-prompt', {
+        method: 'POST',
+        body: JSON.stringify({ prompt }),
+      });
+      sessionStorage.setItem('tripmaker_plan_intake', JSON.stringify(intake));
+      location.href = '/plan?intake=1';
+    } catch (err) {
+      hint.innerHTML = `<span class="err">${TRIPMAKER.esc(err.message)}</span>`;
+      input.disabled = false;
+      promptSubmit.disabled = false;
+      input.focus();
+      promptBusy = false;
+    }
+  }
+
+  promptSubmit.addEventListener('click', () => goPrompt(input.value.trim()));
 
   const INSPIRATION_SKELETON = `
     <div class="skl-row">
@@ -191,7 +219,13 @@
     hint.textContent = '';
     clearTimeout(debounceTimer);
     const q = input.value.trim();
-    if (q.length < 2) { seq++; closeResults(); return; }
+    const aiFallback = isAiFallback(q);
+    promptSubmit.hidden = !aiFallback;
+    if (q.length < 2 || aiFallback) {
+      seq++;
+      closeResults();
+      return;
+    }
     renderDestinations(q); // local index — no reason to make anyone wait for it
     debounceTimer = setTimeout(() => autocomplete(q), 250);
   });
@@ -200,6 +234,7 @@
     if (e.key === 'Enter') {
       const q = input.value.trim();
       if (mode === 'code' || /^\d{6}$/.test(q)) { goCode(q); return; }
+      if (isAiFallback(q)) { goPrompt(q); return; }
       const opts = options();
       if (results.classList.contains('open') && opts.length) {
         // chosen option wins; with nothing highlighted, the top result is the intent
@@ -230,7 +265,8 @@
   // an actual tap, never after a touchstart that turns into a pan/scroll, so this closes
   // on a real click-away without also closing on every scroll-swipe that starts outside.
   input.addEventListener('focus', () => {
-    if (mode === 'dest' && results.children.length && input.value.trim().length >= 2) openResults();
+    const q = input.value.trim();
+    if (mode === 'dest' && !isAiFallback(q) && results.children.length && q.length >= 2) openResults();
   });
   document.addEventListener('click', (e) => {
     if (!box.contains(e.target) && !results.contains(e.target)) closeResults();

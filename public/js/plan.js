@@ -497,6 +497,43 @@
     };
   })();
 
+  // ---- AI request from the homepage ----
+  // sessionStorage keeps a potentially long free-text request out of the URL. The
+  // resolved destinations become normal chips, while the original request becomes
+  // builder notes so preferences and constraints survive destination extraction.
+  (function applyHomepageIntake() {
+    const params = new URLSearchParams(location.search);
+    if (params.get('intake') !== '1') return;
+    history.replaceState(null, '', '/plan');
+    let intake = null;
+    try {
+      intake = JSON.parse(sessionStorage.getItem('tripmaker_plan_intake') || 'null');
+      sessionStorage.removeItem('tripmaker_plan_intake');
+    } catch {
+      sessionStorage.removeItem('tripmaker_plan_intake');
+    }
+    const incoming = (Array.isArray(intake?.destinations) ? intake.destinations : [])
+      .filter((d) => d && String(d.name || '').trim())
+      .slice(0, 6);
+    if (!incoming.length) return;
+
+    clearDraft();
+    draftBanner.hidden = true;
+    destinations = [];
+    incoming.forEach((d) => {
+      const dest = {
+        name: String(d.name).trim().slice(0, 80),
+        country: d.country ? String(d.country).trim().slice(0, 60) : null,
+        lat: null,
+        lon: null,
+      };
+      addDestination(dest);
+      fillCoords(dest);
+    });
+    document.getElementById('ai-notes').value = String(intake.prompt || '').trim().slice(0, 500);
+    goStep(2);
+  })();
+
   // ---- ?dest= from the homepage search ----
   // A pick off the destination index (?cc= present, and ?country= for a city) is
   // trusted as-is: the chip appears instantly and we land on step 2, while

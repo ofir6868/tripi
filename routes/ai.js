@@ -2,7 +2,8 @@
 const express = require('express');
 const { randomUUID } = require('crypto');
 const { pool } = require('../lib/db');
-const { authRequired, authOptional } = require('../lib/auth');
+const { authRequired, authOptional, isAdmin } = require('../lib/auth');
+const { rateLimiter } = require('../lib/rate-limit');
 const { tripWithEditAuth, cleanDestinations, isParticipant } = require('../lib/trips');
 const { verifyPlaces } = require('../lib/places');
 const { placePhoto } = require('../lib/place-photos');
@@ -38,6 +39,11 @@ const cleanPlaceQuery = (v, max = 120) => {
   return s && !NO_PLACE_RE.test(s) ? s.slice(0, max) : null;
 };
 const buildMeter = dailyQuota('build', 20); // builds per user per day
+const promptResolveLimit = rateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  error: 'יותר מדי בקשות תכנון — נסו שוב בעוד כמה דקות',
+});
 
 // Never reaching OpenAI is not the same as OpenAI answering badly, and it is worth
 // exactly one more try: opening a fresh TLS connection to api.openai.com intermittently
@@ -136,6 +142,67 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
   if (required) throw (res.err || new Error('openai failed'));
   return null;
 }
+
+// ---------- homepage free-text intake ----------
+// The homepage accepts a travel request rather than requiring an exact place name.
+// Resolve only the destinations here; the complete request travels to the wizard as
+// notes, so constraints such as "without a car" are still available to the builder.
+router.post('/api/ai/resolve-trip-prompt', promptResolveLimit.middleware, async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'תכנון AI לא זמין כרגע' });
+    const prompt = String(req.body?.prompt || '').trim().slice(0, 500);
+    if (prompt.length < 2) return res.status(400).json({ error: 'כתבו בקצרה איזה טיול תרצו' });
+
+    const result = await aiJson({
+      system:
+        'אתה מפענח בקשות לתכנון טיול. כל יעד בתשובה חייב להתאים לביטוי גאוגרפי מפורש בבקשת המשתמש. ' +
+        'שמור את רמת הפירוט שהמשתמש כתב: אזור נשאר אזור ומדינה נשארת מדינה; אל תחליף אותם בערים מומלצות ואל תרחיב למסלול. ' +
+        'החזר שמות תצוגה טבעיים בעברית. לעיר או אזור החזר גם את המדינה בעברית; למדינה החזר אותה גם בשם וגם במדינה. ' +
+        'לדוגמה, "שבוע בצפון איטליה" מחזיר יעד בשם "צפון איטליה" ומדינה "איטליה", לא את קומו או ורונה. ' +
+        'אם אין בבקשה ביטוי גאוגרפי, החזר רשימה ריקה. שמור על סדר היעדים שהמשתמש כתב.',
+      user: prompt,
+      schemaName: 'trip_prompt_destinations',
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['destinations'],
+        properties: {
+          destinations: {
+            type: 'array',
+            maxItems: 6,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['name', 'country'],
+              properties: {
+                name: { type: 'string' },
+                country: { type: ['string', 'null'] },
+              },
+            },
+          },
+        },
+      },
+      maxTokens: 350,
+      timeoutMs: 15000,
+      required: true,
+    });
+
+    const destinations = cleanDestinations(result?.destinations)
+      .slice(0, 6)
+      .map((d) => ({ name: d.name, country: d.country || null, lat: null, lon: null }));
+    if (!destinations.length) {
+      return res.status(422).json({ error: 'לא הצלחתי לזהות יעד בבקשה — נסו לציין עיר, אזור או מדינה' });
+    }
+    res.json({ destinations, prompt });
+  } catch (err) {
+    console.error('trip prompt resolution failed', err);
+    res.status(500).json({
+      error: err.name === 'AbortError'
+        ? 'ה-AI התעכב יותר מדי — נסו שוב'
+        : 'לא הצלחתי להבין את הבקשה כרגע — נסו שוב בעוד רגע',
+    });
+  }
+});
 
 // nearest-neighbor ordering by coordinates, starting from the first destination —
 // keeps multi-city trips geographically sequential (Tokyo → Kyoto → Osaka, not zigzag)

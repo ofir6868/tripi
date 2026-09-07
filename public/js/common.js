@@ -198,6 +198,24 @@ function renderHeader() {
         <span class="ls-trip" aria-hidden="true"><b>T</b><b>R</b><b>I</b><b>P</b></span>
         <span class="ls-maker" aria-hidden="true"><b>M</b><b>A</b><b>K</b><b>E</b><b>R</b></span>
       </span>
+      <svg class="header-compass" viewBox="0 0 512 512" aria-hidden="true">
+        <circle class="header-compass-ring" cx="256" cy="256" r="150" fill="none"
+          stroke="rgba(245,239,227,.35)" stroke-width="18" stroke-linecap="round"
+          stroke-dasharray="942" transform="rotate(-90 256 256)"/>
+        <path class="header-compass-cross" d="M116 256 L256 216 L396 256 L256 296 Z"
+          fill="rgba(143,216,196,.85)"/>
+        <g class="header-compass-needle">
+          <path d="M256 116 L296 256 L256 396 L216 256 Z" fill="url(#header-compass-amber)"/>
+        </g>
+        <circle class="header-compass-hub" cx="256" cy="256" r="27" fill="#0a1512"
+          stroke="#ffb45f" stroke-width="10"/>
+        <defs>
+          <linearGradient id="header-compass-amber" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#ffb45f"/>
+            <stop offset="1" stop-color="#e8853a"/>
+          </linearGradient>
+        </defs>
+      </svg>
       ${userName}
     </a>
     <nav class="nav-actions">

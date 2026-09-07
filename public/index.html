@@ -59,7 +59,8 @@
       </div>
       <div class="search-row">
         <input class="search-input" id="search-input" type="text" placeholder="לאן חולמים לנסוע? נסו: רומא, טוקיו, גולן…"
-               autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="search-results">
+               maxlength="500" autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="search-results">
+        <button class="prompt-submit" id="prompt-submit" type="button" hidden>יאללה!</button>
         <div class="search-results" id="search-results" role="listbox"></div>
       </div>
       <div class="search-hint" id="search-hint"></div>
