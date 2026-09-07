@@ -657,8 +657,10 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 .chip-edit { cursor: pointer; transition: border-color .15s ease; }
 .chip-edit:hover { border-color: rgba(255, 180, 95, .45); }
 
+/* the description leads this column, and it's bare text now rather than a card —
+   the card-sized gap it used to need would read as a hole under the hero */
 .trip-layout {
-  width: min(1120px, calc(100% - 40px)); margin: 34px auto 0;
+  width: min(1120px, calc(100% - 40px)); margin: 18px auto 0;
   display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 26px; align-items: start;
 }
 .trip-layout > * { min-width: 0; }
@@ -671,6 +673,11 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
 .trip-desc-text.expanded { display: block; -webkit-line-clamp: unset; overflow: visible; }
+/* whatever opens the itinerary — the list/calendar switch, or the first day /
+   calendar when a long trip hides it — follows at caption distance, not the card
+   gap the glass container used to earn */
+.trip-desc + .view-toggle { margin-top: 12px; }
+#days-container > :first-child { margin-top: 12px; }
 .trip-desc-toggle {
   display: none; margin: 4px 0 0; padding: 0; background: none; border: none;
   color: var(--mint); font-family: var(--font-body); font-weight: 700; font-size: .85rem; cursor: pointer;
@@ -1749,8 +1756,8 @@ body:has(.join-banner) { padding-bottom: 92px; }
     left: calc(10px + env(safe-area-inset-left));
     padding: 8px 12px;
   }
-  .trip-hero { min-height: 48vh; padding: 100px 16px 28px; }
-  .trip-layout { width: calc(100% - 24px); margin-top: 24px; }
+  .trip-hero { min-height: 48vh; padding: 100px 16px 20px; }
+  .trip-layout { width: calc(100% - 24px); margin-top: 8px; }
   /* one line tighter than the desktop clamp, so the itinerary below it is visible
      without scrolling on first paint — "הצג עוד" reveals the rest on demand */
   .trip-desc { padding: 0; font-size: .9rem; line-height: 1.55; }
