@@ -106,6 +106,83 @@ router.get('/api/me', authRequired, async (req, res) => {
   }
 });
 
+// ---------- referrals: three friends signed up through your link = every AI quota doubled ----------
+//
+// The link is /?ref=CODE. Any page that lands with ?ref= keeps the code in the browser
+// (common.js), and the first sign-in afterwards claims it — a claim is accepted only for
+// an account younger than half an hour with no referrer yet, so a link forwarded to an
+// old user changes nothing, and nobody can be claimed twice. The third accepted claim
+// flips the referrer's bonus (lib/quota.js reads it); the referred friends get nothing
+// beyond the app itself, which keeps the loop honest: the only thing worth faking is
+// three real sign-ups.
+const REFERRALS_NEEDED = 3;
+const CLAIM_WINDOW = "interval '30 minutes'";
+
+async function referralCodeFor(userId) {
+  const { rows } = await pool.query('SELECT referral_code FROM users WHERE id = $1', [userId]);
+  if (!rows[0]) return null;
+  if (rows[0].referral_code) return rows[0].referral_code;
+  for (let i = 0; i < 10; i++) {
+    const code = crypto.randomBytes(5).toString('base64url').replace(/[-_]/g, 'x').slice(0, 7);
+    const upd = await pool.query(
+      'UPDATE users SET referral_code = $1 WHERE id = $2 AND referral_code IS NULL RETURNING referral_code', [code, userId]
+    ).catch((err) => { if (err.code === '23505') return { rows: [] }; throw err; });
+    if (upd.rows[0]) return upd.rows[0].referral_code;
+    const again = await pool.query('SELECT referral_code FROM users WHERE id = $1', [userId]);
+    if (again.rows[0] && again.rows[0].referral_code) return again.rows[0].referral_code; // a parallel request won
+  }
+  return null;
+}
+
+router.get('/api/me/referral', authRequired, async (req, res) => {
+  try {
+    const code = await referralCodeFor(req.user.id);
+    if (!code) return res.status(401).json({ error: 'המשתמש לא נמצא' });
+    const { rows } = await pool.query(
+      'SELECT (SELECT count(*) FROM users WHERE referred_by = $1)::int AS referred, referral_bonus FROM users WHERE id = $1', [req.user.id]
+    );
+    res.json({
+      code,
+      link: `${publicOrigin(req)}/?ref=${code}`,
+      referred: rows[0].referred,
+      needed: REFERRALS_NEEDED,
+      bonus: !!rows[0].referral_bonus,
+      multiplier: require('../lib/quota').BONUS_MULTIPLIER,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+router.post('/api/me/referral/claim', authRequired, async (req, res) => {
+  try {
+    const ref = String((req.body && req.body.ref) || '').trim().slice(0, 20);
+    if (!/^[A-Za-z0-9]{4,20}$/.test(ref)) return res.json({ claimed: false });
+    const { rows } = await pool.query(
+      `UPDATE users SET referred_by = r.id
+         FROM (SELECT id FROM users WHERE referral_code = $1) r
+        WHERE users.id = $2 AND users.referred_by IS NULL AND r.id <> users.id
+          AND users.created_at > now() - ${CLAIM_WINDOW}
+        RETURNING r.id AS referrer`,
+      [ref, req.user.id]
+    );
+    if (!rows[0]) return res.json({ claimed: false });
+    const referrer = rows[0].referrer;
+    const { rows: n } = await pool.query(
+      `UPDATE users SET referral_bonus = true
+        WHERE id = $1 AND NOT referral_bonus AND (SELECT count(*) FROM users WHERE referred_by = $1) >= $2
+        RETURNING id`,
+      [referrer, REFERRALS_NEEDED]
+    );
+    if (n[0]) require('../lib/quota').forgetBonus(referrer);
+    res.json({ claimed: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
 // ---------- Google OAuth ----------
 
 router.get('/api/auth/providers', (_req, res) => {

@@ -1,4 +1,4 @@
-// Migrations 2–16, in order. Idempotent — safe to run on every boot, and the server
+// Migrations 2–17, in order. Idempotent — safe to run on every boot, and the server
 // does (lib/db-bootstrap.js), so a replaced database catches up by itself.
 // Usage: DATABASE_URL=postgres://... node db/migrate.js
 require('../lib/env');
@@ -189,6 +189,15 @@ async function migrate(pool, log = console.log) {
       created_at TIMESTAMPTZ DEFAULT now()
     )`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_plan_messages_trip ON trip_plan_messages(trip_id, id)`);
+
+  log('Migration 17: referrals (three friends signed up through your link = every AI quota doubled)...');
+  // referral_code is minted lazily, the first time the traveller asks for their link;
+  // referred_by is set once, at signup, and never moves; referral_bonus is the
+  // cached verdict lib/quota.js reads (a count query on every AI call would be waste)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT UNIQUE`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by INT REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_bonus BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by)`);
 
   log('Done.');
 }

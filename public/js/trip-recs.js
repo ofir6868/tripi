@@ -111,6 +111,7 @@ const TripRecs = (() => {
 
   function msgHtml(m, i) {
     if (m.role === 'user') return `<div class="chat-msg user"><div class="chat-bubble">${esc(m.text)}</div></div>`;
+    if (m.quota) return TripPlan.quotaMsgHtml(m, TripPlan.referral(), '✨'); // the day's allowance is spent — the gentle card
     const cards = m.cards || [];
     return `
       <div class="chat-msg ai" data-i="${i}">
@@ -155,6 +156,7 @@ const TripRecs = (() => {
 
     // one delegated handler for everything inside the thread
     thread.addEventListener('click', (e) => {
+      if (TripPlan.handleCardClick(e, ctx)) return;
       const media = e.target.closest('.rec-media');
       if (media) { cyclePhoto(media); return; }
       const add = e.target.closest('.rec-add');
@@ -200,6 +202,13 @@ const TripRecs = (() => {
         const reply = await ask(q, ctx, history);
         msgs.push({ role: 'ai', ...reply });
       } catch (err) {
+        if (err && err.quota) {
+          busy = false;
+          msgs.push(TripPlan.quotaMsg(err.quota));
+          paint();
+          TripPlan.loadReferral().then(paint); // the referral numbers fill the card as they arrive
+          return; // never stored: tomorrow it isn't true anymore
+        }
         msgs.push({ role: 'ai', text: (err && err.message) || 'משהו השתבש בדרך — נסו לשאול שוב בעוד רגע.' });
       }
       busy = false;

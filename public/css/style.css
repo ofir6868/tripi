@@ -3292,6 +3292,19 @@ body.page-open { overflow: hidden; }
 .pc-undo:disabled, .pc-foot .btn:disabled { opacity: .6; cursor: default; }
 .pc-note { margin-top: 8px; font-size: .8rem; color: var(--paper-dim); }
 
+/* the quota card: a spent day, said gently, with the referral progress */
+.plan-card.pc-quota, .plan-card.pc-invite { border-color: rgba(255, 180, 95, .35); }
+.pc-quota .pc-foot, .pc-invite .pc-foot { margin-top: 10px; flex-wrap: wrap; }
+.qc-progress { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .1); overflow: hidden; }
+.qc-progress i { display: block; height: 100%; width: var(--w, 0%); border-radius: 3px; background: linear-gradient(90deg, var(--amber), var(--amber-deep)); transition: width .4s ease; }
+.qc-count { display: block; margin-top: 6px; font-size: .8rem; color: var(--paper-dim); }
+.pc-text-p { margin: 0; font-size: .9rem; line-height: 1.5; color: var(--paper-dim); }
+/* the area calendar inside the chat: the wizard's paint grid, one card wide */
+.plan-card.pc-areas { width: min(640px, 100%); }
+.pc-areas .region-cal { margin-top: 4px; }
+.pc-areas .region-palette { margin-top: 10px; }
+.pc-areas .pc-foot { margin-top: 12px; }
+
 /* the composer's mode switch: ידני asks before every change, אוטומטי just does it */
 .plan-mode {
   flex: none; display: inline-flex; align-items: center; gap: 5px;

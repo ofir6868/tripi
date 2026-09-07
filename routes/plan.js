@@ -25,21 +25,24 @@
 const express = require('express');
 const { randomUUID } = require('crypto');
 const { pool } = require('../lib/db');
-const { authRequired, isAdmin } = require('../lib/auth');
+const { authRequired } = require('../lib/auth');
 const { tripWithEditAuth, cleanPlanState, PLAN_MODES, PLAN_STAGES } = require('../lib/trips');
+const { dailyQuota, exhausted } = require('../lib/quota');
 const ai = require('./ai');
 
 const router = express.Router();
 
-// the model that plans: the turns name real places straight into the itinerary, which
-// is exactly where the weak model was measured inventing them (PLAYBOOK §3). A cheaper
-// tier can be tried per environment without touching code.
+// Two tiers, by stage (PLAYBOOK §3: the strong model only where the weak one is known
+// to fail). The clarifying and choosing turns are conversation — no place is named
+// into the itinerary — and run on the weak model; from the areas stage on, every turn
+// may write stops, which is exactly where the weak model was measured inventing
+// places, so those run on the strong one. AI_MODEL_PLAN overrides the strong half.
 const PLAN_MODEL = process.env.AI_MODEL_PLAN || ai.AI_MODEL_STRONG;
-const AI_PLAN_DAILY_LIMIT = 60; // turns per user per day — a planning session is dozens of them
+const TALK_STAGES = ['clarify', 'choose'];
+const planMeter = dailyQuota('plan', 60); // turns per user per day — a planning session is dozens of them
 const AI_PLAN_MAX_MESSAGE = 400;
 const PLAN_HISTORY = 12; // turns the model sees; the settled facts carry the rest
 const THREAD_LIMIT = 80; // rows the client loads
-const planUsage = new Map(); // 'u<userId>' → {date, count}
 
 const SUGGEST_STEPS = 'שלב אחרי שלב 🪜';
 const SUGGEST_ONCE = 'בבת אחת ✨';
@@ -144,12 +147,13 @@ const OP_SCHEMA = {
 const TURN_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['text', 'stage', 'build_now', 'approve_pending', 'suggestions', 'facts', 'pending_questions', 'areas', 'cards', 'ops'],
+  required: ['text', 'stage', 'build_now', 'approve_pending', 'trip_ready', 'suggestions', 'facts', 'pending_questions', 'areas', 'cards', 'ops'],
   properties: {
     text: { type: 'string' },
     stage: { type: 'string', enum: PLAN_STAGES },
     build_now: { type: 'boolean' },
     approve_pending: { type: 'boolean' },
+    trip_ready: { type: 'boolean' },
     suggestions: { type: 'array', items: { type: 'string' } },
     facts: { type: 'array', items: { type: 'string' } },
     pending_questions: { type: 'array', items: { type: 'string' } },
@@ -236,7 +240,7 @@ function turnPrompt({ trip, items, state, mode, history, pendingProposal }) {
 שלבי התכנון (stage) — התקדמו לפי הסדר, אבל תמיד ענו קודם על מה שהמטיילים שאלו:
 - clarify: יש שאלות הבהרה פתוחות (ברשימה למטה). שאלו אחת בכל תור, בדיוק כלשונה, עם ה-suggestions שלה. תשובה שהתקבלה נרשמת ב-facts ויורדת מ-pending_questions. כשנגמרו — עברו ל-choose ואמרו: "${READY_TEXT}" עם suggestions ["${SUGGEST_STEPS}", "${SUGGEST_ONCE}"].
 - choose: המטיילים בוחרים. "בבת אחת" (או ניסוח דומה: הכול, מהר, תבנה לבד) → build_now=true, ops ריק, text קצר שמודיע שבונים עכשיו. "שלב אחרי שלב" (או ניסוח דומה) → stage=areas והתחילו.
-- areas: לקבוע יחד את האזורים וחלוקת הימים. הציעו חלוקה קונקרטית (אזור, ימים, ערים) ובקשו אישור. כשהוסכם — החזירו אותה ב-areas (רצף ימים מלא מ-1 עד ${trip.days}, בלי חורים) ועברו ל-flights. טיול לעיר אחת: אזור אחד, אין מה לשאול — עברו ישר ל-flights.
+- areas: לקבוע יחד את האזורים וחלוקת הימים. הציעו חלוקה קונקרטית (אזור, ימים, ערים) והחזירו אותה מיד ב-areas (רצף ימים מלא מ-1 עד ${trip.days}, בלי חורים) — המטיילים רואים אותה על לוח שנה ויכולים לצבוע ימים ולשנות; בקשו אישור. כשהוסכם (או כשהמטיילים אישרו חלוקה מהלוח) — עברו ל-flights. טיול לעיר אחת: אזור אחד, אין מה לשאול — עברו ישר ל-flights.
 - flights: הבינו את הטיסות: מאיפה טסים, לאן נוחתים, שעות ומיד קונקשן אם יש, וטיסת החזרה. אל תמציאו שעות טיסה: מה שהמטיילים לא יודעים נשאר בלי time_label ועם הערה "עדכנו את השעה". צרו תחנות נסיעה (category "נסיעה") ליום 1 (המראה, קונקשן אם יש, נחיתה) וליום ${trip.days} (טיסת החזרה), ואז עברו ל-days.
 - days: אזור אחרי אזור, יום אחרי יום: הציעו 1-2 עוגנים ליום — מקומות אמיתיים ומוכרים שמתאימים למטיילים — ובקשו אישור או שינוי. אל תמלאו ימים בתחנות רבות או ספציפיות מדי; את השאר משלימים אוטומטית בסוף. ביום שבו מתחלף אזור — תחנת נסיעה אחת שמתארת את המעבר.
 - done: כל הימים נדונו. הציעו להשלים את שאר התחנות אוטומטית (יש למטיילים כפתור לזה), או להמשיך לחקור.
@@ -247,6 +251,7 @@ function turnPrompt({ trip, items, state, mode, history, pendingProposal }) {
     : 'ידני — ה-ops שלכם מוצגים למטיילים ככרטיס הצעה ומתבצעים רק אחרי אישור. נסחו ב-text כהצעה ("אני מציע להוסיף…") וסיימו ב"מאשרים?" או בשאלה הבאה.'}
 ${pendingProposal ? `יש הצעה קודמת שלכם שממתינה לאישור: ${pendingProposal}. אם המטיילים מאשרים אותה במילים ("כן", "סבבה", "מאשר") — החזירו approve_pending=true ו-ops ריק. אם הם מבקשים שינוי — החזירו ops חדש במקומה.` : 'approve_pending תמיד false.'}
 
+trip_ready: true רק כשהטיול נראה מגובש — האזורים והטיסות סגורים ולרוב הימים יש לפחות עוגן אחד (או שנבנה כולו). אז המטיילים יקבלו הצעה להזמין חברים לתכנון משותף; אל תכתבו את ההצעה הזו בעצמכם ב-text.
 facts: הרשימה המלאה והמעודכנת של מה שכבר הוסכם או נודע (העדפות, תשובות, החלטות, טיסות) — עד 20 שורות קצרות. שמרו את הקיימות והוסיפו חדשות; זו הזיכרון שלכם.
 suggestions: 0-3 תשובות קצרות (עד 5 מילים) שסביר שהמטיילים ירצו לענות עכשיו — לא שאלות שלכם.
 areas: [] כשאין שינוי בחלוקה; אחרת החלוקה המלאה. day_from/day_to בין 1 ל-${trip.days}.
@@ -310,7 +315,7 @@ async function planTurn({ trip, items, state, mode, history, message, pendingPro
     schema: TURN_SCHEMA,
     maxTokens: 3000,
     timeoutMs: 60000,
-    model: PLAN_MODEL,
+    model: TALK_STAGES.includes(state.stage) ? ai.AI_MODEL_WEAK : PLAN_MODEL,
     ph,
   });
   if (!raw) return null;
@@ -327,6 +332,7 @@ async function planTurn({ trip, items, state, mode, history, message, pendingPro
     stage: PLAN_STAGES.includes(raw.stage) ? raw.stage : state.stage,
     buildNow: !!raw.build_now,
     approvePending: !!raw.approve_pending,
+    tripReady: !!raw.trip_ready,
     suggestions: (raw.suggestions || []).slice(0, 3).map((s) => String(s).slice(0, 60).trim()).filter(Boolean),
     facts: (raw.facts || []).slice(0, 24).map((s) => String(s).slice(0, 160).trim()).filter(Boolean),
     pendingQuestions: (raw.pending_questions || []).map((s) => String(s).slice(0, 200).trim()).filter(Boolean),
@@ -385,14 +391,31 @@ router.get('/api/trips/code/:code/plan', authRequired, async (req, res) => {
   }
 });
 
-// the mode switch beside the composer — remembered per trip, for every co-planner
+// the mode switch beside the composer, and the day→area split repainted on the
+// chat's calendar card — both remembered per trip, for every co-planner
 router.patch('/api/trips/code/:code/plan', authRequired, async (req, res) => {
   try {
     const trip = await draftWithAuth(req, res);
     if (!trip) return;
-    const mode = req.body && req.body.mode;
-    if (!PLAN_MODES.includes(mode)) return res.status(400).json({ error: 'מצב לא מוכר' });
-    trip.plan_state.mode = mode;
+    const b = req.body || {};
+    let touched = false;
+    if (b.mode !== undefined) {
+      if (!PLAN_MODES.includes(b.mode)) return res.status(400).json({ error: 'מצב לא מוכר' });
+      trip.plan_state.mode = b.mode;
+      touched = true;
+    }
+    if (b.areas !== undefined) {
+      const areas = cleanAreas(b.areas, trip.days);
+      if (!areas || areas[0].from !== 1 || areas[areas.length - 1].to !== trip.days) {
+        return res.status(400).json({ error: 'חלוקת האזורים לא מכסה את כל ימי הטיול' });
+      }
+      for (let i = 1; i < areas.length; i++) {
+        if (areas[i].from !== areas[i - 1].to + 1) return res.status(400).json({ error: 'חלוקת האזורים לא רציפה' });
+      }
+      trip.plan_state.areas = areas;
+      touched = true;
+    }
+    if (!touched) return res.status(400).json({ error: 'אין מה לעדכן' });
     await saveState(pool, trip.id, trip.plan_state);
     res.json({ state: trip.plan_state });
   } catch (err) {
@@ -415,14 +438,8 @@ router.post('/api/trips/code/:code/plan', authRequired, async (req, res) => {
     const state = trip.plan_state;
     if (PLAN_MODES.includes(b.mode)) state.mode = b.mode;
 
-    const quotaKey = 'u' + req.user.id;
-    const today = new Date().toISOString().slice(0, 10);
-    const usage = planUsage.get(quotaKey);
-    const used = usage && usage.date === today ? usage.count : 0;
-    const admin = await isAdmin(req);
-    if (used >= AI_PLAN_DAILY_LIMIT && !admin) {
-      return res.status(429).json({ error: 'ניצלתם את הודעות התכנון להיום — אפשר להמשיך לערוך ידנית, או להמשיך מחר' });
-    }
+    const quota = await planMeter.check(req);
+    if (!quota) return exhausted(res, 'plan', 'ניצלתם את הודעות התכנון להיום — אפשר להמשיך לתכנן ידנית, ואני כאן שוב מחר');
 
     const items = await loadItems(client, trip.id);
     const thread = await loadThread(trip.id);
@@ -442,7 +459,7 @@ router.post('/api/trips/code/:code/plan', authRequired, async (req, res) => {
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
     if (!turn) return res.status(502).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });
-    planUsage.set(quotaKey, { date: today, count: used + 1 });
+    quota.spend();
 
     // the memory: facts replace, areas replace when valid, pending questions shrink to
     // what the model says is left (never grow — it cannot invent a clarifying question)
@@ -463,6 +480,8 @@ router.post('/api/trips/code/:code/plan', authRequired, async (req, res) => {
       cards: turn.cards,
       build: turn.buildNow ? 'once' : null,
     };
+    // the trip looks settled: one invitation to bring co-planners in, offered once
+    if (turn.tripReady && !state.invited && !turn.buildNow) { payload.invite = true; state.invited = true; }
     let fresh = null;
     await client.query('BEGIN');
     if (turn.approvePending && waiting) {
@@ -500,7 +519,7 @@ router.post('/api/trips/code/:code/plan', authRequired, async (req, res) => {
       state,
       items: fresh,
       approved_message_id: payload.approved_message_id || null,
-      remaining: admin ? null : AI_PLAN_DAILY_LIMIT - used - 1,
+      remaining: quota.remaining,
     });
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
@@ -587,7 +606,7 @@ router.post('/api/trips/code/:code/plan/build', authRequired, async (req, res) =
     if (!trip.dests.length) return res.status(400).json({ error: 'לטיול אין יעדים' });
     if (trip.days > 30) return res.status(400).json({ error: 'אפשר לבנות עד 30 ימים בבקשה אחת' });
     const spend = await ai.buildQuota(req);
-    if (!spend) return res.status(429).json({ error: 'הגעתם למכסת בניות ה-AI היומית — נסו שוב מחר' });
+    if (!spend) return exhausted(res, 'build', ai.BUILD_EXHAUSTED);
     const fill = !!(req.body && req.body.fill);
     const state = trip.plan_state;
     const items = await loadItems(client, trip.id);
@@ -639,10 +658,14 @@ router.post('/api/trips/code/:code/plan/build', authRequired, async (req, res) =
     state.build = fill ? state.build : 'once';
     state.areas = built.plan.map((b) => ({ area: b.area, from: b.from, to: b.to, cities: b.cities }));
     const n = built.items.length;
+    // a built trip is a settled trip — the invitation to co-planners rides on this
+    // message (once), so it is there when they come back to the chat
+    const invite = !state.invited;
+    state.invited = true;
     const row = await addMessage(client, trip.id, null, 'ai',
       fill ? `השלמתי את שאר הימים — נוספו ${n} תחנות סביב מה שכבר קבענו. עברו על המסלול, וכל מה שלא מתאים אפשר לשנות כאן או ידנית.`
         : `בניתי את הטיול — ${n} תחנות על פני ${trip.days} ימים. עברו על המסלול; מכאן אפשר להמשיך לשנות איתי כל דבר, או לערוך ידנית.`,
-      { built: { count: n, fill } });
+      { built: { count: n, fill }, invite });
     await saveState(client, trip.id, state);
     await client.query('COMMIT');
     const fresh = await loadItems(pool, trip.id);

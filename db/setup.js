@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT,
   google_sub TEXT UNIQUE,
   is_admin BOOLEAN NOT NULL DEFAULT false,
+  referral_code TEXT UNIQUE,
+  referred_by INT REFERENCES users(id) ON DELETE SET NULL,
+  referral_bonus BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 

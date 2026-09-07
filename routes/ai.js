@@ -2,7 +2,7 @@
 const express = require('express');
 const { randomUUID } = require('crypto');
 const { pool } = require('../lib/db');
-const { authRequired, authOptional, isAdmin } = require('../lib/auth');
+const { authRequired, authOptional } = require('../lib/auth');
 const { tripWithEditAuth, cleanDestinations } = require('../lib/trips');
 const { verifyPlaces } = require('../lib/places');
 const { placePhoto } = require('../lib/place-photos');
@@ -12,6 +12,7 @@ const { placePhoto } = require('../lib/place-photos');
 // country can never be spelled one way for a flag and another way for this check.
 const COUNTRIES = require('../public/js/countries.js');
 const posthog = require('../lib/posthog');
+const { dailyQuota, exhausted } = require('../lib/quota');
 
 const router = express.Router();
 
@@ -36,8 +37,7 @@ const cleanPlaceQuery = (v, max = 120) => {
   const s = typeof v === 'string' ? v.trim() : '';
   return s && !NO_PLACE_RE.test(s) ? s.slice(0, max) : null;
 };
-const aiUsage = new Map(); // userId → {date, count}
-const AI_DAILY_LIMIT = 20;
+const buildMeter = dailyQuota('build', 20); // builds per user per day
 
 // Never reaching OpenAI is not the same as OpenAI answering badly, and it is worth
 // exactly one more try: opening a fresh TLS connection to api.openai.com intermittently
@@ -1259,15 +1259,14 @@ function buildParams(body) {
   return { interestList, freeText, from, to, answerList };
 }
 
-// a build's daily quota, per user: admins are counted (the panel shows the number)
-// but never capped — the rule every AI quota here follows
+// a build's daily quota, per user — the spend() to call once the build succeeded, or
+// null when the day's builds are used up (lib/quota.js: admins never capped, the
+// referral bonus doubles the limit)
 async function buildQuota(req) {
-  const today = new Date().toISOString().slice(0, 10);
-  const usage = aiUsage.get(req.user.id);
-  const used = usage && usage.date === today ? usage.count : 0;
-  if (used >= AI_DAILY_LIMIT && !(await isAdmin(req))) return null;
-  return () => aiUsage.set(req.user.id, { date: today, count: used + 1 });
+  const q = await buildMeter.check(req);
+  return q ? q.spend : null;
 }
+const BUILD_EXHAUSTED = 'הגעתם למכסת בניות ה-AI היומית — נסו שוב מחר';
 
 const buildErrorMessage = (err) => err.name === 'AbortError'
   ? 'ה-AI התעכב יותר מדי — נסו שוב'
@@ -1277,7 +1276,7 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
   try {
     if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'בניית AI לא זמינה כרגע' });
     const spend = await buildQuota(req);
-    if (!spend) return res.status(429).json({ error: 'הגעתם למכסת בניות ה-AI היומית — נסו שוב מחר' });
+    if (!spend) return exhausted(res, 'build', BUILD_EXHAUSTED);
 
     const { destinations, area, want_description } = req.body || {};
     const { interestList, freeText, from, to, answerList } = buildParams(req.body);
@@ -1320,9 +1319,8 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
 // manual edits diverge from it anyway — so each edit request sends a fresh, compact
 // snapshot of the CURRENT itinerary instead of replaying any "creation conversation".
 
-const AI_EDIT_DAILY_LIMIT = 3;
+const editMeter = dailyQuota('edit', 3); // smart edits per user per day
 const AI_EDIT_MAX_PROMPT = 200;
-const aiEditUsage = new Map(); // 'u<userId>' → {date, count}
 
 // field cleaners shared by both edit routes (DB-applied and draft)
 // zero-pad the hour: times sort as strings (day → clock → slot), and an unpadded
@@ -1871,16 +1869,9 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
         `אם התבקשה בנייה מחדש — החלף את כל התחנות בטווח (מחיקות + הוספות), 3-4 תחנות ליום בסדר כרונולוגי.`;
     }
 
-    // 3 AI edits a day per user (editing requires login, so req.user is always set here).
-    // admins still get counted, but are never capped — same rule as /api/ai/itinerary
-    const quotaKey = 'u' + req.user.id;
-    const today = new Date().toISOString().slice(0, 10);
-    const usage = aiEditUsage.get(quotaKey);
-    const used = usage && usage.date === today ? usage.count : 0;
-    const admin = await isAdmin(req);
-    if (used >= AI_EDIT_DAILY_LIMIT && !admin) {
-      return res.status(429).json({ error: 'ניצלתם את שלושת שינויי ה-AI להיום — אפשר להמשיך לערוך ידנית, או לנסות שוב מחר' });
-    }
+    // 3 AI edits a day per user (editing requires login, so req.user is always set here)
+    const quota = await editMeter.check(req);
+    if (!quota) return exhausted(res, 'edit', 'ניצלתם את שינויי ה-AI להיום — אפשר להמשיך לערוך ידנית, או לנסות שוב מחר');
 
     const { rows: items } = await pool.query(
       'SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
@@ -1898,7 +1889,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
     if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לעבד את הבקשה — נסו שוב עוד רגע' });
-    aiEditUsage.set(quotaKey, { date: today, count: used + 1 }); // the model call is the budgeted resource
+    quota.spend(); // the model call is the budgeted resource
 
     await client.query('BEGIN');
     const { added, updated, removed, undoOps } = await applyEditOps(client, trip, items, result.ops, { area, from, to });
@@ -1928,7 +1919,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
       items: fresh.rows,
       description: newDesc, // null = unchanged, so the client leaves it alone
       undo: added + updated + removed > 0 ? undoOps : null,
-      remaining: admin ? null : AI_EDIT_DAILY_LIMIT - used - 1, // null = unlimited (admin)
+      remaining: quota.remaining, // null = unlimited (admin)
     });
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
@@ -1953,10 +1944,9 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
 // come from Wikipedia (free, keyless) and are never worth waiting for — the lookup
 // races the verification and a miss simply means no photo.
 
-const AI_RECS_DAILY_LIMIT = 30; // messages per user per day — a chat turn is one cheap call
+const recsMeter = dailyQuota('recs', 30); // messages per user per day — a chat turn is one cheap call
 const AI_RECS_MAX_MESSAGE = 300;
 const AI_RECS_HISTORY = 8; // turns the model sees — enough for "and something cheaper?"
-const aiRecsUsage = new Map(); // 'u<userId>' → {date, count}
 const REC_CATS = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבות', 'קניות', 'לינה', 'נוף', 'חיי לילה'];
 const REC_COSTS = ['חינם', '₪', '₪₪', '₪₪₪'];
 
@@ -2117,14 +2107,8 @@ router.post('/api/trips/code/:code/recs', authRequired, async (req, res) => {
     if (!trip) return res.status(404).json({ error: 'לא נמצא טיול עם הקוד הזה' });
 
     // 30 questions a day per user; admins are counted but never capped, as everywhere here
-    const quotaKey = 'u' + req.user.id;
-    const today = new Date().toISOString().slice(0, 10);
-    const usage = aiRecsUsage.get(quotaKey);
-    const used = usage && usage.date === today ? usage.count : 0;
-    const admin = await isAdmin(req);
-    if (used >= AI_RECS_DAILY_LIMIT && !admin) {
-      return res.status(429).json({ error: 'ניצלתם את שאלות ההמלצות להיום — נסו שוב מחר' });
-    }
+    const quota = await recsMeter.check(req);
+    if (!quota) return exhausted(res, 'recs', 'ניצלתם את שאלות ההמלצות להיום — נסו שוב מחר');
 
     const { rows: items } = await pool.query(
       'SELECT day_number, title FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
@@ -2134,8 +2118,8 @@ router.post('/api/trips/code/:code/recs', authRequired, async (req, res) => {
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
     if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });
-    aiRecsUsage.set(quotaKey, { date: today, count: used + 1 }); // the model call is the budgeted resource
-    res.json({ ...result, remaining: admin ? null : AI_RECS_DAILY_LIMIT - used - 1 });
+    quota.spend(); // the model call is the budgeted resource
+    res.json({ ...result, remaining: quota.remaining });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
@@ -2161,6 +2145,7 @@ module.exports.tripRecs = tripRecs;
 module.exports.buildItinerary = buildItinerary;
 module.exports.buildQuota = buildQuota;
 module.exports.buildErrorMessage = buildErrorMessage;
+module.exports.BUILD_EXHAUSTED = BUILD_EXHAUSTED;
 module.exports.applyEditOps = applyEditOps;
 module.exports.verifyEditOps = verifyEditOps;
 module.exports.verifyRecCards = verifyRecCards;

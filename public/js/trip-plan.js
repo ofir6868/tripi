@@ -25,6 +25,95 @@ const TripPlan = (() => {
   ];
 
   const api = (ctx, path, opts) => TRIPMAKER.api(`/api/trips/code/${ctx.trip.share_code}/plan${path}`, opts);
+  const WA = (text) => window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
+  const AREA_COLORS = ['#ffb45f', '#8fd8c4', '#c9a7ff', '#7fb8ff', '#ff9db1', '#ffd166'];
+
+  // =================================================================
+  //  CARDS SHARED WITH המלצות: the day's quota is spent, and "bring your friends"
+  // =================================================================
+  //
+  // A quota is not an error, so it never reads as one: the AI says it ran out for
+  // today, that the trip is fine — planning goes on by hand and it is back tomorrow —
+  // and, only then, that sharing the app with three friends doubles the daily
+  // allowance for good. The progress ("2 מתוך 3 נרשמו") comes from /api/me/referral.
+
+  const QUOTA_LINES = {
+    plan: 'ניצלנו להיום את מכסת הודעות התכנון שלי 🙏',
+    recs: 'ניצלנו להיום את מכסת השאלות שלי 🙏',
+    build: 'ניצלנו להיום את מכסת הבניות של ה-AI 🙏',
+    edit: 'ניצלנו להיום את מכסת השינויים החכמים 🙏',
+  };
+  const quotaMsg = (kind) => ({ role: 'ai', quota: kind, payload: {}, transient: true });
+
+  function quotaMsgHtml(m, referral, avatar = '🧭') {
+    const bonus = referral && referral.bonus;
+    const r = referral || {};
+    const progress = referral && !bonus
+      ? `<div class="qc-progress"><i style="--w:${Math.min(100, Math.round(100 * (r.referred || 0) / (r.needed || 3)))}%"></i></div>
+         <small class="qc-count">${r.referred ? `נרשמו עד עכשיו ${r.referred} מתוך ${r.needed}` : `עדיין לא נרשם אף אחד — ${r.needed} חברים והמכסה מוכפלת`}</small>`
+      : '';
+    return `
+      <div class="chat-msg ai">
+        <span class="chat-avatar" aria-hidden="true">${avatar}</span>
+        <div class="chat-col">
+          <div class="chat-bubble">${esc(QUOTA_LINES[m.quota] || QUOTA_LINES.plan)} זה בסדר גמור — הטיול לא הולך לשום מקום: אפשר להמשיך לתכנן ידנית בדף הטיול, ואני חוזר מחר עם מכסה חדשה.${
+            bonus ? ' המכסה שלכם כבר כפולה 💛 — נתראה מחר.' : ' ואם מתחשק לכם: שתפו את TRIP MAKER עם שלושה חברים — כשהם נרשמים דרך הקישור שלכם, המכסה היומית שלכם מוכפלת, לתמיד.'}</div>
+          <div class="plan-card pc-quota">
+            ${progress}
+            <div class="pc-foot">
+              ${bonus ? '' : `<button type="button" class="btn btn-amber qc-wa" ${referral ? '' : 'disabled'}>${TRIPMAKER.waIcon || '📱'} שיתוף בוואטסאפ</button>`}
+              <button type="button" class="btn btn-ghost qc-manual">להמשיך ידנית ›</button>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  const inviteLink = (trip) => `${location.origin}/trip/${trip.share_code}?join=${trip.invite_token}`;
+  function inviteHtml(trip) {
+    if (!trip.invite_token) return '';
+    return `
+      <div class="plan-card pc-invite">
+        <div class="pc-head">נראה שהטיול מתגבש יפה 🎉</div>
+        <p class="pc-text-p">רוצים להזמין חברים לתכנן איתכם? הם נכנסים בקישור, נרשמים בשנייה — ועורכים את הטיול יחד אתכם.</p>
+        <div class="pc-foot">
+          <button type="button" class="btn btn-amber ic-wa">${TRIPMAKER.waIcon || '📱'} הזמנה בוואטסאפ</button>
+          <button type="button" class="btn btn-ghost ic-copy">העתקת קישור</button>
+        </div>
+      </div>`;
+  }
+
+  // the referral numbers, fetched once per page and refreshed when a card needs them
+  let referralInfo = null;
+  async function loadReferral() {
+    try { referralInfo = await TRIPMAKER.api('/api/me/referral'); } catch { referralInfo = referralInfo || null; }
+    return referralInfo;
+  }
+
+  // one delegated handler both chats route their card clicks through; returns true
+  // when the click was one of ours
+  function handleCardClick(e, ctx) {
+    const trip = ctx.trip;
+    if (e.target.closest('.qc-manual')) { TripPages.close(); return true; }
+    if (e.target.closest('.qc-wa')) {
+      const link = referralInfo && referralInfo.link;
+      if (!link) return true;
+      WA(`אני מתכנן/ת טיול עם TRIP MAKER 🧭 — מתכנן טיולים בעברית, עם AI שבונה את המסלול איתך, צעד אחר צעד.\nנסו גם אתם: ${link}`);
+      TRIPMAKER.track?.('referral_share', { code: trip.share_code });
+      return true;
+    }
+    if (e.target.closest('.ic-wa')) {
+      WA(`${trip.emoji || '🧭'} בואו לתכנן איתי את "${trip.title}"!\nנכנסים לקישור, נרשמים בשנייה — ועורכים את הטיול יחד:\n${inviteLink(trip)}`);
+      TRIPMAKER.track?.('plan_invite', { code: trip.share_code, via: 'wa' });
+      return true;
+    }
+    const copy = e.target.closest('.ic-copy');
+    if (copy) {
+      TRIPMAKER.copy(inviteLink(trip)).then(() => TripPages.toast('קישור ההזמנה הועתק ✓', 'ok'));
+      return true;
+    }
+    return false;
+  }
 
   // =================================================================
   //  RENDER
@@ -60,8 +149,9 @@ const TripPlan = (() => {
     return `<div class="plan-card pc-${p.decision || 'pending'}"><div class="pc-head">${esc(head)}</div><ul class="pc-list">${rows}</ul>${foot}</div>`;
   }
 
-  function msgHtml(m, i, latestApplied) {
+  function msgHtml(m, i, latestApplied, ctx) {
     if (m.role === 'user') return `<div class="chat-msg user"><div class="chat-bubble">${esc(m.text)}</div></div>`;
+    if (m.quota) return quotaMsgHtml(m, referralInfo);
     const cards = m.cards || [];
     const p = m.payload || {};
     return `
@@ -72,8 +162,64 @@ const TripPlan = (() => {
           ${cards.length ? `<div class="rec-strip">${cards.map((c, j) => TripRecs.cardHtml(c, i, j)).join('')}</div>` : ''}
           ${changeCardHtml(m, latestApplied)}
           ${p.built ? `<div class="plan-card pc-applied"><div class="pc-head">${p.built.fill ? 'הימים הושלמו' : 'הטיול נבנה'} — ${p.built.count} תחנות</div></div>` : ''}
+          ${p.invite ? inviteHtml(ctx.trip) : ''}
         </div>
       </div>`;
+  }
+
+  // =================================================================
+  //  THE AREA CALENDAR — the split the AI proposed, painted by hand
+  // =================================================================
+  //
+  // While the areas are being settled, the AI's day→area split is drawn on a month
+  // calendar under the thread: pick an area, tap days to repaint them, confirm. The
+  // confirmation is a normal turn ("מאשרים את החלוקה: …"), so the AI hears it the way
+  // it hears everything else and moves on to the flights.
+
+  function areaCalendarHtml(ctx, dayAreas, palette, selected) {
+    const trip = ctx.trip;
+    const color = (name) => AREA_COLORS[Math.max(palette.findIndex((a) => a.area === name), 0) % AREA_COLORS.length];
+    const cell = (d, label) => `<button type="button" class="cal-cell has-area rc-day" data-d="${d}" style="--area-c:${color(dayAreas[d])}" aria-label="יום ${d + 1} · ${esc(dayAreas[d])}">` +
+      `<span class="cc-head"><span class="cc-num">${label}</span></span><span class="cc-area">${esc(dayAreas[d])}</span></button>`;
+    let grid = '';
+    const start = trip.start_date ? new Date(trip.start_date) : null;
+    if (start) {
+      let monthKey = null, cells = '';
+      const flush = () => { if (cells) grid += `<div class="cal-grid rc-grid">${cells}</div>`; cells = ''; };
+      for (let d = 0; d < dayAreas.length; d++) {
+        const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + d);
+        const key = `${date.getFullYear()}-${date.getMonth()}`;
+        if (key !== monthKey) {
+          flush();
+          monthKey = key;
+          grid += `<div class="rc-month">${date.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}</div>`;
+          cells += '<span class="rc-pad"></span>'.repeat(date.getDay());
+        }
+        cells += cell(d, String(date.getDate()));
+      }
+      flush();
+    } else {
+      grid = `<div class="cal-grid rc-grid">${dayAreas.map((_, d) => cell(d, 'יום ' + (d + 1))).join('')}</div>`;
+    }
+    return `
+      <div class="plan-card pc-areas" id="plan-areas">
+        <div class="pc-head">חלוקת הימים לאזורים 🗺️</div>
+        <div class="region-cal">${grid}</div>
+        <div class="region-palette"><span class="rp-hint">בוחרים אזור ומקישים על ימים כדי לצבוע:</span>${palette.map((a) =>
+          `<button type="button" class="rp-area${a.area === selected ? ' selected' : ''}" data-a="${esc(a.area)}"><i style="background:${color(a.area)}"></i>${esc(a.area)}</button>`).join('')}</div>
+        <div class="pc-foot"><button type="button" class="btn btn-amber pa-confirm">${ICON.check} מאשרים את החלוקה</button></div>
+      </div>`;
+  }
+
+  // consecutive same-area days → blocks; an area returning later yields separate blocks
+  function blocksOf(dayAreas, palette) {
+    const blocks = [];
+    dayAreas.forEach((area, i) => {
+      const last = blocks[blocks.length - 1];
+      if (last && last.area === area) last.to = i + 1;
+      else blocks.push({ area, from: i + 1, to: i + 1, cities: (palette.find((a) => a.area === area) || {}).cities || [] });
+    });
+    return blocks;
   }
 
   function render(slots, ctx) {
@@ -128,15 +274,54 @@ const TripPlan = (() => {
       chips.hidden = !chips.children.length;
     }
 
+    // the calendar card's own state: one area per day, and the area being painted
+    let dayAreas = null, palette = [], paintArea = null, paintedFrom = null;
+    function syncCalendar() {
+      const areas = state.areas || [];
+      const show = loaded && !busy && state.stage === 'areas' && areas.length >= 2;
+      if (!show) { dayAreas = null; return; }
+      const key = JSON.stringify(areas);
+      if (paintedFrom === key && dayAreas) return; // the traveller's painting survives repaints
+      paintedFrom = key;
+      palette = [...new Map(areas.map((a) => [a.area, a])).values()];
+      dayAreas = new Array(ctx.trip.days).fill(palette[0].area);
+      areas.forEach((a) => { for (let d = a.from; d <= a.to && d <= ctx.trip.days; d++) dayAreas[d - 1] = a.area; });
+      paintArea = palette[0].area;
+    }
+
     function paint() {
       const la = latestApplied();
-      thread.innerHTML = msgs.map((m, i) => msgHtml(m, i, la)).join('');
+      syncCalendar();
+      thread.innerHTML = msgs.map((m, i) => msgHtml(m, i, la, ctx)).join('') +
+        (dayAreas ? areaCalendarHtml(ctx, dayAreas, palette, paintArea) : '');
       if (busy) thread.insertAdjacentHTML('beforeend', `
         <div class="chat-msg ai"><span class="chat-avatar" aria-hidden="true">🧭</span>
           <div class="chat-bubble chat-typing" aria-label="חושב…"><i></i><i></i><i></i></div></div>`);
       paintChips();
       paintMode();
       scrollDown();
+    }
+
+    // the day's allowance is spent: the gentle card, with the referral numbers filled
+    // in as soon as they arrive
+    async function outOfQuota(kind) {
+      msgs.push(quotaMsg(kind));
+      paint();
+      await loadReferral();
+      paint();
+      TRIPMAKER.track?.('quota_hit', { code: ctx.trip.share_code, kind });
+    }
+
+    async function confirmAreas() {
+      const blocks = blocksOf(dayAreas, palette);
+      if (blocks.length > 12) { TripPages.toast('יותר מדי מעברים בין אזורים — כדאי לאחד ימים סמוכים'); return; }
+      try {
+        const r = await api(ctx, '', { method: 'PATCH', body: JSON.stringify({ areas: blocks }) });
+        state = r.state;
+        ctx.trip.plan_state = state;
+      } catch (err) { TripPages.toast(err.message || 'לא הצלחתי לשמור את החלוקה'); return; }
+      dayAreas = null;
+      send('מאשרים את החלוקה: ' + blocks.map((b) => `${b.area} ימים ${b.from}–${b.to}`).join(', '));
     }
 
     const shape = (row) => ({ ...row, cards: (row.payload?.cards || []).map((c) => TripRecs.fromServerCard(c, ctx)) });
@@ -182,6 +367,7 @@ const TripPlan = (() => {
         if (r.message.payload && r.message.payload.build === 'once') build(false);
       } catch (err) {
         busy = false;
+        if (err && err.quota) { outOfQuota(err.quota); return; }
         msgs.push({ role: 'ai', text: (err && err.message) || 'משהו השתבש בדרך — נסו שוב בעוד רגע.', payload: {}, transient: true });
         paint();
       }
@@ -262,6 +448,7 @@ const TripPlan = (() => {
       } catch (err) {
         overlay.remove();
         building = false;
+        if (err && err.quota) { outOfQuota(err.quota); return; }
         msgs.push({ role: 'ai', text: '⚠️ ' + ((err && err.message) || 'הבנייה נכשלה — נסו שוב'), payload: {}, transient: true });
         paint();
       }
@@ -293,6 +480,12 @@ const TripPlan = (() => {
     // =================================================================
 
     thread.addEventListener('click', (e) => {
+      if (handleCardClick(e, ctx)) return;
+      const day = e.target.closest('.rc-day');
+      if (day && dayAreas) { dayAreas[+day.dataset.d] = paintArea; paint(); return; }
+      const pal = e.target.closest('.rp-area');
+      if (pal) { paintArea = pal.dataset.a; paint(); return; }
+      if (e.target.closest('.pa-confirm')) { confirmAreas(); return; }
       const media = e.target.closest('.rec-media');
       if (media) {
         const el = media.closest('.rec-card');
@@ -320,5 +513,6 @@ const TripPlan = (() => {
     load();
   }
 
-  return { render };
+  // the quota card and its handler are shared with the recommendations chat
+  return { render, quotaMsg, quotaMsgHtml, handleCardClick, loadReferral, referral: () => referralInfo };
 })();

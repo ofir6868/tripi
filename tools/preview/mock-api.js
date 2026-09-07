@@ -125,6 +125,9 @@
     const p = new URL(url, 'http://x').pathname;
     body = body || {};
     if (p === '/api/me') return json(200, user);
+    // referrals: two friends already in, one to go
+    if (p === '/api/me/referral') return json(200, { code: 'demo123', link: 'https://tripmaker.co.il/?ref=demo123', referred: 2, needed: 3, bonus: false, multiplier: 2 });
+    if (p === '/api/me/referral/claim') return json(200, { claimed: false });
     // the draft's planning chat
     const pm = p.match(/^\/api\/trips\/code\/000001\/plan(\/.*)?$/);
     if (pm) {
@@ -138,9 +141,19 @@
         }
         return json(200, { state: draft.plan_state, messages: planMsgs });
       }
-      if (!rest && method === 'PATCH') { draft.plan_state.mode = body.mode; return json(200, { state: draft.plan_state }); }
+      if (!rest && method === 'PATCH') {
+        if (body.mode) draft.plan_state.mode = body.mode;
+        if (body.areas) draft.plan_state.areas = body.areas;
+        return json(200, { state: draft.plan_state });
+      }
       if (!rest && method === 'POST') {
+        // "מכסה" in a message plays the spent day; "מוכן" plays the AI judging the trip settled
+        if (/מכסה/.test(String(body.message || ''))) return json(429, { error: 'ניצלתם את הודעות התכנון להיום', quota: 'plan' });
         planMsg('user', String(body.message || ''));
+        if (/מוכן/.test(String(body.message || ''))) {
+          const m = planMsg('ai', 'לדעתי הטיול כבר עומד על הרגליים: האזורים והטיסות סגורים ולכל יום יש עוגן. רוצים שנעבור על יום 4, או להשלים את השאר אוטומטית?', { suggestions: ['נעבור על יום 4'], invite: true });
+          return json(200, { message: m, state: draft.plan_state, items: null, remaining: 40 });
+        }
         if (body.mode) draft.plan_state.mode = body.mode;
         const m = planTurn(String(body.message || ''));
         return json(200, { message: m, state: draft.plan_state, items: m.payload.decision === 'applied' ? draftItems : null, remaining: 50 });
@@ -209,6 +222,7 @@
       // the recommendations chat, canned: the demo has no model behind it
       if (rest === '/recs' && method === 'POST') {
         const q = String(body.message || '');
+        if (/מכסה/.test(q)) return json(429, { error: 'ניצלתם את שאלות ההמלצות להיום', quota: 'recs' });
         const food = /אוכל|מסעד|לאכול|שוק/.test(q);
         const cards = /טיפ|כדאי לדעת/.test(q) ? [] : (food ? [
           { title: 'שוק קמפו דה פיורי', blurb: 'שוק הבוקר של מרכז רומא — פירות, גבינות ומאפים חמים. הכי טוב לפני 11:00.', category: 'אוכל', duration: 'שעה', cost: '₪', time: '09:30', area: 'רומא', place_query: 'Campo de\' Fiori, Rome, Italy', lat: 41.8955, lon: 12.4722, photos: [] },
