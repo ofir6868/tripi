@@ -42,6 +42,10 @@ const planMeter = dailyQuota('plan', 20); // turns per user per day; AI_QUOTA_PL
 const AI_PLAN_MAX_MESSAGE = 400;
 const PLAN_HISTORY = 12; // turns the model sees; the settled facts carry the rest
 const THREAD_LIMIT = 80; // rows the client loads
+// a single broad destination is split into areas only from this length on: below it
+// the trip lives in one area (a 4-day Crete stays one area — the cities are a matter
+// for the days, not a region split), so the areas stage has nothing to ask
+const SPLIT_AREAS_FROM_DAYS = 6;
 
 const SUGGEST_STEPS = 'שלב אחרי שלב 🪜';
 const SUGGEST_ONCE = 'בבת אחת ✨';
@@ -226,6 +230,9 @@ function turnPrompt({ trip, items, state, mode, history, pendingProposal }) {
   const dests = trip.dests;
   const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
   const multiArea = areaNames.length > 1;
+  // a day→area split is worth discussing only when the trip has room for more than one
+  // area: several destinations, or a single broad one long enough to move between regions
+  const splitAreas = multiArea || trip.days >= SPLIT_AREAS_FROM_DAYS;
   const dates = trip.start_date ? `, מתאריך ${String(trip.start_date).slice(0, 10)}` : ' (בלי תאריכים עדיין)';
   const perDay = [];
   for (let d = 1; d <= trip.days; d++) perDay.push(items.filter((it) => it.day_number === d).length);
@@ -239,7 +246,9 @@ function turnPrompt({ trip, items, state, mode, history, pendingProposal }) {
 שלבי התכנון (stage) — התקדמו לפי הסדר, אבל תמיד ענו קודם על מה שהמטיילים שאלו:
 - clarify: יש שאלות הבהרה פתוחות (ברשימה למטה). שאלו אחת בכל תור, בדיוק כלשונה, עם ה-suggestions שלה. תשובה שהתקבלה נרשמת ב-facts ויורדת מ-pending_questions. כשנגמרו — עברו ל-choose ואמרו: "${READY_TEXT}" עם suggestions ["${SUGGEST_STEPS}", "${SUGGEST_ONCE}"].
 - choose: המטיילים בוחרים. "בבת אחת" (או ניסוח דומה: הכול, מהר, תבנה לבד) → build_now=true, ops ריק, text קצר שמודיע שבונים עכשיו. "שלב אחרי שלב" (או ניסוח דומה) → stage=areas והתחילו.
-- areas: לקבוע יחד את האזורים וחלוקת הימים. הציעו חלוקה קונקרטית (אזור, ימים, ערים) והחזירו אותה מיד ב-areas (רצף ימים מלא מ-1 עד ${trip.days}, בלי חורים) — המטיילים רואים אותה על לוח שנה ויכולים לצבוע ימים ולשנות; בקשו אישור. כשהוסכם (או כשהמטיילים אישרו חלוקה מהלוח) — עברו ל-flights. טיול לעיר אחת: אזור אחד, אין מה לשאול — עברו ישר ל-flights.
+- areas: לקבוע יחד את האזורים וחלוקת הימים. ${splitAreas
+    ? `הציעו חלוקה קונקרטית (אזור, ימים, ערים) והחזירו אותה מיד ב-areas (רצף ימים מלא מ-1 עד ${trip.days}, בלי חורים) — המטיילים רואים אותה על לוח שנה ויכולים לצבוע ימים ולשנות; בקשו אישור. כשהוסכם (או כשהמטיילים אישרו חלוקה מהלוח) — עברו ל-flights. אזור = חבל ארץ נפרד שלנים בו (לא עיר ליום): כשכל הטיול נשאר באזור אחד — אל תחלקו, החזירו areas ריק ועברו ישר ל-flights.`
+    : `בטיול הזה יש אזור אחד (${areaNames[0] || trip.destination}) — אין מה לחלק ואין מה לשאול: החזירו areas ריק ועברו ישר ל-flights. את הערים והמקומות מתכננים בשלב days, יום אחרי יום.`}
 - flights: הבינו את הטיסות: מאיפה טסים, לאן נוחתים, שעות ומיד קונקשן אם יש, וטיסת החזרה. אל תמציאו שעות טיסה: מה שהמטיילים לא יודעים נשאר בלי time_label ועם הערה "עדכנו את השעה". צרו תחנות נסיעה (category "נסיעה") ליום 1 (המראה, קונקשן אם יש, נחיתה) וליום ${trip.days} (טיסת החזרה), ואז עברו ל-days.
 - days: אזור אחרי אזור, יום אחרי יום: הציעו 1-2 עוגנים ליום — מקומות אמיתיים ומוכרים שמתאימים למטיילים — ובקשו אישור או שינוי. אל תמלאו ימים בתחנות רבות או ספציפיות מדי; את השאר משלימים אוטומטית בסוף. ביום שבו מתחלף אזור — תחנת נסיעה אחת שמתארת את המעבר.
 - done: כל הימים נדונו. הציעו להשלים את שאר התחנות אוטומטית (יש למטיילים כפתור לזה), או להמשיך לחקור.
@@ -292,11 +301,13 @@ function historyLine(row) {
   return `${row.text} [שינויים: ${p.changes.map((c) => c.title).join(', ')} — ${fate}]`;
 }
 
-// the model's areas → the state's, only when they cover the trip properly
+// the model's areas → the state's, only when they cover the trip properly. Blocks
+// arrive in two shapes: the model's (day_from/day_to) and the calendar card's
+// (from/to, the same shape the state keeps) — both are read.
 function cleanAreas(raw, days) {
   const blocks = (Array.isArray(raw) ? raw : []).map((a) => ({
     area: String(a?.area || '').slice(0, 60).trim(),
-    from: parseInt(a?.day_from, 10), to: parseInt(a?.day_to, 10),
+    from: parseInt(a?.day_from ?? a?.from, 10), to: parseInt(a?.day_to ?? a?.to, 10),
     cities: (Array.isArray(a?.cities) ? a.cities : []).slice(0, 3).map((c) => String(c).slice(0, 60).trim()).filter(Boolean),
   })).filter((a) => a.area && Number.isInteger(a.from) && Number.isInteger(a.to) && a.from >= 1 && a.to <= days && a.to >= a.from)
     .sort((a, b) => a.from - b.from);

@@ -317,12 +317,15 @@ const TripPlan = (() => {
     let dayAreas = null, palette = [], paintArea = null, paintedFrom = null;
     function syncCalendar() {
       const areas = state.areas || [];
-      const show = loaded && !busy && state.stage === 'areas' && areas.length >= 2;
+      // the card is for choosing between areas: with one area (however many blocks the
+      // AI cut it into) there is nothing to paint, so it stays off
+      const distinct = [...new Map(areas.map((a) => [a.area, a])).values()];
+      const show = loaded && !busy && state.stage === 'areas' && distinct.length >= 2;
       if (!show) { dayAreas = null; return; }
       const key = JSON.stringify(areas);
       if (paintedFrom === key && dayAreas) return; // the traveller's painting survives repaints
       paintedFrom = key;
-      palette = [...new Map(areas.map((a) => [a.area, a])).values()];
+      palette = distinct;
       dayAreas = new Array(ctx.trip.days).fill(palette[0].area);
       areas.forEach((a) => { for (let d = a.from; d <= a.to && d <= ctx.trip.days; d++) dayAreas[d - 1] = a.area; });
       paintArea = palette[0].area;
@@ -358,7 +361,9 @@ const TripPlan = (() => {
       const blocks = blocksOf(dayAreas, palette);
       if (blocks.length > 12) { TripPages.toast('יותר מדי מעברים בין אזורים — כדאי לאחד ימים סמוכים'); return; }
       try {
-        const r = await api(ctx, '', { method: 'PATCH', body: JSON.stringify({ areas: blocks }) });
+        // the server reads the split in the model's shape (day_from/day_to)
+        const areas = blocks.map((b) => ({ area: b.area, day_from: b.from, day_to: b.to, cities: b.cities }));
+        const r = await api(ctx, '', { method: 'PATCH', body: JSON.stringify({ areas }) });
         state = r.state;
         ctx.trip.plan_state = state;
       } catch (err) { TripPages.toast(err.message || 'לא הצלחתי לשמור את החלוקה'); return; }
