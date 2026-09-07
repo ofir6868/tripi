@@ -32,14 +32,13 @@ const ai = require('./ai');
 
 const router = express.Router();
 
-// Two tiers, by stage (PLAYBOOK §3: the strong model only where the weak one is known
-// to fail). The clarifying and choosing turns are conversation — no place is named
-// into the itinerary — and run on the weak model; from the areas stage on, every turn
-// may write stops, which is exactly where the weak model was measured inventing
-// places, so those run on the strong one. AI_MODEL_PLAN overrides the strong half.
+// Every turn on the strong model. The first cut ran the clarifying and choosing turns
+// on the weak tier (no place is named there), but the chat is one voice and the two
+// tiers answered in noticeably different registers — the traveller met a duller
+// planner exactly when the tone is set. Twenty strong turns a day is the budget for
+// that: about the cost of one build. AI_MODEL_PLAN overrides the model.
 const PLAN_MODEL = process.env.AI_MODEL_PLAN || ai.AI_MODEL_STRONG;
-const TALK_STAGES = ['clarify', 'choose'];
-const planMeter = dailyQuota('plan', 60); // turns per user per day — a planning session is dozens of them
+const planMeter = dailyQuota('plan', 20); // turns per user per day; AI_QUOTA_PLAN overrides
 const AI_PLAN_MAX_MESSAGE = 400;
 const PLAN_HISTORY = 12; // turns the model sees; the settled facts carry the rest
 const THREAD_LIMIT = 80; // rows the client loads
@@ -315,7 +314,7 @@ async function planTurn({ trip, items, state, mode, history, message, pendingPro
     schema: TURN_SCHEMA,
     maxTokens: 3000,
     timeoutMs: 60000,
-    model: TALK_STAGES.includes(state.stage) ? ai.AI_MODEL_WEAK : PLAN_MODEL,
+    model: PLAN_MODEL,
     ph,
   });
   if (!raw) return null;

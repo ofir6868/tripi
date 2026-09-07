@@ -1960,16 +1960,15 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
 //  Hebrew with recommendation cards that can drop straight into the itinerary
 // =================================================================
 //
-// Same rules as every other model call here. The weak model answers (a chat turn is
-// not where it has been shown to fail), and no place it names reaches the client
-// unverified: each card's place_query goes through verifyPlaces, a verdict of
+// Same rules as every other model call here. The strong model answers, and no place it
+// names reaches the client unverified: each card's place_query goes through verifyPlaces, a verdict of
 // mismatch/none drops the card and logs it, a verified one carries the geocoder's
 // coordinates and place_id into the stop when added. A card sitting in another
 // country is dropped by the same foreignCountryStops rule the builder uses. Photos
 // come from Wikipedia (free, keyless) and are never worth waiting for — the lookup
 // races the verification and a miss simply means no photo.
 
-const recsMeter = dailyQuota('recs', 30); // messages per user per day — a chat turn is one cheap call
+const recsMeter = dailyQuota('recs', 30); // messages per user per day; AI_QUOTA_RECS overrides
 const AI_RECS_MAX_MESSAGE = 300;
 const AI_RECS_HISTORY = 8; // turns the model sees — enough for "and something cheaper?"
 const REC_CATS = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבות', 'קניות', 'לינה', 'נוף', 'חיי לילה'];
@@ -2105,8 +2104,8 @@ function recsUserPrompt(history, message) {
 // the whole turn, model to verified cards — exported for tests, which stub fetch
 // `edit`: the traveller switched the chat to אוטומטי — the model may answer an explicit
 // change request with ops (verified like the editor's, returned as a proposal, never
-// written here). The strong model then, for the same reason the planner uses it: an op
-// names a place straight into the itinerary.
+// written here). Both modes run on the strong model now: the cards name places, and
+// the two tiers answered in different registers within one thread.
 async function tripRecs({ trip, items, message, history, edit = false, ph }) {
   const dests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
   const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
@@ -2116,7 +2115,7 @@ async function tripRecs({ trip, items, message, history, edit = false, ph }) {
     schemaName: edit ? 'trip_recs_edit' : 'trip_recs',
     schema: edit ? RECS_EDIT_SCHEMA : RECS_SCHEMA,
     maxTokens: edit ? 2400 : 1400,
-    model: edit ? AI_MODEL_STRONG : AI_MODEL_WEAK,
+    model: AI_MODEL_STRONG,
     ph,
   });
   if (!raw) return null;
