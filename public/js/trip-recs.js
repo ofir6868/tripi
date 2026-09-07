@@ -162,13 +162,10 @@ const TripRecs = (() => {
         ${ctx.canEdit ? '<button type="button" class="plan-mode" id="recs-mode" aria-live="polite"></button>' : ''}
         <input type="text" id="chat-input" maxlength="300" placeholder="שאלו על ${esc(mainDest)}…" autocomplete="off" enterkeyhint="send">
         <button type="submit" class="chat-send" aria-label="שליחה">${ICON.send}</button>
-      </form>
-      <small class="chat-left" id="recs-left" hidden></small>`;
+      </form>`;
     const thread = body.querySelector('#chat-thread');
     const input = foot.querySelector('#chat-input');
     const modeBtn = foot.querySelector('#recs-mode');
-    const leftEl = foot.querySelector('#recs-left');
-    const RECS_NOUN = { one: 'שאלה', many: 'שאלות', last: 'השאלה האחרונה' };
 
     let painted = 0;
     const scroller = TripPlan.arrival(body, thread);
@@ -292,11 +289,9 @@ const TripRecs = (() => {
       try {
         const reply = await ask(q, ctx, history, mode);
         msgs.push({ id: nextId++, role: 'ai', ...reply });
-        if (reply.remaining !== undefined) TripPlan.leftLine(leftEl, reply.remaining, RECS_NOUN);
       } catch (err) {
         if (err && err.quota) {
           busy = false;
-          TripPlan.leftLine(leftEl, 0, RECS_NOUN);
           msgs.push(TripPlan.quotaMsg(err.quota));
           paint();
           TripPlan.loadReferral().then(paint); // the referral numbers fill the card as they arrive

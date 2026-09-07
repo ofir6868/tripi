@@ -41,6 +41,16 @@ CREATE TABLE IF NOT EXISTS trips (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- the AI's daily meters (builds, edits, recs questions, planning turns): one row per
+-- user, meter and day — lib/quota.js reads and bumps it, so a restart forgets nothing
+CREATE TABLE IF NOT EXISTS ai_usage (
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  meter TEXT NOT NULL,
+  day DATE NOT NULL,
+  count INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, meter, day)
+);
+
 -- the planning chat of a draft: one row per turn, the AI's turn carrying its cards,
 -- proposed or applied stop changes and reply chips in payload
 CREATE TABLE IF NOT EXISTS trip_plan_messages (
