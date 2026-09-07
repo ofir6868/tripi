@@ -6,8 +6,46 @@
 const TripMap = (() => {
   let map = null;
   let pinLayer = null;
+  let tileLayer = null;
+  let overlayLayers = [];
   let ctx = null;
   let selectedDay = 1;
+  const STYLE_KEY = 'tripmaker_map_style';
+  const ESRI_IMAGERY = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+  const ESRI_OPTS = { maxZoom: 19, attribution: 'Tiles &copy; Esri' };
+  const STYLES = {
+    satellite: {
+      label: 'לוויין',
+      url: ESRI_IMAGERY,
+      opts: ESRI_OPTS,
+    },
+    hybrid: {
+      label: 'לוויין משולב',
+      title: 'לוויין עם שמות מקומות',
+      url: ESRI_IMAGERY,
+      opts: ESRI_OPTS,
+      overlays: [
+        {
+          url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+          opts: { maxZoom: 19, attribution: 'Tiles &copy; Esri' },
+        },
+        {
+          url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',
+          opts: { maxZoom: 19, pane: 'overlayPane' },
+        },
+      ],
+    },
+    streets: {
+      label: 'רחובות',
+      url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+      opts: {
+        maxZoom: 20,
+        subdomains: 'abcd',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>',
+      },
+    },
+  };
+  let mapStyle = 'streets';
 
   const available = () => typeof L !== 'undefined';
 
@@ -23,6 +61,53 @@ const TripMap = (() => {
   const dayStops = (day) =>
     ctx.items().filter((it) => it.day_number === day && it.lat != null && it.lon != null);
 
+  function readStyle() {
+    try {
+      const saved = localStorage.getItem(STYLE_KEY);
+      if (saved && STYLES[saved]) return saved;
+    } catch { /* storage blocked */ }
+    return 'streets';
+  }
+
+  function applyStyle(name, persist) {
+    mapStyle = STYLES[name] ? name : 'streets';
+    if (persist) {
+      try { localStorage.setItem(STYLE_KEY, mapStyle); } catch { /* ignore */ }
+    }
+    document.querySelector('.map-card')?.classList.toggle('map-style-sat', mapStyle !== 'streets');
+    if (map) {
+      const spec = STYLES[mapStyle];
+      if (tileLayer) map.removeLayer(tileLayer);
+      overlayLayers.forEach((layer) => map.removeLayer(layer));
+      overlayLayers = [];
+      tileLayer = L.tileLayer(spec.url, spec.opts).addTo(map);
+      (spec.overlays || []).forEach((ov) => {
+        const layer = L.tileLayer(ov.url, ov.opts).addTo(map);
+        overlayLayers.push(layer);
+      });
+      if (pinLayer) pinLayer.bringToFront();
+    }
+    renderStyleChips();
+  }
+
+  function renderStyleChips() {
+    const row = document.getElementById('map-styles');
+    if (!row) return;
+    row.hidden = false;
+    row.dataset.style = mapStyle;
+    if (!row.childElementCount) {
+      row.innerHTML = Object.entries(STYLES).map(([id, spec]) =>
+        `<button type="button" class="map-style-btn" data-style="${id}"${spec.title ? ` title="${spec.title}"` : ''}>${spec.label}</button>`
+      ).join('');
+      row.querySelectorAll('.map-style-btn').forEach((b) => {
+        b.onclick = () => applyStyle(b.dataset.style, true);
+      });
+    }
+    row.querySelectorAll('.map-style-btn').forEach((b) => {
+      b.classList.toggle('active', b.dataset.style === mapStyle);
+    });
+  }
+
   function ensureMap() {
     if (map) return map;
     const el = document.getElementById('trip-map');
@@ -32,19 +117,22 @@ const TripMap = (() => {
       // wheel zoom inside a scrolling page hijacks the scroll — pinch/buttons only
       scrollWheelZoom: false,
     });
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>',
-    }).addTo(map);
+    applyStyle(mapStyle, false);
     pinLayer = L.layerGroup().addTo(map);
     return map;
   }
 
   function renderDayChips() {
     const row = document.getElementById('map-days');
+    const bar = row && row.closest('.map-toolbar');
     const days = ctx.trip.days;
-    if (days <= 1) { row.style.display = 'none'; return; }
+    if (days <= 1) {
+      row.style.display = 'none';
+      if (bar) bar.style.display = 'none';
+      return;
+    }
     row.style.display = '';
+    if (bar) bar.style.display = '';
     row.innerHTML = Array.from({ length: days }, (_, i) => {
       const day = i + 1;
       const has = dayStops(day).length > 0;
@@ -108,7 +196,9 @@ const TripMap = (() => {
   function init(c) {
     if (!available()) return false;
     ctx = c;
+    mapStyle = readStyle();
     selectedDay = Math.min(Math.max(c.initialDay || 1, 1), c.trip.days);
+    renderStyleChips();
     renderDayChips();
     renderPins();
     // the sidebar may still be laying out on first paint — Leaflet measures once

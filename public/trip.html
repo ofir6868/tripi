@@ -269,11 +269,18 @@
         <div class="weather-row" id="weather-row"></div>
       </div>
       <div class="map-card glass">
-        <!-- day chips + Leaflet canvas; trip.js swaps in a Google embed iframe
-             here when Leaflet is unavailable (stale SW cache) -->
-        <div class="map-days" id="map-days" style="display:none"></div>
-        <div id="trip-map"></div>
-        <div class="map-caption" id="map-caption"></div>
+        <!-- day chips + style switcher + Leaflet canvas; trip.js swaps in a
+             Google embed iframe when Leaflet is unavailable (stale SW cache) -->
+        <div class="map-toolbar">
+          <div class="map-days" id="map-days" style="display:none"></div>
+        </div>
+        <div class="map-canvas">
+          <div id="trip-map"></div>
+        </div>
+        <div class="map-caption-row">
+          <div class="map-caption" id="map-caption"></div>
+          <div class="map-styles" id="map-styles" hidden></div>
+        </div>
       </div>
       <div id="nudge-slot"></div>
     </aside>
