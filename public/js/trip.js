@@ -4,7 +4,7 @@
 
   const heDate = (d) => d ? new Date(d).toLocaleDateString('he-IL', { day: 'numeric', month: 'long' }) : null;
 
-  // on a phone the description clamps to 2 lines (CSS) so the itinerary is visible
+  // the description clamps to 3 lines (2 on a phone) so the itinerary is visible
   // without scrolling on first paint; the toggle only appears if text actually overflows
   function setupDescToggle() {
     const textEl = document.getElementById('trip-desc-text');
