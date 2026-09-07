@@ -115,6 +115,33 @@ const TripPlan = (() => {
     return false;
   }
 
+  // How a repaint moves the thread. Both chats repaint the whole list on every change,
+  // so the helper remembers how many messages were on screen: the ones past that count
+  // are new — they get the arrival animation, and the viewport goes to the START of the
+  // first new AI message (a long answer scrolled to its end loses the traveller; the
+  // bottom is right only when the new part fits). A first paint (history) just lands.
+  function arrival(body, thread) {
+    let first = true;
+    return {
+      settle(msgs, painted, ready) {
+        // the "thinking" bubble is not a message: it never counts, and never animates twice
+        const nodes = [...thread.children].filter((el) => !el.classList.contains('chat-wait'));
+        const fresh = nodes.slice(painted);
+        if (first || !ready) {
+          body.scrollTop = body.scrollHeight;
+          first = !ready;
+          return nodes.length;
+        }
+        fresh.forEach((el, k) => { el.classList.add('chat-in'); el.style.animationDelay = `${Math.min(k, 4) * 90}ms`; });
+        const firstAi = fresh.find((el) => el.classList.contains('ai') && !el.querySelector('.chat-typing')) || fresh[0];
+        const bottom = body.scrollHeight - body.clientHeight;
+        const top = firstAi ? Math.max(0, firstAi.offsetTop - thread.offsetTop - 8) : bottom;
+        body.scrollTo({ top: Math.min(top, bottom), behavior: 'smooth' });
+        return nodes.length;
+      },
+    };
+  }
+
   // =================================================================
   //  RENDER
   // =================================================================
@@ -125,7 +152,7 @@ const TripPlan = (() => {
     if (!changes.length) return '';
     const done = p.decision === 'applied';
     const head = {
-      pending: 'שינויים מוצעים למסלול', applied: 'שינויים שבוצעו במסלול',
+      pending: 'שינויים מוצעים למסלול', deciding: 'שינויים מוצעים למסלול', applied: 'שינויים שבוצעו במסלול',
       rejected: 'הצעה שלא בוצעה', undone: 'שינויים שבוטלו',
     }[p.decision] || 'שינויים';
     const rows = changes.map((c) => {
@@ -135,7 +162,11 @@ const TripPlan = (() => {
         <span class="pc-text"><b>${esc(c.title || '')}</b>${c.when ? `<small>${esc(c.when)}</small>` : ''}${detail ? `<span class="pc-detail">${esc(detail)}</span>` : ''}</span></li>`;
     }).join('');
     let foot = '';
-    if (p.decision === 'pending') {
+    if (p.decision === 'deciding') {
+      // the tap landed: the buttons are gone and the card says what is happening
+      // until the server answers — nothing else on screen moves yet
+      foot = `<div class="pc-foot pc-busy"><span class="chat-typing" aria-hidden="true"><i></i><i></i><i></i></span>${p.deciding === 'accept' ? 'מכניסים למסלול…' : 'רגע…'}</div>`;
+    } else if (p.decision === 'pending') {
       foot = `<div class="pc-foot">
         <button type="button" class="btn btn-amber pc-accept" data-id="${m.id}">${ICON.check} אישור</button>
         <button type="button" class="btn btn-ghost pc-reject" data-id="${m.id}">לא עכשיו</button></div>`;
@@ -245,7 +276,12 @@ const TripPlan = (() => {
     const chips = foot.querySelector('#plan-chips');
     const input = foot.querySelector('#plan-input');
     const modeBtn = foot.querySelector('#plan-mode');
-    const scrollDown = () => { body.scrollTop = body.scrollHeight; };
+    // what a new turn does to the viewport: a long answer must not be scrolled past —
+    // the thread lands with the START of the newest message in view (the bottom only
+    // when it fits), and only the newly arrived messages animate in
+    let painted = 0;
+    let deciding = false;
+    const scroller = TripPlan.arrival(body, thread);
 
     const latestApplied = () => {
       for (let i = msgs.length - 1; i >= 0; i--) {
@@ -297,12 +333,14 @@ const TripPlan = (() => {
       syncCalendar();
       thread.innerHTML = msgs.map((m, i) => msgHtml(m, i, la, ctx)).join('') +
         (dayAreas ? areaCalendarHtml(ctx, dayAreas, palette, paintArea) : '');
-      if (busy) thread.insertAdjacentHTML('beforeend', `
-        <div class="chat-msg ai"><span class="chat-avatar" aria-hidden="true">🧭</span>
+      // while a card shows its own "מכניסים למסלול…" the thinking bubble would be saying
+      // the same thing twice — it waits until the card has flipped
+      if (busy && !deciding) thread.insertAdjacentHTML('beforeend', `
+        <div class="chat-msg ai chat-in chat-wait"><span class="chat-avatar" aria-hidden="true">🧭</span>
           <div class="chat-bubble chat-typing" aria-label="חושב…"><i></i><i></i><i></i></div></div>`);
       paintChips();
       paintMode();
-      scrollDown();
+      painted = scroller.settle(msgs, painted, loaded);
     }
 
     // the day's allowance is spent: the gentle card, with the referral numbers filled
@@ -385,9 +423,12 @@ const TripPlan = (() => {
       if (busy) return;
       btn.disabled = true;
       const answered = decision !== 'undo';
-      if (answered) { busy = true; paint(); }
+      const target = msgs.find((m) => m.id === id);
+      const was = target && target.payload ? target.payload.decision : null;
+      if (target && answered) { target.payload = { ...target.payload, decision: 'deciding', deciding: decision }; busy = true; deciding = true; paint(); }
       try {
         const r = await api(ctx, '/decide', { method: 'POST', body: JSON.stringify({ message_id: id, decision }) });
+        deciding = false;
         const i = msgs.findIndex((m) => m.id === id);
         if (i !== -1) msgs[i] = shape(r.message);
         if (r.said) msgs.push({ role: 'user', text: r.said, payload: {} });
@@ -407,7 +448,8 @@ const TripPlan = (() => {
         if (r.follow && r.follow.payload && r.follow.payload.build === 'once') { paint(); build(false); return; }
       } catch (err) {
         busy = false;
-        btn.disabled = false;
+        deciding = false;
+        if (target && was) target.payload = { ...target.payload, decision: was };
         TripPages.toast((err && err.message) || 'לא הצלחתי — נסו שוב');
       }
       paint();
@@ -545,5 +587,5 @@ const TripPlan = (() => {
     el.classList.toggle('low', remaining <= 5);
   }
 
-  return { render, quotaMsg, quotaMsgHtml, handleCardClick, loadReferral, referral: () => referralInfo, changeCardHtml, leftLine };
+  return { render, arrival, quotaMsg, quotaMsgHtml, handleCardClick, loadReferral, referral: () => referralInfo, changeCardHtml, leftLine };
 })();

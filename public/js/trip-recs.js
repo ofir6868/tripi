@@ -170,7 +170,8 @@ const TripRecs = (() => {
     const leftEl = foot.querySelector('#recs-left');
     const RECS_NOUN = { one: 'שאלה', many: 'שאלות', last: 'השאלה האחרונה' };
 
-    const scrollDown = () => { body.scrollTop = body.scrollHeight; };
+    let painted = 0;
+    const scroller = TripPlan.arrival(body, thread);
     const latestApplied = () => {
       for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].payload && msgs[i].payload.decision === 'applied') return msgs[i].id;
       return null;
@@ -191,10 +192,10 @@ const TripRecs = (() => {
       const la = latestApplied();
       thread.innerHTML = msgHtml({ role: 'ai', html: WELCOME(mainDest) }, -1) + msgs.map((m, i) => msgHtml(m, i, la)).join('');
       if (busy) thread.insertAdjacentHTML('beforeend', `
-        <div class="chat-msg ai"><span class="chat-avatar" aria-hidden="true">✨</span>
+        <div class="chat-msg ai chat-in chat-wait"><span class="chat-avatar" aria-hidden="true">✨</span>
           <div class="chat-bubble chat-typing" aria-label="חושב…"><i></i><i></i><i></i></div></div>`);
       paintMode();
-      scrollDown();
+      painted = scroller.settle(msgs, painted, true);
     }
 
     // the proposal card's buttons: the ops (or the recorded inverse) go to the server,
@@ -206,6 +207,8 @@ const TripRecs = (() => {
       btn.disabled = true;
       const base = `/api/trips/code/${ctx.trip.share_code}/recs`;
       const titles = (m.payload.changes || []).map((c) => c.title).join(', ');
+      const was = m.payload.decision;
+      if (decision !== 'undo') { m.payload.decision = 'deciding'; m.payload.deciding = decision; paint(); }
       try {
         if (decision === 'accept') {
           const r = await TRIPMAKER.api(`${base}/apply`, { method: 'POST', body: JSON.stringify({ ops: m.payload.ops }) });
@@ -227,7 +230,8 @@ const TripRecs = (() => {
         }
         TRIPMAKER.track?.('recs_decide', { code: ctx.trip.share_code, decision });
       } catch (err) {
-        btn.disabled = false;
+        m.payload.decision = was;
+        paint();
         TripPages.toast((err && err.message) || 'לא הצלחתי — נסו שוב');
         return;
       }
