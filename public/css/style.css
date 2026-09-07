@@ -231,7 +231,17 @@ body::after {
    itself, so absolutely-positioned UI (the autocomplete) may overflow freely */
 .hero-clip { position: absolute; inset: 0; z-index: -1; overflow: hidden; }
 .hero-bg {
-  position: absolute; inset: 0;
+  /* bottom: 8% (not inset: 0): the photo's own edge must stay clear of the clip's
+     bottom edge. This is a composited layer (animated transform + will-change),
+     and with scale(1.09) it used to overhang the clip, so the clip rect had to
+     cut it exactly at the section boundary. While Android rubber-bands at the
+     top (Samsung Internet, Chrome) the compositor rounds that clip rect to whole
+     device pixels, while the veil next to it is painted to the exact fractional
+     edge — so for a frame one row of raw, unveiled photo pokes out under the
+     fade as a bright hairline. Ending the layer 8% up keeps its scaled bottom
+     edge (~4% up) inside the clip, where the mask below is ≈0 and the veil is
+     ≈opaque ink, so nothing photo-coloured ever touches the clip edge. */
+  position: absolute; top: 0; right: 0; left: 0; bottom: 8%;
   background-size: cover; background-position: center 65%;
   animation: kenburns 24s ease-in-out infinite alternate;
   filter: saturate(.92) brightness(.8);
