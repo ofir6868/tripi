@@ -34,6 +34,19 @@ CREATE TABLE IF NOT EXISTS trips (
   destinations JSONB NOT NULL DEFAULT '[]',
   invite_token TEXT,
   likes INT NOT NULL DEFAULT 0,
+  plan_state JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- the planning chat of a draft: one row per turn, the AI's turn carrying its cards,
+-- proposed or applied stop changes and reply chips in payload
+CREATE TABLE IF NOT EXISTS trip_plan_messages (
+  id SERIAL PRIMARY KEY,
+  trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  user_id INT REFERENCES users(id) ON DELETE SET NULL,
+  role TEXT NOT NULL,
+  text TEXT NOT NULL DEFAULT '',
+  payload JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT now()
 );
 

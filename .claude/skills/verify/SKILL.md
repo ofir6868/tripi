@@ -57,6 +57,12 @@ before finishing.
   days when you only need to see which branch ran.
 - Builds return the itinerary in the response; **nothing is written to the DB**
   until the client saves the trip. Safe to drive against the live `DATABASE_URL`.
+  The planning chat is the exception: `POST /api/trips/code/:code/plan` writes the
+  turn (and, in auto mode, the stops) into the draft, and `/plan/build` writes a whole
+  itinerary into it — drive those against a draft you created for the purpose.
+- The chat UI without a model or a database: `node tools/preview/server.js` and open
+  `/trip/000001#plan` — a canned draft whose turns, proposal cards, undo, build and
+  publish are all scripted in `tools/preview/mock-api.js`.
 - To drive the real wizard UI, put the dev JWT in localStorage (`tripmaker_token` plus a
   `tripmaker_user` JSON blob) and open `/plan?dest=<יעד>&cc=<xx>` — a country pick lands
   straight on step 2. `/api/me` 401s for a synthetic user, which `refreshUser`

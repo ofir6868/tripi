@@ -914,7 +914,7 @@ function foreignCountryStops(entries, dests, areaName = null) {
 }
 
 // one OpenAI call for ONE area and a fixed day range — the shape that stays coherent
-async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, answers, transferFrom, ph }) {
+async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, answers, transferFrom, existing = [], ph }) {
   // every block gets the strong model: the 2026-08 places audit put weak-model blocks
   // at 19-38% unfound places against 4-11% on the strong one — short trips were the
   // worst offenders, not the safe case. The itinerary is the product; the weak model
@@ -951,6 +951,16 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
   }
   if (answers && answers.length) {
     userMsg += `\nתשובות המטיילים לשאלות הבהרה (קח אותן בחשבון): ${answers.map((a) => `${a.question} ← ${a.answer}`).join(' | ')}`;
+  }
+  // the planning chat settles one or two anchors a day with the traveller and then
+  // asks for "the rest": those anchors are the day's spine — the block is built
+  // around them, never over them, and only the complement comes back
+  const anchors = existing.filter((it) => it.day_number >= from && it.day_number <= to);
+  if (anchors.length) {
+    userMsg += `\nתחנות שהמטיילים כבר קבעו בימים האלה (הן נשארות בדיוק כמו שהן — אל תחזיר אותן ואל תציע כפילות שלהן): ` +
+      anchors.map((it) => `יום ${it.day_number}${it.time_label ? ' ' + it.time_label : ''}: ${it.title}${it.category === 'נסיעה' ? ' (נסיעה)' : ''}`).join(' | ') +
+      `. השלם סביבן: לכל יום החזר רק את התחנות החסרות כדי שיהיו בו יחד 3-4 תחנות, בשעות שמסתדרות עם מה שכבר קבוע, ובאותו אזור. ` +
+      `ביום שכבר יש בו תחנת נסיעה אל תוסיף תחנת נסיעה נוספת.`;
   }
 
   const parsed = await aiJson({
@@ -1019,7 +1029,9 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
     });
   // travel stops are mandatory between areas: if the model skipped the נסיעה stop
   // (or labeled it something else), synthesize one so the trip never teleports
-  if (transferFrom && !cleaned.some((it) => it.day_number === from && it.category === 'נסיעה')) {
+  const hasTravel = (d) => cleaned.some((it) => it.day_number === d && it.category === 'נסיעה')
+    || anchors.some((it) => it.day_number === d && it.category === 'נסיעה');
+  if (transferFrom && !hasTravel(from)) {
     const fromDest = dests.find((d) => d.name === transferFrom);
     const toDest = dests.find((d) => d.name === area);
     const km = fromDest && toDest && fromDest.lat != null && toDest.lat != null
@@ -1114,154 +1126,192 @@ router.post('/api/ai/plan-regions', authRequired, async (req, res) => {
   }
 });
 
+// The build itself, shared by the wizard's one-shot route below and by the planning
+// chat (routes/plan.js), which runs the same pipeline inside a draft that already
+// exists — "בבת אחת" straight after the clarifying round, or "להשלים את השאר" around
+// the anchors settled in conversation. Returns {questions} when a clarifying round is
+// due and the caller hasn't been through one, else {items, plan, meta}.
+async function buildItinerary({ dests, area = null, from, to, interestList, freeText, answerList, presetRaw = null, existing = [], wantMeta = false, ph }) {
+  const areaNames = dests.map((d) => d.name);
+  if (area && !areaNames.includes(area)) throw Object.assign(new Error('אזור לא מוכר'), { status: 400 });
+  const broadSingle = dests.length === 1 && (!dests[0].country || dests[0].country === dests[0].name);
+
+  // region-edit screen round-trip (long trips): the wizard already showed the AI's
+  // split and the traveller's day→area painting comes back as `plan` — used
+  // verbatim, so no region question and no re-allocation below. Ignored for
+  // per-area rebuilds (`area`), which already know their day range.
+  let presetPlan = null;
+  if (!area && Array.isArray(presetRaw)) {
+    presetPlan = cleanPresetPlan(presetRaw, { from, to, areaNames, broadSingle });
+    if (!presetPlan) throw Object.assign(new Error('חלוקת האזורים לא תקינה — נסו שוב'), { status: 400 });
+  }
+
+  if (!area && (dests.length >= 2 || broadSingle) && answerList === null) {
+    const questions = await aiClarify({
+      dests, from, to, interestList, freeText, ph,
+      presetAreas: presetPlan ? [...new Set(presetPlan.map((b) => b.area))] : null,
+    });
+    if (questions.length) return { questions };
+  }
+
+  // a country is always built as areas: the ones the traveller ticked, or — when they
+  // skipped the question or never saw it — the ones the AI breaks it into. They stand
+  // in for destinations while building, so a one-country trip gets the same contiguous
+  // blocks and transfer stops as a multi-city one. The trip's own destination list
+  // is untouched; only the response's `plan` reports the areas back.
+  const regions = broadSingle && !area && !presetPlan
+    ? (regionsFromPicked(dests[0], answerList)
+      || await aiCountryRegions({ dest: dests[0], from, to, interestList, freeText, answers: answerList, ph }))
+    : null;
+  // preset areas carry their cities with them — they round-tripped from /plan-regions
+  const regionCities = presetPlan
+    ? new Map(presetPlan.map((b) => [b.area, b.cities]))
+    : new Map((regions || []).map((r) => [r.name, r.cities]));
+  let buildDests;
+  if (presetPlan) {
+    const names = [...new Set(presetPlan.map((b) => b.area))];
+    // for a broad single destination the painted areas stand in for destinations,
+    // exactly like AI-proposed regions; for a multi-destination trip the areas ARE
+    // the destinations — and painting one over entirely legitimately drops it
+    buildDests = broadSingle
+      ? names.map((n) => ({
+        name: n, country: dests[0].country || dests[0].name, lat: null, lon: null, cities: regionCities.get(n),
+      }))
+      : dests.filter((d) => names.includes(d.name));
+  } else {
+    buildDests = regions
+      ? regions.map((r) => ({
+        name: r.name, country: dests[0].country || dests[0].name, lat: null, lon: null, cities: r.cities,
+      }))
+      : dests;
+  }
+
+  // build the per-area blocks: the painted preset, a single requested area, or an
+  // AI-decided allocation (order + days per city). The AI plans; the server only
+  // verifies that the blocks are contiguous — falling back to an even split if invalid.
+  let blocks;
+  if (presetPlan) {
+    blocks = presetPlan.map((b) => ({ dest: buildDests.find((d) => d.name === b.area), from: b.from, to: b.to }));
+  } else if (area) {
+    blocks = [{ dest: dests.find((d) => d.name === area), from, to }];
+  } else if (buildDests.length === 1) {
+    blocks = [{ dest: buildDests[0], from, to }];
+  } else {
+    blocks = await aiPlanBlocks({ dests: buildDests, from, to, interestList, freeText, answers: answerList, ph })
+      || allocateDays(orderByProximity(buildDests), from, to);
+  }
+
+  const descPromise = wantMeta
+    ? aiTripMeta({ dests, from, to, interestList, freeText, answers: answerList, ph })
+    : Promise.resolve(null);
+
+  const [results, meta] = await Promise.all([
+    Promise.all(blocks.map((b, i) =>
+      aiGenerateBlock({
+        dests: buildDests,
+        area: b.dest.name,
+        from: b.from,
+        to: b.to,
+        interestList,
+        freeText,
+        answers: answerList,
+        transferFrom: i > 0 ? blocks[i - 1].dest.name : null,
+        existing,
+        ph,
+      })
+    )),
+    descPromise,
+  ]);
+  const items = results.flat()
+    .sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')))
+    .slice(0, 200);
+  return {
+    items,
+    // cities ride along so the client can place an area on the map — a region name
+    // on its own geocodes to nothing, or to the wrong continent
+    plan: blocks.map((b) => ({
+      area: b.dest.name, from: b.from, to: b.to, cities: regionCities.get(b.dest.name) || [],
+    })),
+    meta,
+  };
+}
+
+// the request-shaping the two build routes share: interests, free text, day range and
+// the clarifying answers, each capped the same way
+function buildParams(body) {
+  const { day_from, day_to, interests, notes, answers } = body || {};
+  const interestList = (Array.isArray(interests) ? interests : [])
+    .slice(0, 15).map((s) => String(s).slice(0, 40).trim()).filter(Boolean);
+  const freeText = notes ? String(notes).slice(0, 500).trim() : '';
+  const from = Math.min(Math.max(parseInt(day_from, 10) || 1, 1), 60);
+  const to = Math.min(Math.max(parseInt(day_to, 10) || from, from), 60);
+  // clarifying answers: only when the client has been through the round (answers
+  // present, even as an empty array) — absent means "ask me first"
+  const answerList = Array.isArray(answers)
+    ? answers.slice(0, 4).map((a) => ({
+        question: String(a?.question || '').slice(0, 160),
+        answer: String(a?.answer || '').slice(0, 240), // a multi answer carries several regions
+        // the options actually ticked, so the build can tell them from typed text
+        picked: (Array.isArray(a?.picked) ? a.picked : [])
+          .slice(0, 5).map((p) => String(p).slice(0, 60).trim()).filter(Boolean),
+      })).filter((a) => a.question && a.answer)
+    : null;
+  return { interestList, freeText, from, to, answerList };
+}
+
+// a build's daily quota, per user: admins are counted (the panel shows the number)
+// but never capped — the rule every AI quota here follows
+async function buildQuota(req) {
+  const today = new Date().toISOString().slice(0, 10);
+  const usage = aiUsage.get(req.user.id);
+  const used = usage && usage.date === today ? usage.count : 0;
+  if (used >= AI_DAILY_LIMIT && !(await isAdmin(req))) return null;
+  return () => aiUsage.set(req.user.id, { date: today, count: used + 1 });
+}
+
+const buildErrorMessage = (err) => err.name === 'AbortError'
+  ? 'ה-AI התעכב יותר מדי — נסו שוב'
+  : 'ה-AI לא הצליח לבנות את המסלול — נסו שוב עוד רגע';
+
 router.post('/api/ai/itinerary', authRequired, async (req, res) => {
   try {
     if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'בניית AI לא זמינה כרגע' });
+    const spend = await buildQuota(req);
+    if (!spend) return res.status(429).json({ error: 'הגעתם למכסת בניות ה-AI היומית — נסו שוב מחר' });
 
-    const today = new Date().toISOString().slice(0, 10);
-    const usage = aiUsage.get(req.user.id);
-    const used = usage && usage.date === today ? usage.count : 0;
-    // admins still get counted (the panel shows the number) but are never capped
-    if (used >= AI_DAILY_LIMIT && !(await isAdmin(req))) {
-      return res.status(429).json({ error: 'הגעתם למכסת בניות ה-AI היומית — נסו שוב מחר' });
-    }
-
-    const { destinations, area, day_from, day_to, interests, notes, answers, want_description } = req.body || {};
-    const interestList = (Array.isArray(interests) ? interests : [])
-      .slice(0, 15).map((s) => String(s).slice(0, 40).trim()).filter(Boolean);
-    const freeText = notes ? String(notes).slice(0, 500).trim() : '';
+    const { destinations, area, want_description } = req.body || {};
+    const { interestList, freeText, from, to, answerList } = buildParams(req.body);
     const dests = cleanDestinations(destinations);
     if (!dests.length) return res.status(400).json({ error: 'חסרים יעדים' });
-    const from = Math.min(Math.max(parseInt(day_from, 10) || 1, 1), 60);
-    const to = Math.min(Math.max(parseInt(day_to, 10) || from, from), 60);
     if (to - from + 1 > 30) return res.status(400).json({ error: 'אפשר לבנות עד 30 ימים בבקשה אחת' });
-    const areaNames = dests.map((d) => d.name);
-    if (area && !areaNames.includes(area)) return res.status(400).json({ error: 'אזור לא מוכר' });
 
     // one trace per build request — every OpenAI call it spawns shares this id,
     // attributed to the same pseudonymous identity the client-side analytics uses
     const ph = { distinctId: 'user_' + req.user.id, traceId: randomUUID() };
-
-    // clarifying-questions round: for full multi-area builds, or for a single broad
-    // destination — a country pick (name === country) or unclassified free text —
-    // where the days may not stretch across it. Only when the client hasn't been
-    // through it yet (answers absent, even as an empty array). No daily quota cost.
-    const answerList = Array.isArray(answers)
-      ? answers.slice(0, 4).map((a) => ({
-          question: String(a?.question || '').slice(0, 160),
-          answer: String(a?.answer || '').slice(0, 240), // a multi answer carries several regions
-          // the options actually ticked, so the build can tell them from typed text
-          picked: (Array.isArray(a?.picked) ? a.picked : [])
-            .slice(0, 5).map((p) => String(p).slice(0, 60).trim()).filter(Boolean),
-        })).filter((a) => a.question && a.answer)
-      : null;
-    const broadSingle = dests.length === 1 && (!dests[0].country || dests[0].country === dests[0].name);
-
-    // region-edit screen round-trip (long trips): the wizard already showed the AI's
-    // split and the traveller's day→area painting comes back as `plan` — used
-    // verbatim, so no region question and no re-allocation below. Ignored for
-    // per-area rebuilds (`area`), which already know their day range.
-    let presetPlan = null;
-    if (!area && Array.isArray(req.body.plan)) {
-      presetPlan = cleanPresetPlan(req.body.plan, { from, to, areaNames, broadSingle });
-      if (!presetPlan) return res.status(400).json({ error: 'חלוקת האזורים לא תקינה — נסו שוב' });
-    }
-
-    if (!area && (dests.length >= 2 || broadSingle) && answerList === null) {
-      const questions = await aiClarify({
-        dests, from, to, interestList, freeText, ph,
-        presetAreas: presetPlan ? [...new Set(presetPlan.map((b) => b.area))] : null,
+    let built;
+    try {
+      built = await buildItinerary({
+        dests, area: area || null, from, to, interestList, freeText, answerList,
+        presetRaw: Array.isArray(req.body.plan) ? req.body.plan : null,
+        wantMeta: !!(want_description || req.body.want_meta), ph,
       });
-      if (questions.length) return res.json({ questions });
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      throw err;
     }
+    if (built.questions) return res.json({ questions: built.questions }); // no quota for asking
+    if (!built.items.length) return res.status(502).json({ error: 'ה-AI החזיר מסלול ריק — נסו שוב' });
 
-    // a country is always built as areas: the ones the traveller ticked, or — when they
-    // skipped the question or never saw it — the ones the AI breaks it into. They stand
-    // in for destinations while building, so a one-country trip gets the same contiguous
-    // blocks and transfer stops as a multi-city one. The trip's own destination list
-    // is untouched; only the response's `plan` reports the areas back.
-    const regions = broadSingle && !area && !presetPlan
-      ? (regionsFromPicked(dests[0], answerList)
-        || await aiCountryRegions({ dest: dests[0], from, to, interestList, freeText, answers: answerList, ph }))
-      : null;
-    // preset areas carry their cities with them — they round-tripped from /plan-regions
-    const regionCities = presetPlan
-      ? new Map(presetPlan.map((b) => [b.area, b.cities]))
-      : new Map((regions || []).map((r) => [r.name, r.cities]));
-    let buildDests;
-    if (presetPlan) {
-      const names = [...new Set(presetPlan.map((b) => b.area))];
-      // for a broad single destination the painted areas stand in for destinations,
-      // exactly like AI-proposed regions; for a multi-destination trip the areas ARE
-      // the destinations — and painting one over entirely legitimately drops it
-      buildDests = broadSingle
-        ? names.map((n) => ({
-          name: n, country: dests[0].country || dests[0].name, lat: null, lon: null, cities: regionCities.get(n),
-        }))
-        : dests.filter((d) => names.includes(d.name));
-    } else {
-      buildDests = regions
-        ? regions.map((r) => ({
-          name: r.name, country: dests[0].country || dests[0].name, lat: null, lon: null, cities: r.cities,
-        }))
-        : dests;
-    }
-
-    // build the per-area blocks: the painted preset, a single requested area, or an
-    // AI-decided allocation (order + days per city). The AI plans; the server only
-    // verifies that the blocks are contiguous — falling back to an even split if invalid.
-    let blocks;
-    if (presetPlan) {
-      blocks = presetPlan.map((b) => ({ dest: buildDests.find((d) => d.name === b.area), from: b.from, to: b.to }));
-    } else if (area) {
-      blocks = [{ dest: dests.find((d) => d.name === area), from, to }];
-    } else if (buildDests.length === 1) {
-      blocks = [{ dest: buildDests[0], from, to }];
-    } else {
-      blocks = await aiPlanBlocks({ dests: buildDests, from, to, interestList, freeText, answers: answerList, ph })
-        || allocateDays(orderByProximity(buildDests), from, to);
-    }
-
-    const wantMeta = want_description || req.body.want_meta;
-    const descPromise = wantMeta
-      ? aiTripMeta({ dests, from, to, interestList, freeText, answers: answerList, ph })
-      : Promise.resolve(null);
-
-    const [results, meta] = await Promise.all([
-      Promise.all(blocks.map((b, i) =>
-        aiGenerateBlock({
-          dests: buildDests,
-          area: b.dest.name,
-          from: b.from,
-          to: b.to,
-          interestList,
-          freeText,
-          answers: answerList,
-          transferFrom: i > 0 ? blocks[i - 1].dest.name : null,
-          ph,
-        })
-      )),
-      descPromise,
-    ]);
-    const items = results.flat()
-      .sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')))
-      .slice(0, 200);
-    if (!items.length) return res.status(502).json({ error: 'ה-AI החזיר מסלול ריק — נסו שוב' });
-
-    aiUsage.set(req.user.id, { date: today, count: used + 1 });
+    spend();
     res.json({
-      items,
-      // cities ride along so the client can place an area on the map — a region name
-      // on its own geocodes to nothing, or to the wrong continent
-      plan: blocks.map((b) => ({
-        area: b.dest.name, from: b.from, to: b.to, cities: regionCities.get(b.dest.name) || [],
-      })),
-      meta,
-      description: meta ? meta.description : null, // back-compat
+      items: built.items,
+      plan: built.plan,
+      meta: built.meta,
+      description: built.meta ? built.meta.description : null, // back-compat
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.name === 'AbortError' ? 'ה-AI התעכב יותר מדי — נסו שוב' : 'ה-AI לא הצליח לבנות את המסלול — נסו שוב עוד רגע' });
+    res.status(500).json({ error: buildErrorMessage(err) });
   }
 });
 
@@ -1650,7 +1700,12 @@ async function aiEditOpsRaw({ title, destText, dests, days, items, prompt, descr
 // means "leave the field alone" — and leaving the OLD pin under a repurposed stop is
 // exactly the wrong-pin problem this exists to stop ('' clears the pin downstream).
 async function aiEditOps(args) {
-  const result = await aiEditOpsRaw(args);
+  return verifyEditOps(await aiEditOpsRaw(args), args);
+}
+
+// the verification half on its own: the planning chat's turns produce ops through a
+// different prompt, and meet exactly this check before anything is proposed or written
+async function verifyEditOps(result, args) {
   if (!result || !Array.isArray(result.ops) || !result.ops.length) return result;
   const byId = new Map((args.items || []).map((it) => [it.id, it]));
   // an op whose place_query is a "no place" string ("null", "none") meant a cleared
@@ -1709,6 +1764,80 @@ async function aiEditOps(args) {
     e.op.google_place_id = e.place_query != null ? (e.google_place_id || null) : null;
   }
   return result;
+}
+
+// Writing a set of ops into the trip, inside the caller's transaction: what the AI
+// editor does with the model's answer, and what the planning chat does with a proposal
+// the traveller approved (or, in its automatic mode, with every proposal as it lands).
+// Returns the counts and the exact inverse of what was written — computed from the
+// pre-edit rows, so an undo never touches a stop a co-planner changed meanwhile.
+async function applyEditOps(client, trip, items, ops, { area = null, from = 1, to = null } = {}) {
+  const last = to || trip.days;
+  const byId = new Map(items.map((it) => [it.id, it]));
+  const inScope = (day) => !area || (day >= from && day <= last);
+  let added = 0, updated = 0, removed = 0;
+  const undoOps = { added: [], updated: [], deleted: [] };
+  for (const op of ops) {
+    if (op.action === 'delete' && byId.has(op.id)) {
+      if (!inScope(byId.get(op.id).day_number)) continue;
+      undoOps.deleted.push(byId.get(op.id));
+      await client.query('DELETE FROM trip_items WHERE id = $1 AND trip_id = $2', [op.id, trip.id]);
+      removed++;
+    } else if (op.action === 'update' && byId.has(op.id)) {
+      const target = byId.get(op.id);
+      if (!inScope(target.day_number)) continue;
+      // a move must also land inside the scope, else drop the whole op
+      const newDay = op.day_number != null ? clampDay(op.day_number, trip.days, target.day_number) : null;
+      if (newDay != null && !inScope(newDay)) continue;
+      const sets = [];
+      const vals = [];
+      const pre = {}; // the touched columns' pre-edit values, for the undo
+      const add = (col, val) => { vals.push(val); sets.push(`${col} = $${vals.length}`); pre[col] = target[col]; };
+      if (newDay != null) add('day_number', newDay);
+      if (op.time_label != null) add('time_label', cleanTime(op.time_label));
+      if (op.title != null && String(op.title).trim()) add('title', String(op.title).slice(0, 200).trim());
+      if (op.note != null) add('note', String(op.note).slice(0, 300) || null);
+      if (op.place_query != null) {
+        add('place_query', cleanPlaceQuery(op.place_query));
+        // the stop points somewhere else now — verified coordinates when the place
+        // check produced them, cleared otherwise (stale ones would pin the old spot)
+        add('lat', Number.isFinite(op.lat) ? op.lat : null);
+        add('lon', Number.isFinite(op.lon) ? op.lon : null);
+        add('google_place_id', op.google_place_id ? String(op.google_place_id).slice(0, 300) : null);
+      }
+      if (op.category != null && AI_CATEGORIES.includes(op.category)) add('category', op.category);
+      if (op.area != null) add('area', String(op.area).slice(0, 80) || null);
+      if (op.cost != null) add('cost', cleanCost(op.cost));
+      if (sets.length) {
+        vals.push(op.id, trip.id);
+        await client.query(
+          `UPDATE trip_items SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND trip_id = $${vals.length}`, vals
+        );
+        undoOps.updated.push({ id: op.id, fields: pre });
+        updated++;
+      }
+    } else if (op.action === 'add' && op.title && String(op.title).trim()) {
+      const day = clampDay(op.day_number, trip.days, from);
+      if (!inScope(day)) continue;
+      const { rows: ins } = await client.query(
+        `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
+         RETURNING id`,
+        [trip.id, day, cleanTime(op.time_label), String(op.title).slice(0, 200).trim(),
+         op.note ? String(op.note).slice(0, 300) : null,
+         cleanPlaceQuery(op.place_query),
+         AI_CATEGORIES.includes(op.category) ? op.category : 'אטרקציה',
+         op.area ? String(op.area).slice(0, 80) : (area || null),
+         Number.isFinite(op.lat) ? op.lat : null,
+         Number.isFinite(op.lon) ? op.lon : null,
+         op.google_place_id ? String(op.google_place_id).slice(0, 300) : null,
+         cleanCost(op.cost)]
+      );
+      undoOps.added.push(ins[0].id);
+      added++;
+    }
+  }
+  return { added, updated, removed, undoOps };
 }
 
 router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
@@ -1771,75 +1900,8 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
     if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לעבד את הבקשה — נסו שוב עוד רגע' });
     aiEditUsage.set(quotaKey, { date: today, count: used + 1 }); // the model call is the budgeted resource
 
-    const byId = new Map(items.map((it) => [it.id, it]));
-    const inScope = (day) => !area || (day >= from && day <= to);
-    let added = 0, updated = 0, removed = 0;
-    // the exact inverse of what this edit does, computed from the server's own
-    // pre-edit rows — the client undo replays it without guessing from a snapshot
-    // (a snapshot diff would delete stops a co-planner added concurrently)
-    const undoOps = { added: [], updated: [], deleted: [] };
     await client.query('BEGIN');
-    for (const op of result.ops) {
-      if (op.action === 'delete' && byId.has(op.id)) {
-        if (!inScope(byId.get(op.id).day_number)) continue;
-        undoOps.deleted.push(byId.get(op.id));
-        await client.query('DELETE FROM trip_items WHERE id = $1 AND trip_id = $2', [op.id, trip.id]);
-        removed++;
-      } else if (op.action === 'update' && byId.has(op.id)) {
-        const target = byId.get(op.id);
-        if (!inScope(target.day_number)) continue;
-        // a move must also land inside the scope, else drop the whole op
-        const newDay = op.day_number != null ? clampDay(op.day_number, trip.days, target.day_number) : null;
-        if (newDay != null && !inScope(newDay)) continue;
-        const sets = [];
-        const vals = [];
-        const pre = {}; // the touched columns' pre-edit values, for the undo
-        const add = (col, val) => { vals.push(val); sets.push(`${col} = $${vals.length}`); pre[col] = target[col]; };
-        if (newDay != null) add('day_number', newDay);
-        if (op.time_label != null) add('time_label', cleanTime(op.time_label));
-        if (op.title != null && String(op.title).trim()) add('title', String(op.title).slice(0, 200).trim());
-        if (op.note != null) add('note', String(op.note).slice(0, 300) || null);
-        if (op.place_query != null) {
-          add('place_query', cleanPlaceQuery(op.place_query));
-          // the stop points somewhere else now — verified coordinates when the place
-          // check produced them, cleared otherwise (stale ones would pin the old spot)
-          add('lat', Number.isFinite(op.lat) ? op.lat : null);
-          add('lon', Number.isFinite(op.lon) ? op.lon : null);
-          add('google_place_id', op.google_place_id ? String(op.google_place_id).slice(0, 300) : null);
-        }
-        if (op.category != null && AI_CATEGORIES.includes(op.category)) add('category', op.category);
-        if (op.area != null) add('area', String(op.area).slice(0, 80) || null);
-        if (op.cost != null) add('cost', cleanCost(op.cost));
-        if (sets.length) {
-          vals.push(op.id, trip.id);
-          await client.query(
-            `UPDATE trip_items SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND trip_id = $${vals.length}`, vals
-          );
-          undoOps.updated.push({ id: op.id, fields: pre });
-          updated++;
-        }
-      } else if (op.action === 'add' && op.title && String(op.title).trim()) {
-        const day = clampDay(op.day_number, trip.days, from);
-        if (!inScope(day)) continue;
-        const { rows: ins } = await client.query(
-          `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
-           RETURNING id`,
-          [trip.id, day, cleanTime(op.time_label), String(op.title).slice(0, 200).trim(),
-           op.note ? String(op.note).slice(0, 300) : null,
-           cleanPlaceQuery(op.place_query),
-           AI_CATEGORIES.includes(op.category) ? op.category : 'אטרקציה',
-           op.area ? String(op.area).slice(0, 80) : (area || null),
-           Number.isFinite(op.lat) ? op.lat : null,
-           Number.isFinite(op.lon) ? op.lon : null,
-           op.google_place_id ? String(op.google_place_id).slice(0, 300) : null,
-           cleanCost(op.cost)]
-        );
-        undoOps.added.push(ins[0].id);
-        added++;
-      }
-    }
-
+    const { added, updated, removed, undoOps } = await applyEditOps(client, trip, items, result.ops, { area, from, to });
     // the description only follows the itinerary: an edit that changed nothing can't
     // have made it wrong, so it never gets rewritten on a no-op
     const changedItinerary = added + updated + removed > 0;
@@ -1977,8 +2039,18 @@ async function tripRecs({ trip, items, message, history, ph }) {
     ph,
   });
   if (!raw) return null;
+  const { cards: survivors, dropped } = await verifyRecCards(raw.cards, { dests, areaNames });
+  return {
+    text: String(raw.text || '').trim().slice(0, 1200),
+    cards: survivors,
+    dropped,
+  };
+}
 
-  const cards = (Array.isArray(raw.cards) ? raw.cards : []).slice(0, 4).map((c) => ({
+// model-proposed place cards → verified, geolocated, photographed cards; what the
+// recs chat and the planning chat both show. Returns the survivors and how many fell.
+async function verifyRecCards(rawCards, { dests, areaNames }) {
+  const cards = (Array.isArray(rawCards) ? rawCards : []).slice(0, 4).map((c) => ({
     title: String(c.title || '').trim().slice(0, 80),
     blurb: String(c.blurb || '').trim().slice(0, 240),
     category: REC_CATS.includes(c.category) ? c.category : 'אטרקציה',
@@ -2021,11 +2093,7 @@ async function tripRecs({ trip, items, message, history, ph }) {
     if (p) { c.photos = [p.url]; c.photo_credit = p.credit; }
   }));
 
-  return {
-    text: String(raw.text || '').trim().slice(0, 1200),
-    cards: survivors,
-    dropped: cards.length - survivors.length,
-  };
+  return { cards: survivors, dropped: cards.length - survivors.length };
 }
 
 router.post('/api/trips/code/:code/recs', authRequired, async (req, res) => {
@@ -2087,5 +2155,26 @@ module.exports.repairPlaces = repairPlaces;
 module.exports.foreignCountryStops = foreignCountryStops;
 module.exports.tripCountryCodes = tripCountryCodes;
 module.exports.tripRecs = tripRecs;
+// the planning chat (routes/plan.js) runs the same build and the same op-writer
+// inside a draft trip — one pipeline, so a chat-built trip is checked exactly like a
+// wizard-built one
+module.exports.buildItinerary = buildItinerary;
+module.exports.buildQuota = buildQuota;
+module.exports.buildErrorMessage = buildErrorMessage;
+module.exports.applyEditOps = applyEditOps;
+module.exports.verifyEditOps = verifyEditOps;
+module.exports.verifyRecCards = verifyRecCards;
+module.exports.REC_CATS = REC_CATS;
+module.exports.aiJson = aiJson;
+module.exports.aiClarify = aiClarify;
+module.exports.aiTripMeta = aiTripMeta;
+module.exports.cleanPresetPlan = cleanPresetPlan;
+module.exports.destDescFull = destDescFull;
+module.exports.cleanTime = cleanTime;
+module.exports.cleanPlaceQuery = cleanPlaceQuery;
+module.exports.cleanCost = cleanCost;
+module.exports.AI_CATEGORIES = AI_CATEGORIES;
+module.exports.AI_MODEL_STRONG = AI_MODEL_STRONG;
+module.exports.AI_MODEL_WEAK = AI_MODEL_WEAK;
 // routes/trips.js runs this after a publish-to-gallery toggle — fire-and-forget
 module.exports.proofreadPublicTripCopy = proofreadPublicTripCopy;

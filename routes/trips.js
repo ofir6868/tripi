@@ -3,7 +3,7 @@ const { pool } = require('../lib/db');
 const { authRequired, authOptional, isAdmin } = require('../lib/auth');
 const {
   uniqueShareCode, tripFields, newInviteToken, isParticipant, tripWithEditAuth,
-  numOrNull, moneyOrNull, cleanDestinations,
+  numOrNull, moneyOrNull, cleanDestinations, cleanPlanState,
 } = require('../lib/trips');
 const { rateLimiter } = require('../lib/rate-limit');
 const { notifyTripAsync } = require('../lib/push');
@@ -56,7 +56,7 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
   try {
     if (codeMissLimit.blocked(req.ip)) return res.status(429).json({ error: CODE_MISS_ERROR });
     const { rows } = await pool.query(
-      `SELECT ${tripFields}, invite_token FROM trips WHERE share_code = $1`, [req.params.code]
+      `SELECT ${tripFields}, invite_token, plan_state FROM trips WHERE share_code = $1`, [req.params.code]
     );
     if (!rows[0]) {
       codeMissLimit.hit(req.ip);
@@ -72,7 +72,10 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
       trip.invite_token = newInviteToken();
       await pool.query('UPDATE trips SET invite_token = $1 WHERE id = $2', [trip.invite_token, trip.id]);
     }
-    if (!canEdit) delete trip.invite_token; // the invite link is only revealed to participants
+    if (!canEdit) {
+      delete trip.invite_token; // the invite link is only revealed to participants
+      delete trip.plan_state; // and so is the planning chat's memory — it holds what they told the AI
+    }
     const [items, hotels, budget, expenses, participants] = await Promise.all([
       pool.query('SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]),
       pool.query('SELECT * FROM trip_hotels WHERE trip_id = $1 ORDER BY night_start, id', [trip.id]),
@@ -778,6 +781,16 @@ router.patch('/api/trips/:id', authRequired, async (req, res) => {
     if (b.description !== undefined) {
       add('description', b.description == null ? null : String(b.description).slice(0, 500).trim() || null);
     }
+    // the planning chat promotes the areas it settled with the traveller into the
+    // trip's destinations (with coordinates the browser geocoded) — same shape the
+    // wizard writes at creation, same sanitizer
+    if (b.destinations !== undefined) {
+      const dests = cleanDestinations(b.destinations);
+      if (!dests.length) return res.status(400).json({ error: 'צריך לפחות יעד אחד' });
+      add('destinations', JSON.stringify(dests));
+      add('destination', dests.map((d) => d.name).join(' · ').slice(0, 160));
+      add('country', [...new Set(dests.map((d) => d.country).filter(Boolean))].join(', ') || null);
+    }
     if (!sets.length) return res.status(400).json({ error: 'אין מה לעדכן' });
     vals.push(req.params.id, req.user.id, admin);
     const idP = vals.length - 2, userP = vals.length - 1, adminP = vals.length;
@@ -830,7 +843,7 @@ router.post('/api/trips', authRequired, async (req, res) => {
   let client = null;
   try {
     client = await pool.connect();
-    const { title, destination, country, description, cover_image, start_date, end_date, days, emoji, items, destinations, draft } = req.body || {};
+    const { title, destination, country, description, cover_image, start_date, end_date, days, emoji, items, destinations, draft, plan_state } = req.body || {};
     const dests = cleanDestinations(destinations);
     // destination display text: explicit field, or derived from the destinations list
     const destText = (destination || dests.map((d) => d.name).join(' · ')).trim();
@@ -839,12 +852,15 @@ router.post('/api/trips', authRequired, async (req, res) => {
     await client.query('BEGIN');
     const code = await uniqueShareCode(client);
     const nDays = Math.min(Math.max(parseInt(days, 10) || 1, 1), 60);
+    // the wizard's style answers ride into the draft's planning memory, so the
+    // planning chat opens already knowing what these travellers came for
+    const planState = plan_state ? cleanPlanState(plan_state) : null;
     const { rows } = await client.query(
-      `INSERT INTO trips (owner_id, title, destination, country, description, cover_image, start_date, end_date, days, share_code, emoji, destinations, invite_token, is_draft)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING ${tripFields}, invite_token`,
+      `INSERT INTO trips (owner_id, title, destination, country, description, cover_image, start_date, end_date, days, share_code, emoji, destinations, invite_token, is_draft, plan_state)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING ${tripFields}, invite_token`,
       [req.user.id, title.trim(), destText.slice(0, 160), countryText, description || null,
        cover_image || null, start_date || null, end_date || null, nDays, code, emoji || null,
-       JSON.stringify(dests), newInviteToken(), !!draft]
+       JSON.stringify(dests), newInviteToken(), !!draft, JSON.stringify(planState || {})]
     );
     const trip = rows[0];
     // one multi-row insert — an AI-built trip arrives with a hundred-plus stops,

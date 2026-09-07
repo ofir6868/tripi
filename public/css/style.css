@@ -3257,6 +3257,60 @@ body.page-open { overflow: hidden; }
 .chat-send .ic { width: 20px; height: 20px; transform: scaleX(-1); } /* the paper plane flies the RTL way */
 .chat-send:active { transform: scale(.94); }
 
+/* ---------- תכנון: the planning chat's change cards and mode switch ---------- */
+
+/* a turn's changes to the itinerary — proposed (manual) or done (auto), same card */
+.plan-card {
+  align-self: flex-start; width: min(560px, 100%);
+  border: 1px solid var(--glass-border); border-radius: 16px; background: var(--glass);
+  padding: 12px 14px;
+}
+.plan-card.pc-pending { border-color: rgba(255, 180, 95, .45); box-shadow: 0 0 0 3px rgba(255, 180, 95, .08); }
+.plan-card.pc-applied { border-color: rgba(143, 216, 196, .45); }
+.plan-card.pc-rejected, .plan-card.pc-undone { opacity: .7; }
+.pc-head { font-weight: 800; font-size: .9rem; margin-bottom: 8px; }
+.pc-pending .pc-head { color: var(--amber); }
+.pc-applied .pc-head { color: var(--mint); }
+.pc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.pc-row { display: flex; gap: 9px; align-items: flex-start; font-size: .9rem; line-height: 1.4; }
+.pc-em { flex: none; width: 1.4em; text-align: center; }
+.pc-text { min-width: 0; display: flex; flex-direction: column; }
+.pc-text small { color: var(--paper-dim); font-size: .78rem; }
+.pc-detail { color: var(--paper-dim); font-size: .82rem; }
+.pc-delete b { text-decoration: line-through; text-decoration-color: rgba(255, 136, 150, .8); }
+.pc-foot { display: flex; gap: 8px; margin-top: 12px; }
+.pc-foot .btn { padding: 8px 16px; font-size: .88rem; }
+.pc-foot .btn .ic { width: 16px; height: 16px; stroke-width: 2.5; }
+.pc-undo {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: 1px solid rgba(255, 255, 255, .25); border-radius: 999px;
+  color: var(--paper); font-family: var(--font-body); font-size: .82rem; font-weight: 700;
+  padding: 6px 14px; cursor: pointer;
+}
+.pc-undo .ic { width: 15px; height: 15px; }
+.pc-undo:hover:not(:disabled) { border-color: var(--amber); color: var(--amber); }
+.pc-undo:disabled, .pc-foot .btn:disabled { opacity: .6; cursor: default; }
+.pc-note { margin-top: 8px; font-size: .8rem; color: var(--paper-dim); }
+
+/* the composer's mode switch: ידני asks before every change, אוטומטי just does it */
+.plan-mode {
+  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  height: 46px; padding: 0 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--glass-border); background: var(--glass);
+  color: var(--paper-dim); font: inherit; font-size: .8rem; font-weight: 700; white-space: nowrap;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.plan-mode .ic { width: 16px; height: 16px; }
+.plan-mode.auto { color: var(--mint); border-color: rgba(143, 216, 196, .45); background: rgba(143, 216, 196, .1); }
+.plan-mode.manual { color: var(--amber); border-color: rgba(255, 180, 95, .4); background: rgba(255, 180, 95, .08); }
+.chat-chips[hidden] { display: none; }
+/* the one chip that acts instead of replying: the automatic completion of the rest */
+.chat-chip.chip-build { border-color: rgba(143, 216, 196, .5); background: rgba(143, 216, 196, .1); color: var(--mint); }
+@media (max-width: 420px) {
+  .plan-mode span { display: none; }
+  .plan-mode { width: 46px; padding: 0; justify-content: center; }
+}
+
 /* ---------- sheets: bottom sheet on phones, centered card on desktop ---------- */
 
 .tp-sheet {

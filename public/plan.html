@@ -105,8 +105,8 @@
       </div>
     </div>
 
-    <!-- step 3: style + the AI-first CTA. The build IS the creation — the trip
-         lands on its own page as a draft the moment it's ready -->
+    <!-- step 3: style + the AI-first CTA. The trip is created as an empty draft and
+         opens straight into the planning chat, where the AI builds it with the traveller -->
     <div class="wizard-panel glass" id="panel-3" style="display:none">
       <div class="panel-head">
         <button type="button" class="panel-back" id="back-to-2" aria-label="חזרה לתאריכים">
@@ -123,55 +123,16 @@
         <div class="interest-row" id="interest-row"></div>
         <label class="ai-prefs-label" for="ai-notes">משהו נוסף שכדאי לדעת?</label>
         <textarea id="ai-notes" maxlength="500" rows="2" placeholder="למשל: טסים עם שני ילדים קטנים, אוהבים אוכל רחוב, קצב רגוע…"></textarea>
-        <small class="ai-prefs-hint">הטקסט נשלח לבינה המלאכותית שבונה את המסלול — בלי שמות, טלפונים או פרטים רפואיים. <a href="/privacy" target="_blank" rel="noopener">למה</a></small>
+        <small class="ai-prefs-hint">הטקסט נשלח לבינה המלאכותית שמתכננת איתכם את המסלול — בלי שמות, טלפונים או פרטים רפואיים. <a href="/privacy" target="_blank" rel="noopener">למה</a></small>
       </div>
       <div class="ai-status" id="ai-status"></div>
       <div class="wizard-nav">
         <span></span>
-        <button class="btn btn-amber btn-lg" id="ai-full">✨ בונים ויוצרים את הטיול</button>
+        <button class="btn btn-amber btn-lg" id="ai-full">✨ מתכננים את הטיול עם ה-AI</button>
       </div>
       <button type="button" class="manual-link" id="go-manual">בלי AI — יוצרים טיול ריק ובונים אותו ידנית ›</button>
     </div>
 
-    <!-- step 3.5, long trips only: the AI's recommended day→area split painted on a
-         month calendar, editable before a single stop is generated. Still shown as
-         step 3 in the progress bar — it replaces panel-3, not the step. -->
-    <div class="wizard-panel glass" id="panel-3b" style="display:none">
-      <div class="panel-head">
-        <button type="button" class="panel-back" id="back-to-3" aria-label="חזרה לסגנון">
-          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-        </button>
-        <div class="panel-head-text">
-          <h2 id="region-question">אילו אזורים משלבים? 🗺️</h2>
-          <p class="region-sub">זו החלוקה שה-AI ממליץ עליה — אפשר לצבוע ימים ולשנות, או פשוט להמשיך</p>
-        </div>
-      </div>
-      <div class="region-cal" id="region-cal"></div>
-      <div class="region-palette" id="region-palette"></div>
-      <div class="form-error" id="err-3b"></div>
-      <div class="wizard-nav">
-        <span></span>
-        <button class="btn btn-amber btn-lg" id="regions-go">✨ בונים עם החלוקה הזאת</button>
-      </div>
-      <button type="button" class="manual-link" id="regions-skip">דילוג — ממשיכים עם ההמלצה כמו שהיא ›</button>
-    </div>
-
-  </div>
-
-  <!-- full-screen AI planning overlay: breathing amber edge-glow + blur -->
-  <div class="ai-overlay" id="ai-overlay" aria-live="polite">
-    <div class="ai-glow g1"></div>
-    <div class="ai-glow g2"></div>
-    <div class="ai-overlay-content">
-      <div class="ai-orb">🧭</div>
-      <h2 class="ai-overlay-title" id="ai-overlay-title">ה-AI מתכנן את הטיול שלכם</h2>
-      <div class="ai-overlay-sub" id="ai-overlay-sub">רגע של קסם…</div>
-      <div class="ai-rows" aria-hidden="true">
-        <div class="ai-row"><span class="ar-dot"></span><span class="skl"></span><span class="ar-chip"></span></div>
-        <div class="ai-row"><span class="ar-dot"></span><span class="skl"></span></div>
-        <div class="ai-row"><span class="ar-dot"></span><span class="skl"></span><span class="ar-chip mint"></span></div>
-      </div>
-    </div>
   </div>
 
   <footer class="site-footer">

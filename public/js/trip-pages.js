@@ -305,5 +305,14 @@ const TripPages = (() => {
   // hide the open page without touching history — for a sibling page taking its place
   const dismiss = () => hide();
 
-  return { register, open, close, dismiss, activate: setActive, current: () => current, openFromHash, initDock, badge, toast, sheet, closeSheet };
+  // a sibling page taking the open one's place AND its history entry — saving a draft
+  // turns the planning chat into the recommendations chat under the same tab, and
+  // back should still close the tab, not reopen the page that no longer applies
+  function replace(name) {
+    if (!pages[name]) return;
+    history.replaceState({ tripmakerPage: name }, '', `#${name}`);
+    show(name);
+  }
+
+  return { register, open, close, dismiss, replace, activate: setActive, current: () => current, openFromHash, initDock, badge, toast, sheet, closeSheet };
 })();

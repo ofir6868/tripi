@@ -1,4 +1,4 @@
-// Walks the trip page's new dock, המלצות and מסמכים flows on a phone and a desktop
+// Walks the trip page's dock, המלצות, תכנון and מסמכים flows on a phone and a desktop
 // viewport, screenshotting each step. Needs the preview server up and Playwright's
 // chromium (NODE_PATH=$(npm root -g) node tools/preview/shots.js http://localhost:4173 out/).
 const { chromium, devices } = require('playwright');
@@ -82,6 +82,26 @@ const login = { token: 'demo', user: { id: 1, name: 'רגב כהן', email: 'dem
   await page.locator('.show-rest-btn').click({ timeout: 1000 }).catch(() => {});
   const added = await page.locator('#days-container .item-card', { hasText: 'סיור אוכל רחוב' }).count();
   console.log('added stop visible in itinerary:', added);
+  // the draft's planning chat: opening question → proposal card → approved
+  await page.goto(`${BASE}/trip/000001#plan`);
+  await page.waitForSelector('#plan-thread .chat-bubble:not(.chat-typing)', { timeout: 15000 });
+  await page.waitForTimeout(2200);
+  await shot(page, 'p8-plan-open');
+  for (const reply of ['שניהם', 'שלב אחרי שלב', 'מתאים, נמשיך', 'נחיתה בטוקיו, חזרה מאוסקה']) {
+    await page.fill('#plan-input', reply);
+    await page.press('#plan-input', 'Enter');
+    await page.waitForFunction(() => !document.querySelector('#plan-thread .chat-typing'));
+  }
+  await page.waitForSelector('.plan-card.pc-pending', { timeout: 6000 });
+  await shot(page, 'p9-plan-proposal');
+  await page.click('.pc-accept');
+  await page.waitForSelector('.plan-card.pc-applied', { timeout: 6000 });
+  await page.waitForTimeout(300);
+  await shot(page, 'p10-plan-applied');
+  await page.goto(`${BASE}/trip/731502`);
+  await page.waitForSelector('#days-container .item-card:not(.skl-stop)', { timeout: 15000 });
+  await page.waitForTimeout(2200);
+
   // back gesture: recs page open → back closes it
   await page.click('#recs-btn');
   await page.waitForTimeout(300);

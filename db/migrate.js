@@ -1,4 +1,4 @@
-// Migrations 2–15, in order. Idempotent — safe to run on every boot, and the server
+// Migrations 2–16, in order. Idempotent — safe to run on every boot, and the server
 // does (lib/db-bootstrap.js), so a replaced database catches up by itself.
 // Usage: DATABASE_URL=postgres://... node db/migrate.js
 require('../lib/env');
@@ -171,6 +171,24 @@ async function migrate(pool, log = console.log) {
   // place IDs are the one piece of Places data Google's terms allow storing
   // indefinitely — everything else (ratings, hours) must be fetched fresh off this id
   await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS google_place_id TEXT`);
+
+  log('Migration 16: the planning chat (a draft is planned in conversation before it is saved)...');
+  // plan_state is the chat's structured memory — the mode, the stage, the facts the
+  // traveller settled and the day→area split — kept on the trip rather than derived
+  // from the transcript, so the model never has to remember a decision from a turn
+  // that scrolled out of its window
+  await pool.query(`ALTER TABLE trips ADD COLUMN IF NOT EXISTS plan_state JSONB NOT NULL DEFAULT '{}'`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trip_plan_messages (
+      id SERIAL PRIMARY KEY,
+      trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+      user_id INT REFERENCES users(id) ON DELETE SET NULL,
+      role TEXT NOT NULL,
+      text TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT now()
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_plan_messages_trip ON trip_plan_messages(trip_id, id)`);
 
   log('Done.');
 }

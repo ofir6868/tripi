@@ -1305,12 +1305,38 @@
       trip, state, canEdit, inviteToken, requireSignup, addItem, dayDate,
       dests: tripDests.length ? tripDests.map((d) => d.name) : [trip.destination].filter(Boolean),
       defaultArea: (day) => (multiDest() ? defaultAreaForDay(day) : (tripDests[0]?.name || trip.destination || null)),
+      // the planning chat writes stops server-side and hands back the whole list —
+      // one swap, same repaint path as every other edit
+      replaceItems: (list) => {
+        tripItems = list;
+        aiUndo = null;
+        sortItems();
+        renderItinerary();
+        updateAmbient();
+        syncAiScopeRange();
+      },
+      // the areas the chat settled, promoted to destinations: the calendar's colors and
+      // the per-area editor read this list, so it changes in place
+      setDestinations: (list) => {
+        trip.destinations = list;
+        tripDests.splice(0, tripDests.length, ...list.filter((d) => d && d.name));
+        pageCtx.dests = tripDests.map((d) => d.name);
+        renderItinerary();
+      },
     };
     TripPages.register('recs', {
       title: '✨ המלצות <span class="tp-beta">בטא</span>',
       sub: 'דברו עם ה-AI על האזור והמקומות, וקבלו מידע, תמונות והמלצות לתחנות ומסלולים בטיול שלכם',
       render: (slots) => TripRecs.render(slots, pageCtx),
     });
+    // a draft plans in conversation; the same tab turns into המלצות the moment it's saved
+    if (trip.is_draft && canEdit) {
+      TripPages.register('plan', {
+        title: '🧭 תכנון <span class="tp-beta">בטא</span>',
+        sub: 'ה-AI בונה איתכם את הטיול — שואל מה שחשוב, מציע, ומכניס תחנות למסלול. במקביל אפשר לערוך הכול ידנית בדף הטיול',
+        render: (slots) => TripPlan.render(slots, pageCtx),
+      });
+    }
     TripPages.register('docs', {
       title: '🗂️ מסמכים',
       sub: 'כרטיסי טיסה, דרכון, הזמנות וביטוח — מתויגים לתיקיות אוטומטית, ונשמרים במכשיר הזה בלבד',
@@ -1432,6 +1458,16 @@
       cloneBtn.style.display = isDraft ? 'none' : '';
       const endcap = document.querySelector('.trip-endcap');
       if (endcap) endcap.style.display = isDraft ? 'none' : '';
+      // the chat tab: תכנון while planning, המלצות once saved
+      const planning = isDraft && canEdit;
+      const chatBtn = document.getElementById('recs-btn');
+      chatBtn.dataset.page = planning ? 'plan' : 'recs';
+      chatBtn.querySelector('.ab-label').textContent = planning ? 'תכנון' : 'המלצות';
+      chatBtn.title = planning
+        ? 'תכנון — ה-AI בונה איתכם את הטיול בשיחה'
+        : 'המלצות — שיחה עם ה-AI על האזור והמקומות';
+      if (!planning && TripPages.current() === 'plan') TripPages.replace('recs');
+      TripPages.activate(TripPages.current()); // the tab lights up under its new page name
     }
     applyDraftState();
 

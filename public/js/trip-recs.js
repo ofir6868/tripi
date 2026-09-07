@@ -62,13 +62,7 @@ const TripRecs = (() => {
       method: 'POST',
       body: JSON.stringify({ message: question, history }),
     });
-    const cards = (r.cards || []).map((c) => ({
-      title: c.title, blurb: c.blurb, cat: c.category, dur: c.duration, cost: c.cost,
-      time: c.time || null, area: c.area, place_query: c.place_query || null,
-      lat: c.lat ?? null, lon: c.lon ?? null, google_place_id: c.google_place_id || null,
-      photos: c.photos && c.photos.length ? c.photos : [fallbackPhoto(c.area, ctx)],
-      credit: c.photo_credit || null, added: null,
-    }));
+    const cards = (r.cards || []).map((c) => fromServerCard(c, ctx));
     return { kind: cards.length ? 'places' : 'text', text: r.text, cards, remaining: r.remaining };
   }
 
@@ -181,15 +175,7 @@ const TripRecs = (() => {
 
     function cyclePhoto(media) {
       const el = media.closest('.rec-card');
-      const c = msgs[+el.dataset.i]?.cards[+el.dataset.j];
-      if (!c || c.photos.length < 2) return;
-      const dots = [...media.querySelectorAll('.rec-dots i')];
-      const cur = dots.findIndex((d) => d.classList.contains('on'));
-      const next = (cur + 1) % c.photos.length;
-      const img = media.querySelector('img');
-      img.style.opacity = '';
-      img.src = c.photos[next];
-      dots.forEach((d, k) => d.classList.toggle('on', k === next));
+      cyclePhotoOf(media, msgs[+el.dataset.i]?.cards[+el.dataset.j]);
     }
 
     async function send(text) {
@@ -226,6 +212,29 @@ const TripRecs = (() => {
     foot.querySelectorAll('.chat-chip').forEach((b) => { b.onclick = () => send(b.textContent); });
 
     paint();
+  }
+
+  // the card's photo carousel: one tap, next photo
+  function cyclePhotoOf(media, c) {
+    if (!c || c.photos.length < 2) return;
+    const dots = [...media.querySelectorAll('.rec-dots i')];
+    const cur = dots.findIndex((d) => d.classList.contains('on'));
+    const next = (cur + 1) % c.photos.length;
+    const img = media.querySelector('img');
+    img.style.opacity = '';
+    img.src = c.photos[next];
+    dots.forEach((d, k) => d.classList.toggle('on', k === next));
+  }
+
+  // a server card → the shape the renderer and the day picker work with
+  function fromServerCard(c, ctx) {
+    return {
+      title: c.title, blurb: c.blurb, cat: c.category, dur: c.duration, cost: c.cost,
+      time: c.time || null, area: c.area, place_query: c.place_query || null,
+      lat: c.lat ?? null, lon: c.lon ?? null, google_place_id: c.google_place_id || null,
+      photos: c.photos && c.photos.length ? c.photos : [fallbackPhoto(c.area, ctx)],
+      credit: c.photo_credit || null, added: c.added || null,
+    };
   }
 
   // =================================================================
@@ -340,5 +349,6 @@ const TripRecs = (() => {
     });
   }
 
-  return { render, ask };
+  // the planning chat (trip-plan.js) shows the same cards and adds them the same way
+  return { render, ask, cardHtml, fromServerCard, cyclePhotoOf, addRecs, ICON };
 })();

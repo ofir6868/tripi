@@ -1,11 +1,11 @@
-// AI-first plan wizard: destinations → dates → style → the AI builds, and the trip
-// is CREATED on the spot — saved to the server as a draft and opened on its own
-// page (/trip/CODE) in edit mode. Publishing ("שמירת הטיול") happens over there.
+// AI-first plan wizard: destinations → dates → style → the trip is CREATED on the
+// spot — an empty draft on the server, opened on its own page (/trip/CODE) straight
+// into the planning chat (#plan), where the AI builds it with the traveller. The style
+// answers ride along as the chat's opening memory. Publishing ("שמירת הטיול") happens
+// over there.
 (() => {
   const DEFAULT_COVER = 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1200&q=80';
 
-  let aiMeta = { emoji: null, cover_image: null }; // chosen automatically by the AI
-  let aiDesc = null; // AI-written description — shown on the trip page, not here
   let destinations = []; // [{name, country, lat, lon}]
 
   // ---- destination autocomplete (multi-city chips) ----
@@ -303,7 +303,6 @@
     curStep = n;
     scheduleSave();
     Object.entries(panels).forEach(([k, p]) => { p.style.display = +k === n ? '' : 'none'; });
-    panel3b.style.display = 'none'; // the region sub-step never survives navigation
     document.querySelectorAll('.wp-step').forEach((s) => {
       const sn = +s.dataset.step;
       s.classList.toggle('active', sn === n);
@@ -328,40 +327,8 @@
   document.getElementById('to-step-3').onclick = () => goStep(3);
   document.getElementById('back-to-2').onclick = () => goStep(2);
 
-  // ---- full-screen AI overlay ----
-  const aiOverlay = document.getElementById('ai-overlay');
-  const AI_QUIPS = [
-    'מדפדף במדריכי טיולים…', 'בוחר את המסעדות הכי שוות…', 'מסדר את הימים בסדר הגיוני…',
-    'מוסיף נקודות תצפית…', 'מצייר את המסלול על המפה…', 'שוקל בין שוק למוזיאון…',
-    'מתייעץ עם מקומיים דמיוניים…', 'עוד רגע קטן — מלטש פרטים…',
-  ];
-  let quipTimer = null;
-  function showAiOverlay(label) {
-    document.getElementById('ai-overlay-title').textContent = `ה-AI מתכנן ${label}`;
-    const sub = document.getElementById('ai-overlay-sub');
-    let i = 0;
-    sub.textContent = AI_QUIPS[0];
-    clearInterval(quipTimer);
-    quipTimer = setInterval(() => {
-      sub.classList.add('swap');
-      setTimeout(() => {
-        i = (i + 1) % AI_QUIPS.length;
-        sub.textContent = AI_QUIPS[i];
-        sub.classList.remove('swap');
-      }, 400);
-    }, 2400);
-    aiOverlay.classList.add('open');
-    document.body.style.overflow = 'hidden';
-  }
-  function hideAiOverlay() {
-    clearInterval(quipTimer);
-    aiOverlay.classList.remove('open');
-    document.body.style.overflow = '';
-  }
-
-  // ---- AI builder ----
+  // ---- style ----
   const aiStatus = document.getElementById('ai-status');
-  let aiBusy = false;
 
   const INTERESTS = ['🍜 אוכל ומסעדות', '🥾 טבע והליכות', '🏛️ היסטוריה ותרבות', '🖼️ אמנות ומוזיאונים',
     '🏖️ חופים וים', '🌃 חיי לילה', '🛍️ קניות', '👨‍👩‍👧 מתאים לילדים', '💰 תקציב נמוך',
@@ -380,317 +347,29 @@
     interestRow.appendChild(b);
   });
 
-  // clarifying-questions dialog: fixed components (choice chips / free text),
-  // shown only when the AI decided it truly needs the answer
-  function askAiQuestions(questions, payload, label) {
-    const wrap = document.createElement('div');
-    wrap.className = 'modal-backdrop open';
-    wrap.innerHTML = `
-      <div class="modal glass">
-        <h2>שאלה קטנה לפני שבונים 🧭</h2>
-        <p class="modal-sub">התשובה תעזור ל-AI לסדר את הטיול נכון — ואפשר גם לדלג</p>
-        ${questions.map((q, i) => `
-          <div class="field aiq" data-i="${i}" data-q="${TRIPMAKER.esc(q.question)}"${q.multi ? ' data-multi="1"' : ''}>
-            <label>${TRIPMAKER.esc(q.question)}${q.multi ? ' <small>(אפשר לבחור כמה)</small>' : ''}</label>
-            ${q.type === 'choice'
-              ? `<div class="aiq-opts">${q.options.map((o) => `<button type="button" class="day-tab aiq-opt">${TRIPMAKER.esc(o)}</button>`).join('')}<button type="button" class="day-tab aiq-opt aiq-other">אחר…</button></div>
-                 <input type="text" class="aiq-text aiq-other-text" maxlength="120" placeholder="ספרו במילים שלכם (עד 15 מילים)…" hidden>`
-              : `<input type="text" class="aiq-text" maxlength="120" placeholder="התשובה שלכם (עד 15 מילים)…">`}
-          </div>`).join('')}
-        <div style="display:flex;gap:8px;margin-top:18px">
-          <button class="btn btn-amber btn-lg" id="aiq-go" style="flex:1;justify-content:center">בונים את הטיול ✨</button>
-          <button class="btn btn-ghost" id="aiq-skip">דילוג</button>
-        </div>
-      </div>`;
-    document.body.appendChild(wrap);
-    // free text is capped at 15 words (typing past the limit trims back)
-    const clampWords = (inp) => {
-      const words = inp.value.split(/\s+/).filter(Boolean);
-      if (words.length > 15) inp.value = words.slice(0, 15).join(' ');
-    };
-    wrap.querySelectorAll('.aiq-text').forEach((inp) => inp.addEventListener('input', () => clampWords(inp)));
-    wrap.querySelectorAll('.aiq-opts').forEach((opts) => {
-      const field = opts.parentElement;
-      const otherText = field.querySelector('.aiq-other-text');
-      // "which regions to combine" lets several chips stay lit; every other
-      // question is a pick-one, where a new choice replaces the previous
-      const multi = field.dataset.multi === '1';
-      opts.querySelectorAll('.aiq-opt').forEach((b) => {
-        b.onclick = () => {
-          if (multi) b.classList.toggle('active');
-          else {
-            opts.querySelectorAll('.aiq-opt').forEach((x) => x.classList.remove('active'));
-            b.classList.add('active');
-          }
-          // "אחר" opens a free-text field; dropping it tucks the field away again
-          const other = opts.querySelector('.aiq-other');
-          otherText.hidden = !other.classList.contains('active');
-          if (!otherText.hidden && b === other) otherText.focus();
-        };
-      });
-    });
-    const finish = (collect) => {
-      const answers = collect
-        ? [...wrap.querySelectorAll('.aiq')].map((f) => {
-            // a multi question can contribute several chips plus the "אחר" text;
-            // a single one has at most one chip, so the same join covers both
-            const picked = [...f.querySelectorAll('.aiq-opt.active:not(.aiq-other)')].map((b) => b.textContent);
-            const parts = [...picked];
-            if (f.querySelector('.aiq-other.active')) parts.push(f.querySelector('.aiq-other-text').value.trim());
-            const answer = parts.filter(Boolean).join(', ')
-              || f.querySelector('.aiq-text:not(.aiq-other-text)')?.value.trim() || '';
-            // `picked` stays separate from the answer text: the server splits a trip
-            // into areas by the options ticked, and typed text is never an area
-            return { question: f.dataset.q, answer, picked };
-          }).filter((a) => a.answer)
-        : [];
-      wrap.remove();
-      runAi({ ...payload, answers }, label); // answers present (even []) skips the question round
-    };
-    wrap.querySelector('#aiq-go').onclick = () => finish(true);
-    wrap.querySelector('#aiq-skip').onclick = () => finish(false);
-  }
-
-  async function runAi(payload, label) {
-    if (aiBusy) return;
-    const go = async () => {
-      aiBusy = true;
-      aiStatus.className = 'ai-status';
-      aiStatus.textContent = '';
-      showAiOverlay(label);
-      try {
-        const res = await TRIPMAKER.api('/api/ai/itinerary', {
-          method: 'POST',
-          body: JSON.stringify({
-            destinations,
-            interests: [...selectedInterests],
-            notes: document.getElementById('ai-notes').value.trim() || null,
-            want_meta: true, // description/emoji/cover for the trip that's about to exist
-            ...payload,
-          }),
-        });
-        // the AI may ask for a critical detail first (e.g. landing city)
-        if (res.questions) {
-          hideAiOverlay();
-          aiBusy = false;
-          askAiQuestions(res.questions, payload, label);
-          return;
-        }
-        // AI-picked meta rides into the trip row
-        if (res.meta) {
-          if (res.meta.description && !aiDesc) aiDesc = res.meta.description;
-          if (res.meta.emoji) aiMeta.emoji = res.meta.emoji;
-          if (res.meta.cover_image) aiMeta.cover_image = res.meta.cover_image;
-        }
-        // title FIRST, off the destination the traveller actually typed ("טיול ליפן") —
-        // the region swap below would otherwise retitle the trip after its own areas
-        if (!titleInput.value.trim()) autoTitle();
-        const regions = await regionDestinations(res.plan);
-        if (regions) { destinations = regions; renderChips(); }
-        // the build IS the creation: persist as a draft and land on the real trip
-        // page in edit mode. The overlay stays up through the save + navigation.
-        document.getElementById('ai-overlay-sub').textContent = 'שומרים את הטיול… ✈️';
-        await saveDraftTrip(buildTripPayload(res.items || []));
-        aiBusy = false; // reached only when the save failed — success navigates away
-      } catch (e) {
-        hideAiOverlay();
-        aiBusy = false;
-        aiStatus.className = 'ai-status error';
-        aiStatus.textContent = '⚠️ ' + e.message;
-      }
-    };
-    if (!TRIPMAKER.user) openAuthModal(go, 'register');
-    else go();
-  }
-
-  function fullBuild() {
-    runAi({ day_from: 1, day_to: +daysSel.value }, 'את הטיול');
-  }
-  // step 3 primary CTA — long trips take a detour through the region-edit screen
-  // first, so the traveller sees (and can repaint) the day→area split before any
-  // stop exists. Future idea, not built: a LONG trip whose destinations span several
-  // different countries should be nudged back at step 1 to pick one country.
-  document.getElementById('ai-full').onclick = () => {
-    const days = +daysSel.value;
-    if (days >= REGION_EDIT_MIN_DAYS) regionEditFlow(days);
-    else fullBuild();
-  };
-
-  // ---- region-edit step (long trips): paint the AI's day→area split before building ----
-  // From this many days the wizard inserts "עריכת אזורים" between step 3 and the
-  // build: the AI splits the trip into areas first (no stops yet), the split is
-  // painted on a month-view calendar, and the full build then runs with the
-  // traveller's allocation as a given. A bare constant on purpose — easy to tune.
-  const REGION_EDIT_MIN_DAYS = 9;
-  // same palette as the trip page's calendar, so an area keeps its color there
-  const AREA_COLORS = ['#ffb45f', '#8fd8c4', '#c9a7ff', '#7fb8ff', '#ff9db1', '#ffd166'];
-  const DOW_HE = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
-  const panel3b = document.getElementById('panel-3b');
-  let regionPlan = null; // the AI's recommendation, untouched — what "דילוג" builds
-  let regionDayAreas = null; // area name per trip day (index 0 = day 1) — what painting edits
-  let paletteAreas = []; // [{name, cities}] in recommendation order — fixes each area's color
-  let selectedArea = null;
-  let regionBusy = false;
-
-  const areaColor = (name) =>
-    AREA_COLORS[Math.max(paletteAreas.findIndex((a) => a.name === name), 0) % AREA_COLORS.length];
-
-  async function regionEditFlow(days) {
-    const go = async () => {
-      if (regionBusy || aiBusy) return;
-      regionBusy = true;
-      const btn = document.getElementById('ai-full');
-      btn.disabled = true;
-      // deliberately NOT the full-screen overlay: this wait is short and lands back
-      // in the wizard — the glowing overlay is saved for the real build
-      aiStatus.className = 'ai-status working';
-      aiStatus.textContent = 'ה-AI מחלק את הטיול לאזורים…';
-      try {
-        const res = await TRIPMAKER.api('/api/ai/plan-regions', {
-          method: 'POST',
-          body: JSON.stringify({
-            destinations,
-            day_from: 1,
-            day_to: days,
-            interests: [...selectedInterests],
-            notes: document.getElementById('ai-notes').value.trim() || null,
-          }),
-        });
-        aiStatus.className = 'ai-status';
-        aiStatus.textContent = '';
-        const plan = Array.isArray(res.plan) ? res.plan.filter((b) => b && b.area) : [];
-        if (new Set(plan.map((b) => b.area)).size >= 2) openRegionEditor(plan, days);
-        // one area — nothing to paint; the preset still rides along so the popup
-        // won't re-ask a region question the traveller never needed
-        else if (plan.length) runAi({ day_from: 1, day_to: days, plan }, 'את הטיול');
-        else fullBuild();
-      } catch {
-        // the region screen is an enhancement, never a gate — on failure the classic
-        // flow (the split happens inside the build) takes over silently
-        aiStatus.className = 'ai-status';
-        aiStatus.textContent = '';
-        fullBuild();
-      } finally {
-        regionBusy = false;
-        btn.disabled = false;
-      }
-    };
-    if (!TRIPMAKER.user) openAuthModal(go, 'register');
-    else go();
-  }
-
-  function openRegionEditor(plan, days) {
-    regionPlan = plan;
-    paletteAreas = [...new Map(plan.map((b) => [b.area, b.cities || []])).entries()]
-      .map(([name, cities]) => ({ name, cities }));
-    regionDayAreas = new Array(days).fill(plan[0].area);
-    plan.forEach((b) => {
-      for (let d = b.from; d <= b.to && d <= days; d++) regionDayAreas[d - 1] = b.area;
-    });
-    selectedArea = paletteAreas[0].name;
-    document.getElementById('region-question').textContent = `אילו אזורים משלבים ב-${days} הימים? 🗺️`;
-    document.getElementById('err-3b').textContent = '';
-    renderRegionPalette();
-    renderRegionCalendar();
-    panels[3].style.display = 'none';
-    panel3b.style.display = '';
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
-  // the same cell the trip page's month calendar renders (.cal-cell/.cc-*), minus
-  // the stops it doesn't have yet — .rc-day only shrinks it to paint-grid size
-  function rcCell(d, label) {
-    const area = regionDayAreas[d];
-    return `<button type="button" class="cal-cell has-area rc-day" data-d="${d}" style="--area-c:${areaColor(area)}" aria-label="יום ${d + 1} · ${TRIPMAKER.esc(area)}">` +
-      `<span class="cc-head"><span class="cc-num">${label}</span></span><span class="cc-area">${TRIPMAKER.esc(area)}</span></button>`;
-  }
-
-  // month view either way: with real dates the trip paints onto its actual months
-  // (weekday headers, date numbers); without them it's the same grid of "יום N" cells
-  function renderRegionCalendar() {
-    const cal = document.getElementById('region-cal');
-    const start = tripStart ? DATEPICKER.parse(tripStart) : null;
-    let html = '';
-    if (start) {
-      let monthKey = null;
-      let cells = '';
-      const flush = () => {
-        if (!cells) return;
-        html += `<div class="cal-dow-row">${DOW_HE.map((x) => `<span>${x}</span>`).join('')}</div><div class="cal-grid rc-grid">${cells}</div>`;
-        cells = '';
-      };
-      for (let d = 0; d < regionDayAreas.length; d++) {
-        const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + d);
-        const key = `${date.getFullYear()}-${date.getMonth()}`;
-        if (key !== monthKey) {
-          flush();
-          monthKey = key;
-          html += `<div class="rc-month">${date.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}</div>`;
-          cells += '<span class="rc-pad"></span>'.repeat(date.getDay());
-        }
-        cells += rcCell(d, String(date.getDate()));
-      }
-      flush();
-    } else {
-      html = '<div class="cal-grid rc-grid">' + regionDayAreas.map((_, d) => rcCell(d, 'יום ' + (d + 1))).join('') + '</div>';
-    }
-    cal.innerHTML = html;
-    cal.querySelectorAll('.rc-day').forEach((el) => {
-      el.onclick = () => {
-        regionDayAreas[+el.dataset.d] = selectedArea;
-        document.getElementById('err-3b').textContent = '';
-        renderRegionCalendar();
-      };
-    });
-  }
-
-  function renderRegionPalette() {
-    const pal = document.getElementById('region-palette');
-    pal.innerHTML = '<span class="rp-hint">בוחרים אזור ומקישים על ימים בלוח כדי לצבוע:</span>' +
-      paletteAreas.map((a) =>
-        `<button type="button" class="rp-area${a.name === selectedArea ? ' selected' : ''}" data-a="${TRIPMAKER.esc(a.name)}">` +
-        `<i style="background:${areaColor(a.name)}"></i>${TRIPMAKER.esc(a.name)}</button>`).join('');
-    pal.querySelectorAll('.rp-area').forEach((b) => {
-      b.onclick = () => { selectedArea = b.dataset.a; renderRegionPalette(); };
-    });
-  }
-
-  // consecutive same-area days → the contiguous blocks the server builds from.
-  // An area returning later (קיוטו→טוקיו→קיוטו) yields separate blocks — allowed.
-  function paintedBlocks() {
-    const blocks = [];
-    regionDayAreas.forEach((area, i) => {
-      const last = blocks[blocks.length - 1];
-      if (last && last.area === area) last.to = i + 1;
-      else blocks.push({ area, from: i + 1, to: i + 1, cities: (paletteAreas.find((a) => a.name === area) || {}).cities || [] });
-    });
-    return blocks;
-  }
-
-  // restore panel 3 underneath before building: the overlay covers the swap, and an
-  // error (or the clarifying popup) lands the traveller back where #ai-status lives
-  function closeRegionEditor() {
-    panel3b.style.display = 'none';
-    panels[3].style.display = '';
-  }
-  document.getElementById('back-to-3').onclick = closeRegionEditor;
-  document.getElementById('regions-go').onclick = () => {
-    const blocks = paintedBlocks();
-    if (blocks.length > 12) {
-      // every block is its own build call — a zebra of single days isn't a trip
-      document.getElementById('err-3b').textContent = 'יותר מדי מעברים בין אזורים — כדאי לאחד ימים סמוכים לאותו אזור';
-      return;
-    }
-    closeRegionEditor();
-    runAi({ day_from: 1, day_to: regionDayAreas.length, plan: blocks }, 'את הטיול');
-  };
-  // the default: build with the recommendation exactly as it was shown
-  document.getElementById('regions-skip').onclick = () => {
-    closeRegionEditor();
-    runAi({ day_from: 1, day_to: regionDayAreas.length, plan: regionPlan }, 'את הטיול');
-  };
-
   // ---- create (as a draft) ----
+
+  // the AI path: the trip is created empty and opens on the planning chat, where the
+  // AI asks what it needs, then builds — step by step or all at once, as the traveller
+  // picks there. Nothing is generated here anymore.
+  const aiBtn = document.getElementById('ai-full');
+  const aiLabel = aiBtn.textContent;
+  aiBtn.onclick = () => {
+    const go = async () => {
+      if (savingTrip) return;
+      aiBtn.disabled = true;
+      aiBtn.textContent = 'פותחים את התכנון…';
+      await saveDraftTrip(buildTripPayload([]), {
+        plan_state: { interests: [...selectedInterests], notes: document.getElementById('ai-notes').value.trim(), mode: 'manual' },
+        hash: '#plan',
+      });
+      // still here = the save failed and rendered a retry into #ai-status
+      aiBtn.disabled = false;
+      aiBtn.textContent = aiLabel;
+    };
+    if (!TRIPMAKER.user) openAuthModal(go, 'register');
+    else go();
+  };
 
   // A one-country trip is built as areas — the ones the traveller ticked, or the ones
   // the AI broke the country into — and those areas ARE the trip: promoting them to
@@ -727,35 +406,34 @@
     return {
       title: titleInput.value.trim(),
       destinations,
-      description: aiDesc || null,
-      cover_image: aiMeta.cover_image || DEFAULT_COVER, // chosen by the AI
+      description: null, // the AI writes one when it builds the itinerary
+      cover_image: DEFAULT_COVER, // swapped for the AI's pick at build time
       start_date: start, end_date: end, days,
-      emoji: aiMeta.emoji || '🧭',
+      emoji: '🧭',
       items: builtItems.sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || ''))),
     };
   }
 
-  // POST the draft and move to the trip page. A failed save keeps the built payload
-  // for a retry that costs nothing — the AI quota was already spent on the build.
+  // POST the draft and move to the trip page (`hash` picks the tab it opens on). A
+  // failed save keeps the payload for a retry that costs nothing.
   let savingTrip = false;
-  async function saveDraftTrip(payload) {
+  async function saveDraftTrip(payload, { plan_state = null, hash = '' } = {}) {
     if (savingTrip) return;
     savingTrip = true;
     try {
       const trip = await TRIPMAKER.api('/api/trips', {
-        method: 'POST', body: JSON.stringify({ ...payload, draft: true }),
+        method: 'POST', body: JSON.stringify({ ...payload, draft: true, plan_state }),
       });
       clearDraft();
-      location.href = '/trip/' + trip.share_code;
+      location.href = '/trip/' + trip.share_code + hash;
     } catch (e) {
       savingTrip = false;
-      hideAiOverlay();
       aiStatus.className = 'ai-status error';
-      aiStatus.innerHTML = `⚠️ הטיול נבנה אבל עוד לא נשמר (${TRIPMAKER.esc(e.message)}) ` +
-        `<button type="button" class="btn btn-amber" id="retry-save">שמירה מחדש</button>`;
+      aiStatus.innerHTML = `⚠️ הטיול עוד לא נוצר (${TRIPMAKER.esc(e.message)}) ` +
+        `<button type="button" class="btn btn-amber" id="retry-save">ניסיון נוסף</button>`;
       document.getElementById('retry-save').onclick = () => {
-        aiStatus.textContent = 'שומרים את הטיול…';
-        saveDraftTrip(payload);
+        aiStatus.textContent = 'יוצרים את הטיול…';
+        saveDraftTrip(payload, { plan_state, hash });
       };
     }
   }
