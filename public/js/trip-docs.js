@@ -103,7 +103,7 @@ const TripDocs = (() => {
   // how the text was read, for the sheet — honest about which rung did the work
   const READ_LABEL = { pdf: 'טקסט ה-PDF', 'pdf-ocr': 'OCR במכשיר', 'pdf-native': 'OCR במכשיר', ocr: 'OCR במכשיר', native: 'OCR במכשיר', text: 'הטקסט', docx: 'הטקסט' };
 
-  const PRIVACY = `${ICON.lock}<span>נשמר במכשיר הזה בלבד — לא עולה לשרת ולא נשלח למשתתפי הטיול. גם זיהוי הטקסט לתיוג רץ בדפדפן, על המכשיר. במכשיר אחר, או אחרי מחיקת נתוני האתר, המסמכים לא יהיו כאן.</span>`;
+  const PRIVACY = `${ICON.lock}<span>נשמר במכשיר הזה בלבד — לא עולה לשרת ולא נשלח לאף אחד. במכשיר אחר המסמכים לא יופיעו.</span>`;
 
   // =================================================================
   //  RENDER
