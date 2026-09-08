@@ -22,6 +22,15 @@
        so the two never compete as duplicates -->
   <link rel="canonical" href="https://tripmaker.co.il/">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧭</text></svg>">
+  <!-- The hero photo is the LCP element and it lives on someone else's origin, so
+       the browser must do a DNS lookup, a TCP handshake and a TLS negotiation before
+       the first byte of it arrives — all of it on the critical path, none of it
+       overlapping anything. This starts that handshake while the HTML is still being
+       parsed. (No crossorigin: an <img> is fetched in no-cors mode, and a preconnect
+       that disagrees with the request that follows opens a second connection instead
+       of being reused.) -->
+  <link rel="preconnect" href="https://images.unsplash.com">
+  <link rel="dns-prefetch" href="https://images.unsplash.com">
   <!-- the two faces every Hebrew page paints above the fold; @font-face for them
        lives in style.css. crossorigin is not optional even same-origin: fonts are
        always fetched in CORS mode, and a preload without it is simply downloaded
