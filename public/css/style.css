@@ -535,8 +535,8 @@ body::after {
   text-decoration: none; color: var(--paper); background: var(--ink-2);
   transition: transform .2s ease, border-color .2s ease;
 }
-/* a route across several countries gets the room its flags need */
-.pop-tile.pop-combo { flex-basis: 176px; }
+/* a route across several countries gets the room its flags and its longer name need */
+.pop-tile.pop-combo { flex-basis: 208px; }
 .pop-tile:hover { transform: translateY(-2px); border-color: rgba(255, 180, 95, .55); }
 .pop-img {
   position: absolute; inset: 0; background-size: cover; background-position: center;
@@ -557,15 +557,9 @@ body::after {
 .pop-flags { display: inline-flex; gap: 3px; flex-shrink: 0; }
 .pop-flags .flag-img { width: 16px; height: 12px; border-radius: 2px; }
 .pop-flags .flag-emoji { font-size: .95rem; }
-/* the "3 מדינות" tag sits in the top corner so the title line stays clean */
-.pop-tag {
-  position: absolute; top: 6px; left: 7px; z-index: 1;
-  font-size: .64rem; font-weight: 700; padding: 2px 7px; border-radius: 999px;
-  background: rgba(255, 180, 95, .92); color: #132019;
-}
 @media (max-width: 640px) {
   .pop-tile { flex-basis: 100px; height: 70px; }
-  .pop-tile.pop-combo { flex-basis: 160px; }
+  .pop-tile.pop-combo { flex-basis: 214px; }
 }
 
 /* ---------- suggested strip ---------- */
@@ -1165,32 +1159,42 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
 .dest-picker { display: flex; flex-direction: column; gap: 10px; }
 .dest-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .dest-chips:empty { display: none; }
+/* the same chip on both wizard steps: flag, name, its country, and a remove target
+   a thumb can actually hit — the ✕ used to be a bare glyph at text size, so a chip
+   read as a label rather than as something you can take off the trip */
 .dest-chip {
   display: inline-flex; align-items: center; gap: 8px;
-  padding: 8px 14px; border-radius: 999px; font-weight: 700; font-size: .95rem;
+  padding-block: 6px; padding-inline: 13px 6px;
+  border-radius: 999px; font-weight: 700; font-size: .95rem;
   background: rgba(255, 180, 95, .13); border: 1px solid rgba(255, 180, 95, .4); color: var(--amber);
   animation: pop .25s cubic-bezier(.2, .9, .3, 1.2);
 }
-.dest-chip small { color: var(--paper-dim); font-weight: 400; }
-.dest-chip button {
-  background: none; border: none; color: var(--paper-dim); cursor: pointer; font-size: .85rem; padding: 0;
+.dest-chip .dc-flag { display: inline-flex; align-items: center; }
+.dest-chip .dc-label { display: inline-flex; align-items: baseline; gap: 6px; line-height: 1.35; }
+.dest-chip small { color: var(--paper-dim); font-weight: 400; font-size: .8rem; }
+.dest-chip .dc-x {
+  width: 26px; height: 26px; flex: none; display: grid; place-items: center;
+  background: rgba(255, 255, 255, .06); border: none; border-radius: 50%;
+  color: var(--paper-dim); cursor: pointer; padding: 0;
+  transition: background .15s ease, color .15s ease;
 }
-.dest-chip button:hover { color: var(--danger); }
+.dest-chip .dc-x .ic { width: 14px; height: 14px; }
+.dest-chip .dc-x:hover { background: rgba(255, 107, 107, .18); color: var(--danger); }
+/* "עוד יעד" is a chip too, dashed to read as an empty slot rather than a picked
+   destination — it was an underlined link that looked like running text */
+button.dest-chip.dc-add {
+  padding-inline: 13px; color: var(--paper-dim);
+  background: transparent; border: 1px dashed var(--glass-border);
+  font-family: var(--font-body); font-size: .92rem; cursor: pointer; animation: none;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+button.dest-chip.dc-add:hover {
+  color: var(--amber); border-color: rgba(255, 180, 95, .55); background: rgba(255, 180, 95, .08);
+}
+button.dest-chip.dc-add .ic { width: 15px; height: 15px; }
 
-/* step 2: the destination as a quiet subtitle under "כמה זמן?", not a box of its
-   own — especially for the homepage flow that auto-advanced here */
-.dest-context {
-  display: flex; align-items: baseline; gap: 4px 8px; flex-wrap: wrap;
-  margin-top: 4px; font-size: .9rem; color: var(--paper-dim);
-}
-.dest-context .dc-dest { color: var(--amber); font-weight: 700; }
-.dest-context .dc-dest small { color: var(--paper-dim); font-weight: 400; }
-.dest-context .dc-sep { opacity: .6; }
-.dest-context .dc-change {
-  background: none; border: none; cursor: pointer;
-  color: var(--paper-dim); font-size: .84rem; text-decoration: underline; padding: 0;
-}
-.dest-context .dc-change:hover { color: var(--amber); }
+/* step 2 keeps the picked destinations in reach: the same chips, under "כמה זמן?" */
+.dest-context { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 
 .autocomplete-wrap { position: relative; }
 .autocomplete-wrap input {

@@ -76,10 +76,11 @@
     const strip = document.getElementById('popular-strip');
     if (!strip || typeof POPULAR === 'undefined') return;
     const flags = (dests) => `<span class="pop-flags">${dests.map((d) => COUNTRIES.flagHtml(d.cc)).join('')}</span>`;
-    const tile = ({ href, img, name, cls, dests, tag }) => `
+    // the row of flags is what marks a multi-country route — a "3 מדינות" badge on
+    // top of them said the same thing twice and stole the width the name needs
+    const tile = ({ href, img, name, cls, dests }) => `
       <a class="pop-tile ${cls}" href="${href}" title="${TRIPMAKER.esc(name)}">
         <span class="pop-img" style="background-image:url('${img}')" aria-hidden="true"></span>
-        ${tag ? `<span class="pop-tag">${TRIPMAKER.esc(tag)}</span>` : ''}
         <span class="pop-text">${flags(dests)}<span class="pop-name">${TRIPMAKER.esc(name)}</span></span>
       </a>`;
     strip.innerHTML =
@@ -89,7 +90,7 @@
       })).join('') +
       POPULAR.combos.map((c) => tile({
         href: '/plan?combo=' + encodeURIComponent(c.id),
-        img: c.img, name: c.title, cls: 'pop-combo', dests: c.dests, tag: `${c.dests.length} מדינות`,
+        img: c.img, name: c.title, cls: 'pop-combo', dests: c.dests,
       })).join('');
     strip.addEventListener('click', (e) => {
       const a = e.target.closest('.pop-tile');

@@ -21,18 +21,36 @@
   const ccFor = (d) => d.cc || COUNTRIES.ccByName(d.country || d.name);
   const tripCcs = () => [...new Set(destinations.map(ccFor).filter(Boolean))];
 
-  function renderChips() {
-    chipsBox.innerHTML = destinations.map((d, i) => {
-      const cc = ccFor(d);
-      return `
+  // one chip shape for both steps: flag, name, the country underneath it, and a
+  // real remove target — the ✕ used to be a bare glyph the size of the text, which
+  // is not something a thumb can hit
+  const X_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+  function chipHtml(d, i) {
+    const cc = ccFor(d);
+    const sub = d.country && d.country !== d.name ? `<small>${TRIPMAKER.esc(d.country)}</small>` : '';
+    return `
       <span class="dest-chip">
-        ${cc ? COUNTRIES.flagHtml(cc) + ' ' : ''}${TRIPMAKER.esc(d.name)}${d.country && d.country !== d.name ? `<small>${TRIPMAKER.esc(d.country)}</small>` : ''}
-        <button type="button" data-i="${i}" aria-label="הסרת יעד">✕</button>
+        ${cc ? `<span class="dc-flag">${COUNTRIES.flagHtml(cc)}</span>` : ''}
+        <span class="dc-label">${TRIPMAKER.esc(d.name)}${sub}</span>
+        <button type="button" class="dc-x" data-i="${i}" aria-label="הסרת ${TRIPMAKER.esc(d.name)}">${X_ICON}</button>
       </span>`;
-    }).join('');
-    chipsBox.querySelectorAll('.dest-chip > button').forEach((b) => {
-      b.onclick = () => { destinations.splice(+b.dataset.i, 1); renderChips(); autoTitle(); };
-    });
+  }
+  // removing the last destination on step 2 leaves nothing to plan — back to step 1,
+  // where the search box is, instead of an empty panel with a "continue" button
+  function removeDestination(i) {
+    destinations.splice(i, 1);
+    renderChips();
+    autoTitle();
+    scheduleSave();
+    if (!destinations.length && curStep > 1) { goStep(1); destInput.focus(); }
+  }
+  function bindChipRemoval(box) {
+    box.querySelectorAll('.dc-x').forEach((b) => { b.onclick = () => removeDestination(+b.dataset.i); });
+  }
+
+  function renderChips() {
+    chipsBox.innerHTML = destinations.map(chipHtml).join('');
+    bindChipRemoval(chipsBox);
     // once something is picked, the input invites the next stop instead of the first
     destInput.placeholder = destinations.length
       ? 'מוסיפים עוד יעד? עיר או מדינה נוספת…'
@@ -49,21 +67,22 @@
     el.innerHTML = tripCcs().map((cc) => COUNTRIES.flagHtml(cc)).join('');
   }
 
-  // step 2 reminder of what was chosen, as a quiet line under the panel title —
-  // matters most when we jumped here automatically. Changing destinations is the
-  // back arrow's job; the line only offers the add-another shortcut.
+  // step 2 shows the chosen destinations as the same chips step 1 uses — a trip to
+  // three countries is a list you edit, not a sentence you read. It was a run of
+  // text with an underlined "+ עוד יעד" link, which looked like body copy and hid
+  // the fact that a destination can be dropped here. Removing works in place; the
+  // add button returns to step 1, where the search box lives.
   function renderDestContext() {
     const box = document.getElementById('dest-context');
     if (!box) return;
     if (!destinations.length) { box.hidden = true; return; }
     box.hidden = false;
-    box.innerHTML = destinations
-      .map((d) => {
-        const cc = ccFor(d);
-        return `<span class="dc-dest">${cc ? COUNTRIES.flagHtml(cc) + ' ' : ''}${TRIPMAKER.esc(d.name)}${d.country && d.country !== d.name ? `<small>, ${TRIPMAKER.esc(d.country)}</small>` : ''}</span>`;
-      })
-      .join('<span class="dc-sep">·</span>') +
-      ` <button type="button" class="dc-change" id="dc-add">+ עוד יעד</button>`;
+    box.innerHTML = destinations.map(chipHtml).join('') +
+      `<button type="button" class="dest-chip dc-add" id="dc-add">
+         <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+         <span>עוד יעד</span>
+       </button>`;
+    bindChipRemoval(box);
     // the homepage country flow lands directly on step 2 — this is where a
     // multi-country trip picks up its second destination
     box.querySelector('#dc-add').onclick = () => { goStep(1); destInput.focus(); };

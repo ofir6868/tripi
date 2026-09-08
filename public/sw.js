@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v53'; // popular destinations strip under the homepage search
+const VERSION = 'v54'; // popular strip + destination chips in the plan wizard
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first

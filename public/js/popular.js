@@ -47,21 +47,6 @@ const POPULAR = (() => {
       dests: [{ name: 'פרו', cc: 'pe' }, { name: 'בוליביה', cc: 'bo' }, { name: 'ארגנטינה', cc: 'ar' }],
       img: IMG('photo-1526392060635-9d6019884377'),
     },
-    {
-      id: 'central-america', title: 'מרכז אמריקה', days: 21,
-      dests: [{ name: 'מקסיקו', cc: 'mx' }, { name: 'גואטמלה', cc: 'gt' }],
-      img: IMG('photo-1518638150340-f706e86654de'),
-    },
-    {
-      id: 'central-europe', title: 'מרכז אירופה', days: 8,
-      dests: [{ name: 'פראג', cc: 'cz', country: "צ'כיה" }, { name: 'וינה', cc: 'at', country: 'אוסטריה' }, { name: 'בודפשט', cc: 'hu', country: 'הונגריה' }],
-      img: IMG('photo-1516550893923-42d28e5677af'),
-    },
-    {
-      id: 'balkans', title: 'הבלקן', days: 10,
-      dests: [{ name: 'מונטנגרו', cc: 'me' }, { name: 'אלבניה', cc: 'al' }],
-      img: IMG('photo-1614122027743-50a9e6e8002f'),
-    },
   ];
 
   const countryOf = (d) => d.country || d.name;

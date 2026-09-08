@@ -62,9 +62,15 @@ const READY_TEXT = 'אני מוכן ליצור עבורכם טיול מושלם 
 // is per-area anyway. The rule is enforced in code (build_now is dropped), not just
 // asked of the model. Distinct countries, not distinct destinations: Prague + Vienna
 // is two countries; Tokyo + Kyoto is one.
-const SUGGEST_START = 'יאללה, מתחילים 🪜';
-const STEPWISE_TEXT = 'טיול בכמה מדינות מתכננים שלב אחרי שלב: קודם האזורים וחלוקת הימים, אחר כך הטיסות, ואז יום אחרי יום — מדינה אחת בכל פעם. ' +
-  'ככה כל מדינה מקבלת את תשומת הלב שלה, ותמיד אפשר לערוך ולשנות הכול. מתחילים מהאזורים?';
+const SUGGEST_SPLIT = 'תציע חלוקה 🗺️';
+// The opening question has to name the countries it is about. "מתחילים מהאזורים?"
+// read as jargon on a three-country trip — the traveller could not tell which
+// country was being asked about, or what an "area" was here.
+const listNames = (names) => (names.length > 1
+  ? `${names.slice(0, -1).join(', ')} ו${names[names.length - 1]}`
+  : names[0] || '');
+const stepwiseText = (names) => 'טיול בכמה מדינות אנחנו מתכננים שלב אחרי שלב, מדינה אחת בכל פעם — ככה כל אחת מקבלת את תשומת הלב שלה, ותמיד אפשר לערוך ולשנות הכול. ' +
+  `נתחיל מהדבר שקובע את כל השאר: כמה ימים בכל יעד, ובאיזה סדר — ${listNames(names)}. יש לכם חלוקה בראש, או שאציע אחת?`;
 function multiCountry(dests) {
   const ccs = new Set((dests || []).map((d) => COUNTRIES.ccByName(String((d && (d.country || d.name)) || '').trim())).filter(Boolean));
   return ccs.size >= 2;
@@ -125,7 +131,9 @@ async function openingMessage(client, trip, userId) {
       ph: { distinctId: 'user_' + userId, traceId: randomUUID() },
     }).catch(() => []);
   }
-  const where = trip.dests.map((d) => d.name).join(' ו') || trip.destination;
+  // "פרו, בוליביה וארגנטינה" — three destinations strung together with a ו each
+  // ("פרו ובוליביה וארגנטינה") read as a list nobody had proofread
+  const where = listNames(trip.dests.map((d) => d.name)) || trip.destination;
   const hello = `היי! אני אתכנן איתכם את הטיול ל${where} — ${trip.days} ימים. `;
   let text, payload;
   if (questions.length) {
@@ -138,8 +146,8 @@ async function openingMessage(client, trip, userId) {
     // no choice to make: several countries start on the areas step right away
     state.stage = 'areas';
     state.build = 'steps';
-    text = hello + STEPWISE_TEXT;
-    payload = { suggestions: [SUGGEST_START] };
+    text = hello + stepwiseText(trip.dests.map((d) => d.name));
+    payload = { suggestions: [SUGGEST_SPLIT] };
   } else {
     state.stage = 'choose';
     text = hello + READY_TEXT;
