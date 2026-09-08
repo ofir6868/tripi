@@ -210,7 +210,10 @@ async function migrate(pool, log = console.log) {
     )`);
 
   log('Migration 19: expenses can mark a planned stop as paid...');
+  await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS cost_paid BOOLEAN NOT NULL DEFAULT false`);
   await pool.query(`ALTER TABLE trip_expenses ADD COLUMN IF NOT EXISTS item_id INT REFERENCES trip_items(id) ON DELETE SET NULL`);
+  // the index belongs with the ALTER that makes its column exist, never in
+  // db/setup.js's schema string — see the note under the indexes there
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_item ON trip_expenses(item_id) WHERE item_id IS NOT NULL`);
 
   log('Done.');
