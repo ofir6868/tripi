@@ -35,7 +35,24 @@ app.use('/api/rotation', express.json({ limit: '25mb' }));
 app.use(require('./routes/rotation'));
 
 app.use(express.json({ limit: '2mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+// CSS and JS must revalidate on every load, and the header has to say so out loud.
+// express.static's default is `max-age=0` + ETag, which a browser revalidates — but
+// Cloudflare's "Browser Cache TTL" setting overrides a plain max-age and hands
+// visitors its own (hours-long) expiry, while HTML is not in its cached-extension
+// list. The result is the one failure that looks like a bug in the code: a page
+// that arrives fresh, styled by a stylesheet from the previous deploy — new markup
+// with no rules for it, so a new control renders as a bare browser button.
+// `no-cache` is not "don't store": it stores and revalidates, so this stays a 304
+// per asset, and Cloudflare does not override it.
+// index: false — the pages are served by routes/pages.js, which stamps their asset
+// URLs with the deploy's version (lib/asset-version). A directory index here would
+// hand out an unstamped index.html and quietly reopen the problem for the home page.
+app.use(express.static(path.join(__dirname, 'public'), {
+  index: false,
+  setHeaders: (res, filePath) => {
+    if (/\.(css|js)$/i.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
 
 // Routers mount at the root and keep their full paths internally, so every route
 // reads exactly as it did when this was one file. This mount order reproduces the

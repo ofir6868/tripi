@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS trip_items (
   lon DOUBLE PRECISION,
   google_place_id TEXT,
   cost NUMERIC(10,2),
+  cost_paid BOOLEAN NOT NULL DEFAULT false,
   sort_order INT DEFAULT 0
 );
 
@@ -132,6 +133,7 @@ CREATE TABLE IF NOT EXISTS trip_expenses (
   category TEXT NOT NULL DEFAULT 'אחר',
   day_number INT,
   paid_by TEXT,
+  item_id INT REFERENCES trip_items(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -153,6 +155,21 @@ CREATE INDEX IF NOT EXISTS idx_items_trip ON trip_items(trip_id);
 CREATE INDEX IF NOT EXISTS idx_hotels_trip ON trip_hotels(trip_id);
 CREATE INDEX IF NOT EXISTS idx_expenses_trip ON trip_expenses(trip_id);
 `;
+/* Every index here may only name columns that already exist on a database this
+   schema has met before. On an existing database CREATE TABLE IF NOT EXISTS is a
+   no-op — it does NOT add a column that was appended to the block above — so a
+   column introduced with a feature exists here only for a brand-new database, and
+   the ALTER in db/migrate.js is what gives it to every other one.
+
+   An index over such a column therefore cannot live in this string. It throws
+   42703 on every existing database, and this string is the FIRST thing
+   lib/db-bootstrap runs — so the migration that would have added the column never
+   runs, and the next boot fails in exactly the same place. On 2026-09-08 that loop
+   took the live site down: idx_expenses_item was added here alongside
+   trip_expenses.item_id, bootstrap never got past it, and every trip answered 500
+   from a SELECT naming a column the database did not have.
+   The index is created in migration 19 instead, next to the ALTER that adds the
+   column it indexes. */
 
 const U = (id, w = 1200) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=${w}&q=80`;
 

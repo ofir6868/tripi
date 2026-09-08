@@ -18,6 +18,8 @@
     is_public: true, is_draft: false, likes: 12, invite_token: 'demo-invite-token', created_at: '2026-08-01T10:00:00Z',
   };
   let nextId = 100;
+  let expenseId = 1;
+  let expenses = [];
   const stop = (day, time, title, note, cat, lat, lon) => ({
     id: nextId++, trip_id: 1, day_number: day, time_label: time, title, note, place_query: `${title} Rome`,
     category: cat, area: 'רומא', lat, lon, cost: null, google_place_id: null, sort_order: nextId,
@@ -213,7 +215,7 @@
         if (rest === '/votes') return json(200, []);
         if (rest === '/items' && method === 'POST') {
           const it = { id: nextId++, trip_id: 2, day_number: +body.day_number || 1, time_label: body.time_label || null, title: String(body.title || ''), note: body.note || null,
-            place_query: body.place_query || null, category: body.category || null, area: body.area || null, lat: body.lat ?? null, lon: body.lon ?? null, cost: null, google_place_id: null, sort_order: nextId };
+            place_query: body.place_query || null, category: body.category || null, area: body.area || null, lat: body.lat ?? null, lon: body.lon ?? null, cost: body.cost != null && body.cost !== '' ? +body.cost : null, google_place_id: null, sort_order: nextId };
           draftItems.push(it);
           return json(200, it);
         }
@@ -222,10 +224,33 @@
       if (!rest) {
         return json(200, {
           trip, items, isOwner: true, canEdit: true, isAdmin: false,
-          hotels: [], budget: null, expenses: [], participants: [{ id: 1, name: user.name, is_owner: true }],
+          hotels: [], budget: null, expenses, participants: [{ id: 1, name: user.name, is_owner: true }],
         });
       }
       if (rest === '/votes') return json(200, []);
+      if (rest === '/expenses' && method === 'POST') {
+        const title = String(body.title || '').slice(0, 160).trim();
+        const amount = +body.amount;
+        if (!title) return json(400, { error: 'על מה הוצאתם? חסר תיאור' });
+        if (!(amount > 0)) return json(400, { error: 'חסר סכום תקין' });
+        const itemId = +body.item_id || null;
+        if (itemId) {
+          const existing = expenses.find((e) => +e.item_id === itemId);
+          if (existing) return json(200, existing);
+        }
+        const e = {
+          id: expenseId++, title, amount, category: body.category || 'אחר',
+          day_number: +body.day_number || null, paid_by: user.name, item_id: itemId,
+          created_at: new Date().toISOString(),
+        };
+        expenses.unshift(e);
+        return json(200, e);
+      }
+      const em = rest.match(/^\/expenses\/(\d+)$/);
+      if (em && method === 'DELETE') {
+        expenses = expenses.filter((e) => e.id !== +em[1]);
+        return json(200, { ok: true });
+      }
       // the recommendations chat, canned: the demo has no model behind it
       if (rest === '/recs' && method === 'POST') {
         const q = String(body.message || '');
@@ -283,7 +308,7 @@
           id: nextId++, trip_id: 1, day_number: Math.min(Math.max(+body.day_number || 1, 1), trip.days),
           time_label: body.time_label || null, title: String(body.title).slice(0, 200), note: body.note || null,
           place_query: body.place_query || null, category: body.category || null, area: body.area || null,
-          lat: body.lat ?? null, lon: body.lon ?? null, cost: null, google_place_id: null, sort_order: nextId,
+          lat: body.lat ?? null, lon: body.lon ?? null, cost: body.cost != null && body.cost !== '' ? +body.cost : null, google_place_id: null, sort_order: nextId,
         };
         items.push(it);
         return json(200, it);
