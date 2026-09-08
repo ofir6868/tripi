@@ -783,7 +783,7 @@
       pChip.onclick = () => (canEdit ? openParticipants() : requireSignup());
     }
 
-    const inviteLink = () => `${location.origin}/trip/${trip.share_code}?join=${trip.invite_token}`;
+    const inviteLink = (medium) => `${location.origin}/trip/${trip.share_code}?join=${trip.invite_token}&utm_source=invite${medium ? `&utm_medium=${medium}` : ''}`;
 
     // stroke icons for the participants modal — currentColor keeps them in step
     // with row hover, danger tints and disabled states
@@ -901,11 +901,11 @@
           setTimeout(() => { el.textContent = ''; }, 2500);
         };
         wrap.querySelector('#invite-wa').onclick = () => {
-          const text = `${trip.emoji || '🧭'} בואו לתכנן איתי את "${trip.title}"!\nנכנסים לקישור, נרשמים בשנייה — ועורכים את הטיול יחד:\n${inviteLink()}`;
+          const text = `${trip.emoji || '🧭'} בואו לתכנן איתי את "${trip.title}"!\nנכנסים לקישור, נרשמים בשנייה — ועורכים את הטיול יחד:\n${inviteLink('whatsapp')}`;
           window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
         };
         wrap.querySelector('#invite-copy').onclick = async () => {
-          await TRIPMAKER.copy(inviteLink());
+          await TRIPMAKER.copy(inviteLink('copy'));
           flash('קישור ההזמנה הועתק! ✓');
         };
         wrap.querySelector('#invite-regen').onclick = async (e) => {
@@ -1418,7 +1418,7 @@
     // last step uses. A viewer has no invite to give, so they share what they see.
     const feedback = document.getElementById('copy-feedback');
     const flash = (msg) => { feedback.textContent = msg; setTimeout(() => { feedback.textContent = ''; }, 2200); };
-    const tripLink = () => `${location.origin}/trip/${trip.share_code}`;
+    const tripLink = (medium) => `${location.origin}/trip/${trip.share_code}?utm_source=trip_share${medium ? `&utm_medium=${medium}` : ''}`;
     // the server backfills a token for every participant, but a share that quietly
     // links to `undefined` is worse than one that only offers the view link
     const shareInvite = canEdit && !!trip.invite_token;
@@ -1427,18 +1427,18 @@
       document.getElementById('copy-link-label').textContent = 'העתקת קישור הזמנה';
       document.getElementById('view-link-row').style.display = '';
       document.getElementById('copy-view-link').onclick = async () => {
-        await TRIPMAKER.copy(tripLink());
+        await TRIPMAKER.copy(tripLink('copy'));
         flash('קישור הצפייה הועתק! ✓');
       };
     }
     document.getElementById('wa-share').onclick = () => {
       const text = shareInvite
-        ? `${trip.emoji || '🧭'} בואו לתכנן איתי את "${trip.title}"!\nנכנסים לקישור, נרשמים בשנייה — ועורכים את הטיול יחד:\n${inviteLink()}`
-        : `${trip.emoji || '🧭'} ${trip.title}\n${trip.destination} · ${trip.days} ימים\nקוד טיול: ${trip.share_code}\n${tripLink()}`;
+        ? `${trip.emoji || '🧭'} בואו לתכנן איתי את "${trip.title}"!\nנכנסים לקישור, נרשמים בשנייה — ועורכים את הטיול יחד:\n${inviteLink('whatsapp')}`
+        : `${trip.emoji || '🧭'} ${trip.title}\n${trip.destination} · ${trip.days} ימים\nקוד טיול: ${trip.share_code}\n${tripLink('whatsapp')}`;
       window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
     };
     document.getElementById('copy-link').onclick = async () => {
-      await TRIPMAKER.copy(shareInvite ? inviteLink() : tripLink());
+      await TRIPMAKER.copy(shareInvite ? inviteLink('copy') : tripLink('copy'));
       flash(shareInvite ? 'קישור ההזמנה הועתק! ✓' : 'הקישור הועתק! ✓');
     };
 

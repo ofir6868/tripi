@@ -34,13 +34,63 @@
       },
     });
 
+    // ---- acquisition: where a visit came from is a property, not a guess.
+    // visit_source rides on every event of this load (register), and the first
+    // source that ever brought this browser here is stamped once onto the person
+    // after identify — so signups can be broken down by their original channel.
+    // App-generated share links carry utm_source (invite / trip_share / referral);
+    // everything else falls back to the referrer. 'internal' (same-host referrer,
+    // e.g. a hard navigation between pages) never overwrites a real source.
+    const params = new URLSearchParams(location.search);
+    const visitSource = (() => {
+      const utm = params.get('utm_source');
+      if (utm) return utm.slice(0, 60);
+      if (params.get('ref')) return 'referral';
+      if (params.get('join')) return 'invite';
+      if (!document.referrer) return 'direct';
+      try {
+        const host = new URL(document.referrer).hostname;
+        if (host === location.hostname) return 'internal';
+        if (/(^|\.)google\./.test(host)) return 'organic_search';
+        return host.replace(/^www\./, '');
+      } catch { return 'direct'; }
+    })();
+    if (visitSource !== 'internal') {
+      posthog.register({ visit_source: visitSource, visit_medium: params.get('utm_medium') || null });
+    }
+    let firstTouch = null;
+    try {
+      firstTouch = JSON.parse(localStorage.getItem('tm_first_touch') || 'null');
+      if (!firstTouch && visitSource !== 'internal') {
+        firstTouch = {
+          source: visitSource,
+          medium: params.get('utm_medium') || null,
+          landing: location.pathname,
+          ts: new Date().toISOString(),
+        };
+        localStorage.setItem('tm_first_touch', JSON.stringify(firstTouch));
+      }
+    } catch { /* no storage — visit_source still rides the session's events */ }
+
     // init runs after the window load event (config fetch + async script), and in
     // 'history_change' mode the SDK only fires pageviews on history API changes —
     // which a multi-page site never makes. Capture the load's pageview explicitly.
     posthog.capture('$pageview');
 
     const identify = () => {
-      if (TRIPMAKER.user && TRIPMAKER.user.id != null) posthog.identify('user_' + TRIPMAKER.user.id);
+      if (TRIPMAKER.user && TRIPMAKER.user.id != null) {
+        posthog.identify('user_' + TRIPMAKER.user.id);
+        // set-once: the person keeps the channel that first brought them, however
+        // many times this runs — which lets signed_up (server-side) join to it
+        if (firstTouch) {
+          posthog.setPersonProperties({}, {
+            first_source: firstTouch.source,
+            first_medium: firstTouch.medium,
+            first_landing: firstTouch.landing,
+            first_touch_at: firstTouch.ts,
+          });
+        }
+      }
     };
     identify();
 
