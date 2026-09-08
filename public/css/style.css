@@ -29,7 +29,7 @@
 
 html { scroll-behavior: smooth; }
 
-html { overflow-x: clip; touch-action: pan-x pan-y; }
+html { overflow-x: clip; }
 
 body {
   font-family: var(--font-body);
@@ -3182,16 +3182,11 @@ body.cal-full-open { overflow: hidden; }
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4), 0 0 0 3px rgba(255, 180, 95, .45);
   animation: save-pulse 1.9s ease-out infinite;
 }
-.arrange-done-top { top: calc(16px + env(safe-area-inset-top)); }
-.arrange-done-bottom { bottom: calc(22px + env(safe-area-inset-bottom)); }
+.btn.arrange-done { bottom: calc(22px + env(safe-area-inset-bottom)); }
 .btn.arrange-done:hover { transform: translateY(-2px); }
 .dragging .arrange-done { pointer-events: none; opacity: 0.35; }
-/* the bin takes the top of the screen mid-drag — the top Done would sit on it */
-.dragging .arrange-done-top { opacity: 0; visibility: hidden; }
 @media (max-width: 640px) {
-  .arrange-done-bottom {
-    bottom: calc(var(--dock-h) + var(--dock-inset) + 12px);
-  }
+  .btn.arrange-done { bottom: calc(var(--dock-h) + var(--dock-inset) + 12px); }
 }
 /* the bin: a strip across the top of the screen while a stop is in the air. It
    covers the header on purpose — nothing up there matters mid-drag — and lights
