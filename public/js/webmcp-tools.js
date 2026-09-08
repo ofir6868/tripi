@@ -134,7 +134,7 @@
           place_query: it.place_query || null,
           lat: it.lat ?? null,
           lon: it.lon ?? null,
-          cost: it.cost ?? null,
+          cost: data.canEdit ? (it.cost ?? null) : null,
         });
       }
       return ok({
@@ -143,9 +143,9 @@
         is_owner: !!data.isOwner,
         participants: (data.participants || []).map((p) => ({ name: p.name, is_owner: !!p.is_owner })),
         days: [...byDay.keys()].sort((a, b) => a - b).map((day) => ({ day, stops: byDay.get(day) })),
-        hotels: data.hotels || [],
-        budget: data.budget || null,
-        expenses: data.expenses || [],
+        hotels: data.canEdit ? (data.hotels || []) : (data.hotels || []).map((h) => ({ ...h, price_total: null, note: null })),
+        budget: data.canEdit ? (data.budget || null) : null,
+        expenses: data.canEdit ? (data.expenses || []) : [],
       });
     },
   });

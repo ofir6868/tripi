@@ -15,7 +15,7 @@ const TripArrange = (() => {
   const LONG_PRESS_MS = 450;
   const DRIFT_PX = 8; // finger drift a long-press survives; more than this is a scroll
   const state = { active: false };
-  let doneBtn = null;
+  let doneBtns = [];
   let current = null; // { scope, opts } of the view rendered last
 
   function refresh() {
@@ -33,14 +33,16 @@ const TripArrange = (() => {
     state.active = true;
     if (navigator.vibrate) navigator.vibrate(12);
     document.body.classList.add('arrange-mode');
-    // one Done, at the bottom edge where the thumb already is — a second copy at
-    // the top only competed with the bin for the same corner of the screen
-    doneBtn = document.createElement('button');
-    doneBtn.type = 'button';
-    doneBtn.className = 'btn btn-amber arrange-done';
-    doneBtn.textContent = '✓ סיום סידור';
-    doneBtn.onclick = deactivate;
-    document.body.appendChild(doneBtn);
+    // one Done at each edge of the viewport so a thumb never has to hunt
+    doneBtns = ['arrange-done-top', 'arrange-done-bottom'].map((pos) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `btn btn-amber arrange-done ${pos}`;
+      btn.textContent = '✓ סיום סידור';
+      btn.onclick = deactivate;
+      document.body.appendChild(btn);
+      return btn;
+    });
     refresh();
   }
 
@@ -48,7 +50,8 @@ const TripArrange = (() => {
     if (!state.active) return;
     state.active = false;
     document.body.classList.remove('arrange-mode');
-    if (doneBtn) { doneBtn.remove(); doneBtn = null; }
+    for (const btn of doneBtns) btn.remove();
+    doneBtns = [];
     refresh();
   }
 

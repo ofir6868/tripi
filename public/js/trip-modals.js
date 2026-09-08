@@ -641,7 +641,7 @@ const TripModals = (() => {
     const dates = nightDates(state, hotel);
     const meta = [
       dates ? `צ'ק-אין ${dm(dates.checkin)} · צ'ק-אאוט ${dm(dates.checkout)}` : null,
-      hotel.price_total ? fmt(hotel.price_total, curOf(state)) : null,
+      hotel.price_total && state.canEdit ? fmt(hotel.price_total, curOf(state)) : null,
     ].filter(Boolean).join(' · ');
     return `
       <div class="night-booked" style="border-inline-start-color:${color}">
@@ -650,7 +650,7 @@ const TripModals = (() => {
           <div class="nb-name">לילה ${night} · ${esc(hotel.name)}</div>
           ${meta ? `<div class="nb-meta">${meta}</div>` : ''}
         </div>
-        <button type="button" class="nb-edit" data-open-night="${night}">שינוי</button>
+        ${state.canEdit ? `<button type="button" class="nb-edit" data-open-night="${night}">שינוי</button>` : ''}
       </div>`;
   }
 
@@ -1043,15 +1043,109 @@ const TripModals = (() => {
   });
 
   const personalKey = (state) => 'tripmaker_personal_budget_' + state.trip.share_code;
+  const emptyPersonal = () => ({ total: null, expenses: [], planned: [], paid: {} });
   function loadPersonal(state) {
     try {
       const p = JSON.parse(localStorage.getItem(personalKey(state)) || 'null');
-      return p && typeof p === 'object' ? { total: +p.total || null, expenses: Array.isArray(p.expenses) ? p.expenses : [] } : { total: null, expenses: [] };
-    } catch { return { total: null, expenses: [] }; }
+      if (!p || typeof p !== 'object') return emptyPersonal();
+      return {
+        total: +p.total || null,
+        expenses: Array.isArray(p.expenses) ? p.expenses : [],
+        planned: Array.isArray(p.planned) ? p.planned : [],
+        paid: p.paid && typeof p.paid === 'object' && !Array.isArray(p.paid) ? p.paid : {},
+      };
+    } catch { return emptyPersonal(); }
   }
   function savePersonal(state, p) {
     try { localStorage.setItem(personalKey(state), JSON.stringify(p)); return true; }
     catch { return false; }
+  }
+
+  // a stop's estimate is either on the shared itinerary (item.cost, participants
+  // only) or in this browser's personal plan. The two never share a number —
+  // personal stays off the server so the rest of the group doesn't see it.
+  function itemCostInfo(state, it) {
+    if (!it) return null;
+    const mine = loadPersonal(state).planned.find((p) => p.item_id === it.id);
+    if (mine && +mine.amount > 0) return { amount: +mine.amount, scope: 'personal' };
+    if (+it.cost > 0) return { amount: +it.cost, scope: 'shared' };
+    return null;
+  }
+  function setItemPersonalCost(state, item, amount) {
+    const personal = loadPersonal(state);
+    personal.planned = personal.planned.filter((p) => p.item_id !== item.id);
+    if (+amount > 0) {
+      personal.planned.push({
+        item_id: item.id,
+        title: item.title,
+        amount: +amount,
+        category: budgetCatOf(item.category),
+        day_number: item.day_number,
+      });
+    }
+    return savePersonal(state, personal);
+  }
+  function clearItemPersonalCost(state, itemId) {
+    const personal = loadPersonal(state);
+    const hadPlan = personal.planned.some((p) => p.item_id === itemId);
+    const hadPaid = !!(personal.paid && personal.paid[itemId]);
+    if (!hadPlan && !hadPaid) return true;
+    personal.planned = personal.planned.filter((p) => p.item_id !== itemId);
+    if (personal.paid) delete personal.paid[itemId];
+    return savePersonal(state, personal);
+  }
+  function personalPlannedTotals(state) {
+    const byCat = Object.fromEntries(CATS.map((c) => [c.key, 0]));
+    let total = 0;
+    for (const p of loadPersonal(state).planned) {
+      const a = +p.amount;
+      if (!(a > 0)) continue;
+      byCat[CATS.some((c) => c.key === p.category) ? p.category : 'אחר'] += a;
+      total += a;
+    }
+    return { total, byCat };
+  }
+
+  // estimates that belong in this budget: shared reads item.cost, personal
+  // reads this browser's planned list. Actual spending is those same rows
+  // marked paid — never the estimate itself.
+  function plannedCostItems(state, isPersonal) {
+    if (isPersonal) {
+      return loadPersonal(state).planned.filter((p) => +p.amount > 0).map((p) => ({
+        item_id: p.item_id,
+        title: p.title,
+        amount: +p.amount,
+        category: CATS.some((c) => c.key === p.category) ? p.category : 'אחר',
+        day_number: p.day_number || null,
+      }));
+    }
+    return state.items.filter((it) => +it.cost > 0).map((it) => ({
+      item_id: it.id,
+      title: it.title,
+      amount: +it.cost,
+      category: budgetCatOf(it.category),
+      day_number: it.day_number,
+    }));
+  }
+  function paidItemIds(state, isPersonal, personal) {
+    if (isPersonal) {
+      return new Set(Object.keys(personal.paid || {}).filter((k) => personal.paid[k]).map(Number));
+    }
+    return new Set((state.expenses || []).filter((e) => e.item_id).map((e) => +e.item_id));
+  }
+  function extraExpensesOf(state, isPersonal, personal) {
+    const plannedIds = new Set(plannedCostItems(state, isPersonal).map((p) => p.item_id));
+    const list = isPersonal ? personal.expenses : (state.expenses || []);
+    return list.filter((e) => !e.item_id || !plannedIds.has(+e.item_id));
+  }
+  function actualBundle(state, isPersonal, personal) {
+    const planned = plannedCostItems(state, isPersonal);
+    const paid = paidItemIds(state, isPersonal, personal);
+    const extras = extraExpensesOf(state, isPersonal, personal);
+    const paidRows = planned.filter((p) => paid.has(p.item_id)).map((p) => ({
+      amount: p.amount, category: p.category, day_number: p.day_number,
+    }));
+    return { planned, paid, extras, totals: actualTotals([...extras, ...paidRows]) };
   }
 
   function currentTripDay(state) {
@@ -1066,6 +1160,7 @@ const TripModals = (() => {
 
   function openBudget(ctx) {
     const { state } = ctx;
+    if (!state.canEdit) return;
     let page = document.getElementById('budget-page');
     if (!page) {
       page = document.createElement('section');
@@ -1126,10 +1221,6 @@ const TripModals = (() => {
       const cur = curOf(state);
       const personal = loadPersonal(state);
       const isPersonal = budgetView.mode === 'personal';
-      // a draft is all planning — there's no "בפועל" yet, so that view (and the
-      // toggle to reach it) only exists once the trip is published
-      const isDraft = !!state.trip.is_draft;
-      if (isDraft) budgetView.view = 'plan';
       const isActual = budgetView.view === 'actual';
       const title = page.querySelector('.bp-title');
       const sub = page.querySelector('.bp-sub');
@@ -1145,25 +1236,28 @@ const TripModals = (() => {
         return;
       }
       title.textContent = 'תקציב';
-      sub.textContent = isPersonal
-        ? 'החלק שלכם מהתכנון וההוצאות שלכם — נשמר בדפדפן הזה בלבד'
-        : 'הערכות לתחנות ולמלונות מול התקרה, וההוצאות בפועל — לכל המשתתפים';
+      sub.textContent = isActual
+        ? (isPersonal
+          ? 'תחנות שתייחסתם לתקציב האישי — סמנו אם שולם. נשמר בדפדפן הזה בלבד'
+          : 'הערכות מהמסלול — סמנו אם שולם, והוצאות נוספות לכל המשתתפים')
+        : (isPersonal
+          ? 'החלק שלכם מהתכנון וההוצאות שלכם — נשמר בדפדפן הזה בלבד'
+          : 'הערכות לתחנות ולמלונות מול התקרה, וההוצאות בפועל — לכל המשתתפים');
 
       const planned = plannedTotals(state);
       const travelers = (state.budget && state.budget.travelers) || 1;
       const cap = isPersonal ? personal.total : (state.budget ? +state.budget.total || null : null);
       const needsSetup = isPersonal
-        ? personal.total == null && !personal.expenses.length
+        ? personal.total == null && !personal.expenses.length && !personal.planned.length
         : !state.budget && !budgetView.skippedSetup;
       gear.hidden = needsSetup;
 
       controls.innerHTML = `
         <div class="bp-switches">
-          ${isDraft ? '' : `
           <div class="seg seg-sm bm-view" role="tablist" aria-label="תצוגה">
             <button type="button" data-v="plan" class="${!isActual ? 'active' : ''}">תכנון</button>
             <button type="button" data-v="actual" class="${isActual ? 'active' : ''}">בפועל</button>
-          </div>`}
+          </div>
           <div class="seg seg-sm seg-quiet bm-mode" role="tablist" aria-label="תקציב משותף או אישי">
             <button type="button" data-v="shared" class="${!isPersonal ? 'active' : ''}">${BICON.users}<span>משותף</span></button>
             <button type="button" data-v="personal" class="${isPersonal ? 'active' : ''}">${BICON.lock}<span>אישי</span></button>
@@ -1239,7 +1333,7 @@ const TripModals = (() => {
         body.querySelector('.bp-go').onclick = () => {
           const v = +body.querySelector('.bp-total').value;
           if (!(v > 0)) { body.querySelector('.bp-err').textContent = 'צריך סכום'; return; }
-          if (!savePersonal(state, { total: v, expenses: [] })) {
+          if (!savePersonal(state, { ...personal, total: v })) {
             body.querySelector('.bp-err').textContent = 'הדפדפן חוסם שמירה מקומית — תקציב אישי לא זמין כאן';
             return;
           }
@@ -1249,8 +1343,11 @@ const TripModals = (() => {
       }
 
       // ---- headline: the figure, the cap, and how the two compare ----
-      const actual = actualTotals(isPersonal ? personal.expenses : state.expenses);
-      const plannedValue = isPersonal ? planned.total / Math.max(travelers, 1) : planned.total;
+      const bundle = actualBundle(state, isPersonal, personal);
+      const actual = bundle.totals;
+      const personalPlan = personalPlannedTotals(state);
+      const shareOf = (n) => n / Math.max(travelers, 1);
+      const plannedValue = isPersonal ? shareOf(planned.total) + personalPlan.total : planned.total;
       const value = isActual ? actual.total : plannedValue;
       const pct = cap ? value / cap : 0;
       const tone = !cap ? '' : pct > 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok';
@@ -1278,7 +1375,9 @@ const TripModals = (() => {
       // ---- categories: share of the total, tap one to filter the lists below ----
       const catTotals = isActual
         ? actual.byCat
-        : (isPersonal ? Object.fromEntries(Object.entries(planned.byCat).map(([k, v]) => [k, v / Math.max(travelers, 1)])) : planned.byCat);
+        : (isPersonal
+          ? Object.fromEntries(CATS.map((c) => [c.key, shareOf(planned.byCat[c.key] || 0) + (personalPlan.byCat[c.key] || 0)]))
+          : planned.byCat);
       const catSum = Object.values(catTotals).reduce((a, b) => a + b, 0);
       let catsHtml;
       if (catSum > 0) {
@@ -1303,9 +1402,9 @@ const TripModals = (() => {
           }).join('')}</div>
         </section>`;
       } else if (isActual) {
-        catsHtml = '<p class="bp-note">עוד לא נרשמו הוצאות. מוסיפים אותן כאן, תוך כדי הטיול.</p>';
+        catsHtml = '<p class="bp-note">תחנות עם הערכה מופיעות למטה. סמנו «שולם» אחרי ששילמתם — רק הן נספרות בפועל.</p>';
       } else if (isPersonal) {
-        catsHtml = '<p class="bp-note">ההערכות מנוהלות בתקציב המשותף. ברגע שיהיו, כאן יופיע החלק שלכם.</p>';
+        catsHtml = '<p class="bp-note">החלק שלכם מהתכנון המשותף יופיע כאן, וגם עלויות שתייחסו לתקציב האישי כשמוסיפים תחנה.</p>';
       } else {
         catsHtml = '<p class="bp-note">עוד אין הערכות. מוסיפים סכום לכל תחנה בפירוט הימים למטה, או דרך סימן המטבע ליד התחנה במסלול.</p>';
       }
@@ -1325,13 +1424,13 @@ const TripModals = (() => {
                 `<option value="${i + 1}"${dToday === i + 1 ? ' selected' : ''}>יום ${i + 1}</option>`).join('')}</select>
               <button type="button" class="btn btn-amber qa-add">${BICON.plus}<span>הוספה</span></button>
             </div>
-            <div class="ba-hint qa-hint">${isPersonal ? 'נשמרת רק אצלכם, בדפדפן הזה' : 'נרשמת ב"בפועל" של כל המשתתפים'}</div>
+            <div class="ba-hint qa-hint">${isPersonal ? 'הוצאה נוספת, מעבר לתחנות — נשמרת רק אצלכם' : 'הוצאה נוספת, מעבר לתחנות — נרשמת לכל המשתתפים'}</div>
           </div>
         </section>` : '';
 
-      const listHtml = isPersonal
-        ? (isActual ? personalListHtml(personal, cur) : '')
-        : dayAccordionHtml(cur);
+      const listHtml = isActual
+        ? actualPlanHtml(cur, personal, isPersonal, bundle)
+        : (isPersonal ? personalPlanListHtml(personal, cur) : dayAccordionHtml(cur));
 
       body.innerHTML = `
         ${summaryHtml}
@@ -1487,15 +1586,68 @@ const TripModals = (() => {
         </div>`;
     }
 
-    function personalListHtml(personal, cur) {
-      const list = personal.expenses.filter((e) => !budgetView.filter || e.category === budgetView.filter);
+    function personalPlanListHtml(personal, cur) {
+      const list = personal.planned.filter((e) => !budgetView.filter || e.category === budgetView.filter);
+      if (!list.length) {
+        return budgetView.filter ? ''
+          : '<p class="bp-note">עלויות שתייחסו לתקציב האישי יופיעו כאן. החלק שלכם מהתכנון המשותף כבר למעלה. משנים את הייחוס בעריכת התחנה.</p>';
+      }
       return `
         <section class="bp-section">
-          <h3 class="bp-section-title">ההוצאות שלי</h3>
-          ${list.length
-            ? `<div class="bp-card bp-list">${list.map((e) => expenseRowHtml(e, cur, `data-i="${personal.expenses.indexOf(e)}"`)).join('')}</div>`
-            : '<p class="bp-note">עוד אין הוצאות אישיות.</p>'}
+          <h3 class="bp-section-title">מיוחס לתקציב האישי</h3>
+          <div class="bp-card bp-list">${list.map((e) => `
+            <div class="bd-item">
+              <span class="bi-cat">${catOf(e.category).emoji}</span>
+              <span class="bi-title">${esc(e.title)}${e.day_number ? ` <small>· יום ${e.day_number}</small>` : ''}</span>
+              <span class="bi-amount">${fmt(e.amount, cur)}</span>
+            </div>`).join('')}</div>
+          <p class="bp-note">נשמר רק אצלכם, בדפדפן הזה. זה תכנון — ב«בפועל» מסמנים אם שולם.</p>
         </section>`;
+    }
+
+    function planPayRowHtml(p, cur, paidSet) {
+      const on = paidSet.has(p.item_id);
+      return `
+        <div class="bd-item bd-plan${on ? ' is-paid' : ''}">
+          <span class="bi-cat">${catOf(p.category).emoji}</span>
+          <span class="bi-title">${esc(p.title)}</span>
+          <span class="bi-amount">${fmt(p.amount, cur)}</span>
+          <div class="bd-pay" role="group" aria-label="האם שולם עבור ${esc(p.title)}">
+            <button type="button" class="pay-btn${on ? ' on' : ''}" data-item="${p.item_id}" data-paid="1">שולם</button>
+            <button type="button" class="pay-btn unpaid${!on ? ' on' : ''}" data-item="${p.item_id}" data-paid="0">לא שולם</button>
+          </div>
+        </div>`;
+    }
+
+    function actualPlanHtml(cur, personal, isPersonal, bundle) {
+      const { planned, paid, extras } = bundle;
+      const match = (cat) => !budgetView.filter || cat === budgetView.filter;
+      const items = planned.filter((p) => match(p.category));
+      const extraList = extras.filter((e) => match(e.category));
+      let planBlock;
+      if (!items.length) {
+        planBlock = '<p class="bp-note">עוד אין תחנות עם הערכה. מוסיפים עלות לתחנה ומשייכים אותה לתקציב — זה נכנס לתכנון, וכאן מסמנים אם שולם.</p>';
+      } else {
+        const days = [...new Set(items.map((p) => p.day_number || 0))].sort((a, b) => a - b);
+        planBlock = `
+          <section class="bp-section">
+            <h3 class="bp-section-title">מהמסלול <small>סמנו אם שולם</small></h3>
+            <div class="bp-card bp-list">${days.map((d) => {
+              const slice = items.filter((p) => (p.day_number || 0) === d);
+              return `<div class="bp-day-label">${d ? `יום ${d}` : 'בלי יום'}</div>
+                ${slice.map((p) => planPayRowHtml(p, cur, paid)).join('')}`;
+            }).join('')}</div>
+          </section>`;
+      }
+      const extraBlock = extraList.length ? `
+        <section class="bp-section">
+          <h3 class="bp-section-title">הוצאות נוספות</h3>
+          <div class="bp-card bp-list">${extraList.map((e) => expenseRowHtml(
+            e, cur,
+            isPersonal ? `data-i="${personal.expenses.indexOf(e)}"` : (state.canEdit ? `data-id="${e.id}"` : '')
+          )).join('')}</div>
+        </section>` : '';
+      return planBlock + extraBlock;
     }
 
     function dayAccordionHtml(cur) {
@@ -1583,6 +1735,7 @@ const TripModals = (() => {
               method: 'PATCH', headers, body: JSON.stringify({ cost: inp.value || null }),
             });
             it.cost = updated.cost;
+            if (+updated.cost > 0) clearItemPersonalCost(state, it.id);
             render(); ctx.refresh();
           } catch (e) { alert(e.message); }
         };
@@ -1600,6 +1753,45 @@ const TripModals = (() => {
           try {
             await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/expenses/${b.dataset.id}`, { method: 'DELETE', headers });
             state.expenses = state.expenses.filter((e) => e.id !== +b.dataset.id);
+            render(); ctx.refresh();
+          } catch (e) { alert(e.message); }
+        };
+      });
+      body.querySelectorAll('.pay-btn').forEach((b) => {
+        b.onclick = async () => {
+          const itemId = +b.dataset.item;
+          const wantPaid = b.dataset.paid === '1';
+          const already = paidItemIds(state, isPersonal, personal).has(itemId);
+          if (wantPaid === already) return;
+          if (isPersonal) {
+            personal.paid = personal.paid || {};
+            if (wantPaid) personal.paid[itemId] = true;
+            else delete personal.paid[itemId];
+            if (!savePersonal(state, personal)) { alert('הדפדפן חוסם שמירה מקומית'); return; }
+            render();
+            return;
+          }
+          const headers = await ctx.ensureEdit();
+          if (!headers) return;
+          const row = plannedCostItems(state, false).find((p) => p.item_id === itemId);
+          if (!row) return;
+          try {
+            if (wantPaid) {
+              const created = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/expenses`, {
+                method: 'POST', headers,
+                body: JSON.stringify({
+                  title: row.title, amount: row.amount, category: row.category,
+                  day_number: row.day_number, item_id: itemId,
+                }),
+              });
+              state.expenses.unshift(created);
+            } else {
+              const exp = state.expenses.find((e) => +e.item_id === itemId);
+              if (exp) {
+                await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/expenses/${exp.id}`, { method: 'DELETE', headers });
+                state.expenses = state.expenses.filter((e) => e.id !== exp.id);
+              }
+            }
             render(); ctx.refresh();
           } catch (e) { alert(e.message); }
         };
@@ -1624,6 +1816,7 @@ const TripModals = (() => {
   }
 
   function heroChip(state) {
+    if (!state.canEdit) return null;
     const planned = plannedTotals(state);
     if (!state.budget && !planned.total) return null;
     const cur = curOf(state);
@@ -1646,5 +1839,9 @@ const TripModals = (() => {
     return lines;
   }
 
-  return { openHotels, openBudget, closeBudget, travelIcon, plannedTotals, plannedByDay, budgetButtonState, heroChip, dayHotelLines, uncoveredRuns, fmt, curOf, nightCardHtml, mountNightCards };
+  return {
+    openHotels, openBudget, closeBudget, travelIcon, plannedTotals, plannedByDay,
+    budgetButtonState, heroChip, dayHotelLines, uncoveredRuns, fmt, curOf,
+    nightCardHtml, mountNightCards, itemCostInfo, setItemPersonalCost, clearItemPersonalCost,
+  };
 })();

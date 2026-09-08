@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../lib/db');
 const seo = require('../lib/seo');
 const legal = require('../lib/legal');
+const { stampAssets } = require('../lib/asset-version');
 
 // Crawlable marketing pages. Everything here is plain server-rendered HTML: the
 // product's pages draw themselves in JavaScript, so these are the only URLs on the
@@ -9,7 +10,9 @@ const legal = require('../lib/legal');
 const router = express.Router();
 
 const DAY = 60 * 60 * 24;
-const send = (res, html) => res.set('Cache-Control', `public, max-age=${DAY}`).type('html').send(html);
+// these pages are cached for a day, which makes stamping their asset URLs matter more
+// than anywhere else: a day-old page must not ask for a day-old stylesheet
+const send = (res, html) => res.set('Cache-Control', `public, max-age=${DAY}`).type('html').send(stampAssets(html));
 
 router.get('/sitemap.xml', (_req, res) => {
   res.set('Cache-Control', `public, max-age=${DAY}`).type('application/xml').send(seo.renderSitemap());
