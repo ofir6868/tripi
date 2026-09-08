@@ -49,13 +49,14 @@ const TripMap = (() => {
 
   const available = () => typeof L !== 'undefined';
 
-  // a numbered amber dot — pure divIcon, so none of Leaflet's default marker
-  // images (which we don't vendor) are ever requested
+  // a numbered pin — pure divIcon, so none of Leaflet's default marker images
+  // (which we don't vendor) are ever requested. The teardrop shape + a soft
+  // pulse ring reads as a real map pin, not a plain dot lost in the tiles.
   const pinIcon = (n) => L.divIcon({
     className: 'map-pin-wrap',
-    html: `<span class="map-pin">${n}</span>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
+    html: `<span class="map-pin"><span class="map-pin-ring"></span><span class="map-pin-num">${n}</span></span>`,
+    iconSize: [34, 40],
+    iconAnchor: [17, 36],
   });
 
   const dayStops = (day) =>
@@ -164,17 +165,26 @@ const TripMap = (() => {
       return;
     }
     const latlngs = stops.map((it) => [it.lat, it.lon]);
-    // the walking order, dashed — echoes the loader's route sketch
+    // the walking order: a soft glow trace under a bright marching-dash line on
+    // top — echoes the loader's route sketch, but reads clearly over any of the
+    // three basemaps (dark asphalt, pale streets, or a busy satellite photo)
     if (latlngs.length > 1) {
       pinLayer.addLayer(L.polyline(latlngs, {
-        color: '#ffb45f', weight: 3, opacity: .8, dashArray: '6 8',
+        className: 'route-line-glow', color: '#ffb45f', weight: 8, opacity: .35, lineCap: 'round', lineJoin: 'round',
+      }));
+      pinLayer.addLayer(L.polyline(latlngs, {
+        className: 'route-line', color: '#ffd08a', weight: 3.5, opacity: .95,
+        dashArray: '1 10', lineCap: 'round', lineJoin: 'round',
       }));
     }
+    // numbered pins drawn last, on their own pane order, so they always sit
+    // above the route line regardless of paint order above
     stops.forEach((it, i) => {
       const m = L.marker([it.lat, it.lon], {
         icon: pinIcon(i + 1),
         title: it.title,
         keyboard: false,
+        riseOnHover: true,
       });
       // a pin opens the same stop sheet a card tap opens — one surface per stop
       m.on('click', () => ctx.openStop(it.id));

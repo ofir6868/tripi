@@ -922,15 +922,47 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
   border-radius: 8px 0 0 0;
 }
 .map-card .leaflet-control-attribution a { color: var(--amber) !important; }
-/* numbered stop pins (divIcon — no image assets) */
+/* numbered stop pins (divIcon — no image assets): a teardrop marker in the
+   brand gradient, a white ring for contrast against any basemap, and a soft
+   pulse that draws the eye without ever looping into an animation loop */
 .map-pin-wrap { background: none; border: none; }
 .map-pin {
+  position: relative;
   display: flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; border-radius: 50%;
-  background: var(--amber, #ffb45f); color: #0a1512;
-  font-weight: 800; font-size: .82rem; font-variant-numeric: tabular-nums;
-  border: 2px solid #0a1512; box-shadow: 0 2px 8px rgba(0, 0, 0, .45);
+  width: 34px; height: 34px; margin: 0 auto;
+  border-radius: 50% 50% 50% 4px; transform: rotate(-45deg);
+  background: linear-gradient(135deg, #ffcb7d, var(--amber, #ffb45f) 55%, var(--amber-deep, #e8853a));
+  border: 3px solid #fff;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .5), 0 0 0 1px rgba(0, 0, 0, .15);
   cursor: pointer;
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+.map-pin-wrap:hover .map-pin, .map-pin-wrap:focus-visible .map-pin {
+  transform: rotate(-45deg) scale(1.14);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, .55), 0 0 0 1px rgba(0, 0, 0, .15);
+}
+.map-pin-num {
+  transform: rotate(45deg);
+  color: #241302; font-weight: 800; font-size: .84rem;
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.map-pin-ring {
+  position: absolute; inset: -7px; border-radius: 50%;
+  border: 2px solid rgba(255, 180, 95, .55);
+  animation: map-pin-pulse 2.2s ease-out infinite;
+}
+.map-pin-wrap:nth-child(even) .map-pin-ring { animation-delay: .5s; }
+@keyframes map-pin-pulse {
+  0% { transform: scale(.55); opacity: .9; }
+  70%, 100% { transform: scale(1.35); opacity: 0; }
+}
+/* the walking-order line: a soft glow trace under a marching-dash top line */
+.route-line-glow { filter: blur(1.5px); }
+.route-line { animation: route-line-march 1.1s linear infinite; }
+@keyframes route-line-march { to { stroke-dashoffset: -22; } }
+@media (prefers-reduced-motion: reduce) {
+  .map-pin-ring { animation: none; opacity: 0; }
+  .route-line { animation: none; }
 }
 .leaflet-container { font-family: inherit; }
 
