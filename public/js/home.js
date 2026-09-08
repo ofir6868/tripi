@@ -46,6 +46,8 @@
   // ---- tabs ----
   document.querySelectorAll('.search-tab').forEach((tab) => {
     tab.addEventListener('click', () => {
+      // "הטיולים שלי" is a real link to /my — leave the dest/code widget as-is
+      if (tab.dataset.mode === 'mine') return;
       document.querySelectorAll('.search-tab').forEach((t) => t.classList.remove('active'));
       tab.classList.add('active');
       mode = tab.dataset.mode;
