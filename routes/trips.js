@@ -77,7 +77,7 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
       delete trip.plan_state; // and so is the planning chat's memory — it holds what they told the AI
     }
     const [items, hotels, budget, expenses, participants] = await Promise.all([
-      pool.query('SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]),
+      pool.query('SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, time_label NULLS LAST, sort_order, id', [trip.id]),
       pool.query('SELECT * FROM trip_hotels WHERE trip_id = $1 ORDER BY night_start, id', [trip.id]),
       canEdit
         ? pool.query('SELECT total, currency, travelers FROM trip_budgets WHERE trip_id = $1', [trip.id])
@@ -236,7 +236,7 @@ router.get('/api/trips/code/:code/calendar.ics', authOptional, async (req, res) 
     const trip = rows[0];
     if (!trip.start_date) return res.status(400).json({ error: 'לטיול אין תאריך התחלה — קובעים תאריך ואפשר לייצא ליומן' });
     const { rows: items } = await pool.query(
-      'SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, time_label NULLS FIRST, sort_order, id', [trip.id]
+      'SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, time_label NULLS LAST, sort_order, id', [trip.id]
     );
 
     const start = new Date(trip.start_date);

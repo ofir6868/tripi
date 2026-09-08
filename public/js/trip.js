@@ -254,11 +254,26 @@
       });
     }
 
-    // day order first, then the clock, then the stored slot — the order both views
-    // read stops in. The slot tiebreak matches the server's own ORDER BY, and it is
-    // what makes an arrange-mode swap of two unclocked stops actually visible.
+    // clocked HH:MM first (by minutes, so 9:00 beats 16:00), then a free-text
+    // hour like "אחה״צ", then no hour at the bottom of the day. localeCompare on
+    // `time_label || ''` used to pile the untimed ones at the top. The slot
+    // tiebreak is what makes an arrange-mode swap of two unclocked stops visible.
+    const timeMinutes = (t) => {
+      const m = /^([01]?\d|2[0-3]):([0-5]\d)/.exec(String(t || '').trim());
+      return m ? +m[1] * 60 + +m[2] : null;
+    };
+    const cmpTimeLabel = (a, b) => {
+      const ma = timeMinutes(a), mb = timeMinutes(b);
+      if (ma != null && mb != null) return ma - mb;
+      if (ma != null) return -1;
+      if (mb != null) return 1;
+      const sa = String(a || '').trim(), sb = String(b || '').trim();
+      if (sa && !sb) return -1;
+      if (!sa && sb) return 1;
+      return sa.localeCompare(sb);
+    };
     const sortItems = () => tripItems.sort((a, b) =>
-      a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || ''))
+      a.day_number - b.day_number || cmpTimeLabel(a.time_label, b.time_label)
       || (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id);
     // the server orders by slot only (day, sort_order, id) — run the clock-first
     // comparator once on load too, or a stop added at 15:30 yesterday renders
@@ -304,19 +319,18 @@
 
     // arrange-mode commit: the DOM order of each visible day, exactly as the drag
     // preview left it. Each day keeps its own set of hours and deals them back to
-    // its stops in the new order (nulls first, same comparator as sortItems), so the
-    // schedule's shape survives, only the content moves — and day+time+slot sorting
-    // is guaranteed to reproduce the visual order that was committed.
+    // its stops in the new order (clocked first, same comparator as sortItems), so
+    // the schedule's shape survives, only the content moves — and day+time+slot
+    // sorting is guaranteed to reproduce the visual order that was committed.
     async function applyArrangement(layout) {
-      const cmp = (a, b) => String(a || '').localeCompare(String(b || ''));
       const jobs = [];
       for (const { day, ids } of layout) {
         const stops = ids.map((id) => tripItems.find((it) => it.id === id)).filter(Boolean);
-        const slots = stops.map((s) => s.time_label).sort(cmp);
+        const slots = stops.map((s) => s.time_label).sort(cmpTimeLabel);
         stops.forEach((s, i) => {
           const patch = {};
           if (s.day_number !== day) patch.day_number = day;
-          if (cmp(s.time_label, slots[i])) patch.time_label = slots[i];
+          if (cmpTimeLabel(s.time_label, slots[i])) patch.time_label = slots[i];
           if (s.sort_order !== i) patch.sort_order = i;
           if (Object.keys(patch).length) jobs.push({ item: s, patch });
         });
