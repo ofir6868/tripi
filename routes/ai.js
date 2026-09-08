@@ -490,6 +490,7 @@ const COVER_OPTIONS = [
   { name: 'לונדון — גשר המצודה והתמזה', url: COVER_U('photo-1513635269975-59663e0ac1ad') },
   { name: 'ברצלונה מלמעלה — סגרדה פמיליה', url: COVER_U('photo-1583422409516-2895a77efded') },
   { name: 'תעלות אמסטרדם', url: COVER_U('photo-1534351590666-13e3e96b5017') },
+  { name: 'בריסל — הגרנד פלאס', url: COVER_U('photo-1573299867162-6e895f64bf23') },
   { name: 'קו הרקיע של דובאי', url: COVER_U('photo-1512453979798-5ea266f8880c') },
   { name: 'חשמלית צהובה בליסבון', url: COVER_U('photo-1585208798174-6cedd86e019a') },
   { name: 'מפרץ הא לונג — סלעים וסירות', url: COVER_U('photo-1528127269322-539801943592') },
@@ -523,6 +524,7 @@ const COVER_TAGS = {
   'לונדון — גשר המצודה והתמזה': ['לונדון', 'אנגליה', 'בריטניה', 'london', 'england'],
   'ברצלונה מלמעלה — סגרדה פמיליה': ['ברצלונה', 'ספרד', 'barcelona', 'spain'],
   'תעלות אמסטרדם': ['אמסטרדם', 'הולנד', 'amsterdam', 'netherlands'],
+  'בריסל — הגרנד פלאס': ['בריסל', 'בלגיה', 'brussels', 'belgium'],
   'קו הרקיע של דובאי': ['דובאי', 'איחוד האמירויות', 'dubai'],
   // the same yellow trams run in Porto, so the whole country qualifies
   'חשמלית צהובה בליסבון': ['ליסבון', 'פורטו', 'פורטוגל', 'lisbon', 'porto', 'portugal'],

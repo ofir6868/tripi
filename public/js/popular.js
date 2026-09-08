@@ -25,6 +25,8 @@ const POPULAR = (() => {
     { name: 'לונדון', cc: 'gb', country: 'בריטניה', img: IMG('photo-1513635269975-59663e0ac1ad') },
     { name: 'פראג', cc: 'cz', country: "צ'כיה", img: IMG('photo-1541849546-216549ae216d') },
     { name: 'בודפשט', cc: 'hu', country: 'הונגריה', img: IMG('photo-1541343672885-9be56236302a') },
+    { name: 'וינה', cc: 'at', country: 'אוסטריה', img: IMG('photo-1516550893923-42d28e5677af') },
+    { name: 'בריסל', cc: 'be', country: 'בלגיה', img: IMG('photo-1573299867162-6e895f64bf23') },
     { name: 'דובאי', cc: 'ae', country: 'איחוד האמירויות', img: IMG('photo-1512453979798-5ea266f8880c') },
     { name: 'תאילנד', cc: 'th', img: IMG('photo-1552465011-b4e21bf6e79a') },
     { name: 'יפן', cc: 'jp', img: IMG('photo-1540959733332-eab4deabeeaf') },
