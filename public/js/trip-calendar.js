@@ -378,6 +378,7 @@ const TripCalendar = (() => {
   const CATS = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבות', 'קניות', 'לינה', 'נוף', 'חיי לילה', 'נסיעה'];
   const icPencil = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
   const icTrash = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+  const icX = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
 
   // `dirty` = the form has unsaved keystrokes; a stray backdrop tap then asks first
   const sheet = { dirty: false };
@@ -513,9 +514,12 @@ const TripCalendar = (() => {
             return `<option value="${n}"${n === it.day_number ? ' selected' : ''}>יום ${n}${dt ? ` · ${dt.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}` : ''}</option>`;
           }).join('')}</select></div>
         <div class="field"><label for="se-time">שעה</label>
-          ${timePicker
-            ? `<input id="se-time" class="se-time" type="time" value="${esc(it.time_label || '')}">`
-            : `<input id="se-time" class="se-time" type="text" maxlength="20" value="${esc(it.time_label)}">`}</div>
+          <div class="se-time-wrap${it.time_label ? ' has-time' : ''}">
+            ${timePicker
+              ? `<input id="se-time" class="se-time" type="time" value="${esc(it.time_label || '')}">`
+              : `<input id="se-time" class="se-time" type="text" maxlength="20" value="${esc(it.time_label)}">`}
+            <button type="button" class="se-time-clear" title="מחיקת השעה" aria-label="מחיקת השעה">${icX}</button>
+          </div></div>
         <div class="field span-2"><label for="se-title">מה עושים? *</label>
           <input id="se-title" class="se-title" type="text" maxlength="120"
             placeholder="למשל: ארוחת ערב על הגג" value="${esc(it.title)}"></div>
@@ -550,6 +554,27 @@ const TripCalendar = (() => {
     body.querySelectorAll('input, select, textarea').forEach((f) => {
       f.addEventListener('input', () => { sheet.dirty = true; });
     });
+    // native time pickers have no empty state once a value is set — the X is
+    // how a stop goes back to "no hour". Save already sends null for a blank.
+    const timeInput = body.querySelector('.se-time');
+    const timeWrap = body.querySelector('.se-time-wrap');
+    const syncTimeClear = () => timeWrap.classList.toggle('has-time', !!timeInput.value.trim());
+    timeInput.addEventListener('change', syncTimeClear);
+    timeInput.addEventListener('input', syncTimeClear);
+    body.querySelector('.se-time-clear').onclick = (e) => {
+      e.preventDefault();
+      timeInput.value = '';
+      // some WebKit builds ignore '' on type=time unless the type is flipped
+      if (timeInput.value) {
+        const t = timeInput.type;
+        timeInput.type = 'text';
+        timeInput.value = '';
+        timeInput.type = t;
+      }
+      sheet.dirty = true;
+      syncTimeClear();
+      timeInput.focus();
+    };
 
     body.querySelector('.se-cancel').onclick = () => {
       if (sheet.dirty && !confirm(isNew ? 'לוותר על התחנה החדשה?' : 'לוותר על השינויים?')) return;

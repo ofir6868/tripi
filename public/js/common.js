@@ -15,6 +15,19 @@
   } catch { /* storage blocked — nothing to carry over */ }
 })();
 
+// No pinch / double-tap zoom — in the browser and as a home-screen app.
+// iOS Safari ignores user-scalable=no in the browser; blocking the gesture
+// events is what actually stops a pinch there.
+(() => {
+  const stop = (e) => e.preventDefault();
+  document.addEventListener('gesturestart', stop, { passive: false });
+  document.addEventListener('gesturechange', stop, { passive: false });
+  document.addEventListener('gestureend', stop, { passive: false });
+  document.addEventListener('touchmove', (e) => {
+    if (e.touches && e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
+})();
+
 const TRIPMAKER = {
   token: localStorage.getItem('tripmaker_token'),
   user: JSON.parse(localStorage.getItem('tripmaker_user') || 'null'),
