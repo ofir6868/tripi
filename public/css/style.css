@@ -3342,6 +3342,144 @@ body.cal-full-open { overflow: hidden; }
 .seo-faq details[open] summary::after { content: '\2212'; }
 .seo-faq details p { margin: 10px 0 0; }
 
+/* ---------- long-form destination guides (.seo-guide) ----------
+   The short destination template is one column of prose. A guide is a magazine
+   page: a summary card you can read in ten seconds, a jump list, figures, tables
+   and a day-by-day block. Everything here is scoped under .seo-guide so the other
+   ~40 destination pages are untouched. No animation — these pages are read, and
+   the software renderer on some machines makes animated glass expensive. */
+
+.guide-byline {
+  font-size: .85rem; color: var(--paper-dim); font-weight: 300;
+  margin: -6px 0 18px !important;
+}
+
+.seo-facts.facts-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) { .seo-facts.facts-4 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 480px) { .seo-facts.facts-4 { grid-template-columns: 1fr; } }
+
+/* The ten-second version. Amber rail on the inline-start edge, so in RTL it sits
+   on the right where the eye starts. */
+.guide-tldr {
+  padding: 20px 22px; margin: 0 0 26px;
+  border-inline-start: 3px solid var(--amber);
+}
+.guide-tldr h2 {
+  font-family: var(--font-display); font-size: 1.15rem;
+  margin: 0 0 12px !important; color: var(--paper);
+}
+.guide-tldr ul { list-style: none; padding: 0; margin: 0; }
+.guide-tldr li {
+  position: relative; padding-inline-start: 22px; margin-bottom: 10px;
+  line-height: 1.65; color: var(--paper-dim); font-weight: 300;
+}
+.guide-tldr li:last-child { margin-bottom: 0; }
+.guide-tldr li::before {
+  content: ''; position: absolute; inset-inline-start: 4px; top: .62em;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--mint);
+}
+
+.guide-toc {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 0 0 6px; margin: 0 0 8px;
+}
+.guide-toc a {
+  display: inline-block; padding: 7px 14px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--glass-border);
+  color: var(--paper-dim); text-decoration: none; font-size: .88rem;
+}
+.guide-toc a:hover { color: var(--paper); border-color: rgba(255, 180, 95, .45); }
+
+/* Anchors land under nothing fixed, but a jump that puts the heading flush against
+   the viewport edge reads as if the section started mid-page. */
+.guide-sec { scroll-margin-top: 20px; }
+
+.guide-fig { margin: 22px 0; }
+.guide-fig img {
+  width: 100%; height: auto; aspect-ratio: 3 / 2; object-fit: cover;
+  border-radius: var(--radius-sm); border: 1px solid var(--glass-border);
+  display: block;
+}
+.guide-fig figcaption {
+  margin-top: 8px; font-size: .87rem; line-height: 1.55;
+  color: var(--paper-dim); font-weight: 300;
+}
+
+/* Tables scroll inside themselves; the page never scrolls sideways. */
+.guide-tablewrap {
+  overflow-x: auto; margin: 20px 0;
+  border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
+  background: var(--glass);
+}
+.guide-tablewrap:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.guide-table { width: 100%; border-collapse: collapse; font-size: .92rem; min-width: 480px; }
+.guide-table th, .guide-table td {
+  padding: 11px 14px; text-align: start; vertical-align: top;
+  border-bottom: 1px solid rgba(255, 255, 255, .07); line-height: 1.55;
+}
+.guide-table th {
+  font-size: .8rem; letter-spacing: .06em; color: var(--mint);
+  font-weight: 600; white-space: nowrap;
+  background: rgba(255, 255, 255, .03);
+}
+.guide-table td { color: var(--paper-dim); font-weight: 300; }
+.guide-table td:first-child { color: var(--paper); font-weight: 600; }
+.guide-table tbody tr:last-child td { border-bottom: 0; }
+
+.guide-warn {
+  padding: 14px 18px; margin: 18px 0 !important;
+  border-inline-start: 3px solid var(--danger);
+  background: rgba(255, 122, 110, .07);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.guide-warn strong { color: var(--danger) !important; }
+
+.guide-cta, .guide-cta-final { margin: 26px 0; }
+.guide-cta-final { margin-top: 34px; }
+
+.guide-days { list-style: none; padding: 0; margin: 18px 0 8px; }
+.guide-days li {
+  display: grid; grid-template-columns: 120px 1fr; gap: 4px 16px;
+  padding: 14px 0; border-top: 1px solid rgba(255, 255, 255, .08);
+}
+.guide-days li:last-child { border-bottom: 1px solid rgba(255, 255, 255, .08); }
+.gd-when {
+  grid-row: 1 / span 2; font-size: .84rem; letter-spacing: .04em;
+  color: var(--mint); font-weight: 600; padding-top: 2px;
+}
+.gd-where { font-family: var(--font-display); font-size: 1.05rem; font-weight: 400; }
+.gd-what { color: var(--paper-dim); font-weight: 300; line-height: 1.65; }
+@media (max-width: 560px) {
+  .guide-days li { grid-template-columns: 1fr; gap: 2px; }
+  .gd-when { grid-row: auto; }
+}
+
+.guide-gallery {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 30px 0;
+}
+.guide-gallery img {
+  width: 100%; height: 100%; aspect-ratio: 1 / 1; object-fit: cover;
+  border-radius: var(--radius-sm); border: 1px solid var(--glass-border);
+  display: block;
+}
+@media (max-width: 640px) { .guide-gallery { grid-template-columns: repeat(2, 1fr); } }
+
+.guide-mistakes { list-style: none; padding: 0; margin: 14px 0; }
+.guide-mistakes li {
+  position: relative; padding-inline-start: 30px; margin-bottom: 12px;
+  line-height: 1.7; color: var(--paper-dim); font-weight: 300;
+}
+/* A drawn glyph, not an emoji — same rule as every other control on the site. */
+.guide-mistakes li::before {
+  content: ''; position: absolute; inset-inline-start: 2px; top: .34em;
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 1.5px solid var(--danger);
+  background:
+    linear-gradient(45deg, transparent 45%, var(--danger) 45%, var(--danger) 55%, transparent 55%),
+    linear-gradient(-45deg, transparent 45%, var(--danger) 45%, var(--danger) 55%, transparent 55%);
+  background-size: 9px 9px; background-position: center; background-repeat: no-repeat;
+}
+
 .seo-footer-links { margin-bottom: 14px; }
 .seo-footer-links a { color: rgba(245, 239, 227, .8); text-decoration: none; }
 .seo-footer-links a:hover { color: var(--paper); }
