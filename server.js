@@ -47,6 +47,7 @@ app.use(express.json({ limit: '2mb' }));
 // index: false — the pages are served by routes/pages.js, which stamps their asset
 // URLs with the deploy's version (lib/asset-version). A directory index here would
 // hand out an unstamped index.html and quietly reopen the problem for the home page.
+const IMG_DIR = path.join(__dirname, 'public', 'img') + path.sep;
 app.use(express.static(path.join(__dirname, 'public'), {
   index: false,
   setHeaders: (res, filePath) => {
@@ -58,6 +59,12 @@ app.use(express.static(path.join(__dirname, 'public'), {
     // `immutable` makes. Without this they inherit express.static's max-age=0 and
     // cost a revalidation round trip on every single page load, in front of text.
     else if (/\.woff2$/i.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    // public/img is the same bargain: everything in it is written by a tool
+    // (tools/fetch-hero.js), addressed by what it contains, and replaced by adding a
+    // new filename rather than new bytes under an old one. The hero photo is the
+    // home page's LCP element, so this is the one directory where a revalidation
+    // round trip would be felt directly.
+    else if (filePath.startsWith(IMG_DIR)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
   },
 }));
 

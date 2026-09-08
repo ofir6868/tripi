@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "setup-db": "node db/setup.js"
+    "setup-db": "node db/setup.js",
+    "fetch-hero": "node tools/fetch-hero.js"
   },
   "engines": {
     "node": ">=18"
