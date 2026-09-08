@@ -142,11 +142,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ---- modal shell, matching the auth modal's markup so it inherits its styling ----
   function admModal(inner) {
     const wrap = document.createElement('div');
-    wrap.className = 'modal-backdrop open';
+    wrap.className = 'modal-backdrop';
     wrap.innerHTML = `<div class="modal glass"><button class="modal-close" aria-label="סגירה">✕</button>${inner}</div>`;
     document.body.appendChild(wrap);
+    void wrap.offsetWidth;
+    wrap.classList.add('open');
     const onKey = (e) => { if (e.key === 'Escape') close(); };
-    function close() { wrap.remove(); document.removeEventListener('keydown', onKey); }
+    function close() {
+      document.removeEventListener('keydown', onKey);
+      TRIPMAKER.closeOverlay(wrap, { remove: true });
+    }
     wrap.querySelector('.modal-close').onclick = close;
     wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
     document.addEventListener('keydown', onKey);

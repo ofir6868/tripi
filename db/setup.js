@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS trip_items (
   lon DOUBLE PRECISION,
   google_place_id TEXT,
   cost NUMERIC(10,2),
+  cost_paid BOOLEAN NOT NULL DEFAULT false,
   sort_order INT DEFAULT 0
 );
 
@@ -132,6 +133,7 @@ CREATE TABLE IF NOT EXISTS trip_expenses (
   category TEXT NOT NULL DEFAULT 'אחר',
   day_number INT,
   paid_by TEXT,
+  item_id INT REFERENCES trip_items(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -152,6 +154,8 @@ CREATE INDEX IF NOT EXISTS idx_trips_owner ON trips(owner_id);
 CREATE INDEX IF NOT EXISTS idx_items_trip ON trip_items(trip_id);
 CREATE INDEX IF NOT EXISTS idx_hotels_trip ON trip_hotels(trip_id);
 CREATE INDEX IF NOT EXISTS idx_expenses_trip ON trip_expenses(trip_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_item ON trip_expenses(item_id) WHERE item_id IS NOT NULL;
+
 `;
 
 const U = (id, w = 1200) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=${w}&q=80`;
