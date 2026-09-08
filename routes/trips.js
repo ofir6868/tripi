@@ -3,7 +3,7 @@ const { pool } = require('../lib/db');
 const { authRequired, authOptional, isAdmin } = require('../lib/auth');
 const {
   uniqueShareCode, tripFields, newInviteToken, isParticipant, tripWithEditAuth,
-  numOrNull, moneyOrNull, cleanDestinations, cleanPlanState,
+  viewerSafeItems, viewerSafeHotels, numOrNull, moneyOrNull, cleanDestinations, cleanPlanState,
 } = require('../lib/trips');
 const { rateLimiter } = require('../lib/rate-limit');
 const { notifyTripAsync } = require('../lib/push');
@@ -79,8 +79,12 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
     const [items, hotels, budget, expenses, participants] = await Promise.all([
       pool.query('SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]),
       pool.query('SELECT * FROM trip_hotels WHERE trip_id = $1 ORDER BY night_start, id', [trip.id]),
-      pool.query('SELECT total, currency, travelers FROM trip_budgets WHERE trip_id = $1', [trip.id]),
-      pool.query('SELECT id, title, amount, category, day_number, paid_by, created_at FROM trip_expenses WHERE trip_id = $1 ORDER BY created_at DESC, id DESC', [trip.id]),
+      canEdit
+        ? pool.query('SELECT total, currency, travelers FROM trip_budgets WHERE trip_id = $1', [trip.id])
+        : Promise.resolve({ rows: [] }),
+      canEdit
+        ? pool.query('SELECT id, title, amount, category, day_number, paid_by, item_id, created_at FROM trip_expenses WHERE trip_id = $1 ORDER BY created_at DESC, id DESC', [trip.id])
+        : Promise.resolve({ rows: [] }),
       canEdit ? pool.query(
         `SELECT u.id, u.name, (u.id = COALESCE($2, -1)) AS is_owner
          FROM users u
@@ -89,14 +93,16 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
         [trip.id, trip.owner_id]
       ) : Promise.resolve({ rows: [] }),
     ]);
-    // privacy split: viewers see hotel names/nights/links but not money or
-    // confirmation notes, and no expense log — those are for participants
-    const hotelRows = canEdit ? hotels.rows
-      : hotels.rows.map((h) => ({ ...h, price_total: null, note: null }));
+    // privacy split: viewers (gallery + share-code) see the itinerary and hotel
+    // names, never money, notes, expenses or the budget — those are for
+    // participants (and the owner / admin). Documents and photos never leave
+    // the device, so they are not in this payload at all.
     res.json({
-      trip, items: items.rows, isOwner, canEdit, isAdmin: admin,
-      hotels: hotelRows,
-      budget: budget.rows[0] || null,
+      trip,
+      items: canEdit ? items.rows : viewerSafeItems(items.rows),
+      isOwner, canEdit, isAdmin: admin,
+      hotels: canEdit ? hotels.rows : viewerSafeHotels(hotels.rows),
+      budget: canEdit ? (budget.rows[0] || null) : null,
       expenses: canEdit ? expenses.rows : [],
       participants: participants.rows,
     });
@@ -672,13 +678,25 @@ router.post('/api/trips/code/:code/expenses', authOptional, async (req, res) => 
     if (!title) return res.status(400).json({ error: 'על מה הוצאתם? חסר תיאור' });
     if (!(amount > 0)) return res.status(400).json({ error: 'חסר סכום תקין' });
     const day = parseInt(b.day_number, 10);
+    let itemId = parseInt(b.item_id, 10);
+    if (!(itemId > 0)) itemId = null;
+    if (itemId) {
+      const owned = await pool.query('SELECT id FROM trip_items WHERE id = $1 AND trip_id = $2', [itemId, trip.id]);
+      if (!owned.rows[0]) return res.status(400).json({ error: 'התחנה לא נמצאה' });
+      const existing = await pool.query(
+        'SELECT id, title, amount, category, day_number, paid_by, item_id, created_at FROM trip_expenses WHERE trip_id = $1 AND item_id = $2',
+        [trip.id, itemId]
+      );
+      if (existing.rows[0]) return res.json(existing.rows[0]);
+    }
     const { rows } = await pool.query(
-      `INSERT INTO trip_expenses (trip_id, title, amount, category, day_number, paid_by)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, title, amount, category, day_number, paid_by, created_at`,
+      `INSERT INTO trip_expenses (trip_id, title, amount, category, day_number, paid_by, item_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, title, amount, category, day_number, paid_by, item_id, created_at`,
       [trip.id, title, amount,
        EXPENSE_CATEGORIES.includes(b.category) ? b.category : 'אחר',
        day >= 1 && day <= trip.days ? day : null,
-       req.user.name || null]
+       req.user.name || null,
+       itemId]
     );
     res.json(rows[0]);
   } catch (err) {
@@ -711,6 +729,12 @@ router.post('/api/trips/code/:code/clone', authRequired, async (req, res) => {
     const { rows } = await pool.query(`SELECT * FROM trips WHERE share_code = $1`, [req.params.code]);
     const src = rows[0];
     if (!src) return res.status(404).json({ error: 'הטיול לא נמצא' });
+    // money (stop costs, budget, hotel prices/notes) only copies if this user
+    // already had the right to see it — a gallery visitor clones the itinerary,
+    // not the private numbers
+    const copyMoney = src.owner_id === req.user.id
+      || await isAdmin(req)
+      || await isParticipant(src.id, req.user.id);
     await client.query('BEGIN');
     const code = await uniqueShareCode(client);
     const t = await client.query(
@@ -721,21 +745,25 @@ router.post('/api/trips/code/:code/clone', authRequired, async (req, res) => {
     );
     await client.query(
       `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
-       SELECT $1, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order
+       SELECT $1, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id,
+              CASE WHEN $3 THEN cost ELSE NULL END, sort_order
        FROM trip_items WHERE trip_id = $2`,
-      [t.rows[0].id, src.id]
+      [t.rows[0].id, src.id, copyMoney]
     );
-    // the plan travels with the trip: budget frame + hotels; the expense log (actuals) doesn't
-    await client.query(
-      `INSERT INTO trip_budgets (trip_id, total, currency, travelers)
-       SELECT $1, total, currency, travelers FROM trip_budgets WHERE trip_id = $2`,
-      [t.rows[0].id, src.id]
-    );
+    if (copyMoney) {
+      await client.query(
+        `INSERT INTO trip_budgets (trip_id, total, currency, travelers)
+         SELECT $1, total, currency, travelers FROM trip_budgets WHERE trip_id = $2`,
+        [t.rows[0].id, src.id]
+      );
+    }
     await client.query(
       `INSERT INTO trip_hotels (trip_id, name, night_start, night_end, status, stars, lat, lon, price_total, link, note)
-       SELECT $1, name, night_start, night_end, status, stars, lat, lon, price_total, link, note
+       SELECT $1, name, night_start, night_end, status, stars, lat, lon,
+              CASE WHEN $3 THEN price_total ELSE NULL END, link,
+              CASE WHEN $3 THEN note ELSE NULL END
        FROM trip_hotels WHERE trip_id = $2`,
-      [t.rows[0].id, src.id]
+      [t.rows[0].id, src.id, copyMoney]
     );
     await client.query('COMMIT');
     res.json(t.rows[0]);

@@ -296,6 +296,7 @@
         method: 'DELETE', headers: canEditHeaders,
       });
       tripItems = tripItems.filter((x) => x.id !== item.id);
+      TripModals.clearItemPersonalCost(state, item.id);
       aiUndo = null;
       renderItinerary();
       updateAmbient();
@@ -516,7 +517,7 @@
           <div class="day-title">
             <span class="day-badge">יום ${day}</span>
             ${date ? `<span class="day-date">${date.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}</span>` : ''}
-            ${dayCosts[day] ? `<span class="day-cost" title="עלות משוערת של היום (בלי לינה)">${TripModals.fmt(dayCosts[day], cur)}</span>` : ''}
+            ${dayCosts[day] && editMode ? `<span class="day-cost" title="עלות משוערת של היום (בלי לינה)">${TripModals.fmt(dayCosts[day], cur)}</span>` : ''}
             ${routeUrl ? `<a class="day-route" target="_blank" rel="noopener" href="${TRIPMAKER.esc(routeUrl)}"
               title="נפתח בגוגל מפות, בחלון חדש">${TRIPMAKER.routeIcon} מסלול בגוגל מפות ${TRIPMAKER.externalIcon}</a>` : ''}
             ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}${w.est ? ' · ממוצע היסטורי' : ''}">${GEO.weatherIcon(w.code)} ${w.est ? '≈' : ''}${w.max}°</span>` : ''}
@@ -535,7 +536,12 @@
                   <span class="item-title">${TRIPMAKER.esc(it.title)}</span>
                   <span class="item-badges">
                     ${voteHtml(it)}
-                    ${+it.cost > 0 ? `<span class="item-cost">${TripModals.fmt(it.cost, TripModals.curOf(state))}</span>` : ''}
+                    ${(() => {
+                      const info = editMode && TripModals.itemCostInfo(state, it);
+                      if (!info) return '';
+                      const personal = info.scope === 'personal';
+                      return `<span class="item-cost${personal ? ' personal' : ''}" title="${personal ? 'תקציב אישי — רק אצלכם' : 'תקציב משותף'}">${personal ? '🔒 ' : ''}${TripModals.fmt(info.amount, TripModals.curOf(state))}</span>`;
+                    })()}
                     ${multiDest() && it.area ? `<span class="item-area">📍 ${TRIPMAKER.esc(it.area)}</span>` : ''}
                     ${it.category ? `<span class="item-cat">${TRIPMAKER.esc(it.category)}</span>` : ''}
                     ${editMode ? `<button class="item-del" data-id="${it.id}" title="מחיקת תחנה">✕</button>` : ''}
@@ -783,7 +789,7 @@
       pChip.onclick = () => (canEdit ? openParticipants() : requireSignup());
     }
 
-    const inviteLink = (medium) => `${location.origin}/trip/${trip.share_code}?join=${trip.invite_token}&utm_source=invite${medium ? `&utm_medium=${medium}` : ''}`;
+    const inviteLink = () => `${location.origin}/trip/${trip.share_code}?join=${trip.invite_token}`;
 
     // stroke icons for the participants modal — currentColor keeps them in step
     // with row hover, danger tints and disabled states
@@ -901,11 +907,11 @@
           setTimeout(() => { el.textContent = ''; }, 2500);
         };
         wrap.querySelector('#invite-wa').onclick = () => {
-          const text = `${trip.emoji || '🧭'} בואו לתכנן איתי את "${trip.title}"!\nנכנסים לקישור, נרשמים בשנייה — ועורכים את הטיול יחד:\n${inviteLink('whatsapp')}`;
+          const text = `${trip.emoji || '🧭'} בואו לתכנן איתי את "${trip.title}"!\nנכנסים לקישור, נרשמים בשנייה — ועורכים את הטיול יחד:\n${inviteLink()}`;
           window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
         };
         wrap.querySelector('#invite-copy').onclick = async () => {
-          await TRIPMAKER.copy(inviteLink('copy'));
+          await TRIPMAKER.copy(inviteLink());
           flash('קישור ההזמנה הועתק! ✓');
         };
         wrap.querySelector('#invite-regen').onclick = async (e) => {
@@ -1137,9 +1143,9 @@
       }
     }
 
-    // ---- clone button: anyone holding the code can copy the trip into their account ----
-    // (the API has never gated this on is_public — the share code already grants a
-    // full read, so hiding the button only stranded viewers with no next step)
+    // ---- clone button: anyone holding the code can copy the itinerary into their
+    // account. Money (budget, stop costs, hotel prices) only comes along if they
+    // already had participant access — a gallery visitor gets the route, not the numbers.
     const cloneBtn = document.getElementById('clone-btn');
     // `from` is whichever control was pressed — the action-bar button or the end-cap
     // CTA — so the wait shows up where the finger actually landed
@@ -1257,6 +1263,7 @@
     // one-day trips skip hotels either way — sleeping at home
     budgetBtn.style.display = privileged ? '' : 'none';
     hotelsBtn.style.display = privileged && trip.days >= 2 ? '' : 'none';
+    document.getElementById('docs-btn').style.display = privileged ? '' : 'none';
     hotelsBtn.onclick = () => (canEdit ? TripModals.openHotels(modalCtx) : requireSignup());
     budgetBtn.onclick = () => (canEdit ? TripModals.openBudget(modalCtx) : requireSignup());
 
@@ -1340,19 +1347,21 @@
         render: (slots) => TripPlan.render(slots, pageCtx),
       });
     }
-    TripPages.register('docs', {
-      title: '🗂️ מסמכים',
-      sub: 'כרטיסי טיסה, דרכון, הזמנות וביטוח — מתויגים לתיקיות אוטומטית, ונשמרים במכשיר הזה בלבד',
-      render: (slots) => TripDocs.render(slots, pageCtx),
-      onClose: () => pageCtx.onDocsClose?.(),
-    });
+    if (privileged) {
+      TripPages.register('docs', {
+        title: '🗂️ מסמכים',
+        sub: 'כרטיסי טיסה, דרכון, הזמנות וביטוח — מתויגים לתיקיות אוטומטית, ונשמרים במכשיר הזה בלבד',
+        render: (slots) => TripDocs.render(slots, pageCtx),
+        onClose: () => pageCtx.onDocsClose?.(),
+      });
+      TripDocs.count(pageCtx).then((n) => TripPages.badge('docs', n));
+    }
     TripPages.initDock({
       onItinerary: () => {
         const top = document.getElementById('days-container').getBoundingClientRect().top + window.scrollY - 96;
         window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
       },
     });
-    TripDocs.count(pageCtx).then((n) => TripPages.badge('docs', n));
     TripPages.openFromHash();
 
     // a /trip/CODE#budget link (or a reload mid-budget) lands straight on the budget page
@@ -1418,7 +1427,7 @@
     // last step uses. A viewer has no invite to give, so they share what they see.
     const feedback = document.getElementById('copy-feedback');
     const flash = (msg) => { feedback.textContent = msg; setTimeout(() => { feedback.textContent = ''; }, 2200); };
-    const tripLink = (medium) => `${location.origin}/trip/${trip.share_code}?utm_source=trip_share${medium ? `&utm_medium=${medium}` : ''}`;
+    const tripLink = () => `${location.origin}/trip/${trip.share_code}`;
     // the server backfills a token for every participant, but a share that quietly
     // links to `undefined` is worse than one that only offers the view link
     const shareInvite = canEdit && !!trip.invite_token;
@@ -1427,18 +1436,18 @@
       document.getElementById('copy-link-label').textContent = 'העתקת קישור הזמנה';
       document.getElementById('view-link-row').style.display = '';
       document.getElementById('copy-view-link').onclick = async () => {
-        await TRIPMAKER.copy(tripLink('copy'));
+        await TRIPMAKER.copy(tripLink());
         flash('קישור הצפייה הועתק! ✓');
       };
     }
     document.getElementById('wa-share').onclick = () => {
       const text = shareInvite
-        ? `${trip.emoji || '🧭'} בואו לתכנן איתי את "${trip.title}"!\nנכנסים לקישור, נרשמים בשנייה — ועורכים את הטיול יחד:\n${inviteLink('whatsapp')}`
-        : `${trip.emoji || '🧭'} ${trip.title}\n${trip.destination} · ${trip.days} ימים\nקוד טיול: ${trip.share_code}\n${tripLink('whatsapp')}`;
+        ? `${trip.emoji || '🧭'} בואו לתכנן איתי את "${trip.title}"!\nנכנסים לקישור, נרשמים בשנייה — ועורכים את הטיול יחד:\n${inviteLink()}`
+        : `${trip.emoji || '🧭'} ${trip.title}\n${trip.destination} · ${trip.days} ימים\nקוד טיול: ${trip.share_code}\n${tripLink()}`;
       window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
     };
     document.getElementById('copy-link').onclick = async () => {
-      await TRIPMAKER.copy(shareInvite ? inviteLink('copy') : tripLink('copy'));
+      await TRIPMAKER.copy(shareInvite ? inviteLink() : tripLink());
       flash(shareInvite ? 'קישור ההזמנה הועתק! ✓' : 'הקישור הועתק! ✓');
     };
 
@@ -1497,7 +1506,7 @@
     // modal is already visible, so closing it lands on the updated page.
     function openCelebration() {
       const wrap = document.createElement('div');
-      wrap.className = 'modal-backdrop open';
+      wrap.className = 'modal-backdrop';
       wrap.innerHTML = `
         <div class="modal glass celebrate">
           <div class="big-emoji">🎉</div>
@@ -1519,6 +1528,8 @@
           <button class="btn btn-ghost" id="cele-close" style="margin-top:16px">לטיול ›</button>
         </div>`;
       document.body.appendChild(wrap);
+      void wrap.offsetWidth;
+      wrap.classList.add('open');
       const celeFlash = (msg) => {
         const f = wrap.querySelector('#cele-feedback');
         f.textContent = msg;
@@ -1529,8 +1540,8 @@
         await TRIPMAKER.copy(shareInvite ? inviteLink() : tripLink());
         celeFlash(shareInvite ? 'קישור ההזמנה הועתק! ✓' : 'הקישור הועתק! ✓');
       };
-      wrap.querySelector('#cele-close').onclick = () => wrap.remove();
-      wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
+      wrap.querySelector('#cele-close').onclick = () => TRIPMAKER.closeOverlay(wrap, { remove: true });
+      wrap.addEventListener('click', (e) => { if (e.target === wrap) TRIPMAKER.closeOverlay(wrap, { remove: true }); });
     }
 
     // ---- destinations: map, weather, hotels (with a switcher for multi-city trips) ----
@@ -1777,7 +1788,7 @@
       place_query: it.place_query || null,
       lat: it.lat ?? null,
       lon: it.lon ?? null,
-      cost: it.cost ?? null,
+      cost: canEdit ? (it.cost ?? null) : null,
     });
     // only the fields the API accepts on a stop, and only the ones actually supplied —
     // the PATCH endpoint treats a present key as an instruction to write it, so passing
@@ -1816,8 +1827,8 @@
           stop_count: items().length,
           itinerary: Array.from({ length: trip.days }, (_, i) => i + 1)
             .map((day) => ({ day, stops: byDay.get(day) || [] })),
-          hotels: state.hotels || [],
-          budget: state.budget || null,
+          hotels: canEdit ? (state.hotels || []) : (state.hotels || []).map((h) => ({ ...h, price_total: null, note: null })),
+          budget: canEdit ? (state.budget || null) : null,
         });
       },
     });

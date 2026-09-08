@@ -15,11 +15,18 @@
   } catch { /* storage blocked — nothing to carry over */ }
 })();
 
-// Pinch and double-tap zoom stay ON, everywhere. Blocking them (user-scalable=no,
-// touch-action, swallowed gesture/touchmove events) makes a page nobody with weak
-// eyesight can read, and the site publishes an accessibility statement at
-// /accessibility. If a specific surface ever needs a gesture to itself, lock that
-// element with touch-action — never the document.
+// No pinch / double-tap zoom — in the browser and as a home-screen app.
+// iOS Safari ignores user-scalable=no in the browser; blocking the gesture
+// events is what actually stops a pinch there.
+(() => {
+  const stop = (e) => e.preventDefault();
+  document.addEventListener('gesturestart', stop, { passive: false });
+  document.addEventListener('gesturechange', stop, { passive: false });
+  document.addEventListener('gestureend', stop, { passive: false });
+  document.addEventListener('touchmove', (e) => {
+    if (e.touches && e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
+})();
 
 const TRIPMAKER = {
   token: localStorage.getItem('tripmaker_token'),
@@ -83,6 +90,25 @@ const TRIPMAKER = {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[c]));
+  },
+  // overlays that are torn down on dismiss (admin, the publish celebration) have
+  // to wait for the slide-off or the panel vanishes in place. classList.remove
+  // ('open') is enough for reused shells — the CSS transition is the close.
+  closeOverlay(el, { remove = false } = {}) {
+    if (!el) return;
+    const gone = () => { if (remove && el.parentNode) el.remove(); };
+    if (!el.classList.contains('open')) { gone(); return; }
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      el.removeEventListener('transitionend', onEnd);
+      gone();
+    };
+    const onEnd = (e) => { if (e.propertyName === 'transform') finish(); };
+    el.addEventListener('transitionend', onEnd);
+    el.classList.remove('open');
+    setTimeout(finish, 520);
   },
   // with a stored place_id the link opens THE place, not whatever a text search
   // happens to rank first — the id wins whenever a stop carries one

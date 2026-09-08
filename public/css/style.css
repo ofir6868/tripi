@@ -29,7 +29,7 @@
 
 html { scroll-behavior: smooth; }
 
-html { overflow-x: clip; }
+html { overflow-x: clip; touch-action: pan-x pan-y; }
 
 body {
   font-family: var(--font-body);
@@ -952,6 +952,9 @@ button.chip { font-family: var(--font-body); color: var(--paper); cursor: pointe
   font-size: .78rem; font-weight: 800; padding: 4px 10px; border-radius: 999px;
   font-variant-numeric: tabular-nums;
   background: rgba(255, 180, 95, .1); color: var(--amber); border: 1px solid rgba(255, 180, 95, .3);
+}
+.item-cost.personal {
+  background: rgba(143, 216, 196, .12); color: var(--mint); border-color: rgba(143, 216, 196, .3);
 }
 .trip-side { position: sticky; top: 96px; display: flex; flex-direction: column; gap: 20px; }
 .map-card { overflow: hidden; padding: 0; }
@@ -2777,6 +2780,7 @@ body.cal-full-open { overflow: hidden; }
 .cd-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: .82rem; color: var(--paper-dim); }
 .cd-time { color: var(--mint); font-weight: 700; direction: ltr; }
 .cd-cost { color: var(--amber); font-weight: 700; font-variant-numeric: tabular-nums; }
+.cd-cost.personal { color: var(--mint); }
 .cd-note {
   font-size: .88rem; font-weight: 300; color: var(--paper-dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -2824,6 +2828,8 @@ body.cal-full-open { overflow: hidden; }
 .se-time-wrap.has-time .se-time-clear { display: grid; }
 .se-time-clear:hover { color: var(--danger); background: rgba(255, 122, 110, .1); border-color: var(--danger); }
 .se-time-clear .ic { width: 15px; height: 15px; }
+.se-cost-scope { width: 100%; }
+.se-cost-hint { margin: 6px 0 0; font-size: .78rem; color: var(--paper-dim); line-height: 1.4; }
 /* the save row stays on screen however long the form scrolls; the sheet gives
    up its own bottom padding so the row sits flush on the bottom edge */
 .modal-stop:has(.sm-foot) { padding-bottom: 0; }
@@ -3967,6 +3973,34 @@ body.budget-open { overflow: hidden; }
 .bd-empty { padding: 6px 0 4px; font-size: .86rem; color: rgba(245, 239, 227, .45); }
 .bp-list .bd-item { padding: 10px 14px; border-bottom: 1px solid var(--glass-border); }
 .bp-list .bd-item:last-child { border-bottom: 0; }
+.bp-section-title small { font-weight: 400; color: rgba(245, 239, 227, .45); }
+.bp-day-label {
+  padding: 10px 14px 4px; font-size: .78rem; font-weight: 700; color: var(--mint);
+  letter-spacing: .02em;
+}
+.bp-list .bp-day-label:first-child { padding-top: 12px; }
+.bd-item.bd-plan { flex-wrap: wrap; gap: 8px 10px; }
+.bd-pay {
+  display: flex; gap: 4px; flex: none; width: 100%;
+  padding-top: 2px;
+}
+.pay-btn {
+  flex: 1; padding: 7px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--glass-border); background: transparent;
+  color: var(--paper-dim); font: inherit; font-size: .8rem; font-weight: 700;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.pay-btn.on {
+  background: rgba(143, 216, 196, .16); color: var(--mint); border-color: rgba(143, 216, 196, .4);
+}
+.pay-btn.unpaid.on {
+  background: rgba(255, 255, 255, .06); color: var(--paper); border-color: var(--glass-border);
+}
+.bd-item.bd-plan.is-paid .bi-amount { color: var(--mint); }
+@media (min-width: 560px) {
+  .bd-pay { width: auto; margin-inline-start: auto; }
+  .pay-btn { flex: none; padding: 6px 12px; }
+}
 
 /* first run: one centered card, the way an empty מסמכים page reads */
 .bp-setup { text-align: center; padding: 28px 22px 22px; }

@@ -296,7 +296,7 @@ const TripCalendar = (() => {
     const w = weatherOf(ctx, d);
     const items = byDay.get(d) || [];
     const cur = TripModals.curOf(ctx.state);
-    const dayCost = TripModals.plannedByDay(ctx.state)[d];
+    const dayCost = ctx.canEdit && TripModals.plannedByDay(ctx.state)[d];
     const hotelLines = TripModals.dayHotelLines(ctx.state, d);
     const routeUrl = TRIPMAKER.mapsRouteUrl(items);
 
@@ -330,7 +330,7 @@ const TripCalendar = (() => {
               <span class="cd-meta">
                 ${it.time_label ? `<span class="cd-time">${esc(it.time_label)}</span>` : ''}
                 ${it.category ? `<span>${esc(it.category)}</span>` : ''}
-                ${+it.cost > 0 ? `<span class="cd-cost">${TripModals.fmt(it.cost, cur)}</span>` : ''}
+                ${costChip(ctx, it, 'cd-cost')}
                 ${ctx.votes?.tally(it) || ''}
               </span>
               ${it.note ? `<span class="cd-note">${esc(it.note)}</span>` : ''}
@@ -379,6 +379,16 @@ const TripCalendar = (() => {
   const icPencil = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
   const icTrash = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
   const icX = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+  const icUsers = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
+  const icLock = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+
+  function costChip(ctx, it, cls, extra = '') {
+    if (!ctx.canEdit) return '';
+    const info = TripModals.itemCostInfo(ctx.state, it);
+    if (!info) return '';
+    const personal = info.scope === 'personal';
+    return `<span class="${cls}${personal ? ' personal' : ''}"${extra} title="${personal ? 'תקציב אישי — רק אצלכם' : 'תקציב משותף'}">${personal ? '🔒 ' : ''}${TripModals.fmt(info.amount, TripModals.curOf(ctx.state))}</span>`;
+  }
 
   // `dirty` = the form has unsaved keystrokes; a stray backdrop tap then asks first
   const sheet = { dirty: false };
@@ -450,7 +460,7 @@ const TripCalendar = (() => {
       <div class="sm-chips">
         ${it.time_label ? `<span class="item-time"${tap('time')}>${esc(it.time_label)}</span>` : ''}
         ${it.category ? `<span class="item-cat"${tap('cat')}>${esc(it.category)}</span>` : ''}
-        ${+it.cost > 0 ? `<span class="item-cost"${tap('cost')}>${TripModals.fmt(it.cost, cur)}</span>` : ''}
+        ${costChip(ctx, it, 'item-cost', tap('cost'))}
         ${it.area ? `<span class="item-area"${tap('area')}>📍 ${esc(it.area)}</span>` : ''}
       </div>
       ${ctx.votes?.on() ? `<div class="sm-votes">${ctx.votes.html(it)}<span class="sm-votes-hint">מה כולם חושבים על התחנה הזו?</span></div>` : ''}
@@ -503,6 +513,9 @@ const TripCalendar = (() => {
     // an AI-free-text hour ("אחה״צ") would be swallowed by a time picker — that stop
     // keeps a plain text box
     const timePicker = !it.time_label || /^\d{1,2}:\d{2}$/.test(it.time_label);
+    const existingCost = it.id ? TripModals.itemCostInfo(ctx.state, it) : null;
+    const costValue = existingCost ? existingCost.amount : '';
+    let costScope = existingCost && existingCost.scope === 'personal' ? 'personal' : 'shared';
 
     body.innerHTML = `
       <div class="sm-day">${isNew ? 'תחנה חדשה' : 'עריכת תחנה'}</div>
@@ -513,12 +526,12 @@ const TripCalendar = (() => {
             const dt = ctx.dayDate(n);
             return `<option value="${n}"${n === it.day_number ? ' selected' : ''}>יום ${n}${dt ? ` · ${dt.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}` : ''}</option>`;
           }).join('')}</select></div>
-        <div class="field"><label for="se-time">שעה</label>
+        <div class="field"><label for="se-time">שעה <small>(לא חובה)</small></label>
           <div class="se-time-wrap${it.time_label ? ' has-time' : ''}">
             ${timePicker
-              ? `<input id="se-time" class="se-time" type="time" value="${esc(it.time_label || '')}">`
-              : `<input id="se-time" class="se-time" type="text" maxlength="20" value="${esc(it.time_label)}">`}
-            <button type="button" class="se-time-clear" title="מחיקת השעה" aria-label="מחיקת השעה">${icX}</button>
+              ? `<input id="se-time" class="se-time" type="time" value="${esc(it.time_label || '')}" autocomplete="off">`
+              : `<input id="se-time" class="se-time" type="text" maxlength="20" value="${esc(it.time_label || '')}" placeholder="למשל 09:00" autocomplete="off">`}
+            <button type="button" class="se-time-clear">${icX}<span>ללא שעה</span></button>
           </div></div>
         <div class="field span-2"><label for="se-title">מה עושים? *</label>
           <input id="se-title" class="se-title" type="text" maxlength="120"
@@ -527,8 +540,16 @@ const TripCalendar = (() => {
           <select id="se-cat" class="se-cat">${cats.map((c) =>
             `<option${c === it.category ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
         <div class="field"><label for="se-cost">עלות משוערת</label>
-          <input id="se-cost" class="se-cost" type="number" min="0" placeholder="נכנסת לתקציב"
-            value="${+it.cost > 0 ? +it.cost : ''}"></div>
+          <input id="se-cost" class="se-cost" type="number" min="0" placeholder="למשל 80"
+            value="${costValue}"></div>
+        <div class="field span-2 se-scope-field">
+          <label>העלות נכנסת ל</label>
+          <div class="seg seg-sm seg-quiet se-cost-scope" role="radiogroup" aria-label="תקציב משותף או אישי">
+            <button type="button" data-v="shared">${icUsers}<span>משותף</span></button>
+            <button type="button" data-v="personal">${icLock}<span>אישי</span></button>
+          </div>
+          <p class="se-cost-hint"></p>
+        </div>
         ${areas.length ? `<div class="field span-2"><label for="se-area">אזור</label>
           <select id="se-area" class="se-area"><option value="">ללא אזור</option>${areas.map((a) =>
             `<option${a === it.area ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select></div>` : ''}
@@ -554,23 +575,47 @@ const TripCalendar = (() => {
     body.querySelectorAll('input, select, textarea').forEach((f) => {
       f.addEventListener('input', () => { sheet.dirty = true; });
     });
-    // native time pickers have no empty state once a value is set — the X is
-    // how a stop goes back to "no hour". Save already sends null for a blank.
-    const timeInput = body.querySelector('.se-time');
+    const scopeBox = body.querySelector('.se-cost-scope');
+    const scopeHint = body.querySelector('.se-cost-hint');
+    const syncScope = () => {
+      scopeBox.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === costScope));
+      scopeHint.textContent = costScope === 'personal'
+        ? 'נכנס לתכנון האישי — רק אצלכם. ב«בפועל» מסמנים אם שולם'
+        : 'נכנס לתכנון המשותף. ב«בפועל» מסמנים אם שולם';
+    };
+    scopeBox.querySelectorAll('button').forEach((b) => {
+      b.onclick = () => { costScope = b.dataset.v; sheet.dirty = true; syncScope(); };
+    });
+    syncScope();
+    // native time pickers have no empty state once a value is set — "ללא שעה"
+    // is how a stop goes back to no hour. Save already sends null for a blank.
+    // Replacing the input (not just .value = '') is what actually clears
+    // type=time on iOS Safari / Chrome, which otherwise ignore an empty string.
+    let timeInput = body.querySelector('.se-time');
     const timeWrap = body.querySelector('.se-time-wrap');
     const syncTimeClear = () => timeWrap.classList.toggle('has-time', !!timeInput.value.trim());
-    timeInput.addEventListener('change', syncTimeClear);
-    timeInput.addEventListener('input', syncTimeClear);
+    const bindTimeInput = () => {
+      timeInput.required = false;
+      timeInput.addEventListener('change', () => { sheet.dirty = true; syncTimeClear(); });
+      timeInput.addEventListener('input', () => { sheet.dirty = true; syncTimeClear(); });
+    };
+    bindTimeInput();
     body.querySelector('.se-time-clear').onclick = (e) => {
       e.preventDefault();
-      timeInput.value = '';
-      // some WebKit builds ignore '' on type=time unless the type is flipped
-      if (timeInput.value) {
-        const t = timeInput.type;
-        timeInput.type = 'text';
-        timeInput.value = '';
-        timeInput.type = t;
+      e.stopPropagation();
+      const neu = document.createElement('input');
+      neu.id = 'se-time';
+      neu.className = 'se-time';
+      neu.type = timeInput.type;
+      neu.autocomplete = 'off';
+      neu.value = '';
+      if (timeInput.type === 'text') {
+        neu.maxLength = 20;
+        neu.placeholder = 'למשל 09:00';
       }
+      timeInput.replaceWith(neu);
+      timeInput = neu;
+      bindTimeInput();
       sheet.dirty = true;
       syncTimeClear();
       timeInput.focus();
@@ -593,6 +638,7 @@ const TripCalendar = (() => {
       const picked = picker.getPicked();
       const day = +body.querySelector('.se-day').value;
       const cost = body.querySelector('.se-cost').value;
+      const amount = cost === '' ? 0 : +cost;
       const patch = {
         day_number: day,
         time_label: body.querySelector('.se-time').value.trim() || null,
@@ -600,7 +646,7 @@ const TripCalendar = (() => {
         category: body.querySelector('.se-cat').value || null,
         note: body.querySelector('.se-note').value.trim() || null,
         place_query: place || null,
-        cost: cost === '' ? null : +cost,
+        cost: costScope === 'personal' || !(amount > 0) ? null : amount,
       };
       const areaSel = body.querySelector('.se-area');
       if (areaSel) patch.area = areaSel.value || null;
@@ -615,7 +661,20 @@ const TripCalendar = (() => {
       try {
         // the fresh stop's own details page is the confirmation that it landed
         const saved = isNew ? await ctx.addItem(patch) : await ctx.saveItem(it, patch);
+        if (costScope === 'personal' && amount > 0) {
+          if (!TripModals.setItemPersonalCost(ctx.state, saved, amount)) {
+            try { await ctx.saveItem(saved, { cost: amount }); } catch { /* keep the stop even if restore fails */ }
+            err.textContent = 'הדפדפן חוסם שמירה מקומית — אי אפשר לשייך לתקציב אישי כאן';
+            btn.disabled = false;
+            return;
+          }
+        } else {
+          TripModals.clearItemPersonalCost(ctx.state, saved.id);
+        }
         sheet.dirty = false;
+        // personal cost lives in localStorage, written after the API save — the
+        // itinerary painted without it; one more pass picks up the lock chip
+        ctx.refresh?.();
         renderStopView(ctx, saved);
       } catch (ex) {
         err.textContent = ex.message;
