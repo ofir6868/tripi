@@ -650,6 +650,8 @@ body::after {
   border-color: var(--amber); box-shadow: 0 0 0 4px rgba(255, 180, 95, .12);
 }
 .form-error { color: var(--danger); font-size: .9rem; min-height: 1.4em; margin: 4px 0 10px; }
+.form-error:empty, .form-success:empty { margin: 0; min-height: 0; }
+.form-success { color: var(--mint); font-size: .9rem; min-height: 1.4em; margin: 4px 0 10px; }
 .switch-auth { text-align: center; margin-top: 16px; font-size: .92rem; color: var(--paper-dim); }
 .switch-auth a { color: var(--amber); cursor: pointer; text-decoration: none; font-weight: 700; }
 
@@ -2077,6 +2079,11 @@ body:has(.join-banner) { padding-bottom: 92px; }
 .mw-body { overflow-y: auto; padding: 18px 26px 26px; }
 .mw-controls { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .mw-footnote { text-align: center; color: rgba(245, 239, 227, .45); font-size: .86rem; margin-top: 16px; }
+
+.settings-sec + .settings-sec { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--glass-border); }
+.settings-sec h3 { font-family: var(--font-display); font-size: 1.15rem; margin-bottom: 10px; }
+.settings-sec .sec-sub { color: var(--paper-dim); font-size: .85rem; line-height: 1.5; margin: -4px 0 14px; }
+.settings-sec .btn { width: 100%; justify-content: center; }
 
 /* segmented control */
 .seg {

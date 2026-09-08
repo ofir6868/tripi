@@ -168,6 +168,7 @@ const NAV_ICON = {
   user: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
   login: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>',
   logout: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
+  settings: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
 };
 
 function renderHeader() {
@@ -182,6 +183,7 @@ function renderHeader() {
     }
     menuItems.push(
       `<a class="nav-menu-item" href="/my">${NAV_ICON.map}<span class="ph-mask">הטיולים של ${TRIPMAKER.esc(TRIPMAKER.user.name.split(' ')[0])}</span></a>`,
+      `<button type="button" class="nav-menu-item" id="nav-settings">${NAV_ICON.settings}<span>הגדרות</span></button>`,
       `<button type="button" class="nav-menu-item nav-menu-logout" id="nav-logout">${NAV_ICON.logout}<span>יציאה</span></button>`,
     );
   } else {
@@ -285,6 +287,10 @@ function renderHeader() {
   panel.querySelector('#nav-login')?.addEventListener('click', () => {
     setOpen(false);
     openAuthModal();
+  });
+  panel.querySelector('#nav-settings')?.addEventListener('click', () => {
+    setOpen(false);
+    openSettingsModal();
   });
 }
 
@@ -416,6 +422,142 @@ function openAuthModal(onSuccess, mode = 'login') {
   document.getElementById('auth-modal').classList.add('open');
 }
 
+// ---------- settings modal ----------
+function renderSettingsModal() {
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-backdrop';
+  wrap.id = 'settings-modal';
+  wrap.innerHTML = `
+    <div class="modal modal-wide">
+      <div class="mw-head">
+        <button class="modal-close" aria-label="סגירה">✕</button>
+        <h2>הגדרות חשבון</h2>
+        <p class="modal-sub"></p>
+      </div>
+      <div class="mw-body">
+        <div class="settings-sec">
+          <h3>שם מלא</h3>
+          <form id="settings-name-form" class="ph-no-capture">
+            <div class="field">
+              <label for="settings-name" class="sr-only">שם מלא</label>
+              <input id="settings-name" type="text" autocomplete="name" required placeholder="למשל: דנה לוי">
+            </div>
+            <div class="form-error" id="settings-name-error"></div>
+            <div class="form-success" id="settings-name-success"></div>
+            <button class="btn btn-amber" type="submit" id="settings-name-submit">שמירת שם</button>
+          </form>
+        </div>
+        <div class="settings-sec">
+          <h3>סיסמה</h3>
+          <p class="sec-sub" id="settings-pass-hint">כדי לשנות סיסמה, הזינו את הסיסמה הנוכחית ולאחריה את החדשה.</p>
+          <form id="settings-pass-form" class="ph-no-capture">
+            <div class="field" id="settings-current-field">
+              <label for="settings-current">סיסמה נוכחית</label>
+              <input id="settings-current" type="password" autocomplete="current-password" placeholder="הסיסמה הנוכחית" dir="ltr" style="text-align:left">
+            </div>
+            <div class="field">
+              <label for="settings-new">סיסמה חדשה</label>
+              <input id="settings-new" type="password" autocomplete="new-password" required placeholder="לפחות 6 תווים" dir="ltr" style="text-align:left">
+            </div>
+            <div class="field">
+              <label for="settings-new2">אימות סיסמה חדשה</label>
+              <input id="settings-new2" type="password" autocomplete="new-password" required placeholder="הקלידו שוב" dir="ltr" style="text-align:left">
+            </div>
+            <div class="form-error" id="settings-pass-error"></div>
+            <div class="form-success" id="settings-pass-success"></div>
+            <button class="btn btn-amber" type="submit" id="settings-pass-submit">עדכון סיסמה</button>
+          </form>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+
+  wrap.querySelector('.modal-close').onclick = () => wrap.classList.remove('open');
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.classList.remove('open'); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && wrap.classList.contains('open')) wrap.classList.remove('open'); });
+
+  wrap.querySelector('#settings-name-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const submitBtn = wrap.querySelector('#settings-name-submit');
+    if (submitBtn.disabled) return;
+    const errEl = wrap.querySelector('#settings-name-error');
+    const okEl = wrap.querySelector('#settings-name-success');
+    errEl.textContent = ''; okEl.textContent = '';
+    const name = wrap.querySelector('#settings-name').value.trim();
+    if (!name) { errEl.textContent = 'נא למלא שם'; return; }
+    submitBtn.disabled = true;
+    try {
+      const user = await TRIPMAKER.api('/api/me', { method: 'PATCH', body: JSON.stringify({ name }) });
+      TRIPMAKER.user = { ...TRIPMAKER.user, ...user };
+      localStorage.setItem('tripmaker_user', JSON.stringify(TRIPMAKER.user));
+      renderHeader();
+      okEl.textContent = 'השם עודכן בהצלחה';
+    } catch (err) {
+      errEl.textContent = err.message;
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  wrap.querySelector('#settings-pass-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const submitBtn = wrap.querySelector('#settings-pass-submit');
+    if (submitBtn.disabled) return;
+    const errEl = wrap.querySelector('#settings-pass-error');
+    const okEl = wrap.querySelector('#settings-pass-success');
+    errEl.textContent = ''; okEl.textContent = '';
+    const currentPassword = wrap.querySelector('#settings-current').value;
+    const newPassword = wrap.querySelector('#settings-new').value;
+    const newPassword2 = wrap.querySelector('#settings-new2').value;
+    const hasPassword = wrap.querySelector('#settings-current-field').style.display !== 'none';
+    if (hasPassword && !currentPassword) { errEl.textContent = 'נא למלא את הסיסמה הנוכחית'; return; }
+    if (newPassword.length < 6) { errEl.textContent = 'הסיסמה החדשה חייבת להכיל לפחות 6 תווים'; return; }
+    if (newPassword !== newPassword2) { errEl.textContent = 'אימות הסיסמה החדשה אינו תואם'; return; }
+    submitBtn.disabled = true;
+    try {
+      await TRIPMAKER.api('/api/me/password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+      wrap.querySelector('#settings-pass-form').reset();
+      okEl.textContent = 'הסיסמה עודכנה בהצלחה';
+      // a first password for a Google-only account — from now on a current one is required
+      wrap.querySelector('#settings-current-field').style.display = '';
+      wrap.querySelector('#settings-pass-hint').textContent = 'כדי לשנות סיסמה, הזינו את הסיסמה הנוכחית ולאחריה את החדשה.';
+    } catch (err) {
+      errEl.textContent = err.message;
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+async function openSettingsModal() {
+  const wrap = document.getElementById('settings-modal');
+  if (!wrap || !TRIPMAKER.user) return;
+  wrap.querySelector('#settings-name-error').textContent = '';
+  wrap.querySelector('#settings-name-success').textContent = '';
+  wrap.querySelector('#settings-pass-error').textContent = '';
+  wrap.querySelector('#settings-pass-success').textContent = '';
+  wrap.querySelector('#settings-pass-form').reset();
+  wrap.querySelector('#settings-name').value = TRIPMAKER.user.name || '';
+  wrap.classList.add('open');
+  try {
+    const me = await TRIPMAKER.api('/api/me');
+    TRIPMAKER.user = me;
+    localStorage.setItem('tripmaker_user', JSON.stringify(me));
+    wrap.querySelector('#settings-name').value = me.name || '';
+    const currentField = wrap.querySelector('#settings-current-field');
+    const hint = wrap.querySelector('#settings-pass-hint');
+    if (me.has_password === false) {
+      currentField.style.display = 'none';
+      hint.textContent = 'התחברתם עם Google ועדיין אין לכם סיסמה — אפשר להגדיר אחת כאן כדי להתחבר גם בלעדיו.';
+      wrap.querySelector('#settings-pass-submit').textContent = 'הגדרת סיסמה';
+    } else {
+      currentField.style.display = '';
+      hint.textContent = 'כדי לשנות סיסמה, הזינו את הסיסמה הנוכחית ולאחריה את החדשה.';
+      wrap.querySelector('#settings-pass-submit').textContent = 'עדכון סיסמה';
+    }
+  } catch { /* stale cached user is still usable if the refresh fails */ }
+}
+
 // ---------- atmosphere + boot ----------
 async function consumeGoogleAuthHash() {
   const hash = location.hash.startsWith('#') ? location.hash.slice(1) : location.hash;
@@ -468,6 +610,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const fromGoogle = await consumeGoogleAuthHash();
   renderHeader();
   renderAuthModal();
+  renderSettingsModal();
   showGoogleAuthError();
   if (!fromGoogle) {
     TRIPMAKER.refreshUser().then((changed) => { if (changed) renderHeader(); });

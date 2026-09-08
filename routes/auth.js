@@ -15,6 +15,12 @@ const registerLimit = rateLimiter({
   error: 'יותר מדי נסיונות הרשמה — נסו שוב בעוד רבע שעה',
 });
 const loginLimit = rateLimiter({ windowMs: 15 * 60 * 1000, max: 15 });
+// keyed by user id (not IP): a wrong current-password guess counts against the
+// account being attacked, same brute-force shape as login but scoped per-account
+const passwordChangeLimit = rateLimiter({
+  windowMs: 15 * 60 * 1000, max: 10,
+  error: 'יותר מדי נסיונות — נסו שוב בעוד רבע שעה',
+});
 const googleLimit = rateLimiter({
   windowMs: 15 * 60 * 1000, max: 30,
   error: 'יותר מדי נסיונות התחברות עם Google — נסו שוב בעוד רבע שעה',
@@ -92,14 +98,70 @@ router.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// the client's cached user can predate the admin column — this is the fresh copy
+// the client's cached user can predate the admin column — this is the fresh copy.
+// has_password tells the settings screen whether to ask for a current password
+// (a Google-only account has none yet, and is setting its first one)
 router.get('/api/me', authRequired, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, name, email, is_admin FROM users WHERE id = $1', [req.user.id]
+      'SELECT id, name, email, is_admin, (password_hash IS NOT NULL) AS has_password FROM users WHERE id = $1',
+      [req.user.id]
     );
     if (!rows[0]) return res.status(401).json({ error: 'המשתמש לא נמצא' });
     res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// settings screen: rename. Email is the account's stable identity (also the
+// login handle) and isn't editable here — changing it is a bigger, separate
+// feature (re-verification etc.) that nobody has asked for yet.
+router.patch('/api/me', authRequired, async (req, res) => {
+  try {
+    const name = String((req.body && req.body.name) || '').trim();
+    if (!name) return res.status(400).json({ error: 'נא למלא שם' });
+    if (name.length > 80) return res.status(400).json({ error: 'השם ארוך מדי' });
+    const { rows } = await pool.query(
+      `UPDATE users SET name = $1 WHERE id = $2
+       RETURNING id, name, email, is_admin, (password_hash IS NOT NULL) AS has_password`,
+      [name, req.user.id]
+    );
+    if (!rows[0]) return res.status(401).json({ error: 'המשתמש לא נמצא' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// settings screen: change (or, for a Google-only account with no password yet,
+// set a first) password. Current password is required whenever one already
+// exists — this is the one endpoint where "logged in" alone must not be enough,
+// since a stolen/left-open session shouldn't be able to lock the real owner out.
+router.post('/api/me/password', authRequired, async (req, res) => {
+  try {
+    if (passwordChangeLimit.blocked(req.user.id)) {
+      return res.status(429).json({ error: 'יותר מדי נסיונות — נסו שוב בעוד רבע שעה' });
+    }
+    const { currentPassword, newPassword } = req.body || {};
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ error: 'הסיסמה החדשה חייבת להכיל לפחות 6 תווים' });
+    }
+    const { rows } = await pool.query('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
+    if (!rows[0]) return res.status(401).json({ error: 'המשתמש לא נמצא' });
+    const { password_hash } = rows[0];
+    if (password_hash) {
+      const ok = currentPassword && await bcrypt.compare(currentPassword, password_hash);
+      if (!ok) {
+        passwordChangeLimit.hit(req.user.id);
+        return res.status(401).json({ error: 'הסיסמה הנוכחית שגויה' });
+      }
+    }
+    const hash = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, req.user.id]);
+    res.json({ ok: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
