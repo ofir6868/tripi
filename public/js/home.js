@@ -68,6 +68,35 @@
     });
   });
 
+  // ---- popular strip: a tile is the wizard with its chips already in ----
+  // A single destination takes the same ?dest= road as a pick from the dropdown.
+  // A multi-country route travels as one id (?combo=) that the wizard resolves
+  // from the same list, so the tile and the chips can never disagree.
+  (function renderPopular() {
+    const strip = document.getElementById('popular-strip');
+    if (!strip || typeof POPULAR === 'undefined') return;
+    const flags = (dests) => `<span class="pop-flags">${dests.map((d) => COUNTRIES.flagHtml(d.cc)).join('')}</span>`;
+    const tile = ({ href, img, name, cls, dests, tag }) => `
+      <a class="pop-tile ${cls}" href="${href}" title="${TRIPMAKER.esc(name)}">
+        <span class="pop-img" style="background-image:url('${img}')" aria-hidden="true"></span>
+        ${tag ? `<span class="pop-tag">${TRIPMAKER.esc(tag)}</span>` : ''}
+        <span class="pop-text">${flags(dests)}<span class="pop-name">${TRIPMAKER.esc(name)}</span></span>
+      </a>`;
+    strip.innerHTML =
+      POPULAR.singles.map((d) => tile({
+        href: '/plan?' + new URLSearchParams({ dest: d.name, cc: d.cc, country: POPULAR.countryOf(d) }),
+        img: d.img, name: d.name, cls: 'pop-single', dests: [d],
+      })).join('') +
+      POPULAR.combos.map((c) => tile({
+        href: '/plan?combo=' + encodeURIComponent(c.id),
+        img: c.img, name: c.title, cls: 'pop-combo', dests: c.dests, tag: `${c.dests.length} מדינות`,
+      })).join('');
+    strip.addEventListener('click', (e) => {
+      const a = e.target.closest('.pop-tile');
+      if (a) TRIPMAKER.track?.('popular_pick', { name: a.title, combo: a.classList.contains('pop-combo') });
+    });
+  })();
+
   // ---- code lookup ----
   let codeBusy = false;
   async function goCode(q) {

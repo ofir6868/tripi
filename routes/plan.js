@@ -29,6 +29,7 @@ const { authRequired } = require('../lib/auth');
 const { tripWithEditAuth, cleanPlanState, PLAN_MODES, PLAN_STAGES } = require('../lib/trips');
 const { dailyQuota, exhausted } = require('../lib/quota');
 const ai = require('./ai');
+const COUNTRIES = require('../public/js/countries.js');
 
 const router = express.Router();
 
@@ -51,6 +52,23 @@ const SUGGEST_STEPS = 'שלב אחרי שלב 🪜';
 const SUGGEST_ONCE = 'בבת אחת ✨';
 const READY_TEXT = 'אני מוכן ליצור עבורכם טיול מושלם 🧭 רוצים שנבנה אותו שלב אחרי שלב — מהאזורים, דרך הטיסות ועד מה עושים בכל יום — או בבת אחת? ' +
   'שלב אחרי שלב יוצא מדויק יותר, ובכל מקרה תמיד אפשר לערוך ולשנות הכול.';
+
+// A trip across several countries ("the big trip", South America) is never offered
+// "בבת אחת": it goes straight from the clarifying round into the step-by-step path,
+// one country at a time. A one-shot build of three countries hands one model turn
+// three countries' worth of context, and the places it invents cluster exactly there
+// (PLAYBOOK §3: the invented-place baseline is worst on secondary destinations).
+// Step by step keeps each turn on one area, and the "fill the rest" build at the end
+// is per-area anyway. The rule is enforced in code (build_now is dropped), not just
+// asked of the model. Distinct countries, not distinct destinations: Prague + Vienna
+// is two countries; Tokyo + Kyoto is one.
+const SUGGEST_START = 'יאללה, מתחילים 🪜';
+const STEPWISE_TEXT = 'טיול בכמה מדינות מתכננים שלב אחרי שלב: קודם האזורים וחלוקת הימים, אחר כך הטיסות, ואז יום אחרי יום — מדינה אחת בכל פעם. ' +
+  'ככה כל מדינה מקבלת את תשומת הלב שלה, ותמיד אפשר לערוך ולשנות הכול. מתחילים מהאזורים?';
+function multiCountry(dests) {
+  const ccs = new Set((dests || []).map((d) => COUNTRIES.ccByName(String((d && (d.country || d.name)) || '').trim())).filter(Boolean));
+  return ccs.size >= 2;
+}
 
 const dayRange = (d, days) => Math.min(Math.max(parseInt(d, 10) || 1, 1), days);
 
@@ -116,6 +134,12 @@ async function openingMessage(client, trip, userId) {
     const q = state.pending[0];
     text = hello + 'שאלה קטנה קודם, כדי שנסדר את המסלול נכון: ' + q.question;
     payload = { suggestions: q.options.slice(0, 6), multi: q.multi };
+  } else if (multiCountry(trip.dests)) {
+    // no choice to make: several countries start on the areas step right away
+    state.stage = 'areas';
+    state.build = 'steps';
+    text = hello + STEPWISE_TEXT;
+    payload = { suggestions: [SUGGEST_START] };
   } else {
     state.stage = 'choose';
     text = hello + READY_TEXT;
@@ -226,7 +250,7 @@ function describeOp(op, byId) {
   return { kind: 'update', title: cur ? cur.title : `#${op.id}`, when: cur ? when(op, cur) : '', changes };
 }
 
-function turnPrompt({ trip, items, state, mode, history, pendingProposal }) {
+function turnPrompt({ trip, items, state, mode, history, pendingProposal, stepwise = false }) {
   const dests = trip.dests;
   const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
   const multiArea = areaNames.length > 1;
@@ -244,8 +268,14 @@ function turnPrompt({ trip, items, state, mode, history, pendingProposal }) {
 המטרה: לא להמליץ אלא לעשות. אתם בונים ועורכים את תחנות הטיול בעצמכם דרך ops, ושואלים את המטיילים רק את מה שבאמת משנה את הטיול. בכל תור: הצעה קונקרטית + לכל היותר שאלה אחת.
 
 שלבי התכנון (stage) — התקדמו לפי הסדר, אבל תמיד ענו קודם על מה שהמטיילים שאלו:
-- clarify: יש שאלות הבהרה פתוחות (ברשימה למטה). שאלו אחת בכל תור, בדיוק כלשונה, עם ה-suggestions שלה. תשובה שהתקבלה נרשמת ב-facts ויורדת מ-pending_questions. כשנגמרו — עברו ל-choose ואמרו: "${READY_TEXT}" עם suggestions ["${SUGGEST_STEPS}", "${SUGGEST_ONCE}"].
-- choose: המטיילים בוחרים. "בבת אחת" (או ניסוח דומה: הכול, מהר, תבנה לבד) → build_now=true, ops ריק, text קצר שמודיע שבונים עכשיו. "שלב אחרי שלב" (או ניסוח דומה) → stage=areas והתחילו.
+${stepwise
+    // several countries: the "all at once" fork is not on the menu — the clarifying
+    // round flows into the areas step, and a request to build everything now is
+    // answered by the next step, not by a build (build_now is dropped in code too)
+    ? `- clarify: יש שאלות הבהרה פתוחות (ברשימה למטה). שאלו אחת בכל תור, בדיוק כלשונה, עם ה-suggestions שלה. תשובה שהתקבלה נרשמת ב-facts ויורדת מ-pending_questions. כשנגמרו — עברו ישר ל-areas והתחילו.
+- choose: לא קיים בטיול הזה. טיול בכמה מדינות נבנה תמיד שלב אחרי שלב, מדינה אחת בכל פעם — build_now תמיד false. אם המטיילים מבקשים לבנות הכול בבת אחת: משפט אחד שמסביר שבטיול של כמה מדינות בונים אזור אחרי אזור כדי שכל מדינה תקבל תשומת לב, ומיד הצעד הבא של השלב הנוכחי.`
+    : `- clarify: יש שאלות הבהרה פתוחות (ברשימה למטה). שאלו אחת בכל תור, בדיוק כלשונה, עם ה-suggestions שלה. תשובה שהתקבלה נרשמת ב-facts ויורדת מ-pending_questions. כשנגמרו — עברו ל-choose ואמרו: "${READY_TEXT}" עם suggestions ["${SUGGEST_STEPS}", "${SUGGEST_ONCE}"].
+- choose: המטיילים בוחרים. "בבת אחת" (או ניסוח דומה: הכול, מהר, תבנה לבד) → build_now=true, ops ריק, text קצר שמודיע שבונים עכשיו. "שלב אחרי שלב" (או ניסוח דומה) → stage=areas והתחילו.`}
 - areas: לקבוע יחד את האזורים וחלוקת הימים. ${splitAreas
     ? `הציעו חלוקה קונקרטית (אזור, ימים, ערים) והחזירו אותה מיד ב-areas (רצף ימים מלא מ-1 עד ${trip.days}, בלי חורים) — המטיילים רואים אותה על לוח שנה ויכולים לצבוע ימים ולשנות; בקשו אישור. כשהוסכם (או כשהמטיילים אישרו חלוקה מהלוח) — עברו ל-flights. אזור = חבל ארץ נפרד שלנים בו (לא עיר ליום): כשכל הטיול נשאר באזור אחד — אל תחלקו, החזירו areas ריק ועברו ישר ל-flights.`
     : `בטיול הזה יש אזור אחד (${areaNames[0] || trip.destination}) — אין מה לחלק ואין מה לשאול: החזירו areas ריק ועברו ישר ל-flights. את הערים והמקומות מתכננים בשלב days, יום אחרי יום.`}
@@ -317,7 +347,8 @@ function cleanAreas(raw, days) {
 }
 
 async function planTurn({ trip, items, state, mode, history, message, pendingProposal, ph }) {
-  const { system, user } = turnPrompt({ trip, items, state, mode, history, pendingProposal });
+  const stepwise = multiCountry(trip.dests);
+  const { system, user } = turnPrompt({ trip, items, state, mode, history, pendingProposal, stepwise });
   const raw = await ai.aiJson({
     system,
     user: user + `\n\nההודעה החדשה של המטיילים:\n${message}`,
@@ -340,7 +371,8 @@ async function planTurn({ trip, items, state, mode, history, message, pendingPro
   return {
     text: String(raw.text || '').trim().slice(0, 1200),
     stage: PLAN_STAGES.includes(raw.stage) ? raw.stage : state.stage,
-    buildNow: !!raw.build_now,
+    // several countries never build in one shot, whatever the model answered
+    buildNow: !!raw.build_now && !stepwise,
     approvePending: !!raw.approve_pending,
     tripReady: !!raw.trip_ready,
     suggestions: (raw.suggestions || []).slice(0, 3).map((s) => String(s).slice(0, 60).trim()).filter(Boolean),

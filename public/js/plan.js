@@ -534,6 +534,26 @@
     goStep(2);
   })();
 
+  // ---- ?combo= from the homepage popular strip ----
+  // A multi-country route picked as one tile: every country becomes a chip at once,
+  // with the route's usual length and its own name, and we land on step 2 the way a
+  // single pick does. The id is resolved from the same list the tile was drawn
+  // from, so an unknown id (a hand-edited URL) just opens an empty wizard.
+  (function applyComboParam() {
+    const params = new URLSearchParams(location.search);
+    const id = (params.get('combo') || '').trim().slice(0, 40);
+    if (!id) return;
+    history.replaceState(null, '', '/plan'); // one-shot, like ?dest=
+    const combo = typeof POPULAR !== 'undefined' ? POPULAR.combo(id) : null;
+    if (!combo || destinations.length) return;
+    POPULAR.chips(combo.dests).forEach((d) => { addDestination(d); fillCoords(d); });
+    titleInput.value = combo.title; // the route's name, still the traveller's to change
+    titleWasAutofilled = true;
+    daysSel.value = combo.days;
+    clampDays();
+    goStep(2);
+  })();
+
   // ---- ?dest= from the homepage search ----
   // A pick off the destination index (?cc= present, and ?country= for a city) is
   // trusted as-is: the chip appears instantly and we land on step 2, while

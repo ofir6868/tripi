@@ -259,7 +259,9 @@ body::after {
 .hero {
   position: relative; min-height: 92vh;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  text-align: center; padding: 120px 20px 60px;
+  /* bottom clearance covers the scroll cue (absolute, 26px up) now that the popular
+     strip sits under the search box and the content can reach the hero's floor */
+  text-align: center; padding: 120px 20px 84px;
   /* z-index lifts the hero above the sections below, so the search dropdown can
      spill past the hero's bottom edge instead of being clipped by it */
   isolation: isolate; z-index: 5;
@@ -506,6 +508,65 @@ body::after {
 /* the open dropdown floats right above the cue — fade it out instead of colliding */
 .search-box.dd-open ~ .scroll-cue { opacity: 0; }
 @keyframes bob { 0%, 100% { transform: translate(50%, 0); } 50% { transform: translate(50%, 8px); } }
+
+/* ---------- popular strip (under the search box) ---------- */
+/* deliberately quiet: small photo tiles in one scrolling row, no heading, no
+   arrows — a shortcut for people who already know where they're going, not a
+   second showcase competing with the search box above it. Same width as the box,
+   so the two read as one control. */
+.popular {
+  width: min(640px, 100%); margin-top: 16px; text-align: right;
+  opacity: 0; animation: rise .8s ease .7s forwards;
+}
+.popular-label {
+  font-size: .72rem; font-weight: 600; letter-spacing: .12em;
+  color: rgba(245, 239, 227, .5); padding: 0 12px 7px;
+}
+.popular-strip {
+  display: flex; gap: 8px; overflow-x: auto; padding: 2px 6px 6px;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent);
+}
+.popular-strip::-webkit-scrollbar { display: none; }
+.pop-tile {
+  flex: 0 0 112px; height: 76px; position: relative; overflow: hidden;
+  border-radius: 14px; border: 1px solid var(--glass-border);
+  text-decoration: none; color: var(--paper); background: var(--ink-2);
+  transition: transform .2s ease, border-color .2s ease;
+}
+/* a route across several countries gets the room its flags need */
+.pop-tile.pop-combo { flex-basis: 176px; }
+.pop-tile:hover { transform: translateY(-2px); border-color: rgba(255, 180, 95, .55); }
+.pop-img {
+  position: absolute; inset: 0; background-size: cover; background-position: center;
+  transition: transform .4s ease;
+}
+.pop-img::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(10, 21, 18, .05) 20%, rgba(10, 21, 18, .86) 100%);
+}
+.pop-tile:hover .pop-img { transform: scale(1.06); }
+.pop-text {
+  position: absolute; right: 9px; left: 9px; bottom: 7px; z-index: 1;
+  display: flex; align-items: center; gap: 6px;
+  font-size: .82rem; font-weight: 700; line-height: 1.15;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, .6); white-space: nowrap; overflow: hidden;
+}
+.pop-name { overflow: hidden; text-overflow: ellipsis; }
+.pop-flags { display: inline-flex; gap: 3px; flex-shrink: 0; }
+.pop-flags .flag-img { width: 16px; height: 12px; border-radius: 2px; }
+.pop-flags .flag-emoji { font-size: .95rem; }
+/* the "3 מדינות" tag sits in the top corner so the title line stays clean */
+.pop-tag {
+  position: absolute; top: 6px; left: 7px; z-index: 1;
+  font-size: .64rem; font-weight: 700; padding: 2px 7px; border-radius: 999px;
+  background: rgba(255, 180, 95, .92); color: #132019;
+}
+@media (max-width: 640px) {
+  .pop-tile { flex-basis: 100px; height: 70px; }
+  .pop-tile.pop-combo { flex-basis: 160px; }
+}
 
 /* ---------- suggested strip ---------- */
 
