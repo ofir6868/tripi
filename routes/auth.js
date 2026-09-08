@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const { pool } = require('../lib/db');
 const { JWT_SECRET, authRequired } = require('../lib/auth');
 const { rateLimiter } = require('../lib/rate-limit');
+const analytics = require('../lib/posthog');
 
 const router = express.Router();
 
@@ -67,6 +68,9 @@ router.post('/api/auth/register', registerLimit.middleware, async (req, res) => 
       [name.trim(), email.trim(), hash]
     );
     const user = rows[0];
+    // acquisition: the moment of signup, captured server-side so it can't be lost
+    // to an adblocker; joins the person's first_source (set by the client) by id
+    analytics.capture('signed_up', 'user_' + user.id, { method: 'email' });
     const token = signUserToken(user);
     res.json({ token, user });
   } catch (err) {
@@ -205,7 +209,7 @@ router.get('/api/me/referral', authRequired, async (req, res) => {
     );
     res.json({
       code,
-      link: `${publicOrigin(req)}/?ref=${code}`,
+      link: `${publicOrigin(req)}/?ref=${code}&utm_source=referral`,
       referred: rows[0].referred,
       needed: REFERRALS_NEEDED,
       bonus: !!rows[0].referral_bonus,
@@ -350,6 +354,8 @@ router.get('/api/auth/google/callback', async (req, res) => {
           [name, email, sub]
         );
         user = rows[0];
+        // only this branch is a NEW account — the two above are returning users
+        analytics.capture('signed_up', 'user_' + user.id, { method: 'google' });
       }
     }
 
