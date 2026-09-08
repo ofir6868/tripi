@@ -29,13 +29,7 @@
 
 html { scroll-behavior: smooth; }
 
-html { overflow-x: clip; }
-
-/* installed / home-screen app: pan only — pinch-zoom feels like a broken native app */
-@media (display-mode: standalone), (display-mode: fullscreen) {
-  html { touch-action: pan-x pan-y; }
-}
-html.standalone-app { touch-action: pan-x pan-y; }
+html { overflow-x: clip; touch-action: pan-x pan-y; }
 
 body {
   font-family: var(--font-body);

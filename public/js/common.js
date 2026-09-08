@@ -15,23 +15,17 @@
   } catch { /* storage blocked — nothing to carry over */ }
 })();
 
-// Home-screen app only: lock pinch/double-tap zoom so it behaves like a native
-// app. Regular Safari/Chrome keep zoom — iOS ignores user-scalable=no in the
-// browser, but honors it once the page is launched from the home screen.
+// No pinch / double-tap zoom — in the browser and as a home-screen app.
+// iOS Safari ignores user-scalable=no in the browser; blocking the gesture
+// events is what actually stops a pinch there.
 (() => {
-  const standalone = window.navigator.standalone === true
-    || window.matchMedia('(display-mode: standalone)').matches
-    || window.matchMedia('(display-mode: fullscreen)').matches;
-  if (!standalone) return;
-  document.documentElement.classList.add('standalone-app');
-  const meta = document.querySelector('meta[name="viewport"]');
-  if (meta) {
-    meta.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover');
-  }
   const stop = (e) => e.preventDefault();
   document.addEventListener('gesturestart', stop, { passive: false });
   document.addEventListener('gesturechange', stop, { passive: false });
   document.addEventListener('gestureend', stop, { passive: false });
+  document.addEventListener('touchmove', (e) => {
+    if (e.touches && e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
 })();
 
 const TRIPMAKER = {
