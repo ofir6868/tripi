@@ -1,21 +1,30 @@
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
 const { pool } = require('../lib/db');
+const { stampAssets } = require('../lib/asset-version');
 
 const router = express.Router();
+
+// Every page is served from here rather than by express.static's directory index,
+// because every page has to leave with its asset URLs stamped (lib/asset-version).
+// Read once in production; re-read in dev, so an edit shows up without a restart.
+const pageCache = new Map();
+function readPage(file) {
+  if (!pageCache.has(file) || process.env.NODE_ENV !== 'production') {
+    pageCache.set(file, stampAssets(fs.readFileSync(path.join(__dirname, '..', 'public', file), 'utf8')));
+  }
+  return pageCache.get(file);
+}
+const sendPage = (res, file) => res.type('html').send(readPage(file));
 
 // pretty routes — /trip/:code gets Open Graph tags injected so WhatsApp/social previews
 // show the trip cover, title and code
 const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[c]));
-let tripHtmlCache = null;
 router.get('/trip/:code', async (req, res) => {
-  // cache the page only in production — in dev, re-read so edits show up without a restart
-  if (!tripHtmlCache || process.env.NODE_ENV !== 'production') {
-    tripHtmlCache = require('fs').readFileSync(path.join(__dirname, '..', 'public', 'trip.html'), 'utf8');
-  }
-  let html = tripHtmlCache;
+  let html = readPage('trip.html');
   try {
     const { rows } = await pool.query(
       'SELECT title, destination, description, cover_image, days, start_date, destinations, share_code, emoji, is_draft FROM trips WHERE share_code = $1',
@@ -69,8 +78,9 @@ router.get('/trip/:code', async (req, res) => {
   } catch { /* serve the plain page on any error */ }
   res.type('html').send(html);
 });
-router.get('/plan', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'plan.html')));
-router.get('/my', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'my.html')));
-router.get('/admin', (_req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'admin.html')));
+router.get('/', (_req, res) => sendPage(res, 'index.html'));
+router.get('/plan', (_req, res) => sendPage(res, 'plan.html'));
+router.get('/my', (_req, res) => sendPage(res, 'my.html'));
+router.get('/admin', (_req, res) => sendPage(res, 'admin.html'));
 
 module.exports = router;

@@ -44,7 +44,11 @@ app.use(express.json({ limit: '2mb' }));
 // with no rules for it, so a new control renders as a bare browser button.
 // `no-cache` is not "don't store": it stores and revalidates, so this stays a 304
 // per asset, and Cloudflare does not override it.
+// index: false — the pages are served by routes/pages.js, which stamps their asset
+// URLs with the deploy's version (lib/asset-version). A directory index here would
+// hand out an unstamped index.html and quietly reopen the problem for the home page.
 app.use(express.static(path.join(__dirname, 'public'), {
+  index: false,
   setHeaders: (res, filePath) => {
     if (/\.(css|js)$/i.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
   },

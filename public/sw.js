@@ -66,11 +66,18 @@ self.addEventListener('fetch', (e) => {
   }
 
   // same-origin: network-first, fall back to cache (keeps last-viewed pages/trips offline)
+  //
+  // The offline fallback ignores the query string for assets only. Pages ask for
+  // /css/style.css?v=<deploy> (lib/asset-version) while STATIC precaches the bare
+  // path, so an exact match would miss and an offline page would come back unstyled.
+  // It stays an exact match everywhere else: /api/trips/search?q=רומא must never be
+  // answered from the cached response for a different query.
+  const asset = /^\/(css|js|vendor)\//.test(url.pathname);
   e.respondWith(
     fetch(e.request).then((res) => {
       e.waitUntil(putRuntime(e.request, res.clone()));
       return res;
-    }).catch(() => caches.match(e.request))
+    }).catch(() => caches.match(e.request, { ignoreSearch: asset }))
   );
 });
 
