@@ -236,7 +236,7 @@ const TripCalendar = (() => {
           <button type="button" class="cal-wday-head${d === today ? ' today' : ''}" data-day="${d}" title="לתצוגה היומית">
             <span class="wd-num">יום ${d}</span>
             ${date ? `<span class="wd-date">${DOW[date.getDay()]} ${date.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}</span>` : ''}
-            ${wf ? `<span class="wd-weather">${GEO.weatherIcon(wf.code)} ${wf.est ? '≈' : ''}${wf.max}°</span>` : ''}
+            ${wf ? `<span class="wd-weather">${GEO.weatherIcon(wf.code)} ${wf.max}°</span>` : ''}
           </button>
           <div class="cal-wday-evts">
             ${items.map((it) => `
@@ -317,7 +317,7 @@ const TripCalendar = (() => {
         ${dayCost ? `<span class="day-cost" title="עלות משוערת של היום (בלי לינה)">${TripModals.fmt(dayCost, cur)}</span>` : ''}
         ${routeUrl ? `<a class="day-route" target="_blank" rel="noopener" href="${esc(routeUrl)}"
           title="נפתח בגוגל מפות, בחלון חדש">${TRIPMAKER.routeIcon} מסלול בגוגל מפות ${TRIPMAKER.externalIcon}</a>` : ''}
-        ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}${w.est ? ' · ממוצע היסטורי' : ''}">${GEO.weatherIcon(w.code)} ${w.est ? '≈' : ''}${w.max}°</span>` : ''}
+        ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}${w.est ? ' · ממוצע היסטורי' : ''}">${GEO.weatherIcon(w.code)} ${w.max}°</span>` : ''}
       </div>
       ${hotelLines.length ? `<div class="day-hotels">${hotelLines.map((l) =>
         `<span class="day-hotel ${l.cls}">${l.html}</span>`).join('')}</div>` : ''}

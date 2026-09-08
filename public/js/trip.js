@@ -520,7 +520,7 @@
             ${dayCosts[day] && editMode ? `<span class="day-cost" title="עלות משוערת של היום (בלי לינה)">${TripModals.fmt(dayCosts[day], cur)}</span>` : ''}
             ${routeUrl ? `<a class="day-route" target="_blank" rel="noopener" href="${TRIPMAKER.esc(routeUrl)}"
               title="נפתח בגוגל מפות, בחלון חדש">${TRIPMAKER.routeIcon} מסלול בגוגל מפות ${TRIPMAKER.externalIcon}</a>` : ''}
-            ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}${w.est ? ' · ממוצע היסטורי' : ''}">${GEO.weatherIcon(w.code)} ${w.est ? '≈' : ''}${w.max}°</span>` : ''}
+            ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}${w.est ? ' · ממוצע היסטורי' : ''}">${GEO.weatherIcon(w.code)} ${w.max}°</span>` : ''}
           </div>
           ${hotelLines.length ? `<div class="day-hotels">${hotelLines.map((l) =>
             `<span class="day-hotel ${l.cls}">${l.html}</span>`).join('')}</div>` : ''}
@@ -1688,7 +1688,7 @@
           <div class="weather-day" title="${GEO.weatherLabel(w.code)}${w.est ? ' · ממוצע היסטורי' : ''}">
             <div class="wd-name">${new Date(w.date + 'T00:00').toLocaleDateString('he-IL', { weekday: 'short' })}</div>
             <div class="wd-icon">${GEO.weatherIcon(w.code)}</div>
-            <div class="wd-temp">${w.est ? '≈' : ''}${w.max}°<span>${w.min}°</span></div>
+            <div class="wd-temp">${w.max}°<span>${w.min}°</span></div>
           </div>`;
 
     async function loadWeather(d) {
@@ -1715,7 +1715,7 @@
           if (est.length) {
             weatherByDate = {};
             for (const w of est) weatherByDate[w.date] = w;
-            renderItinerary(); // day headers get their ≈typical badge
+            renderItinerary(); // day headers pick up the typical-weather numbers
             card.classList.add('wx-est');
             document.getElementById('weather-title').textContent = '🌤️ מזג האוויר הטיפוסי בימי הטיול';
             sub.textContent = 'ממוצע השנתיים האחרונות בתאריכים האלה · תחזית אמיתית תופיע כשמתקרבים';
