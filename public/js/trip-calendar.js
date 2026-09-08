@@ -531,7 +531,7 @@ const TripCalendar = (() => {
             ${timePicker
               ? `<input id="se-time" class="se-time" type="time" value="${esc(it.time_label || '')}" autocomplete="off">`
               : `<input id="se-time" class="se-time" type="text" maxlength="20" value="${esc(it.time_label || '')}" placeholder="למשל 09:00" autocomplete="off">`}
-            <button type="button" class="se-time-clear">${icX}<span>ללא שעה</span></button>
+            <button type="button" class="se-time-clear" aria-label="ללא שעה" title="ללא שעה">${icX}</button>
           </div></div>
         <div class="field span-2"><label for="se-title">מה עושים? *</label>
           <input id="se-title" class="se-title" type="text" maxlength="120"
@@ -587,10 +587,12 @@ const TripCalendar = (() => {
       b.onclick = () => { costScope = b.dataset.v; sheet.dirty = true; syncScope(); };
     });
     syncScope();
-    // native time pickers have no empty state once a value is set — "ללא שעה"
+    // native time pickers have no empty state once a value is set — the X
     // is how a stop goes back to no hour. Save already sends null for a blank.
     // Replacing the input (not just .value = '') is what actually clears
     // type=time on iOS Safari / Chrome, which otherwise ignore an empty string.
+    // Don't focus the replacement: focusing type=time opens the native picker
+    // and looks like the hour is still there.
     let timeInput = body.querySelector('.se-time');
     const timeWrap = body.querySelector('.se-time-wrap');
     const syncTimeClear = () => timeWrap.classList.toggle('has-time', !!timeInput.value.trim());
@@ -618,7 +620,6 @@ const TripCalendar = (() => {
       bindTimeInput();
       sheet.dirty = true;
       syncTimeClear();
-      timeInput.focus();
     };
 
     body.querySelector('.se-cancel').onclick = () => {
