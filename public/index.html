@@ -72,9 +72,18 @@
     <nav class="popular" id="popular" aria-label="יעדים פופולריים">
       <div class="popular-head">
         <span class="popular-label">יעדים פופולריים</span>
+        <!-- chevrons as SVG, not ‹ › : those are angle QUOTES — they render in
+             whatever fallback font the button lands on, and Unicode mirrors them
+             in an RTL page, so the one pointing "next" flips -->
+        <!-- prev first: in RTL that puts it on the right, so each chevron sits on
+             the side it points to instead of the two reading as crossed -->
         <span class="popular-nav">
-          <button type="button" id="pop-next" aria-label="הבא">‹</button>
-          <button type="button" id="pop-prev" aria-label="הקודם">›</button>
+          <button type="button" id="pop-prev" aria-label="הקודם">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+          <button type="button" id="pop-next" aria-label="הבא">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
         </span>
       </div>
       <div class="popular-strip" id="popular-strip"></div>

@@ -536,10 +536,12 @@ body::after {
    phone two more buttons here would cost more room than they earn */
 .popular-nav { display: flex; gap: 6px; }
 .popular-nav button {
-  width: 26px; height: 26px; border-radius: 50%; cursor: pointer; line-height: 1;
+  width: 28px; height: 28px; display: grid; place-items: center; padding: 0;
+  border-radius: 50%; cursor: pointer;
   background: var(--glass); border: 1px solid var(--glass-border); color: var(--paper);
-  font-size: .9rem; transition: background .15s ease, color .15s ease, opacity .15s ease;
+  transition: background .15s ease, color .15s ease, opacity .15s ease;
 }
+.popular-nav .ic { width: 15px; height: 15px; }
 .popular-nav button:hover:not(:disabled) { background: var(--amber); color: var(--ink); border-color: transparent; }
 .popular-nav button:disabled { opacity: .3; cursor: default; }
 @media (hover: none) { .popular-nav { display: none; } }
