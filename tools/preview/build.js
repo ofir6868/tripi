@@ -22,9 +22,13 @@ const DEMO_CSS = `
 @media (max-width: 640px) { .demo-badge { top: auto; bottom: calc(var(--dock-h, 66px) + 18px + env(safe-area-inset-bottom)); } }
 `;
 
+// The pages carry `defer` on their scripts, so match either shape — a silent no-op
+// here ships a demo with no mock behind it.
+const COMMON = /  <script (defer )?src="\/js\/common\.js"><\/script>\n/;
 function patchPage(html) {
+  if (!COMMON.test(html)) throw new Error('preview build: no /js/common.js tag to hang the mock on');
   return html
-    .replace('  <script src="/js/common.js"></script>\n', SHIM_TAGS + '  <script src="/js/common.js"></script>\n')
+    .replace(COMMON, (m) => SHIM_TAGS + m)
     .replace('<body>\n', '<body>\n' + DEMO_BADGE);
 }
 
@@ -56,11 +60,17 @@ fs.rmSync(path.join(PAGES, 'admin.html'), { force: true });
 let html = read(path.join(PUB, 'trip.html'));
 const inlineCss = (href, file) => { html = html.replace(`<link rel="stylesheet" href="${href}">`, `<style>\n${read(file)}\n</style>`); };
 inlineCss('/css/style.css', path.join(PUB, 'css', 'style.css'));
+// the shared sheet is only half of it now — trip.css carries everything this page
+// draws (see the banner at the top of it)
+inlineCss('/css/trip.css', path.join(PUB, 'css', 'trip.css'));
 inlineCss('/vendor/leaflet/leaflet.css', path.join(PUB, 'vendor', 'leaflet', 'leaflet.css'));
 html = html.replace(/<link rel="(manifest|apple-touch-icon)"[^>]*>\n/g, '');
-html = html.replace('  <script src="/js/common.js"></script>\n',
-  `  <script>\n${read(path.join(__dirname, 'mock-api.js'))}\n</script>\n  <script>\n${read(path.join(__dirname, 'shim.js'))}\n</script>\n  <script src="/js/common.js"></script>\n`);
-html = html.replace(/  <script src="(\/[^"]+\.js)"><\/script>\n/g, (m, src) =>
+if (!COMMON.test(html)) throw new Error('preview build: no /js/common.js tag to hang the mock on');
+html = html.replace(COMMON, (m) =>
+  `  <script>\n${read(path.join(__dirname, 'mock-api.js'))}\n</script>\n  <script>\n${read(path.join(__dirname, 'shim.js'))}\n</script>\n${m}`);
+// inlined, every script is a classic one that runs in document order, which is the
+// order `defer` was giving them anyway
+html = html.replace(/  <script (?:defer )?src="(\/[^"]+\.js)"><\/script>\n/g, (m, src) =>
   `  <script>\n${read(path.join(PUB, src)).replace(/<\/script>/gi, '<\\/script>')}\n</script>\n`);
 html = html.replace('<body>\n', '<body>\n' + DEMO_BADGE);
 html = html.replace('</style>', DEMO_CSS + '\nhtml { font-size: 16px; }\n</style>');

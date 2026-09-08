@@ -5,9 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>טיול · TRIP MAKER</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧭</text></svg>">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Suez+One&family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <!-- the two faces every Hebrew page paints above the fold; @font-face for them
+       lives in style.css. crossorigin is not optional even same-origin: fonts are
+       always fetched in CORS mode, and a preload without it is simply downloaded
+       twice. -->
+  <link rel="preload" as="font" type="font/woff2" href="/fonts/suez-one-hebrew.woff2" crossorigin>
+  <link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
   <link rel="manifest" href="/manifest.json">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="apple-touch-icon" sizes="167x167" href="/apple-touch-icon-167.png">
@@ -19,6 +22,7 @@
   <meta name="apple-mobile-web-app-title" content="TRIP MAKER">
   <meta name="theme-color" content="#0a1512">
   <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/trip.css">
   <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
 </head>
 <body>
@@ -303,24 +307,27 @@
   </footer>
 
   <script src="/vendor/leaflet/leaflet.js"></script>
-  <script src="/js/common.js"></script>
-  <script src="/js/analytics.js"></script>
-  <script src="/js/geo.js"></script>
-  <script src="/js/countries.js"></script>
-  <script src="/js/datepicker.js"></script>
-  <script src="/js/push.js"></script>
-  <script src="/js/webmcp.js"></script>
-  <script src="/js/webmcp-tools.js"></script>
-  <script src="/js/trip-pages.js"></script>
-  <script src="/js/trip-recs.js"></script>
-  <script src="/js/trip-plan.js"></script>
-  <script src="/js/doc-classify.js"></script>
-  <script src="/js/doc-text.js"></script>
-  <script src="/js/trip-docs.js"></script>
-  <script src="/js/trip-modals.js"></script>
-  <script src="/js/trip-arrange.js"></script>
-  <script src="/js/trip-calendar.js"></script>
-  <script src="/js/trip-map.js"></script>
-  <script src="/js/trip.js"></script>
+  <!-- defer, not bare: these only ever touch a finished DOM, so deferred they
+       download alongside the parse and still execute in written order, before
+       DOMContentLoaded — same order, same guarantees, off the rendering path. -->
+  <script defer src="/js/common.js"></script>
+  <script defer src="/js/analytics.js"></script>
+  <script defer src="/js/geo.js"></script>
+  <script defer src="/js/countries.js"></script>
+  <script defer src="/js/datepicker.js"></script>
+  <script defer src="/js/push.js"></script>
+  <script defer src="/js/webmcp.js"></script>
+  <script defer src="/js/webmcp-tools.js"></script>
+  <script defer src="/js/trip-pages.js"></script>
+  <script defer src="/js/trip-recs.js"></script>
+  <script defer src="/js/trip-plan.js"></script>
+  <script defer src="/js/doc-classify.js"></script>
+  <script defer src="/js/doc-text.js"></script>
+  <script defer src="/js/trip-docs.js"></script>
+  <script defer src="/js/trip-modals.js"></script>
+  <script defer src="/js/trip-arrange.js"></script>
+  <script defer src="/js/trip-calendar.js"></script>
+  <script defer src="/js/trip-map.js"></script>
+  <script defer src="/js/trip.js"></script>
 </body>
 </html>

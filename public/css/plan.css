@@ -1,0 +1,157 @@
+/* ============================================================
+   TRIP MAKER — the planning wizard
+   Loaded after css/style.css, and only by plan.html.
+
+   The site used to serve one 217kB stylesheet to every page. Nine tenths of what a
+   visitor waited for before the first pixel was rules for a page they were not on,
+   and on a phone that stylesheet was the longest thing standing between them and
+   the page. So each page now gets the shared sheet plus this one.
+
+   The test for a new rule is whether a second page can produce the classes it
+   names. If it can, it belongs in style.css. Two things follow from these sheets
+   loading AFTER the shared one, and both are why a rule can look like it belongs
+   here and not:
+     · a rule here wins a tie the shared sheet used to win, so anything that used to
+       sit before a shared rule it ties with stays in style.css;
+     · a selector list that spans two pages is dealt out, each part filed with its
+       own page, so a rule written to be the last word still is.
+   ============================================================ */
+
+.title-flags { display: inline-flex; gap: 5px; align-items: center; margin-inline-start: 8px; vertical-align: -2px; }
+
+.wizard-progress { display: flex; gap: 10px; margin-bottom: 26px; }
+.wp-step {
+  flex: 1; display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  border-radius: var(--radius-sm); font-size: .92rem; font-weight: 600; color: var(--paper-dim);
+  background: var(--glass); border: 1px solid var(--glass-border);
+  transition: all .3s ease;
+}
+.wp-step .wp-n {
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--glass-strong); font-size: .85rem; flex-shrink: 0;
+}
+
+.wizard-panel { padding: 30px 28px; }
+.wizard-panel h2 { font-family: var(--font-display); font-size: 1.45rem; margin-bottom: 20px; }
+
+/* panels past the first: a round back arrow sits beside the title instead of a
+   "חזרה" button at the bottom — one glance says where "back" is, and the nav row
+   keeps only the forward action */
+.panel-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.panel-head h2 { margin: 0; }
+.panel-back {
+  width: 40px; height: 40px; flex-shrink: 0; border-radius: 50%; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--glass-border); background: var(--glass); color: var(--amber);
+  cursor: pointer; transition: background .15s ease;
+}
+.panel-back:hover { background: var(--glass-strong); }
+.panel-head-text { min-width: 0; }
+
+.wizard-nav { display: flex; justify-content: space-between; margin-top: 24px; gap: 10px; }
+
+/* ---------- destination picker (autocomplete + chips) ---------- */
+
+.dest-picker { display: flex; flex-direction: column; gap: 10px; }
+.dest-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.dest-chips:empty { display: none; }
+/* the same chip on both wizard steps: flag, name, its country, and a remove target
+   a thumb can actually hit — the ✕ used to be a bare glyph at text size, so a chip
+   read as a label rather than as something you can take off the trip */
+.dest-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding-block: 6px; padding-inline: 13px 6px;
+  border-radius: 999px; font-weight: 700; font-size: .95rem;
+  background: rgba(255, 180, 95, .13); border: 1px solid rgba(255, 180, 95, .4); color: var(--amber);
+  animation: pop .25s cubic-bezier(.2, .9, .3, 1.2);
+}
+.dest-chip .dc-flag { display: inline-flex; align-items: center; }
+.dest-chip .dc-label { display: inline-flex; align-items: baseline; gap: 6px; line-height: 1.35; }
+.dest-chip small { color: var(--paper-dim); font-weight: 400; font-size: .8rem; }
+.dest-chip .dc-x {
+  width: 26px; height: 26px; flex: none; display: grid; place-items: center;
+  background: rgba(255, 255, 255, .06); border: none; border-radius: 50%;
+  color: var(--paper-dim); cursor: pointer; padding: 0;
+  transition: background .15s ease, color .15s ease;
+}
+.dest-chip .dc-x:hover { background: rgba(255, 107, 107, .18); color: var(--danger); }
+/* "עוד יעד" is a chip too, dashed to read as an empty slot rather than a picked
+   destination — it was an underlined link that looked like running text */
+button.dest-chip.dc-add {
+  padding-inline: 13px; color: var(--paper-dim);
+  background: transparent; border: 1px dashed var(--glass-border);
+  font-family: var(--font-body); font-size: .92rem; cursor: pointer; animation: none;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+button.dest-chip.dc-add:hover {
+  color: var(--amber); border-color: rgba(255, 180, 95, .55); background: rgba(255, 180, 95, .08);
+}
+
+/* step 2 keeps the picked destinations in reach: the same chips, under "כמה זמן?" */
+.dest-context { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+/* one-line question: label on the reading side, control on the other — the days
+   stepper doesn't need a full row of its own */
+.field-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; align-self: start; }
+.field-row label { margin-bottom: 0; }
+
+/* ---------- AI builder ---------- */
+
+.draft-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 12px 16px; margin-bottom: 18px; border-radius: var(--radius-sm);
+  background: rgba(143, 216, 196, .08); border: 1px solid rgba(143, 216, 196, .3);
+  color: var(--mint); font-weight: 600; font-size: .93rem;
+  animation: pop .3s cubic-bezier(.2, .9, .3, 1.1);
+}
+.draft-banner[hidden] { display: none; }
+.draft-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.ai-prefs { margin-bottom: 14px; }
+.ai-prefs-label { display: block; font-size: .88rem; font-weight: 600; color: var(--paper-dim); margin: 10px 0 8px; }
+.ai-prefs-label small { font-weight: 300; }
+.ai-prefs textarea {
+  width: 100%; background: rgba(6, 13, 11, .55);
+  border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
+  color: var(--paper); font-family: var(--font-body); font-size: .95rem;
+  padding: 10px 14px; outline: none; resize: vertical; transition: border-color .2s ease;
+}
+.ai-prefs textarea:focus { border-color: var(--amber); box-shadow: 0 0 0 4px rgba(255, 180, 95, .12); }
+.interest-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.interest-chip {
+  padding: 7px 13px; border-radius: 999px; cursor: pointer;
+  background: rgba(6, 13, 11, .5); border: 1px solid var(--glass-border);
+  color: var(--paper-dim); font-family: var(--font-body); font-size: .86rem; font-weight: 600;
+  transition: all .15s ease;
+}
+.interest-chip:hover { transform: translateY(-2px); color: var(--paper); }
+.ai-status { min-height: 1.4em; margin-top: 10px; font-size: .92rem; font-weight: 600; }@media (max-width: 640px) {
+  /* the numbered stepper eats a whole row on a phone — the panel headings and
+     the back arrows already say where you are */
+  .wizard-progress { display: none; }
+  /* the whole wizard step fits one phone view: trimmed header clearance, a small
+     page title, compact panel — the calendar gets the room that's left */
+  .wizard-shell { padding-top: calc(84px + env(safe-area-inset-top)); }
+  .wizard-shell > h1 { font-size: 1.5rem; margin-bottom: 12px; }
+  .wizard-panel { padding: 18px 16px 16px; }
+  .wizard-panel h2 { font-size: 1.25rem; margin-bottom: 14px; }
+  .panel-head { margin-bottom: 12px; }
+  .panel-head h2 { margin-bottom: 0; }
+  .panel-back { width: 36px; height: 36px; }
+  .wizard-nav { margin-top: 14px; }
+  /* step 3 in one view too: smaller interest chips, tighter labels, and the
+     status row only takes space once it has something to say */
+  .interest-chip { padding: 5px 10px; font-size: .78rem; }
+  .interest-row { gap: 6px; }
+  .ai-prefs { margin-bottom: 10px; }
+  .ai-prefs-label { margin: 8px 0 6px; }
+  .ai-status { margin-top: 4px; }
+  .ai-status:empty { display: none; min-height: 0; }
+}
+@media (max-width: 640px) and (max-height: 730px) {
+  .wizard-shell { padding-top: calc(76px + env(safe-area-inset-top)); }
+  .wizard-shell > h1 { display: none; }
+}
+@media (pointer: coarse) {
+.ai-prefs textarea { font-size: 16px; }
+}

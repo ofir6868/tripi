@@ -1,0 +1,234 @@
+/* ============================================================
+   TRIP MAKER — the server-rendered marketing and legal pages
+   Loaded after css/style.css, and only by lib/seo.js + lib/legal.js.
+
+   The site used to serve one 217kB stylesheet to every page. Nine tenths of what a
+   visitor waited for before the first pixel was rules for a page they were not on,
+   and on a phone that stylesheet was the longest thing standing between them and
+   the page. So each page now gets the shared sheet plus this one.
+
+   The test for a new rule is whether a second page can produce the classes it
+   names. If it can, it belongs in style.css. Two things follow from these sheets
+   loading AFTER the shared one, and both are why a rule can look like it belongs
+   here and not:
+     · a rule here wins a tie the shared sheet used to win, so anything that used to
+       sit before a shared rule it ties with stays in style.css;
+     · a selector list that spans two pages is dealt out, each part filed with its
+       own page, so a rule written to be the last word still is.
+   ============================================================ */
+
+/* ---------- server-rendered marketing pages (lib/seo.js) ---------- */
+/* Plain and light on purpose: these pages exist to be read by people arriving from
+   search and by crawlers, so no entry splash, no scroll-triggered reveals. */
+
+/* Per-destination header photo — static (no ken-burns) to match that plain,
+   light intent; full-bleed regardless of the page-shell's own max-width, and
+   it fades straight into the page background. .page-shell's usual top padding
+   exists to clear the fixed header on plain pages; here the photo already
+   fills that space, so the following page-shell's padding is trimmed down to
+   normal breathing room instead of stacking on top of the photo's height. */
+.seo-hero {
+  position: relative; width: 100vw; margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
+  height: 40vh; min-height: 220px; max-height: 400px;
+  background-size: cover; background-position: center;
+  /* A mask, not an ink veil — the same reason .hero-clip masks. The page
+     background here is not flat --ink: .atmosphere paints fixed radial glows
+     behind everything (the mid-page one alone is rgba(22,48,42,.85)), so an
+     additive veil ending at var(--ink) lands on a color the surrounding page
+     never has, and the photo's bottom edge showed as a hard line against a
+     lighter, greener backdrop. Being fixed, that backdrop also shifts with
+     scroll, so no flat endpoint could match it. Masking removes the photo
+     instead of painting over it, and whatever is actually behind shows through.
+
+     An S-curve, not a straight ramp — matches .hero-clip's --hero-fade. A
+     two/three-stop linear ramp reads as a hard edge where the fade suddenly
+     kicks in; this traces the same easing so the photo dissolves gradually
+     instead of looking cut off. The ramp starts at the photo's midpoint (not
+     .hero-clip's 64%): nothing is laid over this photo, so there is no headline
+     to keep clear of. */
+  --seo-hero-fade: linear-gradient(180deg,
+    #000 0 50%,
+    rgba(0, 0, 0, .96) 56.5%,
+    rgba(0, 0, 0, .84) 63%,
+    rgba(0, 0, 0, .68) 69%,
+    rgba(0, 0, 0, .50) 75%,
+    rgba(0, 0, 0, .32) 81%,
+    rgba(0, 0, 0, .16) 87.5%,
+    rgba(0, 0, 0, .04) 94%,
+    transparent 100%);
+  -webkit-mask-image: var(--seo-hero-fade);
+  mask-image: var(--seo-hero-fade);
+}
+.seo-article h2 { font-family: var(--font-display); font-size: 1.5rem; margin: 40px 0 12px; }
+.seo-article p { line-height: 1.75; color: var(--paper-dim); font-weight: 300; margin: 0 0 14px; }
+.seo-article p strong, .seo-article li strong { color: var(--paper); font-weight: 600; }
+.seo-lead { font-size: 1.12rem; color: var(--paper) !important; }
+.seo-muted { font-size: .95rem; }
+.seo-crumbs { font-size: .85rem; color: var(--paper-dim); margin-bottom: 14px; }
+
+.seo-facts {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+  padding: 18px 20px; margin: 6px 0 24px;
+}
+.seo-facts span { display: block; font-size: .78rem; letter-spacing: .08em; color: var(--mint); font-weight: 600; }
+.seo-facts strong { display: block; margin-top: 4px; font-weight: 600; line-height: 1.4; }@media (max-width: 640px) { .seo-facts { grid-template-columns: 1fr; }
+}
+
+
+.seo-cta {
+  display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;
+  padding: 22px 24px; margin: 28px 0;
+  border-color: rgba(255, 180, 95, .35);
+}
+.seo-cta strong { display: block; font-family: var(--font-display); font-size: 1.2rem; font-weight: 400; }
+.seo-cta span { color: var(--paper-dim); font-weight: 300; }
+
+.seo-list, .seo-steps { padding-right: 22px; margin: 0 0 16px; line-height: 1.7; color: var(--paper-dim); font-weight: 300; }
+.seo-list li, .seo-steps li { margin-bottom: 8px; }
+.seo-tip { padding: 14px 18px; border-right: 3px solid var(--amber); background: var(--glass); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+
+.seo-trips { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin: 8px 0 10px; }
+
+/* ---------- long-form destination guides (.seo-guide) ----------
+   The short destination template is one column of prose. A guide is a magazine
+   page: a summary card you can read in ten seconds, a jump list, figures, tables
+   and a day-by-day block. Everything here is scoped under .seo-guide so the other
+   ~40 destination pages are untouched. No animation — these pages are read, and
+   the software renderer on some machines makes animated glass expensive. */
+
+.guide-byline {
+  font-size: .85rem; color: var(--paper-dim); font-weight: 300;
+  margin: -6px 0 18px !important;
+}
+
+/* The ten-second version. Amber rail on the inline-start edge, so in RTL it sits
+   on the right where the eye starts. */
+.guide-tldr {
+  padding: 20px 22px; margin: 0 0 26px;
+  border-inline-start: 3px solid var(--amber);
+}
+.guide-tldr h2 {
+  font-family: var(--font-display); font-size: 1.15rem;
+  margin: 0 0 12px !important; color: var(--paper);
+}
+.guide-tldr ul { list-style: none; padding: 0; margin: 0; }
+.guide-tldr li {
+  position: relative; padding-inline-start: 22px; margin-bottom: 10px;
+  line-height: 1.65; color: var(--paper-dim); font-weight: 300;
+}
+.guide-tldr li:last-child { margin-bottom: 0; }
+.guide-tldr li::before {
+  content: ''; position: absolute; inset-inline-start: 4px; top: .62em;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--mint);
+}
+
+.guide-toc {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 0 0 6px; margin: 0 0 8px;
+}
+
+/* Anchors land under nothing fixed, but a jump that puts the heading flush against
+   the viewport edge reads as if the section started mid-page. */
+.guide-sec { scroll-margin-top: 20px; }
+
+.guide-fig { margin: 22px 0; }
+.guide-fig img {
+  width: 100%; height: auto; aspect-ratio: 3 / 2; object-fit: cover;
+  border-radius: var(--radius-sm); border: 1px solid var(--glass-border);
+  display: block;
+}
+.guide-fig figcaption {
+  margin-top: 8px; font-size: .87rem; line-height: 1.55;
+  color: var(--paper-dim); font-weight: 300;
+}
+
+/* Tables scroll inside themselves; the page never scrolls sideways. */
+.guide-tablewrap {
+  overflow-x: auto; margin: 20px 0;
+  border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
+  background: var(--glass);
+}
+.guide-table { width: 100%; border-collapse: collapse; font-size: .92rem; min-width: 480px; }
+.guide-table th, .guide-table td {
+  padding: 11px 14px; text-align: start; vertical-align: top;
+  border-bottom: 1px solid rgba(255, 255, 255, .07); line-height: 1.55;
+}
+.guide-table th {
+  font-size: .8rem; letter-spacing: .06em; color: var(--mint);
+  font-weight: 600; white-space: nowrap;
+  background: rgba(255, 255, 255, .03);
+}
+.guide-table td { color: var(--paper-dim); font-weight: 300; }
+.guide-table td:first-child { color: var(--paper); font-weight: 600; }
+.guide-table tbody tr:last-child td { border-bottom: 0; }
+
+.guide-warn {
+  padding: 14px 18px; margin: 18px 0 !important;
+  border-inline-start: 3px solid var(--danger);
+  background: rgba(255, 122, 110, .07);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.guide-warn strong { color: var(--danger) !important; }
+
+.guide-cta, .guide-cta-final { margin: 26px 0; }
+.guide-cta-final { margin-top: 34px; }
+
+.guide-days { list-style: none; padding: 0; margin: 18px 0 8px; }
+.guide-days li {
+  display: grid; grid-template-columns: 120px 1fr; gap: 4px 16px;
+  padding: 14px 0; border-top: 1px solid rgba(255, 255, 255, .08);
+}
+.guide-days li:last-child { border-bottom: 1px solid rgba(255, 255, 255, .08); }
+.gd-when {
+  grid-row: 1 / span 2; font-size: .84rem; letter-spacing: .04em;
+  color: var(--mint); font-weight: 600; padding-top: 2px;
+}
+.gd-where { font-family: var(--font-display); font-size: 1.05rem; font-weight: 400; }
+.gd-what { color: var(--paper-dim); font-weight: 300; line-height: 1.65; }@media (max-width: 560px) {
+  .guide-days li { grid-template-columns: 1fr; gap: 2px; }
+  .gd-when { grid-row: auto; }
+}
+
+
+.guide-gallery {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 30px 0;
+}
+.guide-gallery img {
+  width: 100%; height: 100%; aspect-ratio: 1 / 1; object-fit: cover;
+  border-radius: var(--radius-sm); border: 1px solid var(--glass-border);
+  display: block;
+}@media (max-width: 640px) { .guide-gallery { grid-template-columns: repeat(2, 1fr); }
+}
+
+
+.guide-mistakes { list-style: none; padding: 0; margin: 14px 0; }
+.guide-mistakes li {
+  position: relative; padding-inline-start: 30px; margin-bottom: 12px;
+  line-height: 1.7; color: var(--paper-dim); font-weight: 300;
+}
+/* A drawn glyph, not an emoji — same rule as every other control on the site. */
+.guide-mistakes li::before {
+  content: ''; position: absolute; inset-inline-start: 2px; top: .34em;
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 1.5px solid var(--danger);
+  background:
+    linear-gradient(45deg, transparent 45%, var(--danger) 45%, var(--danger) 55%, transparent 55%),
+    linear-gradient(-45deg, transparent 45%, var(--danger) 45%, var(--danger) 55%, transparent 55%);
+  background-size: 9px 9px; background-position: center; background-repeat: no-repeat;
+}
+
+/* ---------- legal pages (lib/legal.js) ---------- */
+.legal-page h2 { font-size: 1.25rem; margin-top: 34px; }
+.legal-page ul.seo-list li { margin-bottom: 10px; }
+.legal-table-wrap { overflow-x: auto; margin: 6px 0 16px; }
+.legal-table { width: 100%; border-collapse: collapse; font-size: .93rem; line-height: 1.55; font-weight: 300; color: var(--paper-dim); }
+.legal-table th, .legal-table td { text-align: right; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid rgba(255, 255, 255, .08); }
+.legal-table th { color: var(--mint); font-weight: 600; font-size: .78rem; letter-spacing: .06em; }
+.legal-table td:first-child { color: var(--paper); font-weight: 400; min-width: 160px; }
+.legal-page p a,
+.legal-page li a,
+.legal-page td a {
+  color: var(--amber); text-decoration: underline; text-decoration-color: rgba(255, 180, 95, .4);
+  text-decoration-thickness: 1px; text-underline-offset: 3px; font-weight: 500; unicode-bidi: isolate;
+}
+.legal-page p a:hover, .legal-page li a:hover, .legal-page td a:hover { text-decoration-color: var(--amber); }

@@ -51,6 +51,13 @@ app.use(express.static(path.join(__dirname, 'public'), {
   index: false,
   setHeaders: (res, filePath) => {
     if (/\.(css|js)$/i.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+    // The opposite rule for the fonts, and for the same reason the stylesheet needs
+    // no-cache: what is in a font file never changes. A face is addressed by the
+    // subset it carries (public/fonts/README.md), so replacing one means a new
+    // filename, not new bytes under the old one — which is exactly the promise
+    // `immutable` makes. Without this they inherit express.static's max-age=0 and
+    // cost a revalidation round trip on every single page load, in front of text.
+    else if (/\.woff2$/i.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
   },
 }));
 

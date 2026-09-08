@@ -78,9 +78,13 @@
     const strip = document.getElementById('popular-strip');
     if (!strip || typeof POPULAR === 'undefined') return;
     const flags = (dests) => `<span class="pop-flags">${dests.map((d) => COUNTRIES.flagHtml(d.cc)).join('')}</span>`;
+    // loading=lazy on the photo, not a background: sixteen tiles ride in one
+    // horizontally-scrolling strip, so all but the two or three on screen are behind
+    // the fold sideways — as backgrounds every one of them was fetched at layout,
+    // competing with the hero photo right above them for the same phone connection.
     const tile = ({ href, img, name, cls, dests, badge }) => `
       <a class="pop-tile ${cls}" href="${href}" title="${TRIPMAKER.esc(name)}">
-        <span class="pop-img" style="background-image:url('${img}')" aria-hidden="true"></span>
+        <img class="pop-img" src="${img}" alt="" aria-hidden="true" loading="lazy" decoding="async">
         ${badge ? `<span class="pop-badge">${TRIPMAKER.esc(badge)}</span>` : ''}
         <span class="pop-text">${flags(dests)}<span class="pop-name">${TRIPMAKER.esc(name)}</span></span>
       </a>`;

@@ -1,0 +1,138 @@
+/* ============================================================
+   TRIP MAKER — the admin panel
+   Loaded after css/style.css, and only by admin.html.
+
+   The site used to serve one 217kB stylesheet to every page. Nine tenths of what a
+   visitor waited for before the first pixel was rules for a page they were not on,
+   and on a phone that stylesheet was the longest thing standing between them and
+   the page. So each page now gets the shared sheet plus this one.
+
+   The test for a new rule is whether a second page can produce the classes it
+   names. If it can, it belongs in style.css. Two things follow from these sheets
+   loading AFTER the shared one, and both are why a rule can look like it belongs
+   here and not:
+     · a rule here wins a tie the shared sheet used to win, so anything that used to
+       sit before a shared rule it ties with stays in style.css;
+     · a selector list that spans two pages is dealt out, each part filed with its
+       own page, so a rule written to be the last word still is.
+   ============================================================ */
+
+/* admin: stat tiles keep their real line boxes, panel rows keep the table rhythm */
+.skl-stat-n { width: 58px; height: .6em; border-radius: 8px; }
+.skl-stat-label { width: 96px; height: .72em; }
+.skl-stat-sub { width: 74px; height: .72em; }
+.skl-rows { display: flex; flex-direction: column; gap: 25px; padding: 12px; }
+
+/* ---------- admin panel ---------- */
+
+
+.adm-stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px; margin-bottom: 26px;
+}
+.adm-stat { padding: 18px 20px; border-radius: var(--radius-sm); }
+.adm-stat-n {
+  font-family: var(--font-display); font-size: 2rem; color: var(--amber);
+  line-height: 1.1; font-variant-numeric: tabular-nums;
+}
+.adm-stat-label { font-weight: 600; margin-top: 4px; }
+.adm-stat-sub { font-size: .82rem; font-weight: 300; color: var(--paper-dim); margin-top: 2px; }
+
+.adm-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px;
+}
+.adm-tabs { display: flex; gap: 6px; }
+.adm-tab {
+  font-family: var(--font-body); font-size: .95rem; font-weight: 600; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 18px; border-radius: 999px; color: var(--paper-dim);
+  background: transparent; border: 1px solid var(--glass-border);
+  transition: color .18s ease, background .18s ease, border-color .18s ease;
+}
+.adm-tab:hover { background: var(--glass-strong); color: var(--paper); }
+.adm-search {
+  flex: 1; min-width: 220px; padding: 10px 16px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--glass-border);
+  color: var(--paper); font-family: var(--font-body); font-size: .95rem;
+}
+
+.adm-panel { padding: 8px; overflow-x: auto; }
+.adm-table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+.adm-table th {
+  text-align: right; font-size: .78rem; font-weight: 700; letter-spacing: .04em;
+  color: var(--paper-dim); padding: 10px 12px; white-space: nowrap;
+  border-bottom: 1px solid var(--glass-border);
+}
+.adm-table td { padding: 12px; border-bottom: 1px solid rgba(255, 255, 255, .05); vertical-align: middle; }
+.adm-table tr:last-child td { border-bottom: none; }
+.adm-table tbody tr:hover { background: rgba(255, 255, 255, .035); }
+.adm-table .num { text-align: center; font-variant-numeric: tabular-nums; }
+.adm-link { color: var(--paper); text-decoration: none; font-weight: 600; }
+.adm-link:hover { color: var(--amber); }
+.adm-sub { font-size: .8rem; font-weight: 300; color: var(--paper-dim); margin-top: 2px; }
+.adm-draft {
+  display: inline-block; margin-inline-start: 6px; padding: 1px 8px; border-radius: 999px;
+  font-size: .7rem; font-weight: 700; color: var(--amber);
+  background: rgba(255, 180, 95, .1); border: 1px solid rgba(255, 180, 95, .45);
+}
+.adm-codes { white-space: nowrap; }
+.adm-code {
+  display: inline-block; font-size: .78rem; font-weight: 700; letter-spacing: .1em;
+  padding: 3px 9px; border-radius: 999px; cursor: pointer; color: var(--amber);
+  background: rgba(255, 180, 95, .1); border: 1px solid rgba(255, 180, 95, .28);
+}
+.adm-you {
+  font-size: .72rem; font-weight: 700; color: var(--mint);
+  border: 1px solid rgba(143, 216, 196, .35); border-radius: 999px; padding: 1px 7px;
+}
+.adm-del {
+  background: none; border: 1px solid var(--glass-border); border-radius: 10px;
+  width: 34px; height: 34px; cursor: pointer; color: var(--paper-dim);
+  display: grid; place-items: center; padding: 0;
+  transition: color .18s ease, border-color .18s ease, background .18s ease;
+}
+.adm-del:hover { color: var(--danger); border-color: rgba(255, 122, 110, .5); background: rgba(255, 122, 110, .12); }
+.adm-del:disabled { opacity: .5; cursor: wait; }
+.adm-del:disabled:hover { color: var(--paper-dim); border-color: var(--glass-border); background: none; } /* permanently off, not mid-request */
+
+/* ---- admin modals: add user, delete user ---- */
+.adm-check {
+  display: flex; align-items: flex-start; gap: 9px; cursor: pointer;
+  font-size: .9rem; color: var(--paper-dim); line-height: 1.5; margin: 4px 0 14px;
+}
+.adm-check input { accent-color: var(--amber); width: 17px; height: 17px; margin-top: 1px; flex: none; cursor: pointer; }
+.adm-warn {
+  font-size: .92rem; line-height: 1.6; color: var(--paper-dim);
+  background: rgba(255, 122, 110, .09); border: 1px solid rgba(255, 122, 110, .25);
+  border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 14px;
+}
+.adm-modal-actions { display: flex; gap: 10px; }
+
+.adm-cred {
+  border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
+  padding: 6px 14px; margin-bottom: 18px;
+}
+.adm-cred-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 0;
+}
+.adm-cred-row + .adm-cred-row { border-top: 1px solid rgba(255, 255, 255, .06); }
+.adm-cred-k { font-size: .85rem; font-weight: 600; color: var(--paper-dim); flex: none; }
+.adm-cred-v {
+  font-weight: 700; letter-spacing: .04em; cursor: pointer; color: var(--amber);
+  overflow-wrap: anywhere; text-align: left;
+}
+
+/* toggle pill, used for both publish and admin flags */
+.adm-switch { display: inline-block; cursor: pointer; }
+.adm-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.adm-switch span::after {
+  content: ''; position: absolute; top: 2px; right: 2px; width: 18px; height: 18px;
+  border-radius: 50%; background: var(--paper-dim); transition: transform .18s ease, background .18s ease;
+}
+.adm-switch input:checked + span { background: rgba(255, 180, 95, .28); border-color: rgba(255, 180, 95, .5); }
+.adm-switch input:checked + span::after { transform: translateX(-18px); background: var(--amber); }
+.adm-switch input:disabled + span { opacity: .5; cursor: not-allowed; }@media (max-width: 700px) {
+  .adm-table { font-size: .85rem; }
+  .adm-table th, .adm-table td { padding: 9px 8px; }
+}

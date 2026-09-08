@@ -2,18 +2,26 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v69'; // untimed stops sit at the bottom of each day
+const VERSION = 'v70'; // our own typefaces, and one stylesheet per page
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first
 const STATIC = [
-  '/css/style.css', '/js/common.js', '/js/geo.js', '/js/home.js', '/js/trip.js',
+  // style.css is the shared sheet; each page adds exactly one more (see the banner
+  // at the top of any of them)
+  '/css/style.css', '/css/home.css', '/css/trip.css', '/css/plan.css', '/css/my.css',
+  '/css/seo.css', '/css/admin.css',
+  '/js/common.js', '/js/geo.js', '/js/home.js', '/js/trip.js',
   '/js/trip-pages.js', '/js/trip-recs.js', '/js/trip-docs.js', '/js/doc-classify.js', '/js/doc-text.js',
   '/js/trip-modals.js', '/js/trip-arrange.js', '/js/trip-calendar.js', '/js/trip-map.js',
-  '/js/plan.js', '/js/admin.js',
+  '/js/plan.js', '/js/admin.js', '/js/my.js',
   '/js/countries.js', '/js/destinations.js', '/js/popular.js', '/js/datepicker.js', '/js/push.js', '/js/webmcp.js', '/js/webmcp-tools.js',
   '/js/analytics.js',
   '/vendor/leaflet/leaflet.js', '/vendor/leaflet/leaflet.css',
+  // the two Hebrew faces, so an offline shell is set in its own typefaces rather
+  // than the phone's fallback. The Latin subsets are left to the runtime cache:
+  // together they are 37kB for the handful of Latin words on the page.
+  '/fonts/suez-one-hebrew.woff2', '/fonts/assistant-hebrew.woff2',
   '/icon.svg', '/manifest.json',
 ];
 
@@ -50,11 +58,12 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
 
-  // external requests (fonts, images, APIs) — network with cache fallback for fonts/images,
-  // and for the pinned OCR / PDF engines the מסמכים page pulls from jsDelivr, so a document
-  // added at the gate can still be read after the engines were fetched once
+  // external requests (images, APIs) — cache-first for the photos, and for the pinned
+  // OCR / PDF engines the מסמכים page pulls from jsDelivr, so a document added at the
+  // gate can still be read after the engines were fetched once. (The typefaces used to
+  // be here too, from fonts.gstatic.com; they are same-origin now and precached above.)
   if (url.origin !== location.origin) {
-    if (url.hostname.includes('fonts.g') || url.hostname.includes('unsplash') || url.hostname === 'cdn.jsdelivr.net') {
+    if (url.hostname.includes('unsplash') || url.hostname === 'cdn.jsdelivr.net') {
       e.respondWith(
         caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
           e.waitUntil(putRuntime(e.request, res.clone()));

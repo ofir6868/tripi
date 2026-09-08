@@ -1,0 +1,57 @@
+/* ============================================================
+   TRIP MAKER — the my-trips page
+   Loaded after css/style.css, and only by my.html.
+
+   The site used to serve one 217kB stylesheet to every page. Nine tenths of what a
+   visitor waited for before the first pixel was rules for a page they were not on,
+   and on a phone that stylesheet was the longest thing standing between them and
+   the page. So each page now gets the shared sheet plus this one.
+
+   The test for a new rule is whether a second page can produce the classes it
+   names. If it can, it belongs in style.css. Two things follow from these sheets
+   loading AFTER the shared one, and both are why a rule can look like it belongs
+   here and not:
+     · a rule here wins a tie the shared sheet used to win, so anything that used to
+       sit before a shared rule it ties with stays in style.css;
+     · a selector list that spans two pages is dealt out, each part filed with its
+       own page, so a rule written to be the last word still is.
+   ============================================================ */
+
+/* ---------- my trips ---------- */
+
+.my-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 18px; }
+.tc-code-chip {
+  position: absolute; bottom: 14px; left: 14px; z-index: 3;
+  font-size: .8rem; font-weight: 800; letter-spacing: .14em; direction: ltr;
+  padding: 5px 11px; border-radius: 999px; color: var(--amber);
+  background: rgba(10, 21, 18, .6); border: 1px solid rgba(255, 180, 95, .35);
+}
+.tc-delete {
+  /* sits next to the emoji badge (top-right) so it never covers the days chip on the left */
+  position: absolute; top: 14px; right: 66px; z-index: 3; width: 36px; height: 36px;
+  border-radius: 12px; border: 1px solid var(--glass-border); cursor: pointer;
+  background: rgba(10, 21, 18, .72); color: var(--paper-dim);
+  display: grid; place-items: center; padding: 0;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  transition: color .18s ease, border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.tc-delete svg { width: 18px; height: 18px; display: block; }
+.tc-delete:hover {
+  color: var(--danger); border-color: rgba(233, 106, 106, .5);
+  background: rgba(233, 106, 106, .14); transform: translateY(-1px);
+}
+.tc-delete:active { transform: translateY(0) scale(.94); }
+.tc-delete:disabled { opacity: .5; cursor: wait; }
+
+/* participant (not owner) badge on my-trips cards — sits under the days chip (top-left) */
+.tc-role {
+  position: absolute; top: 52px; left: 14px; z-index: 2;
+  font-size: .72rem; font-weight: 700; color: var(--mint);
+  background: rgba(10, 21, 18, .75); border: 1px solid rgba(143, 216, 196, .45);
+  border-radius: 999px; padding: 3px 10px;
+}
+
+/* /my section split: drafts ("בתכנון") above the finished trips */
+.my-sec { font-family: var(--font-display); font-size: 1.25rem; margin: 26px 0 14px; }
+.my-sec:first-child { margin-top: 0; }
+.my-sec-hint { color: var(--paper-dim); font-weight: 300; padding: 6px 2px 18px; }

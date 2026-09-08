@@ -1,0 +1,2081 @@
+/* ============================================================
+   TRIP MAKER — the trip page
+   Loaded after css/style.css, and only by trip.html.
+
+   The site used to serve one 217kB stylesheet to every page. Nine tenths of what a
+   visitor waited for before the first pixel was rules for a page they were not on,
+   and on a phone that stylesheet was the longest thing standing between them and
+   the page. So each page now gets the shared sheet plus this one.
+
+   The test for a new rule is whether a second page can produce the classes it
+   names. If it can, it belongs in style.css. Two things follow from these sheets
+   loading AFTER the shared one, and both are why a rule can look like it belongs
+   here and not:
+     · a rule here wins a tie the shared sheet used to win, so anything that used to
+       sit before a shared rule it ties with stays in style.css;
+     · a selector list that spans two pages is dealt out, each part filed with its
+       own page, so a rule written to be the last word still is.
+   ============================================================ */
+
+/* from/to nights stay on one row — the form grid drops to a single column on
+   phones, and a night range split across two rows reads as two questions */
+.night-range { display: flex; align-items: center; gap: 8px; }
+.night-range select { flex: 1; min-width: 0; }
+.night-range span { flex: none; color: var(--paper-dim); font-weight: 300; }
+
+/* ---------- trip page ---------- */
+
+.trip-hero {
+  position: relative; min-height: 62vh; display: flex; align-items: flex-end;
+  isolation: isolate; overflow: hidden; padding: 130px 20px 40px;
+}
+.trip-hero-inner { width: min(1120px, 100%); margin: 0 auto; position: relative; }
+.trip-hero .crumb {
+  color: var(--mint); text-decoration: none; font-weight: 600; font-size: .9rem; letter-spacing: .06em;
+}
+.trip-meta { display: flex; flex-wrap: wrap; gap: 10px; }
+.chip-action { color: var(--amber); border-color: rgba(255, 180, 95, .45); background: rgba(255, 180, 95, .1); transition: background .15s ease; }
+.chip-action:hover { background: rgba(255, 180, 95, .2); }
+/* a chip that opens what it shows (the dates): quieter than chip-action — it's a
+   fact first and a control second */
+.chip-edit { cursor: pointer; transition: border-color .15s ease; }
+.chip-edit:hover { border-color: rgba(255, 180, 95, .45); }
+
+/* the description leads this column, and it's bare text now rather than a card —
+   the card-sized gap it used to need would read as a hole under the hero */
+.trip-layout {
+  width: min(1120px, calc(100% - 40px)); margin: 18px auto 0;
+  display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 26px; align-items: start;
+}
+.trip-layout > * { min-width: 0; }
+/* the description is intro text, not a card — no glass container, and clamped to
+   three lines so the itinerary starts near the top of the page. "הצג עוד" (below)
+   appears only when there's more text than the clamp shows */
+.trip-desc { padding: 0 2px; color: var(--paper-dim); line-height: 1.6; font-size: .95rem; font-weight: 300; }
+.trip-desc strong { color: var(--paper); }
+.trip-desc-text {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.trip-desc-text.expanded { display: block; -webkit-line-clamp: unset; overflow: visible; }
+/* whatever opens the itinerary — the list/calendar switch, or the first day /
+   calendar when a long trip hides it — follows at caption distance, not the card
+   gap the glass container used to earn */
+.trip-desc + .view-toggle { margin-top: 12px; }
+#days-container > :first-child { margin-top: 12px; }
+.trip-desc-toggle {
+  display: none; margin: 4px 0 0; padding: 0; background: none; border: none;
+  color: var(--mint); font-family: var(--font-body); font-weight: 700; font-size: .85rem; cursor: pointer;
+}
+
+/* ---- AI edit box ---- */
+.ai-edit-card {
+  margin-top: 16px; padding: 20px 22px;
+  border: 1px solid rgba(255, 180, 95, .35);
+  background: linear-gradient(135deg, rgba(255, 180, 95, .08), var(--glass));
+}
+.ai-edit-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ai-edit-title { font-weight: 800; font-size: 1.05rem; color: var(--amber); }
+.ai-edit-sub { margin: 6px 0 12px; font-size: .92rem; color: var(--paper-dim); font-weight: 300; }
+.ai-edit-row { display: flex; gap: 8px; }
+.ai-edit-foot { display: flex; justify-content: flex-end; margin-top: 6px; font-size: .78rem; color: var(--paper-dim); }
+.ai-edit-scope {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 12px; padding-top: 12px; border-top: 1px dashed rgba(255, 255, 255, .14);
+  color: var(--paper-dim); font-size: .92rem;
+}
+.ai-edit-scope label { font-weight: 600; }
+.ai-edit-scope select {
+  background: rgba(6, 13, 11, .55); border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
+  color: var(--paper); font-family: var(--font-body); font-size: .95rem; padding: 9px 12px; outline: none;
+}
+.ai-edit-scope select:focus { border-color: var(--amber); }
+.ai-edit-result { margin-top: 10px; font-size: .95rem; line-height: 1.6; }
+/* one-tap escape hatch after a smart edit — quiet, sits inside the result line */
+.ai-undo-btn {
+  background: none; border: 1px solid rgba(255, 255, 255, .25); border-radius: 999px;
+  color: var(--paper); font-family: var(--font-body); font-size: .82rem; font-weight: 700;
+  padding: 5px 14px; margin-inline-start: 8px; cursor: pointer; vertical-align: 1px;
+}
+.ai-undo-btn:hover:not(:disabled) { border-color: var(--amber); color: var(--amber); }
+.ai-undo-btn:disabled { opacity: .6; cursor: default; }@media (max-width: 560px) {
+  .ai-edit-row { flex-direction: column; }
+}
+
+
+.day-block { margin-top: 26px; }
+
+/* list fold: trips over 3 days open on a 3-day teaser — day 3 melts out and a
+   reveal button brings the rest, keeping the AI editor below within easy reach */
+.day-folded { display: none; }
+.day-fade {
+  mask-image: linear-gradient(to bottom, #000 40%, transparent 96%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 40%, transparent 96%);
+}
+.show-rest-btn {
+  display: block; width: 100%; margin-top: 4px; padding: 13px;
+  background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
+  color: var(--amber); font-family: var(--font-body); font-weight: 700; font-size: .95rem;
+  cursor: pointer; transition: background .15s ease, border-color .15s ease;
+}
+.show-rest-btn:hover { background: var(--glass-strong); border-color: rgba(255, 180, 95, .45); }@media print {
+  .day-folded { display: block; }
+  .day-fade { mask-image: none; -webkit-mask-image: none; }
+  .show-rest-btn { display: none; }
+}
+
+.day-title {
+  font-family: var(--font-display); font-size: 1.4rem;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.day-title .day-badge {
+  font-family: var(--font-body); background: linear-gradient(135deg, var(--amber), var(--amber-deep));
+  color: #241302; font-size: .85rem; font-weight: 800; padding: 6px 14px; border-radius: 999px;
+}
+.timeline { margin-top: 14px; position: relative; padding-right: 24px; }
+.item-card { position: relative; padding: 16px 18px; margin-bottom: 12px; }
+/* one row that never wraps as a whole: a long title wraps INSIDE its own box, so
+   the trailing badges (עלות · אזור · קטגוריה · ✕) stay pinned to the card's top
+   corner instead of trailing after the text */
+.item-top { display: flex; align-items: flex-start; gap: 10px; }
+.item-time { font-variant-numeric: tabular-nums; color: var(--mint); font-weight: 700; font-size: .9rem; direction: ltr; }
+.item-top .item-time { margin-top: 5px; }
+.item-title { font-weight: 700; font-size: 1.08rem; line-height: 1.35; overflow-wrap: anywhere; }
+.item-badges { display: flex; align-items: center; gap: 8px; flex: none; margin-inline-start: auto; }
+.item-badges:empty { display: none; }
+.item-badges .item-del { margin-inline-start: 0; }
+.item-badges .item-cat, .item-badges .item-area {
+  max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* the title takes the slack, so the trailing controls (area · category · ✕)
+   stay grouped together at the end of the row instead of drifting apart */
+.item-top > .item-title { flex: 1 1 auto; min-width: 0; }
+.item-cat {
+  font-size: .74rem; font-weight: 700; padding: 4px 10px; border-radius: 999px;
+  background: rgba(143, 216, 196, .12); color: var(--mint); border: 1px solid rgba(143, 216, 196, .25);
+}
+.item-note { color: var(--paper-dim); font-weight: 300; font-size: .95rem; margin-top: 6px; line-height: 1.6; }
+.item-cost {
+  font-size: .78rem; font-weight: 800; padding: 4px 10px; border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  background: rgba(255, 180, 95, .1); color: var(--amber); border: 1px solid rgba(255, 180, 95, .3);
+}
+.item-cost.personal {
+  background: rgba(143, 216, 196, .12); color: var(--mint); border-color: rgba(143, 216, 196, .3);
+}
+.trip-side { position: sticky; top: 96px; display: flex; flex-direction: column; gap: 20px; }
+.map-card { overflow: hidden; padding: 0; }
+.map-toolbar {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px 14px 12px;
+}
+.map-days {
+  display: flex; gap: 8px; padding: 2px; overflow-x: auto;
+  scrollbar-width: none;
+}
+.map-days::-webkit-scrollbar { display: none; }
+.map-days .day-tab { flex: none; padding: 8px 16px; }
+.map-days .day-tab.no-pins { opacity: .55; }
+.map-styles {
+  display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; flex: none;
+  border-radius: 999px;
+  background: rgba(10, 21, 18, .4); border: 1px solid var(--glass-border);
+}
+.map-styles[hidden] { display: none !important; }
+.map-style-btn {
+  flex: none; padding: 7px 13px; border: 0; border-radius: 999px;
+  background-color: transparent; color: #fff;
+  font-family: var(--font-body); font-size: .82rem; font-weight: 700;
+  cursor: pointer; transition: background-color .18s ease;
+}
+.map-style-btn:hover { color: #fff; background-color: var(--glass-strong); }
+.map-canvas {
+  margin: 0 12px; border-radius: 16px; overflow: hidden;
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04);
+}
+.map-caption-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 14px 12px;
+}
+.map-card .map-caption {
+  min-width: 0; flex: 1;
+  font-size: .88rem; color: var(--paper-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* numbered stop pins (divIcon — no image assets): a teardrop marker in the
+   brand gradient, a white ring for contrast against any basemap, and a soft
+   pulse that draws the eye without ever looping into an animation loop */
+.map-pin-wrap { background: none; border: none; }
+.map-pin {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; margin: 0 auto;
+  border-radius: 50% 50% 50% 4px; transform: rotate(-45deg);
+  background: linear-gradient(135deg, #ffcb7d, var(--amber, #ffb45f) 55%, var(--amber-deep, #e8853a));
+  border: 3px solid #fff;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .5), 0 0 0 1px rgba(0, 0, 0, .15);
+  cursor: pointer;
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+.map-pin-wrap:hover .map-pin, .map-pin-wrap:focus-visible .map-pin {
+  transform: rotate(-45deg) scale(1.14);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, .55), 0 0 0 1px rgba(0, 0, 0, .15);
+}
+.map-pin-num {
+  transform: rotate(45deg);
+  color: #241302; font-weight: 800; font-size: .84rem;
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.map-pin-ring {
+  position: absolute; inset: -7px; border-radius: 50%;
+  border: 2px solid rgba(255, 180, 95, .55);
+  animation: map-pin-pulse 2.2s ease-out infinite;
+}
+.map-pin-wrap:nth-child(even) .map-pin-ring { animation-delay: .5s; }
+/* the walking-order line: a soft glow trace under a marching-dash top line */
+.route-line-glow { filter: blur(1.5px); }
+.route-line { animation: route-line-march 1.1s linear infinite; }@media (prefers-reduced-motion: reduce) {
+  .map-pin-ring { animation: none; opacity: 0; }
+  .route-line { animation: none; }
+}
+
+.copy-feedback { color: var(--mint); font-size: .85rem; min-height: 1.3em; margin-top: 8px; }
+
+/* day-tab pills: clarifying-question chips, the trip page's dest switcher, calendar */
+.day-tab {
+  padding: 9px 18px; border-radius: 999px; cursor: pointer; font-weight: 700; font-size: .92rem;
+  background: var(--glass); border: 1px solid var(--glass-border); color: var(--paper-dim);
+  font-family: var(--font-body); transition: all .2s ease;
+}
+
+/* the draft card's save button pulses with the same ring as the bar's */
+#draft-finish-btn { animation: save-pulse 1.9s ease-out infinite; }
+
+/* ---------- trip sidebar: weather + hotels ---------- */
+
+.side-card { padding: 18px; }
+.side-card-title { font-weight: 800; font-size: .95rem; margin-bottom: 12px; letter-spacing: .02em; }
+.dest-switcher { padding: 14px 16px; border-radius: var(--radius); background: var(--glass);
+  border: 1px solid var(--glass-border); display: flex; flex-wrap: wrap; gap: 8px;
+  -webkit-backdrop-filter: blur(20px) saturate(150%); backdrop-filter: blur(20px) saturate(150%);
+}
+.dest-switcher .side-card-title { width: 100%; margin: 0 0 2px; }
+
+.weather-row { display: flex; gap: 4px; justify-content: space-between; }
+/* the "typical, not a forecast" caption under the title (.wx-est mode) */
+.weather-sub { font-size: .76rem; color: var(--paper-dim); margin: -4px 0 8px; }
+.weather-day { text-align: center; flex: 1; padding: 6px 2px; border-radius: 12px; transition: background .15s ease; }
+.weather-day:hover { background: var(--glass-strong); }
+.wd-name { font-size: .74rem; color: var(--paper-dim); font-weight: 600; }
+.wd-icon { font-size: 1.25rem; margin: 4px 0; }
+.wd-temp { font-size: .82rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.wd-temp span { color: var(--paper-dim); font-weight: 400; margin-inline-start: 3px; }
+
+/* hotel star rating — shown in the hotels modal list */
+.hotel-stars { color: var(--amber); font-size: .78rem; letter-spacing: .1em; }
+.range-row { display: flex; align-items: center; gap: 8px; color: var(--paper-dim); font-size: .92rem; }
+.rc-month { text-align: center; font-weight: 800; font-size: .95rem; margin: 12px 0 6px; }
+.rc-grid { gap: 4px; margin-bottom: 8px; }
+.region-cal .cal-dow-row { gap: 4px; }
+/* doubled selectors on purpose: .cal-cell's own rules (and its mobile overrides)
+   come later in this file, so the region cells need the extra specificity to win */
+.region-cal .rc-day {
+  min-height: 56px; padding: 6px; gap: 2px;
+  font-family: var(--font-body); color: var(--paper); text-align: right;
+  /* the stripe alone is faint on a tiny cell — tint the body with the area color
+     too; on phones .cc-area is hidden (as on the trip page) and this tint plus the
+     palette-legend below are what carry the area */
+  background: color-mix(in srgb, var(--area-c) 26%, transparent);
+}
+.region-cal .rc-day:hover { border-color: var(--area-c); }
+.region-cal .rc-day .cc-area { pointer-events: none; }@supports not (background: color-mix(in srgb, red 26%, transparent)) {
+  .region-cal .rc-day { background: var(--glass-strong); }
+}
+
+.region-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.rp-hint { width: 100%; font-size: .85rem; color: var(--paper-dim); }
+.rp-area {
+  display: inline-flex; align-items: center; gap: 7px; padding: 7px 13px;
+  border-radius: 999px; border: 1px solid var(--glass-border); background: var(--glass);
+  color: var(--paper); font-family: var(--font-body); font-weight: 700; font-size: .88rem; cursor: pointer;
+}
+.rp-area i { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+
+/* ---------- stop cards + the shared stop sheet ---------- */
+
+.item-top > .item-del { margin-inline-start: 0; }
+/* the whole card is one tap target — it opens the stop sheet (same as the calendar) */
+.item-card.tappable { cursor: pointer; transition: border-color .25s ease, background .25s ease; }
+.item-card.tappable:hover { border-color: rgba(255, 180, 95, .28); }
+
+.item-more-place {
+  display: flex; align-items: flex-start; gap: 7px; margin-bottom: 10px;
+  padding: 8px 11px; border-radius: 10px;
+  background: rgba(6, 13, 11, .38); border: 1px solid var(--glass-border);
+  color: var(--paper-dim); font-size: .84rem; line-height: 1.5;
+}
+.item-more-place .imp-pin { flex-shrink: 0; filter: grayscale(.2); }
+.item-more-place .imp-text { direction: ltr; text-align: left; word-break: break-word; }
+.item-mini-map {
+  width: 100%; height: 210px; border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
+  display: block; filter: saturate(.85) contrast(1.05);
+}
+
+/* place photo gallery (Wikimedia Commons) */
+.stop-gallery {
+  display: flex; gap: 8px; overflow-x: auto; margin-top: 10px; padding-bottom: 4px;
+}
+.stop-gallery img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  border-radius: 10px; cursor: zoom-in; border: 1px solid var(--glass-border);
+  opacity: 0; transition: opacity .35s ease, transform .18s ease;
+}
+.stop-gallery img:hover { transform: scale(1.05); }
+.item-area {
+  font-size: .76rem; font-weight: 700; padding: 4px 10px; border-radius: 999px;
+  background: rgba(255, 180, 95, .1); color: var(--amber); border: 1px solid rgba(255, 180, 95, .3);
+}
+
+/* hero: a bar inside the h1 and inside each real chip — the line box sets the height */
+.skl-title { width: min(420px, 58%); height: .6em; border-radius: 14px; }
+.skl-chip { pointer-events: none; }
+
+/* paragraph: one bar per text line, on the container's own line rhythm */
+/* two lines the size the real description will be — the container is bare now,
+   so the placeholder carries no padding of its own either */
+.skl-desc { display: flex; flex-direction: column; gap: .88em; padding-block: .24em; }
+
+/* itinerary: real day block + timeline + stop card, text swapped for bars */
+.skl-badge { width: 54px; height: 30px; border-radius: 999px; }
+.skl-daydate { width: 132px; height: 14px; }
+.skl-stop-time { width: 34px; height: 13px; }
+.skl-stop-title { width: 46%; height: 15px; margin-inline-end: auto; }
+.skl-stop-title.narrow { width: 34%; }
+.skl-stop-title.wide { width: 58%; }
+.skl-stop-cat { width: 54px; height: 25px; border-radius: 999px; }
+.skl-stop-note { width: 78%; height: 13px; }
+/* calendar placeholder (long trips): the real toolbar, month grid and cell metrics */
+.skl-cal-seg { width: 201px; height: 45px; border-radius: 999px; }
+.skl-cal-title { width: 168px; height: 15px; }
+.skl-cal-fs { width: 105px; height: 36px; border-radius: 999px; }
+.skl-legend { height: 17px; align-items: center; }
+.skl-cl-name { width: 54px; height: 11px; border-radius: 4px; }
+.skl-dow-row { height: 17px; align-items: center; }
+.skl-cal-dow { width: 22px; height: 12px; margin-inline: auto; border-radius: 4px; }
+.skl-cell { pointer-events: none; --area-c: rgba(255, 255, 255, .14); }
+.skl-cell .cc-head { height: 20px; align-items: center; }
+.skl-cc-num { width: 18px; height: 13px; border-radius: 4px; }
+.skl-cc-area { width: 62%; height: 9px; border-radius: 4px; }
+.skl-cc-evt { display: block; height: 23px; border-radius: 7px; }
+.skl-cc-evt:nth-child(2) { width: 78%; }
+.skl-cc-evt:nth-child(3) { width: 60%; }
+.skl-cc-more { width: 46px; height: 9px; border-radius: 4px; }@media (max-width: 640px) {
+  .skl-cal-fs { width: auto; align-self: stretch; }
+  .skl-cc-evt { display: none; }
+  .skl-cell .cc-dots i { background: rgba(255, 255, 255, .18); }
+}
+
+.skl-cal-hint { width: 190px; height: 12px; }
+
+/* ticket code — the .code line box holds the height */
+.skl-code { width: 168px; height: .58em; border-radius: 10px; }
+.skl-wd-name { width: 26px; height: 15px; border-radius: 5px; }
+.skl-wd-icon { width: 26px; height: 26px; border-radius: 50%; margin-block: 5px; }
+.skl-wd-temp { width: 34px; height: 17px; border-radius: 5px; }
+
+/* ---------- full-screen AI planning overlay ---------- */
+
+.ai-overlay {
+  position: fixed; inset: 0; z-index: 500; display: none;
+  align-items: center; justify-content: center; text-align: center;
+  background: rgba(5, 11, 9, .55);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  backdrop-filter: blur(16px) saturate(130%);
+}
+
+/* two stacked edge-glows crossfading = breathing, animating opacity only (GPU-cheap) */
+.ai-glow { position: absolute; inset: 0; pointer-events: none; }
+.ai-glow.g1 {
+  box-shadow: inset 0 0 110px 24px rgba(232, 133, 58, .38);
+  animation: breathe-a 3s ease-in-out infinite alternate;
+}
+.ai-glow.g2 {
+  box-shadow: inset 0 0 230px 70px rgba(255, 180, 95, .45);
+  opacity: 0;
+  animation: breathe-b 3s ease-in-out infinite alternate;
+}
+
+.ai-overlay-content { position: relative; padding: 20px; max-width: 90vw; }
+.ai-orb {
+  font-size: 3.2rem; line-height: 1; margin-bottom: 18px;
+  animation: orb-float 3s ease-in-out infinite alternate;
+  filter: drop-shadow(0 0 24px rgba(255, 180, 95, .8));
+}
+.ai-overlay-title {
+  font-family: var(--font-display); font-size: clamp(1.5rem, 5vw, 2.3rem);
+  color: var(--paper); text-shadow: 0 0 40px rgba(255, 180, 95, .35);
+}
+.ai-overlay-sub {
+  margin-top: 12px; color: var(--amber); font-weight: 600; font-size: 1.02rem;
+  min-height: 1.6em; transition: opacity .4s ease;
+}
+.ai-overlay-sub.swap { opacity: 0; }
+
+/* ---------- trip actions, edit mode, owner box ---------- */
+
+.action-bar {
+  /* top: clears the fixed site-header (14px inset + ~62px height + breathing room) */
+  position: sticky; top: 86px; z-index: 90;
+  width: min(1120px, calc(100% - 40px)); margin: 30px auto 0;
+  padding: 5px; border-radius: 14px;
+}
+.action-row { display: flex; gap: 4px; }
+.action-btn {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px 12px; border: 0; border-radius: 10px; background: transparent;
+  font: inherit; font-size: .9rem; font-weight: 600; color: var(--paper-dim);
+  cursor: pointer; white-space: nowrap;
+  transition: background .15s ease, color .15s ease;
+}
+.action-btn.liked { color: #ff8896; }
+.action-btn.liked .ic-heart { fill: currentColor; }@media (prefers-reduced-motion: reduce) {
+#draft-finish-btn { animation: none; box-shadow: 0 0 0 3px rgba(255, 180, 95, .35); }
+}
+@media (hover: hover) {
+  .action-btn:hover { background: var(--glass-strong); color: var(--paper); }
+}
+
+
+/* the icon sits in its own pill so the active tab can light it up (the dock on phones) */
+.action-btn .ab-ic { position: relative; display: inline-flex; align-items: center; justify-content: center; transition: background .2s ease, color .2s ease, transform .15s ease; }
+.action-btn.is-active { color: var(--mint); background: rgba(143, 216, 196, .1); }
+/* the itinerary tab and "עוד" only mean something on a phone, where the pages stack over the trip */
+.action-btn.phone-only { display: none; }
+/* on desktop the two pages sit apart from the actions — a hairline says so */
+.ab-sep { width: 1px; flex: none; margin: 6px 4px; background: var(--glass-border); }
+/* a count on a tab's icon: documents kept on this device */
+.ab-badge {
+  position: absolute; top: -5px; inset-inline-end: -4px;
+  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+  background: var(--amber); color: #2a1500;
+  font-size: .62rem; font-weight: 800; line-height: 16px; text-align: center;
+  box-shadow: 0 0 0 2px rgba(11, 24, 20, .9);
+}
+
+/* draft state: the hero chip + the sidebar card that stands in for the ticket */
+.draft-card { text-align: center; }
+.draft-card-sub { color: var(--paper-dim); font-weight: 300; font-size: .9rem; line-height: 1.5; margin: 0 0 14px; }
+
+.day-date { font-family: var(--font-body); font-size: .88rem; font-weight: 400; color: var(--paper-dim); }
+.day-weather {
+  font-family: var(--font-body); font-size: .85rem; font-weight: 700; color: var(--mint);
+  background: rgba(143, 216, 196, .1); border: 1px solid rgba(143, 216, 196, .25);
+  padding: 4px 11px; border-radius: 999px; margin-inline-start: auto;
+}
+
+.item-del {
+  background: transparent; border: none; color: var(--danger); cursor: pointer;
+  font-size: 1rem; opacity: .7; margin-inline-start: 8px;
+}
+.item-del:hover { opacity: 1; }
+.add-item-inline {
+  display: block; width: 100%; padding: 11px; margin-top: 4px;
+  background: transparent; border: 1px dashed rgba(255, 180, 95, .45); border-radius: var(--radius-sm);
+  color: var(--amber); font-family: var(--font-body); font-weight: 700; font-size: .92rem; cursor: pointer;
+  transition: background .15s ease;
+}
+.add-item-inline:hover { background: rgba(255, 180, 95, .09); }
+.inline-item-form { padding: 18px; margin: 10px 0; }
+
+/* ---------- participants modal ----------
+   Two jobs, ranked: see who's in (the list) and pull more people in (invite).
+   Sections carry their own quiet label so neither needs a heavy divider. */
+
+.modal-people { width: min(460px, 100%); padding: 0; max-height: min(88vh, 720px); display: flex; flex-direction: column; }
+.pm-head { padding: 24px 24px 16px; border-bottom: 1px solid var(--glass-border); }
+.modal-people h2 { font-size: 1.4rem; padding-inline-end: 40px; }
+.pm-body { overflow-y: auto; padding: 4px 24px 24px; overscroll-behavior: contain; }
+
+.pm-sec { padding-top: 18px; }
+.pm-sec-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.pm-sec-title {
+  font-size: .74rem; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--mint);
+}
+.pm-count {
+  font-size: .72rem; font-weight: 800; color: var(--paper-dim);
+  background: var(--glass); border: 1px solid var(--glass-border);
+  border-radius: 999px; padding: 1px 8px; font-variant-numeric: tabular-nums;
+}
+.pm-sec-sub { color: var(--paper-dim); font-size: .88rem; line-height: 1.5; margin: 0 0 12px; }
+
+.pt-list { display: flex; flex-direction: column; gap: 4px; }
+.pt-row {
+  display: flex; align-items: center; gap: 11px; padding: 8px 10px;
+  border-radius: var(--radius-sm); transition: background .15s ease;
+}
+.pt-row:hover { background: var(--glass); }
+.pt-avatar {
+  width: 38px; height: 38px; flex: none; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 800; font-size: 1rem;
+  /* role-coded, so the organiser reads at a glance without an extra badge */
+  background: rgba(143, 216, 196, .14); border: 1px solid rgba(143, 216, 196, .38); color: var(--mint);
+}
+.pt-row.owner .pt-avatar {
+  background: rgba(255, 180, 95, .16); border-color: rgba(255, 180, 95, .45); color: var(--amber);
+  box-shadow: 0 0 0 3px rgba(255, 180, 95, .08);
+}
+.pt-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pt-name {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  font-weight: 700; font-size: .98rem;
+}
+.pt-name-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-me {
+  flex: none; font-size: .68rem; font-weight: 700; color: var(--paper-dim);
+  border: 1px solid var(--glass-border); border-radius: 999px; padding: 0 7px;
+}
+.pt-role { font-size: .8rem; color: var(--paper-dim); font-weight: 400; }
+.pt-row.owner .pt-role { color: rgba(255, 180, 95, .8); font-weight: 600; }
+.pt-remove {
+  flex: none; width: 32px; height: 32px; display: grid; place-items: center;
+  background: transparent; border: 1px solid transparent; border-radius: 50%;
+  color: var(--paper-dim); cursor: pointer; opacity: 0;
+  transition: opacity .15s ease, color .15s ease, background .15s ease;
+}
+.pt-row:hover .pt-remove, .pt-remove:focus-visible { opacity: 1; }
+.pt-remove:hover { color: var(--danger); background: rgba(255, 122, 110, .12); border-color: rgba(255, 122, 110, .3); }@media (hover: none) { .pt-remove { opacity: .55; }
+}
+
+
+/* side by side while both labels fit; one per row on narrow phones */
+.pm-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+.pm-invite .copy-feedback { margin-top: 6px; text-align: center; }
+.pm-quiet-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pm-quiet {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  background: transparent; border: none; padding: 0; cursor: pointer;
+  font-family: var(--font-body); font-size: .84rem; font-weight: 600; color: var(--paper-dim);
+  transition: color .15s ease;
+}
+.pm-quiet:hover { color: var(--amber); }
+.pm-quiet:disabled { opacity: .5; cursor: wait; }
+.pm-quiet-hint { font-size: .78rem; color: rgba(207, 199, 182, .6); }@media (max-width: 400px) {
+  .pm-head { padding: 20px 18px 14px; }
+  .pm-body { padding: 4px 18px 20px; }
+}
+
+
+/* ---------- publish setting row (TRIP MAKER PASS card) ---------- */
+
+.ticket-setting { text-align: start; margin-top: 14px; }
+.ticket-setting .divider { margin-bottom: 14px; }
+.pm-setting {
+  display: flex; align-items: center; gap: 12px; cursor: pointer;
+  padding: 10px; margin: -10px; border-radius: var(--radius-sm);
+  transition: background .15s ease;
+}
+.pm-setting:hover { background: var(--glass); }
+.pm-setting-ic {
+  width: 34px; height: 34px; flex: none; border-radius: 10px; display: grid; place-items: center;
+  background: var(--glass); border: 1px solid var(--glass-border); color: var(--paper-dim);
+  transition: color .2s ease, border-color .2s ease, background .2s ease;
+}
+.pm-setting:has(:checked) .pm-setting-ic {
+  color: var(--amber); border-color: rgba(255, 180, 95, .4); background: rgba(255, 180, 95, .12);
+}
+.pm-setting-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pm-setting-title { font-weight: 700; font-size: .95rem; }
+.pm-setting-desc { font-size: .8rem; color: var(--paper-dim); line-height: 1.45; font-weight: 300; }
+
+.pm-switch { position: relative; width: 46px; height: 27px; flex: none; }
+.pm-switch input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
+.pm-switch-track {
+  position: absolute; inset: 0; border-radius: 999px; display: flex; align-items: center; padding: 3px;
+  background: rgba(6, 13, 11, .55); border: 1px solid var(--glass-border);
+  transition: background .2s ease, border-color .2s ease;
+}
+.pm-switch-knob {
+  width: 19px; height: 19px; border-radius: 50%; background: var(--paper-dim);
+  transition: transform .2s cubic-bezier(.3, .8, .4, 1.2), background .2s ease;
+}
+.pm-switch input:checked + .pm-switch-track {
+  background: linear-gradient(135deg, var(--amber), var(--amber-deep)); border-color: transparent;
+}
+/* the app is RTL, so "on" travels leftwards */
+.pm-switch input:checked + .pm-switch-track .pm-switch-knob { transform: translateX(-19px); background: #241302; }
+.pm-switch input:focus-visible + .pm-switch-track { box-shadow: 0 0 0 4px rgba(255, 180, 95, .18); }
+.pm-switch input:disabled { cursor: wait; }
+
+/* ---------- invite join banner (bottom, above the action bar) ---------- */
+
+.join-banner {
+  position: fixed; bottom: 14px; inset-inline: 14px; z-index: 60;
+  display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap;
+  padding: 12px 18px; border-radius: var(--radius);
+  border: 1px solid rgba(255, 180, 95, .45);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .45);
+}
+.join-banner .jb-text { font-weight: 700; font-size: .95rem; text-align: center; }
+body:has(.join-banner) { padding-bottom: 92px; }@media print {
+  /* the forecast prints only when it speaks about the trip's own days — a real
+     one (.wx-trip) or the typical-for-the-dates estimate (.wx-est); otherwise
+     it's just the coming week at the destination, which the sheet would read
+     as the trip's weather */
+  #weather-card:not(.wx-trip):not(.wx-est) { display: none !important; }
+  /* printing from fullscreen: the calendar prints as a normal block, not a fixed overlay */
+  .cal-wrap.cal-full { position: static !important; padding: 0 !important; background: none !important; }
+  .trip-hero { min-height: auto; padding: 20px 0; }
+.trip-hero .crumb { color: #111; text-shadow: none; }
+  .trip-layout { display: block; width: 100%; }
+.item-card,
+.side-card {
+    background: #fff !important; border: 1px solid #ddd !important; box-shadow: none !important;
+    -webkit-backdrop-filter: none !important; backdrop-filter: none !important; color: #111 !important;
+  }
+  .item-note,
+.trip-desc { color: #444 !important; }
+  /* on paper the whole description prints — there's no toggle to reveal the rest */
+  .trip-desc-text { display: block !important; -webkit-line-clamp: unset !important; overflow: visible !important; }
+  .day-badge { background: #111 !important; color: #fff !important; }
+  .item-time { color: #666; }
+  .item-cat { background: #f3f3f3; color: #555; border-color: #ddd; }
+  .ticket-label { color: #666 !important; }
+  #weather-card { page-break-inside: avoid; }
+  .day-block { page-break-inside: avoid; }
+}
+@media (max-width: 900px) {
+  .trip-layout { grid-template-columns: minmax(0, 1fr); }
+  .trip-side { position: static; }
+  .action-btn { padding: 9px 8px; font-size: .84rem; gap: 6px; }
+}
+@media (max-width: 640px) {
+  .trip-hero { min-height: 48vh; padding: 100px 16px 20px; }
+  .trip-layout { width: calc(100% - 24px); margin-top: 8px; }
+  /* one line tighter than the desktop clamp, so the itinerary below it is visible
+     without scrolling on first paint — "הצג עוד" reveals the rest on demand */
+  .trip-desc { padding: 0; font-size: .9rem; line-height: 1.55; }
+  .trip-desc-text { -webkit-line-clamp: 2; }
+  .day-weather { margin-inline-start: 0; }
+  .item-card { padding: 14px 15px; }
+  .timeline { padding-right: 20px; }
+  .item-mini-map { height: 180px; }
+  .map-toolbar { padding: 12px 12px 10px; gap: 8px; }
+  .map-caption-row { padding: 10px 12px 12px; gap: 8px; }
+  .map-canvas { margin: 0 10px; border-radius: 14px; }
+  .map-days { gap: 8px; }
+  .map-days .day-tab { padding: 8px 14px; }
+}
+@media (max-width: 640px) {
+  .weather-row { overflow-x: auto; }
+  .weather-day { min-width: 44px; }
+  /* the toolbar becomes a floating glass dock, and reads as a tab bar: מסלול / המלצות /
+     מסמכים / תקציב, "עוד" for everything else, and the draft pill last. It floats rather
+     than sits on the screen edge, so the trip keeps scrolling behind it and it reads as
+     part of the same surface as every other panel in the app */
+  .action-bar {
+    position: fixed; top: auto; bottom: var(--dock-inset);
+    /* one max() rather than a left/right pair: env() is physical while inset-inline
+       is logical, and in RTL the two swap — a symmetric dock doesn't care which
+       side the notch is on, and landscape is the only case where either is set */
+    inset-inline: calc(10px + max(env(safe-area-inset-left), env(safe-area-inset-right)));
+    width: auto; margin: 0;
+    padding: 5px; border-radius: 24px; z-index: 120;
+    border: 1px solid var(--glass-border);
+    /* a white film for the glass, over just enough ink to keep labels legible */
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .085), rgba(255, 255, 255, .03)),
+      rgba(11, 24, 20, .66);
+    -webkit-backdrop-filter: blur(26px) saturate(170%);
+    backdrop-filter: blur(26px) saturate(170%);
+    box-shadow:
+      0 18px 40px -14px rgba(0, 0, 0, .75), 0 2px 10px -5px rgba(0, 0, 0, .5),
+      inset 0 1px 0 var(--glass-highlight);
+  }
+  .action-row { gap: 0; }
+  .action-btn {
+    flex: 1; flex-direction: column; gap: 3px; min-width: 0; min-height: 56px;
+    padding: 4px 2px 6px; border-radius: 18px;
+    font-size: .66rem; font-weight: 700; color: rgba(240, 233, 220, .72);
+    -webkit-tap-highlight-color: transparent;
+    transition: color .18s ease;
+  }
+  .action-btn .ab-ic { width: 46px; height: 28px; border-radius: 999px; }
+  /* one line, always: the labels are chosen to fit, and a wrapped label breaks the bar's rhythm */
+  .action-btn .ab-label {
+    max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.1;
+  }
+  /* the open page's tab: a filled mint pill behind its icon, the label lit */
+  .action-btn.is-active { color: var(--paper); }
+  .action-btn.is-active .ab-ic {
+    background: rgba(143, 216, 196, .2); color: var(--mint);
+    box-shadow: inset 0 0 0 1px rgba(143, 216, 196, .35);
+  }
+  /* touch has no hover — the pressed pill is the only feedback that means anything */
+  .action-btn:active { background: transparent; color: var(--paper); transform: none; }
+  .action-btn:active .ab-ic { background: var(--glass-strong); transform: scale(.92); }
+  /* the secondary actions fold into the "עוד" sheet; the phone-only tabs come out */
+  .action-btn.secondary { display: none; }
+  .action-btn.phone-only { display: inline-flex; }
+  .ab-sep { display: none; }
+  /* while the save pill is in the dock, six items overcrowd it — the budget tab folds
+     into "עוד" (trip-pages.js lists a row for whatever the dock hides) */
+  .action-bar.has-finish #budget-btn { display: none; }
+  /* the dock floats, so the page has to end above it — not behind it */
+  body:has(.action-bar) { padding-bottom: calc(var(--dock-h) + 34px + env(safe-area-inset-bottom)); }
+  /* and the invite banner stacks on top of the dock instead of landing on it */
+  body:has(.action-bar) .join-banner { bottom: calc(var(--dock-h) + 20px + env(safe-area-inset-bottom)); }
+  body:has(.action-bar):has(.join-banner) { padding-bottom: calc(var(--dock-h) + 120px + env(safe-area-inset-bottom)); }
+}
+@media (max-width: 420px) {
+  .item-badges .item-area { display: none; }
+}
+
+.mw-controls { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.mw-footnote { text-align: center; color: rgba(245, 239, 227, .45); font-size: .86rem; margin-top: 16px; }
+
+/* segmented control */
+.seg {
+  display: flex; gap: 4px; padding: 4px; border-radius: 999px;
+  background: rgba(6, 13, 11, .55); border: 1px solid var(--glass-border);
+}
+.seg button {
+  flex: 1; padding: 8px 10px; border: none; border-radius: 999px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  background: transparent; color: var(--paper-dim);
+  font-family: var(--font-body); font-weight: 700; font-size: .9rem;
+  transition: all .18s ease; white-space: nowrap;
+}
+
+/* ---------- hotels modal ---------- */
+
+.night-strip { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 4px; }
+.night-seg {
+  flex: 1 0 34px; min-width: 34px; height: 46px; position: relative; cursor: pointer;
+  display: grid; place-items: center; border-radius: 10px;
+  background: rgba(6, 13, 11, .5); border: 1px solid var(--glass-border);
+  color: var(--paper); font-family: var(--font-body); font-weight: 700; font-size: .88rem;
+  transition: transform .15s ease;
+}
+.night-seg:hover { transform: translateY(-2px); }
+.night-seg .ns-dot {
+  position: absolute; bottom: 5px; width: 6px; height: 6px; border-radius: 50%;
+}
+.night-dests { display: flex; gap: 4px; margin-top: 6px; }
+.night-dests span {
+  flex-basis: 0; text-align: center; font-size: .76rem; font-weight: 600; color: var(--mint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.coverage-line {
+  margin-top: 12px; padding: 9px 14px; border-radius: var(--radius-sm);
+  background: rgba(255, 180, 95, .08); border: 1px solid rgba(255, 180, 95, .25);
+  color: var(--amber); font-weight: 600; font-size: .92rem;
+}
+
+.hotel-card {
+  margin-top: 12px; padding: 14px 16px; border-radius: var(--radius-sm);
+  background: rgba(6, 13, 11, .4); border: 1px solid var(--glass-border);
+  border-inline-start-width: 3px;
+}
+.hc-top { display: flex; align-items: center; gap: 10px; }
+.hc-name { font-weight: 700; flex: 1; min-width: 0; }
+.hc-status {
+  border: 1px solid var(--glass-border); border-radius: 999px; padding: 5px 12px;
+  cursor: pointer; font-family: var(--font-body); font-weight: 700; font-size: .8rem;
+  background: rgba(143, 216, 196, .12); color: var(--mint);
+}
+.hc-status.idea { background: rgba(255, 180, 95, .1); color: var(--amber); }
+.hc-nights { color: var(--paper-dim); font-size: .88rem; margin-top: 5px; }
+.hc-nights small { opacity: .75; }
+.hc-details { color: var(--amber); font-size: .88rem; font-weight: 600; margin-top: 5px; }
+.hc-warn { color: var(--danger); font-size: .84rem; font-weight: 600; margin-top: 6px; }
+.hc-actions { display: flex; align-items: center; gap: 14px; margin-top: 10px; font-size: .86rem; }
+.hc-actions a:hover { text-decoration: underline; }
+.hc-spacer { flex: 1; }
+
+/* ---- night cards: where you sleep, inside the itinerary ----
+   A night without a hotel is a hole in the plan, so it renders between the day
+   it follows and the next one instead of hiding behind a button. It stays
+   quieter than a day block on purpose — it connects days, it doesn't compete
+   with them. A booked night collapses to a slim strip in that hotel's colour. */
+.night-card {
+  margin: 6px 0 18px; padding: 12px 14px 13px;
+  border-radius: var(--radius-sm);
+  background: rgba(6, 13, 11, .38);
+  border: 1px solid var(--glass-border);
+  border-inline-start: 3px solid rgba(255, 180, 95, .5);
+}
+/* the whole header is the collapse control — a chevron alone is a small target
+   on a phone, and the row is doing nothing else */
+.nc-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  width: 100%; background: none; border: none; padding: 0;
+  font: inherit; color: inherit; text-align: start; cursor: pointer;
+}
+.nc-head .nc-chev {
+  margin-inline-start: auto; color: var(--paper-dim);
+  transition: transform .15s ease;
+}
+.nc-head:hover .nc-chev { color: var(--paper); }
+.night-card.collapsed .nc-chev { transform: rotate(90deg); }
+/* collapsed: the night still announces itself, it just stops taking the room */
+.night-card.collapsed { padding-bottom: 12px; }
+.night-card.collapsed .nc-hint,
+.night-card.collapsed .nc-rail,
+.night-card.collapsed .nc-empty,
+.night-card.collapsed .nc-foot { display: none; }
+.nc-title { font-weight: 700; font-size: .95rem; }
+.nc-where { color: var(--paper-dim); font-size: .86rem; font-weight: 300; }
+.nc-hint {
+  color: var(--paper-dim); font-size: .84rem; font-weight: 300;
+  margin-top: 3px; line-height: 1.5;
+}
+
+/* one row, scrolled sideways: a night offers a few options, never a catalogue */
+.nc-rail {
+  display: flex; gap: 8px; margin-top: 10px;
+  overflow-x: auto; scroll-snap-type: x proximity;
+  padding-bottom: 4px;
+  /* no scrollbar-width / no ::-webkit-scrollbar override here on purpose: the
+     amber glass rail at the top of this file is global, and setting either one
+     locally is what switches Chrome and Safari back to the native bar */
+}
+
+.nc-hotel {
+  flex: 0 0 148px; scroll-snap-align: start;
+  background: rgba(22, 48, 42, .55); border: 1px solid var(--glass-border);
+  border-radius: 12px; overflow: hidden; display: flex; flex-direction: column;
+}
+/* fixed ratio so the row never reflows as photos arrive */
+.nc-photo {
+  position: relative; aspect-ratio: 4 / 3; background: var(--ink-3);
+  display: flex; align-items: center; justify-content: center;
+}
+/* the icon is the resting state; a photo that loads covers it, and one that
+   fails removes itself and uncovers it again */
+.nc-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.nc-body { padding: 7px 9px 9px; display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.nc-name {
+  font-weight: 600; font-size: .8rem; line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.nc-score { color: var(--mint); font-size: .75rem; font-weight: 600; }
+.nc-score span { color: var(--paper-dim); font-weight: 300; }
+.nc-dist { color: var(--paper-dim); font-size: .73rem; font-weight: 300; }
+/* the price is the tile's loudest line — it arrives a beat after the photo */
+.nc-price { font-size: .84rem; font-weight: 700; color: var(--amber); margin-top: 2px; }
+.nc-price.muted { color: var(--paper-dim); font-weight: 300; font-size: .73rem; }
+.ncp-from { font-weight: 300; font-size: .73rem; color: var(--paper-dim); }
+.ncp-per { font-weight: 300; font-size: .7rem; color: var(--paper-dim); }
+
+.nc-hotel { cursor: pointer; }
+.nc-hotel:hover { border-color: rgba(143, 216, 196, .4); }
+
+.nc-actions { display: flex; gap: 5px; margin-top: auto; padding-top: 6px; }
+.nc-cta {
+  flex: 1; text-align: center; text-decoration: none;
+  background: rgba(255, 180, 95, .14); border: 1px solid rgba(255, 180, 95, .3);
+  color: var(--amber); border-radius: 8px; padding: 4px 6px;
+  font-size: .73rem; font-weight: 700; white-space: nowrap;
+}
+.nc-cta:hover { background: rgba(255, 180, 95, .24); }
+.nc-save {
+  flex: none; width: 26px; border: 1px solid var(--glass-border); border-radius: 8px;
+  background: transparent; color: var(--paper-dim); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.nc-save:hover { color: var(--mint); border-color: rgba(143, 216, 196, .45); }
+
+.nc-foot { display: flex; align-items: center; gap: 14px; margin-top: 9px; font-size: .82rem; }
+.nc-foot button {
+  color: var(--mint); font-weight: 600; text-decoration: none;
+  background: none; border: none; padding: 0; cursor: pointer;
+  font-family: var(--font-body); font-size: .82rem;
+}
+.nc-foot a:hover, .nc-foot button:hover { text-decoration: underline; }
+.nc-empty { color: var(--paper-dim); font-size: .84rem; font-weight: 300; margin-top: 8px; }
+
+/* static placeholders — no shimmer: this UI is often rendered in software */
+.nc-skel { flex: 0 0 148px; border-radius: 12px; background: rgba(22, 48, 42, .35); height: 158px; }
+
+/* a settled night: one line, the hotel's own colour, no sales surface */
+.night-booked {
+  margin: 6px 0 18px; padding: 9px 13px; border-radius: var(--radius-sm);
+  background: rgba(6, 13, 11, .3); border: 1px solid var(--glass-border);
+  border-inline-start-width: 3px; border-inline-start-style: solid;
+  display: flex; align-items: center; gap: 10px;
+}
+.nb-text { min-width: 0; }
+.nb-name { font-weight: 600; font-size: .88rem; }
+.nb-meta { color: var(--paper-dim); font-size: .78rem; font-weight: 300; margin-top: 2px; }
+.nb-edit {
+  margin-inline-start: auto; flex: none; background: none; border: none; cursor: pointer;
+  color: var(--paper-dim); font-family: var(--font-body); font-size: .8rem; font-weight: 600;
+}
+.nb-edit:hover { color: var(--paper); }
+
+/* ---- hotel sheet: the detail view behind a night-card tile ---- */
+.hs-hero { border-radius: 12px; overflow: hidden; background: var(--ink-3); aspect-ratio: 16 / 9; }
+.hs-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hs-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.hs-score {
+  background: rgba(143, 216, 196, .14); color: var(--mint);
+  border-radius: 8px; padding: 3px 9px; font-weight: 700;
+}
+.hs-reviews, .hs-dist { color: var(--paper-dim); font-size: .85rem; font-weight: 300; }
+.hs-book { display: flex; justify-content: center; gap: 8px; margin-top: 14px; text-decoration: none; }
+.hs-loading { color: var(--paper-dim); font-weight: 300; margin-top: 16px; }
+
+.hs-gallery { display: flex; gap: 6px; margin-top: 12px; overflow-x: auto; padding-bottom: 4px; }
+.hs-gallery img { flex: 0 0 120px; height: 84px; object-fit: cover; border-radius: 8px; display: block; }
+
+/* one row per rated category — the number is the point, so it leads */
+.hs-cats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.hs-cat {
+  display: flex; align-items: baseline; gap: 6px;
+  background: rgba(6, 13, 11, .45); border: 1px solid var(--glass-border);
+  border-radius: 999px; padding: 4px 11px; font-size: .82rem;
+}
+.hs-cat span { color: var(--paper-dim); font-weight: 300; }
+
+.hs-sec { margin-top: 16px; }
+.hs-sec h3 { font-family: var(--font-display); font-size: 1rem; margin-bottom: 7px; }
+.hs-pros, .hs-cons { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.hs-pros li, .hs-cons li { font-size: .88rem; font-weight: 300; padding-inline-start: 16px; position: relative; }
+.hs-pros li::before { content: '+'; position: absolute; inset-inline-start: 0; color: var(--mint); font-weight: 700; }
+.hs-cons li::before { content: '−'; position: absolute; inset-inline-start: 0; color: var(--amber); font-weight: 700; }
+.hs-fac { display: flex; flex-wrap: wrap; gap: 5px; }
+.hs-fac span {
+  background: rgba(22, 48, 42, .55); border: 1px solid var(--glass-border);
+  border-radius: 8px; padding: 3px 9px; font-size: .78rem; font-weight: 300; color: var(--paper-dim);
+}
+.hs-times { margin-top: 14px; color: var(--paper-dim); font-size: .84rem; font-weight: 300; }
+.hc-actions button { display: inline-flex; align-items: center; gap: 5px; }
+.hc-actions button {
+  background: none; border: none; cursor: pointer; color: var(--paper-dim);
+  font-family: var(--font-body); font-size: .86rem; font-weight: 600; padding: 0;
+}
+.hc-actions button:hover { color: var(--paper); }
+.hc-actions .hc-del:hover { color: var(--danger); }
+.hc-divider {
+  margin-top: 18px; padding-top: 12px; border-top: 1px dashed rgba(255, 255, 255, .14);
+  color: var(--paper-dim); font-weight: 700; font-size: .92rem;
+}
+
+/* ---------- ambient budget/hotels on the trip page ---------- */
+
+.budget-chip { cursor: pointer; color: var(--amber); }
+.budget-chip:hover { background: rgba(255, 180, 95, .12); }
+
+.day-cost {
+  font-family: var(--font-body); font-size: .82rem; font-weight: 700; color: var(--amber);
+  background: rgba(255, 180, 95, .1); border: 1px solid rgba(255, 180, 95, .28);
+  padding: 4px 11px; border-radius: 999px; font-variant-numeric: tabular-nums;
+}
+.day-route {
+  display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+  font-family: var(--font-body); font-size: .82rem; font-weight: 700; color: var(--mint);
+  background: rgba(143, 216, 196, .1); border: 1px solid rgba(143, 216, 196, .25);
+  padding: 4px 11px; border-radius: 999px;
+  transition: background .18s ease, border-color .18s ease;
+}
+.day-route:hover { background: rgba(143, 216, 196, .2); border-color: rgba(143, 216, 196, .5); }
+.day-hotels { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 7px; padding-right: 2px; }
+.day-hotel { font-size: .85rem; font-weight: 300; color: var(--paper-dim); }
+
+.nights-nudge {
+  display: block; width: 100%; margin-bottom: 12px; padding: 9px 12px; text-align: right;
+  background: rgba(255, 180, 95, .07); border: 1px dashed rgba(255, 180, 95, .4);
+  border-radius: var(--radius-sm); color: var(--amber);
+  font-family: var(--font-body); font-weight: 600; font-size: .88rem; cursor: pointer;
+  transition: background .15s ease;
+}
+.nights-nudge:hover { background: rgba(255, 180, 95, .13); }@media (max-width: 640px) {
+  .item-badges { gap: 6px; }
+}
+
+
+/* ============================================================
+   Calendar view: month / week / day + stop modal
+   ============================================================ */
+
+/* list / calendar switch, short trips only */
+.view-toggle { margin-top: 18px; }
+.view-seg { width: 100%; max-width: 360px; margin: 0 auto; }
+.view-seg button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+
+.cal-wrap { margin-top: 18px; }
+.cal-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap; margin-bottom: 14px;
+}
+.cal-seg button { padding: 8px 16px; flex: 0 1 auto; }
+.cal-title { font-family: var(--font-display); font-size: 1.1rem; color: var(--paper-dim); flex: 1; }
+.cal-fs-btn {
+  display: inline-flex; align-items: center; gap: 7px; flex: none; cursor: pointer;
+  padding: 8px 14px; border-radius: 999px; color: var(--paper-dim);
+  border: 1px solid var(--glass-border); background: var(--glass);
+  font-family: var(--font-body); font-weight: 700; font-size: .86rem;
+  transition: background .18s ease, color .18s ease, border-color .18s ease;
+}
+.cal-fs-btn:hover { background: var(--glass-strong); color: var(--amber); border-color: rgba(255, 180, 95, .4); }
+
+/* ---- fullscreen calendar: covers the page, scrolls on its own ---- */
+body.cal-full-open { overflow: hidden; }
+.cal-wrap.cal-full {
+  position: fixed; inset: 0; z-index: 300; margin: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: 18px clamp(14px, 3vw, 34px) calc(28px + env(safe-area-inset-bottom));
+  /* a lifted panel, not a blackout: the page's own warm/teal glow stays visible through it */
+  background:
+    radial-gradient(58% 42% at 82% 0%, rgba(232, 133, 58, .10), transparent 70%),
+    radial-gradient(50% 40% at 8% 100%, rgba(143, 216, 196, .07), transparent 70%),
+    rgba(22, 48, 42, .82);
+  -webkit-backdrop-filter: blur(18px) saturate(140%); backdrop-filter: blur(18px) saturate(140%);
+}
+/* the fade belongs to entering fullscreen only — re-renders inside it (tab/day switches) stay instant */
+.cal-wrap.cal-full-in { animation: calFullIn .22s ease; }
+.cal-wrap.cal-full .cal-toolbar {
+  position: sticky; top: -18px; z-index: 2; margin: -18px 0 14px; padding: 18px 0 12px;
+  /* same hue as the panel, just opaque — the sticky bar must not read as a darker band */
+  background: linear-gradient(180deg, rgba(22, 48, 42, .96) 72%, transparent);
+}
+.cal-wrap.cal-full .cal-fs-btn { color: var(--amber); border-color: rgba(255, 180, 95, .4); }
+/* the extra height is the whole point — let the month grid use it */
+.cal-wrap.cal-full .cal-cell { min-height: clamp(96px, 12vh, 150px); }
+
+.cal-nav { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 12px; }
+.cal-nav-btn {
+  width: 36px; height: 36px; border-radius: 50%; flex: none; cursor: pointer;
+  border: 1px solid var(--glass-border); background: transparent; color: var(--paper);
+  display: grid; place-items: center; transition: background .18s ease;
+}
+.cal-nav-btn:hover { background: var(--glass-strong); }
+.cal-nav-btn:disabled { opacity: .3; cursor: default; }
+.cal-nav-label { font-weight: 700; font-size: .95rem; text-align: center; }
+
+/* ---- month grid ---- */
+.cal-dow-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 6px; }
+.cal-dow-row span { text-align: center; font-size: .78rem; font-weight: 700; color: var(--paper-dim); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cal-cell {
+  min-height: 96px; padding: 8px; border-radius: var(--radius-sm); cursor: pointer;
+  background: var(--glass); border: 1px solid var(--glass-border);
+  display: flex; flex-direction: column; gap: 5px; min-width: 0;
+  transition: border-color .18s ease, background .18s ease;
+}
+.cal-cell:hover { border-color: rgba(255, 180, 95, .4); background: var(--glass-strong); }
+/* area marking: colored top stripe + tiny name; today keeps its inset ring */
+.cal-cell.has-area { border-top: 3px solid var(--area-c); }
+.cc-area {
+  font-size: .68rem; font-weight: 700; color: var(--area-c);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cal-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 10px; }
+.cl-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: .8rem; font-weight: 600; color: var(--paper-dim);
+}
+.cl-item i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.cc-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.cc-num { font-weight: 800; font-size: .95rem; }
+.cc-date { flex: 1; min-width: 0; font-size: .72rem; color: var(--paper-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-weather { font-size: .8rem; }
+.cc-evts { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cal-evt {
+  font-size: .72rem; font-weight: 600; text-align: right; padding: 3px 7px; border-radius: 7px;
+  background: rgba(255, 180, 95, .12); border: 1px solid rgba(255, 180, 95, .2); color: var(--paper);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
+  transition: background .15s ease;
+}
+.cal-evt:hover { background: rgba(255, 180, 95, .24); }
+.cc-more { font-size: .7rem; color: var(--paper-dim); }
+.cc-dots { display: none; }
+.cal-hint { text-align: center; margin-top: 12px; font-size: .82rem; color: rgba(245, 239, 227, .45); }
+
+/* ---- week ---- */
+.cal-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+.cal-wday { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.cal-wday-head {
+  border: 1px solid var(--glass-border); background: var(--glass); color: var(--paper);
+  border-radius: var(--radius-sm); padding: 8px 6px; cursor: pointer; text-align: center;
+  font-family: var(--font-body); display: flex; flex-direction: column; align-items: center; gap: 2px;
+  transition: border-color .18s ease;
+}
+.cal-wday-head:hover { border-color: rgba(255, 180, 95, .4); }
+.wd-num { font-weight: 800; font-size: .9rem; }
+.wd-date { font-size: .72rem; color: var(--paper-dim); }
+.wd-weather { font-size: .74rem; color: var(--paper-dim); }
+.cal-wday-evts { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.cal-wevt {
+  display: block; width: 100%; text-align: right; padding: 7px 9px; border-radius: 10px; cursor: pointer;
+  background: rgba(255, 180, 95, .1); border: 1px solid rgba(255, 180, 95, .2); color: var(--paper);
+  font-family: var(--font-body); font-size: .8rem; font-weight: 600; min-width: 0;
+  transition: background .15s ease;
+}
+.cal-wevt:hover { background: rgba(255, 180, 95, .2); }
+.we-time { color: var(--mint); font-size: .72rem; font-weight: 700; direction: ltr; display: inline-block; }
+.we-title { display: block; overflow: hidden; text-overflow: ellipsis; }
+.wd-free { font-size: .74rem; color: rgba(245, 239, 227, .35); text-align: center; padding: 8px 0; }
+
+/* ---- day ---- */
+.cal-day-strip {
+  display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 10px; margin-bottom: 14px;
+}
+.cds-btn {
+  flex: 0 0 auto; min-width: 48px; padding: 7px 6px; border-radius: 12px; cursor: pointer;
+  background: var(--glass); border: 1px solid var(--glass-border); color: var(--paper);
+  font-family: var(--font-body); display: flex; flex-direction: column; align-items: center; gap: 1px;
+  transition: background .15s ease, border-color .15s ease;
+}
+.cds-btn:hover { border-color: rgba(255, 180, 95, .4); }
+.cds-dow { font-size: .68rem; color: var(--paper-dim); }
+.cds-num { font-weight: 800; font-size: .95rem; }
+.cal-day-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-family: var(--font-display); font-size: 1.3rem; }
+.cal-day-list { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.cal-devt {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: right;
+  padding: 14px 16px; cursor: pointer; color: var(--paper); font-family: var(--font-body);
+  transition: border-color .18s ease, background .18s ease;
+}
+.cal-devt:hover { border-color: rgba(255, 180, 95, .35); }
+.cd-emoji { font-size: 1.3rem; flex: none; }
+.cd-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cd-title { font-weight: 700; font-size: 1.02rem; }
+.cd-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: .82rem; color: var(--paper-dim); }
+.cd-time { color: var(--mint); font-weight: 700; direction: ltr; }
+.cd-cost { color: var(--amber); font-weight: 700; font-variant-numeric: tabular-nums; }
+.cd-cost.personal { color: var(--mint); }
+.cd-note {
+  font-size: .88rem; font-weight: 300; color: var(--paper-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cd-chev { flex: none; color: var(--paper-dim); }
+.cal-devt:hover .cd-chev { color: var(--amber); }
+
+/* ---- stop details modal ---- */
+.modal-stop { width: min(520px, 100%); max-height: 88vh; overflow-y: auto; padding: 26px 24px; }
+.sheet-grab { display: none; }
+.sm-day { font-size: .84rem; font-weight: 700; color: var(--mint); margin-bottom: 6px; }
+.sm-title { font-family: var(--font-display); font-size: 1.5rem; margin-bottom: 10px; line-height: 1.25; }
+.sm-chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.modal-stop .item-note { margin: 0 0 12px; }
+.modal-stop .item-mini-map { margin-top: 10px; }
+.sm-maps { width: 100%; justify-content: center; margin-top: 14px; }
+.sm-edit { width: 100%; justify-content: center; margin-top: 10px; }
+
+/* every detail in the sheet is a shortcut into the field that holds it. Nothing
+   marks them at rest — the details should read as details; the affordance only
+   shows up under the cursor or the focus ring */
+.sm-tap {
+  cursor: pointer; border-radius: 8px;
+  transition: color .15s ease, background .15s ease;
+}
+.sm-tap:hover, .sm-tap:focus-visible { color: var(--amber); background: rgba(255, 180, 95, .09); outline: none; }
+.sm-chips .sm-tap:hover, .sm-chips .sm-tap:focus-visible { background: rgba(255, 180, 95, .18); }
+
+/* ---- editing a stop, in the same sheet ---- */
+.sm-edit-head { opacity: .75; font-size: 1.15rem; margin-bottom: 14px; }
+.sm-form { text-align: right; }
+.sm-form textarea { min-height: 72px; }
+/* native time pickers can't return to empty once a time is chosen, so a
+   clear button sits beside the field — hidden until there is an hour to drop */
+.se-time-wrap { display: flex; align-items: center; gap: 6px; }
+.se-time-wrap .se-time { flex: 1; min-width: 0; }
+.se-time-clear {
+  flex: none; display: none; place-items: center;
+  width: 40px; height: 40px; padding: 0;
+  background: none; border: 1px solid var(--glass-border); border-radius: 50%;
+  color: var(--paper-dim); cursor: pointer;
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
+}
+.se-time-wrap.has-time .se-time-clear { display: grid; }
+.se-time-clear:hover { color: var(--danger); background: rgba(255, 122, 110, .1); border-color: var(--danger); }
+.se-cost-scope { width: 100%; }
+.se-cost-hint { margin: 6px 0 0; font-size: .78rem; color: var(--paper-dim); line-height: 1.4; }
+/* the save row stays on screen however long the form scrolls; the sheet gives
+   up its own bottom padding so the row sits flush on the bottom edge */
+.modal-stop:has(.sm-foot) { padding-bottom: 0; }
+.sm-foot {
+  position: sticky; bottom: 0; z-index: 3; display: flex; gap: 10px;
+  margin: 0 -24px; padding: 12px 24px;
+  background: linear-gradient(to top, rgba(8, 17, 14, .97) 65%, rgba(8, 17, 14, .8));
+  border-top: 1px solid var(--glass-border);
+}
+.sm-foot .se-save { flex: 1; justify-content: center; }
+/* delete rides the sticky foot as a compact icon — always on screen, and the
+   cancel button sits between it and the save it must not be mistaken for */
+.sm-del {
+  flex: none; display: grid; place-items: center;
+  width: 40px; height: 40px; align-self: center; padding: 0;
+  background: none; border: 1px solid rgba(255, 122, 110, .3); border-radius: 50%;
+  color: var(--danger); cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.sm-del:hover { background: rgba(255, 122, 110, .1); border-color: var(--danger); }
+.sm-del:disabled { opacity: .5; cursor: default; }@media (max-width: 760px) {
+  /* the week becomes stacked day rows — 7 skinny columns don't fit a phone */
+  .cal-week { grid-template-columns: 1fr; gap: 10px; }
+  .cal-wday { flex-direction: row; align-items: stretch; gap: 8px; }
+  .cal-wday-head { flex: 0 0 78px; justify-content: center; }
+  .cal-wday-evts { flex: 1; justify-content: center; }
+  .wd-free { text-align: right; padding: 4px 2px; }
+}
+@media (max-width: 640px) {
+  .cal-toolbar { flex-direction: column; align-items: stretch; }
+  .cal-title { text-align: center; order: -1; }
+  .cal-grid, .cal-dow-row { gap: 4px; }
+  /* month cells shrink to number + dots; the day view carries the detail */
+  .cal-cell { min-height: 58px; padding: 5px 6px; gap: 4px; border-radius: 11px; }
+  .cc-date { display: none; }
+  .cc-weather { font-size: .68rem; }
+  .cal-evt, .cc-more { display: none; }
+  /* tiny cells: the stripe + legend carry the area, the name doesn't fit */
+  .cc-area { display: none; }
+  .cal-cell.has-area { border-top-width: 2px; }
+  .cc-dots { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+  .cc-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--amber); }
+  .cc-dots em { font-style: normal; font-size: .62rem; color: var(--paper-dim); line-height: 1; }
+  /* day+שעה and קטגוריה+עלות are short enough to stay paired on a phone —
+     collapsing them would double the scroll of the edit form */
+  .sm-form { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .sm-form .span-2 { grid-column: span 2; }
+  .sm-foot { margin: 0 -18px; padding: 12px 18px calc(12px + env(safe-area-inset-bottom)); }
+}
+
+.es-logos b { font-weight: 400; }
+
+/* ---------- trip loader (compass splash) ---------- */
+/* full-screen while the trip fetches: the compass draws itself, needle
+   overshoots and settles, wordmark rises and crossfades Latin ↔ Hebrew; a thin
+   amber bar sweeps below. Sits above the skeletons; trip.js fades it out when
+   the data lands. */
+
+.trip-loader {
+  position: fixed; inset: 0; z-index: 800;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background:
+    radial-gradient(52% 44% at 82% 6%, rgba(232, 133, 58, .16), transparent 70%),
+    radial-gradient(46% 40% at 8% 88%, rgba(143, 216, 196, .10), transparent 70%),
+    linear-gradient(180deg, #0c1a16 0%, var(--ink) 60%, #081210 100%);
+  transition: opacity .5s ease, visibility .5s ease;
+}
+
+.trip-loader svg { filter: drop-shadow(0 0 30px rgba(255, 180, 95, .35)); }
+.es-ring { animation: ring-draw 4.2s ease-in-out forwards; }
+.es-cross { animation: cross-fade 4.2s ease forwards; }
+.es-needle { transform-origin: 256px 256px; animation: needle-settle 4.2s cubic-bezier(.34, 1.3, .5, 1) forwards; }
+.es-hub { transform-origin: 256px 256px; animation: hub-pop 4.2s ease forwards; }
+
+.es-word { margin-top: 22px; text-align: center; opacity: 0; animation: word-rise .8s ease 1.2s forwards; }
+.es-logos {
+  position: relative; width: 148px; height: 84px; margin: 0 auto;
+  font-family: var(--font-display); line-height: 1;
+  filter: drop-shadow(0 0 24px rgba(255, 180, 95, .5)); text-shadow: 0 0 32px rgba(255, 180, 95, .5);
+}
+.es-logos > div { position: absolute; inset: 0; transition: opacity .45s ease; }
+.es-logos span { display: flex; justify-content: space-between; }
+/* language swap is driven by the inline script adding .he — one deterministic
+   crossfade (EN holds, then HE holds) instead of a free-running keyframe loop */
+.es-hebrew { opacity: 0; }
+.es-tag { margin-top: 10px; color: var(--mint); font-weight: 600; font-size: 11px; letter-spacing: .22em; white-space: nowrap; }
+
+.es-bar {
+  position: absolute; bottom: 54px; width: 150px; height: 3px; border-radius: 999px;
+  background: rgba(255, 255, 255, .08); overflow: hidden;
+}
+.es-bar i {
+  display: block; width: 45%; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--amber), var(--amber-deep), transparent);
+  animation: sweep 1.4s linear infinite;
+}
+
+/* ---------- viewer end-cap ---------- */
+/* sits right after the last day: the moment a viewer finishes reading is the one
+   moment they're certain they want the trip. Participants never see it. */
+
+.trip-endcap {
+  position: relative; overflow: hidden;
+  margin-top: 30px; padding: 32px 28px 28px;
+  border-radius: var(--radius); text-align: center;
+}
+/* a soft amber bloom from the top edge — reads as "something new starts here"
+   rather than one more card in the itinerary stack */
+.trip-endcap::before {
+  content: ''; position: absolute; inset-inline: 0; top: 0; height: 160px;
+  background: radial-gradient(60% 100% at 50% 0%, rgba(255, 180, 95, .18), transparent 70%);
+  pointer-events: none;
+}
+.trip-endcap > * { position: relative; }
+.te-emoji { display: block; font-size: 2.4rem; line-height: 1; margin-bottom: 12px; }
+.te-title { font-family: var(--font-display); font-size: 1.5rem; color: var(--paper); margin-bottom: 10px; }
+.te-sub {
+  max-width: 46ch; margin: 0 auto 20px; color: var(--paper-dim);
+  font-weight: 300; font-size: .98rem; line-height: 1.7;
+}
+.trip-endcap .te-cta { min-width: 240px; justify-content: center; }
+.te-note { display: block; margin-top: 14px; color: var(--paper-dim); font-size: .8rem; opacity: .75; }@media (max-width: 640px) {
+  .trip-endcap { padding: 26px 18px 22px; margin-top: 22px; }
+  .te-title { font-size: 1.3rem; }
+  .te-sub { font-size: .92rem; margin-bottom: 16px; }
+  .trip-endcap .te-cta { width: 100%; min-width: 0; }
+}
+@media print { .trip-endcap { display: none; }
+}
+
+
+/* ---------- notification opt-in ---------- */
+/* asked once, from our own card, directly under the action bar — the OS prompt
+   only ever appears after a deliberate tap on "כן, עדכנו אותי" */
+
+.push-ask {
+  width: min(1120px, calc(100% - 40px)); margin: 12px auto 0;
+  display: flex; align-items: center; gap: 14px; padding: 14px 18px;
+  border-radius: 14px; border: 1px solid rgba(255, 180, 95, .32);
+  opacity: 0; transform: translateY(-6px);
+  transition: opacity .3s ease, transform .3s ease;
+}
+.pa-icon {
+  flex: none; display: grid; place-items: center; width: 40px; height: 40px;
+  border-radius: 12px; color: var(--amber);
+  background: rgba(255, 180, 95, .12); border: 1px solid rgba(255, 180, 95, .3);
+}
+.pa-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pa-title { font-size: .97rem; color: var(--paper); }
+.pa-sub { font-size: .84rem; font-weight: 300; color: var(--paper-dim); line-height: 1.5; }
+.pa-actions { flex: none; display: flex; align-items: center; gap: 10px; }
+.pa-no {
+  padding: 6px 10px; background: none; border: 0; cursor: pointer;
+  font: inherit; font-size: .85rem; color: var(--paper-dim);
+}
+.pa-no:hover { color: var(--paper); }
+
+/* the permanent control, inside the participants screen */
+.pm-notif { border-top: 1px solid var(--glass-border); margin-top: 16px; padding-top: 12px; }@media (max-width: 640px) {
+  .push-ask { width: calc(100% - 24px); flex-wrap: wrap; gap: 10px 12px; padding: 13px 15px; }
+  .pa-text { flex-basis: calc(100% - 54px); }
+  .pa-actions { width: 100%; }
+}
+@media print { .push-ask { display: none; }
+}
+
+
+/* ============================================================
+   Travel legs (OSRM) + stop votes (experimental group mode)
+   ============================================================ */
+
+/* the drive between two consecutive stops, injected once routing resolves */
+.travel-leg {
+  display: flex; align-items: center; gap: 7px; padding: 2px 6px;
+  color: var(--paper-dim); font-size: .78rem; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* day-header chip: total driving time, shown only when the day is drive-heavy */
+.day-load {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-body); font-size: .82rem; font-weight: 700;
+  padding: 4px 11px; border-radius: 999px; font-variant-numeric: tabular-nums;
+  background: rgba(255, 122, 110, .12); color: var(--danger);
+  border: 1px solid rgba(255, 122, 110, .32);
+}
+
+/* thumbs on a stop card — one vote per participant, tap the same thumb to take it back */
+.stop-votes { display: inline-flex; gap: 3px; }
+.vote-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: transparent; border: 1px solid var(--glass-border); border-radius: 999px;
+  color: var(--paper-dim); cursor: pointer; padding: 3px 8px;
+  font-family: var(--font-body); font-size: .74rem; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.vote-btn:hover { color: var(--paper); border-color: var(--glass-highlight); }@media print { .stop-votes, .vote-tally, .sm-votes { display: none; }
+}
+
+
+/* calendar: read-only tally on cards/chips, full buttons in the stop sheet */
+.vote-tally { display: inline-flex; gap: 6px; font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--paper-dim); }
+.vote-tally > span { display: inline-flex; align-items: center; gap: 2px; }
+.cal-wevt .vote-tally { margin-top: 2px; }
+.sm-votes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: -4px 0 14px; }
+.sm-votes .vote-btn { padding: 6px 12px; font-size: .84rem; }
+.sm-votes-hint { font-size: .82rem; color: var(--paper-dim); font-weight: 300; }
+.arrange-mode .jiggle {
+  animation: arr-jiggle 0.3s ease-in-out infinite;
+  animation-delay: var(--jd, 0ms);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: grab;
+}@media (prefers-reduced-motion: reduce) {
+  .arrange-mode .jiggle { animation: none; outline: 1px dashed var(--glass-highlight); }
+}
+
+.drag-ghost {
+  position: fixed;
+  z-index: 2000;
+  margin: 0;
+  pointer-events: none;
+  opacity: 0.95;
+  scale: 1.04;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.4);
+  animation: none;
+}
+/* the lifted card's slot: a dashed empty space that travels through the list as the
+   live preview — the card element itself, contents hidden so the box keeps its size */
+.drag-src {
+  outline: 2px dashed rgba(255, 180, 95, 0.6);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 180, 95, 0.05) !important;
+}
+.drag-src > * { visibility: hidden; }
+.drop-hint {
+  outline: 2px dashed var(--amber);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.arrange-trash {
+  position: fixed; z-index: 1999;
+  top: calc(10px + env(safe-area-inset-top));
+  right: calc(14px + env(safe-area-inset-right));
+  left: calc(14px + env(safe-area-inset-left));
+  max-width: 1120px; margin: 0 auto;
+  min-height: 62px; padding: 12px 18px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  border-radius: 999px;
+  border: 2px dashed rgba(255, 120, 120, .55);
+  background: rgba(60, 12, 12, .72);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  color: #ffb4b4; font-weight: 700; font-size: .95rem;
+  pointer-events: none; user-select: none;
+  animation: trash-in .18s ease-out;
+  transition: background .15s ease, border-color .15s ease, color .15s ease, transform .15s ease;
+}
+.arrange-trash.hot {
+  background: rgba(190, 40, 40, .92); border-color: #ff8f8f; border-style: solid;
+  color: #fff; transform: scale(1.03);
+  box-shadow: 0 10px 30px rgba(190, 40, 40, .45);
+}
+.drag-ghost.over-trash { opacity: .7; scale: .92; }@media (prefers-reduced-motion: reduce) {
+  .arrange-trash { animation: none; }
+  .arrange-trash.hot { transform: none; }
+}
+@media (pointer: coarse) {
+  .cost-input,
+.bp-add input,
+.bp-add select,
+.ai-edit-scope select { font-size: 16px; }
+}
+
+body.page-open { overflow: hidden; }
+.tp-head {
+  flex: none; display: flex; align-items: center; gap: 14px;
+  padding: calc(12px + env(safe-area-inset-top)) clamp(14px, 4vw, 28px) 12px;
+  background: rgba(12, 24, 20, .92);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--glass-border);
+}
+/* the round-on-phones back button every page shares */
+.bp-back {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
+  padding: 8px 14px; border-radius: 999px; cursor: pointer;
+  background: var(--glass); border: 1px solid var(--glass-border); color: var(--paper);
+  font-family: var(--font-body); font-weight: 700; font-size: .88rem;
+  transition: background .15s ease, color .15s ease;
+}
+.bp-back:hover { background: var(--glass-strong); color: var(--amber); }
+.tp-titles { flex: 1; min-width: 0; }
+.tp-title { font-family: var(--font-display); font-size: 1.3rem; display: flex; align-items: center; gap: 8px; }
+.tp-beta {
+  font-family: var(--font-body); font-size: .62rem; font-weight: 800; letter-spacing: .06em;
+  padding: 2px 7px; border-radius: 999px; color: var(--amber);
+  border: 1px solid rgba(255, 180, 95, .45); background: rgba(255, 180, 95, .1);
+}
+.tp-sub { color: var(--paper-dim); font-size: .82rem; line-height: 1.4; margin-top: 3px; font-weight: 300; }
+.tp-tools { flex: none; display: flex; gap: 8px; }
+.tp-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.tp-inner { width: min(760px, 100%); margin: 0 auto; padding: 18px clamp(14px, 4vw, 28px) 28px; }
+.tp-foot {
+  flex: none; background: rgba(12, 24, 20, .86);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  border-top: 1px solid var(--glass-border);
+}
+.tp-foot:empty { display: none; }
+
+/* ---------- המלצות: the chat ---------- */
+
+.page-chat .tp-body { display: flex; flex-direction: column; }
+.chat-thread {
+  width: min(760px, 100%); margin: 0 auto; flex: 1;
+  padding: 16px clamp(12px, 4vw, 24px) 14px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.chat-msg { display: flex; gap: 10px; align-items: flex-end; }
+.chat-avatar {
+  width: 30px; height: 30px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; font-size: .9rem;
+  background: linear-gradient(135deg, rgba(255, 180, 95, .35), rgba(143, 216, 196, .35));
+  border: 1px solid var(--glass-border);
+}
+.chat-col { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.chat-bubble { max-width: min(560px, 90%); padding: 11px 14px; border-radius: 18px; line-height: 1.55; font-size: .95rem; }
+.chat-bubble ul { padding-inline-start: 18px; margin: 6px 0; }
+.chat-bubble li { margin-bottom: 4px; }
+/* a message that just arrived slides in; a first paint of history doesn't */
+.chat-in { animation: chatIn .32s cubic-bezier(.2, .8, .3, 1) both; }
+.chat-in .chat-col > * + * { animation: chatIn .32s cubic-bezier(.2, .8, .3, 1) both; animation-delay: inherit; }@media (prefers-reduced-motion: reduce) { .chat-in, .chat-in .chat-col > * + * { animation: none; }
+}
+
+/* the three-dot "thinking" bubble */
+.chat-typing { display: inline-flex; gap: 5px; align-items: center; min-height: 42px; }
+.chat-typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--paper-dim); animation: chatDot 1.1s ease-in-out infinite; }
+.chat-typing i:nth-child(2) { animation-delay: .18s; }
+.chat-typing i:nth-child(3) { animation-delay: .36s; }
+
+/* the recommendation cards ride under the answer as a snap strip */
+.rec-strip {
+  display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory;
+  padding: 2px 2px 10px; margin-inline: -2px; scrollbar-width: none;
+}
+.rec-strip::-webkit-scrollbar { display: none; }
+.rec-card {
+  /* narrower than a phone, so the strip reads as a strip and a turn with three cards
+     doesn't push the previous message off the screen */
+  flex: 0 0 min(232px, 66vw); scroll-snap-align: start;
+  display: flex; flex-direction: column; border-radius: 18px; overflow: hidden;
+  background: var(--glass); border: 1px solid var(--glass-border); box-shadow: var(--shadow-soft);
+}
+.rec-media {
+  position: relative; aspect-ratio: 16 / 9; overflow: hidden; cursor: pointer;
+  background: linear-gradient(135deg, #16302a, #0e1f1a);
+}
+/* the category's emoji sits behind the photo — it's what shows when the photo doesn't load */
+.rec-media::before {
+  content: attr(data-emoji); position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 3rem; opacity: .35; filter: saturate(.6);
+}
+.rec-media img { position: relative; width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .25s ease; }
+.rec-cat {
+  position: absolute; top: 8px; inset-inline-start: 8px; padding: 4px 9px; border-radius: 999px;
+  background: rgba(10, 21, 18, .78); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  font-size: .72rem; font-weight: 700;
+}
+.rec-credit {
+  position: absolute; bottom: 6px; inset-inline-end: 8px; max-width: 70%;
+  font-size: .6rem; color: rgba(245, 239, 227, .75); text-shadow: 0 1px 2px rgba(0, 0, 0, .8);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chat-login {
+  display: inline-block; margin-top: 8px; padding: 7px 14px; border-radius: 999px; cursor: pointer;
+  border: 0; background: linear-gradient(180deg, var(--amber), var(--amber-deep)); color: #2a1500;
+  font: inherit; font-weight: 800; font-size: .86rem;
+}
+.rec-dots { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; }
+.rec-dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, .45); }
+.rec-body { padding: 10px 12px 4px; flex: 1; }
+.rec-title { font-size: .94rem; font-weight: 800; margin-bottom: 3px; line-height: 1.3; }
+.rec-blurb {
+  font-size: .8rem; color: var(--paper-dim); line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.rec-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 8px; font-size: .74rem; color: var(--paper-dim); }
+.rec-actions { display: flex; gap: 8px; align-items: center; padding: 8px 12px 12px; }
+.rec-map {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  padding: 8px 10px; border-radius: 10px; border: 1px solid var(--glass-border);
+  font-size: .8rem; font-weight: 700; color: var(--paper-dim); text-decoration: none;
+}
+.rec-add {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 12px; border: 0; border-radius: 10px; cursor: pointer;
+  background: linear-gradient(180deg, var(--amber), var(--amber-deep)); color: #2a1500;
+  font: inherit; font-weight: 800; font-size: .86rem;
+  box-shadow: 0 6px 16px -8px rgba(255, 180, 95, .8);
+  transition: transform .12s ease;
+}
+.rec-add:active { transform: scale(.97); }
+.rec-added { flex: 1; text-align: center; color: var(--mint); font-weight: 700; font-size: .86rem; }
+.rec-add-all {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(255, 180, 95, .45); background: rgba(255, 180, 95, .1); color: var(--amber);
+  font: inherit; font-size: .84rem; font-weight: 700;
+}
+
+/* quick prompts + the composer */
+.chat-chips {
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+  width: min(760px, 100%); margin: 0 auto; padding: 10px clamp(12px, 4vw, 24px) 4px;
+}
+.chat-chips::-webkit-scrollbar { display: none; }
+.chat-chip {
+  flex: none; padding: 7px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  border: 1px solid rgba(255, 180, 95, .35); background: rgba(255, 180, 95, .08); color: var(--amber);
+  font: inherit; font-size: .8rem; font-weight: 700;
+}
+.chat-chip:active { background: rgba(255, 180, 95, .2); }
+.chat-form { display: flex; gap: 8px; align-items: center; width: min(760px, 100%); margin: 0 auto; padding: 6px clamp(12px, 4vw, 24px) 14px; }
+.chat-form input {
+  flex: 1; min-width: 0; padding: 12px 16px; border-radius: 999px;
+  border: 1px solid var(--glass-border); background: var(--glass-strong); color: var(--paper);
+  font: inherit; font-size: 1rem; /* 16px keeps iOS from zooming the page on focus */
+}
+.chat-form input::placeholder { color: rgba(245, 239, 227, .45); }
+.chat-form input:focus { outline: none; border-color: rgba(255, 180, 95, .5); }
+.chat-send {
+  width: 46px; height: 46px; flex: none; border: 0; border-radius: 50%; cursor: pointer;
+  display: grid; place-items: center; color: #2a1500;
+  background: linear-gradient(180deg, var(--amber), var(--amber-deep));
+  box-shadow: 0 6px 16px -8px rgba(255, 180, 95, .8);
+} /* the paper plane flies the RTL way */
+.chat-send:active { transform: scale(.94); }
+
+/* ---------- תכנון: the planning chat's change cards and mode switch ---------- */
+
+/* a turn's changes to the itinerary — proposed (manual) or done (auto), same card */
+.plan-card {
+  align-self: flex-start; width: min(560px, 100%);
+  border: 1px solid var(--glass-border); border-radius: 16px; background: var(--glass);
+  padding: 12px 14px;
+}
+.plan-card.pc-applied { border-color: rgba(143, 216, 196, .45); }
+.pc-head { font-weight: 800; font-size: .9rem; margin-bottom: 8px; }
+.pc-applied .pc-head { color: var(--mint); }
+.pc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.pc-row { display: flex; gap: 9px; align-items: flex-start; font-size: .9rem; line-height: 1.4; }
+.pc-em { flex: none; width: 1.4em; text-align: center; }
+.pc-text { min-width: 0; display: flex; flex-direction: column; }
+.pc-text small { color: var(--paper-dim); font-size: .78rem; }
+.pc-detail { color: var(--paper-dim); font-size: .82rem; }
+.pc-foot { display: flex; gap: 8px; margin-top: 12px; }
+.pc-undo {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: 1px solid rgba(255, 255, 255, .25); border-radius: 999px;
+  color: var(--paper); font-family: var(--font-body); font-size: .82rem; font-weight: 700;
+  padding: 6px 14px; cursor: pointer;
+}
+.pc-undo:hover:not(:disabled) { border-color: var(--amber); color: var(--amber); }
+.pc-undo:disabled { opacity: .6; cursor: default; }
+.pc-note { margin-top: 8px; font-size: .8rem; color: var(--paper-dim); }
+/* the tap landed: the buttons are gone, the card says what it is doing */
+.pc-foot.pc-busy { align-items: center; gap: 10px; color: var(--amber); font-weight: 700; font-size: .88rem; }
+.pc-foot.pc-busy .chat-typing { min-height: 0; }
+
+/* the quota card: a spent day, said gently, with the referral progress */
+.plan-card.pc-quota, .plan-card.pc-invite { border-color: rgba(255, 180, 95, .35); }
+.pc-quota .pc-foot, .pc-invite .pc-foot { margin-top: 10px; flex-wrap: wrap; }
+.qc-progress { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .1); overflow: hidden; }
+.qc-progress i { display: block; height: 100%; width: var(--w, 0%); border-radius: 3px; background: linear-gradient(90deg, var(--amber), var(--amber-deep)); transition: width .4s ease; }
+.qc-count { display: block; margin-top: 6px; font-size: .8rem; color: var(--paper-dim); }
+.pc-text-p { margin: 0; font-size: .9rem; line-height: 1.5; color: var(--paper-dim); }
+/* the area calendar inside the chat: the wizard's paint grid, one card wide */
+.plan-card.pc-areas { width: min(640px, 100%); }
+.pc-areas .region-cal { margin-top: 4px; }
+.pc-areas .region-palette { margin-top: 10px; }
+.pc-areas .pc-foot { margin-top: 12px; }
+
+/* "N left today" under the composer — quiet, amber once it gets low */
+
+/* the composer's mode switch: ידני asks before every change, אוטומטי just does it */
+.plan-mode {
+  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  height: 46px; padding: 0 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--glass-border); background: var(--glass);
+  color: var(--paper-dim); font: inherit; font-size: .8rem; font-weight: 700; white-space: nowrap;
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.chat-chips[hidden] { display: none; }
+/* the one chip that acts instead of replying: the automatic completion of the rest */
+.chat-chip.chip-build { border-color: rgba(143, 216, 196, .5); background: rgba(143, 216, 196, .1); color: var(--mint); }@media (max-width: 420px) {
+  .plan-mode span { display: none; }
+  .plan-mode { width: 46px; padding: 0; justify-content: center; }
+}
+
+
+/* ---------- sheets: bottom sheet on phones, centered card on desktop ---------- */
+
+.tp-sheet {
+  position: fixed; inset: 0; z-index: 350; display: none; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(4, 10, 8, .72);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+.tp-sheet-card {
+  position: relative; width: min(560px, 100%); max-height: min(88vh, 100%); overflow-y: auto;
+  border-radius: var(--radius); padding: 22px 22px 20px;
+  animation: tpSheetIn .22s ease;
+}
+.tp-sheet-grip { display: none; }
+.tp-sheet-close {
+  position: absolute; top: 14px; left: 14px; width: 34px; height: 34px;
+  display: grid; place-items: center; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--glass-border); background: transparent; color: var(--paper-dim); font-size: 1rem;
+}
+.tp-sheet-close:hover { background: var(--glass-strong); color: var(--paper); }
+.tp-sheet-head { padding-inline-end: 0; padding-inline-start: 40px; margin-bottom: 14px; }
+.tp-sheet-title { font-family: var(--font-display); font-size: 1.3rem; }
+.tp-sheet-sub { color: var(--paper-dim); font-size: .88rem; margin-top: 2px; }
+.tp-sheet-sub[hidden] { display: none; }
+
+/* "מתי להוסיף?" — the trip as a month grid, the way the calendar view paints it */
+.when-card { width: min(640px, 100%); }
+.wc-grid { gap: 5px; }
+.cal-cell.wc-day {
+  min-height: 64px; padding: 6px 7px; gap: 3px; cursor: pointer;
+  font: inherit; color: var(--paper); text-align: right;
+  transition: border-color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+.cal-cell.wc-day .cc-head { flex-direction: column; align-items: flex-start; gap: 0; }
+.cal-cell.wc-day .cc-num { font-size: .92rem; }
+/* the picker is about dates — they stay visible on phones, where the month view drops them */
+.cal-cell.wc-day .cc-date { display: block; flex: none; font-size: .66rem; }
+/* how full a day is reads as the month view's dots — one per stop, mint for travel legs,
+   a + past four — on every viewport, since the picker never shows the stops' names */
+.cal-cell.wc-day .cc-dots { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; margin-top: auto; min-height: 5px; }
+.cal-cell.wc-day .cc-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--amber); }
+.cal-cell.wc-day .cc-dots em { font-style: normal; font-size: .62rem; color: var(--paper-dim); line-height: 1; }
+.cal-cell.wc-day.sel {
+  border-color: var(--amber); background: rgba(255, 180, 95, .16);
+  box-shadow: inset 0 0 0 1px var(--amber), 0 8px 20px -12px rgba(255, 180, 95, .8);
+}
+.wc-why { text-align: center; color: var(--mint); font-size: .84rem; font-weight: 600; margin-top: 10px; min-height: 1.3em; }
+.wc-foot { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.more-list { display: flex; flex-direction: column; gap: 6px; }
+.more-row {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 10px 12px; border-radius: 14px; cursor: pointer; text-align: right;
+  border: 1px solid var(--glass-border); background: var(--glass); color: var(--paper); font: inherit;
+  transition: background .15s ease;
+}
+.more-row:active { background: var(--glass-strong); }
+.mr-ic {
+  width: 40px; height: 40px; flex: none; border-radius: 12px; display: grid; place-items: center;
+  background: rgba(255, 180, 95, .12); color: var(--amber);
+}
+.more-row.liked .mr-ic { color: #ff8896; }
+.mr-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mr-text b { font-size: .95rem; }
+.mr-text small { color: var(--paper-dim); font-size: .78rem; line-height: 1.35; }
+.mr-chev { color: var(--paper-dim); font-size: 1.3rem; line-height: 1; }
+
+/* ---------- מסמכים ---------- */
+
+.docs-privacy {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 12px; border-radius: 14px; margin-bottom: 14px;
+  background: rgba(143, 216, 196, .08); border: 1px solid rgba(143, 216, 196, .25);
+  font-size: .82rem; color: var(--paper-dim); line-height: 1.45;
+}
+.docs-folders { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 6px; margin-bottom: 10px; }
+.docs-folders::-webkit-scrollbar { display: none; }
+.docs-folder {
+  flex: none; padding: 7px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  border: 1px solid var(--glass-border); background: var(--glass); color: var(--paper-dim);
+  font: inherit; font-size: .82rem; font-weight: 700;
+}
+.docs-folder b { font-weight: 600; opacity: .7; margin-inline-start: 5px; }
+.docs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.doc-tile {
+  display: flex; flex-direction: column; text-align: right; padding: 0; overflow: hidden;
+  border-radius: 16px; border: 1px solid var(--glass-border); background: var(--glass);
+  color: var(--paper); font: inherit; cursor: pointer;
+  transition: border-color .15s ease, transform .12s ease;
+}
+.doc-tile:active { transform: scale(.98); }@media (hover: hover) { .doc-tile:hover { border-color: rgba(255, 180, 95, .4); }
+}
+
+.dt-thumb {
+  aspect-ratio: 4 / 3; display: grid; place-items: center; font-size: 2.2rem; overflow: hidden;
+  background: linear-gradient(135deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .02));
+}
+.dt-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dt-name { padding: 8px 10px 2px; font-size: .84rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: ltr; text-align: right; }
+.dt-tags { display: flex; gap: 6px; align-items: center; padding: 0 10px 10px; font-size: .72rem; color: var(--paper-dim); }
+.dt-tags .scan { color: var(--amber); animation: docs-scan-pulse 1.2s ease-in-out infinite; }
+.doc-tile.is-scanning { border-color: rgba(255, 180, 95, .3); }
+/* the content pass, while it runs: one line above the folders, the current step */
+.docs-scan {
+  display: flex; gap: 8px; align-items: center;
+  padding: 8px 12px; border-radius: 12px; margin-bottom: 10px;
+  background: rgba(255, 180, 95, .08); border: 1px solid rgba(255, 180, 95, .25);
+  font-size: .8rem; color: var(--amber); line-height: 1.4;
+}
+.docs-scan-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ds-spin {
+  flex: none; width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid rgba(255, 180, 95, .3); border-top-color: var(--amber);
+  animation: ds-spin .8s linear infinite;
+}@media (prefers-reduced-motion: reduce) { .ds-spin, .dt-tags .scan { animation: none; }
+}
+
+.docs-empty { text-align: center; padding: 34px 18px 26px; border-radius: var(--radius); }
+.de-icons { font-size: 2rem; letter-spacing: .25em; margin-bottom: 10px; }
+.docs-empty h3 { font-family: var(--font-display); font-size: 1.3rem; margin-bottom: 8px; }
+.docs-empty p { color: var(--paper-dim); max-width: 400px; margin: 0 auto 16px; line-height: 1.55; font-size: .94rem; }
+.docs-empty .de-privacy { font-size: .8rem; margin: 16px auto 0; }
+/* the document sheet */
+.ds-preview {
+  display: block; width: 100%; max-height: 42vh; object-fit: contain; margin-bottom: 12px;
+  border-radius: 12px; background: rgba(0, 0, 0, .3); cursor: zoom-in;
+}
+.ds-file { display: grid; place-items: center; height: 120px; font-size: 3rem; border-radius: 12px; background: var(--glass); margin-bottom: 12px; }
+.ds-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.ds-row label { flex: none; font-size: .86rem; color: var(--paper-dim); }
+.ds-row select {
+  flex: 1; min-width: 0; padding: 9px 12px; border-radius: 10px;
+  border: 1px solid var(--glass-border); background: var(--glass-strong); color: var(--paper);
+  font: inherit; font-size: .95rem;
+}
+.ds-auto { font-size: .78rem; color: var(--amber); margin-bottom: 14px; }
+.ds-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.ds-privacy { display: flex; gap: 8px; align-items: flex-start; font-size: .76rem; color: var(--paper-dim); line-height: 1.4; }
+.bp-settings-btn[hidden] { display: none; }
+body.budget-open { overflow: hidden; }
+.bp-inner { display: flex; flex-direction: column; gap: 18px; }
+.bp-controls:empty { display: none; }
+.bp-switches { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.bp-switches .seg { flex: 1 1 150px; }
+/* compact segmented controls: both fit one row on a phone; the view is the primary
+   (amber) choice, the shared/personal mode a quiet one */
+.seg-sm { padding: 3px; }
+.seg-sm button { padding: 7px 10px; font-size: .84rem; gap: 6px; }
+
+/* the summary: figure, cap, and a bar that says how the two compare */
+.bp-summary { padding: 18px 20px; }
+.bs-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.bs-label { font-size: .84rem; font-weight: 700; color: var(--paper-dim); }
+.bs-pct {
+  font-size: .8rem; font-weight: 800; padding: 3px 9px; border-radius: 999px;
+  background: rgba(143, 216, 196, .14); color: var(--mint); font-variant-numeric: tabular-nums;
+}
+.bs-figure { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.bs-figure b { font-family: var(--font-display); font-weight: 400; font-size: 2.1rem; line-height: 1.1; direction: ltr; unicode-bidi: isolate; }
+.bs-figure span { color: var(--paper-dim); font-size: .92rem; }
+.bs-track { height: 7px; border-radius: 999px; background: rgba(255, 255, 255, .08); overflow: hidden; margin-top: 14px; }
+.bs-fill { display: block; height: 100%; border-radius: 999px; background: var(--mint); transition: width .5s cubic-bezier(.2, .8, .3, 1); }
+.bs-meta { display: flex; gap: 6px 16px; flex-wrap: wrap; margin-top: 10px; font-size: .86rem; color: var(--paper-dim); }
+.bs-link {
+  background: none; border: none; padding: 0; cursor: pointer; color: var(--mint);
+  font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px;
+}
+
+/* sections: a small title, then one card of rows */
+.bp-section { display: flex; flex-direction: column; gap: 8px; }
+.bp-section-title {
+  display: flex; align-items: center; gap: 10px; padding-inline: 4px;
+  font-family: var(--font-body); font-size: .82rem; font-weight: 700; color: var(--paper-dim); letter-spacing: .02em;
+}
+.bp-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px 3px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(255, 180, 95, .45); background: rgba(255, 180, 95, .1); color: var(--amber);
+  font: inherit; font-size: .78rem; font-weight: 700;
+}
+.bp-card { border: 1px solid var(--glass-border); border-radius: var(--radius-sm); background: var(--glass); overflow: hidden; }
+.bp-note { font-size: .88rem; color: var(--paper-dim); line-height: 1.5; padding: 2px 4px; }
+
+/* categories: share of the total, tap to filter the lists below */
+.bp-cat {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 14px;
+  background: transparent; border: 0; border-bottom: 1px solid var(--glass-border);
+  color: var(--paper); font: inherit; text-align: right; cursor: pointer; transition: background .15s ease;
+}
+.bp-cat:last-child { border-bottom: 0; }
+.bp-cat:hover { background: var(--glass); }
+.bc-emoji { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: var(--glass); font-size: 1rem; flex: none; }
+.bc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.bc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.bc-name { font-weight: 700; font-size: .92rem; }
+.bc-amount { font-weight: 700; font-size: .9rem; font-variant-numeric: tabular-nums; direction: ltr; }
+.bc-track { height: 5px; border-radius: 999px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.bc-fill { display: block; height: 100%; border-radius: 999px; background: rgba(255, 180, 95, .55); transition: width .5s cubic-bezier(.2, .8, .3, 1); }
+.bc-share { width: 36px; text-align: left; font-size: .8rem; color: var(--paper-dim); font-variant-numeric: tabular-nums; flex: none; }
+
+/* quick add: amount + what, then category + day + the button */
+.bp-add { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.ba-row { display: flex; gap: 8px; }
+.bp-add input, .bp-add select {
+  min-width: 0; background: rgba(6, 13, 11, .55); border: 1px solid var(--glass-border); border-radius: 12px;
+  color: var(--paper); font-family: var(--font-body); font-size: .95rem; padding: 10px 12px; outline: none;
+}
+.bp-add input:focus, .bp-add select:focus { border-color: var(--amber); }
+.ba-amount {
+  flex: none; width: 120px; display: flex; align-items: center; gap: 4px; padding-inline-start: 12px;
+  background: rgba(6, 13, 11, .55); border: 1px solid var(--glass-border); border-radius: 12px;
+}
+.ba-amount:focus-within { border-color: var(--amber); }
+.ba-amount span { color: var(--paper-dim); font-weight: 700; }
+.ba-amount input { flex: 1; width: 100%; border: 0; background: transparent; padding-inline-start: 0; font-weight: 700; direction: ltr; -moz-appearance: textfield; }
+.ba-amount input::-webkit-outer-spin-button, .ba-amount input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.qa-title, .qa-cat, .qa-day { flex: 1; }
+.ba-hint { font-size: .8rem; color: rgba(245, 239, 227, .5); min-height: 1.2em; }
+.ba-err { color: var(--danger); }
+
+/* the day groups: one card, hairlines between days, a chevron that turns */
+.bp-day { border-bottom: 1px solid var(--glass-border); }
+.bp-day:last-child { border-bottom: 0; }
+.bd-head {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 14px;
+  background: none; border: 0; cursor: pointer; color: var(--paper); font: inherit; text-align: right;
+}
+.bd-chev { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; color: var(--paper-dim); flex: none; transition: transform .2s ease, color .2s ease; }
+.bd-title { flex: 1; min-width: 0; font-weight: 700; font-size: .95rem; }
+.bd-title small { font-weight: 400; color: var(--paper-dim); margin-inline-start: 8px; font-size: .84rem; }
+.bd-title .bd-today { color: var(--mint); font-weight: 700; }
+.bd-total { font-weight: 700; color: var(--amber); font-variant-numeric: tabular-nums; direction: ltr; }
+.bd-body { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 2px; }
+.bd-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: .92rem; }
+.bi-time { color: var(--mint); font-size: .78rem; font-weight: 700; direction: ltr; width: 40px; flex: none; }
+.bi-cat { width: 26px; text-align: center; flex: none; }
+.bi-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bi-title small { color: var(--paper-dim); }
+.bi-amount { font-weight: 600; font-variant-numeric: tabular-nums; direction: ltr; }
+.bi-amount.muted { color: var(--paper-dim); font-weight: 400; }
+.bi-cost {
+  display: flex; align-items: center; gap: 4px; width: 104px; flex: none; padding: 0 10px;
+  border: 1px solid var(--glass-border); border-radius: 10px; background: rgba(6, 13, 11, .5);
+  color: var(--paper-dim); font-size: .84rem; font-weight: 700; transition: border-color .15s ease;
+}
+.bi-cost:focus-within { border-color: var(--amber); }
+.cost-input {
+  flex: 1; width: 100%; min-width: 0; padding: 6px 0; background: transparent; border: 0; outline: none;
+  color: var(--amber); font-family: var(--font-body); font-weight: 700; font-size: .9rem;
+  direction: ltr; text-align: left; -moz-appearance: textfield;
+}
+.cost-input::-webkit-outer-spin-button, .cost-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.cost-input::placeholder { color: rgba(245, 239, 227, .3); font-weight: 400; }
+.bd-hotel {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; margin: 3px 0; border-radius: 10px;
+  border: 1px solid rgba(143, 216, 196, .25); background: rgba(143, 216, 196, .07);
+  color: var(--paper); font: inherit; font-size: .88rem; text-align: right; cursor: pointer;
+}
+.bh-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.bh-meta { color: var(--paper-dim); font-size: .8rem; }
+.er-del {
+  width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: none; border: 0; color: var(--paper-dim); cursor: pointer; transition: background .15s ease, color .15s ease;
+}
+.er-del:hover { color: var(--danger); background: rgba(255, 122, 110, .12); }
+.bd-empty { padding: 6px 0 4px; font-size: .86rem; color: rgba(245, 239, 227, .45); }
+.bp-list .bd-item { padding: 10px 14px; border-bottom: 1px solid var(--glass-border); }
+.bp-list .bd-item:last-child { border-bottom: 0; }
+.bp-section-title small { font-weight: 400; color: rgba(245, 239, 227, .45); }
+.bp-day-label {
+  padding: 10px 14px 4px; font-size: .78rem; font-weight: 700; color: var(--mint);
+  letter-spacing: .02em;
+}
+.bp-list .bp-day-label:first-child { padding-top: 12px; }
+.bd-item.bd-plan { flex-wrap: wrap; gap: 8px 10px; }
+.bd-pay {
+  display: flex; gap: 4px; flex: none; width: 100%;
+  padding-top: 2px;
+}
+.pay-btn {
+  flex: 1; padding: 7px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--glass-border); background: transparent;
+  color: var(--paper-dim); font: inherit; font-size: .8rem; font-weight: 700;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.bd-item.bd-plan.is-paid .bi-amount { color: var(--mint); }@media (min-width: 560px) {
+  .bd-pay { width: auto; margin-inline-start: auto; }
+  .pay-btn { flex: none; padding: 6px 12px; }
+}
+
+
+/* first run: one centered card, the way an empty מסמכים page reads */
+.bp-setup { text-align: center; padding: 28px 22px 22px; }
+.bp-setup-ic {
+  width: 52px; height: 52px; border-radius: 16px; margin: 0 auto 14px; display: grid; place-items: center;
+  background: rgba(255, 180, 95, .14); color: var(--amber);
+}
+.bp-setup h3 { font-family: var(--font-display); font-size: 1.35rem; margin-bottom: 8px; }
+.bp-setup p { color: var(--paper-dim); line-height: 1.55; font-size: .94rem; max-width: 420px; margin: 0 auto 20px; }
+/* total + currency share one row — the phone sees the whole form without scrolling */
+.money-field { display: flex; gap: 8px; }
+.money-field input { flex: 1; min-width: 0; }
+.money-field select { width: 108px; flex: none; }
+
+/* settings: the form card, then the reset card */
+.bp-form { padding: 18px 16px 16px; }
+.bp-danger .bp-card { padding: 14px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; border-color: rgba(255, 122, 110, .3); }
+.bp-danger p { flex: 1; min-width: 200px; font-size: .86rem; color: var(--paper-dim); line-height: 1.5; }@media (max-width: 640px) {
+  .bp-inner { gap: 14px; }
+  .bp-summary { padding: 16px; }
+  .bs-figure b { font-size: 1.9rem; }
+  .ba-amount { width: 100px; }
+  .bi-cost { width: 96px; }
+}
+
+
+/* ---------- toast ---------- */
+
+.tm-toast {
+  position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); z-index: 700;
+  transform: translate(-50%, 12px); max-width: calc(100% - 32px);
+  padding: 10px 16px; border-radius: 999px; text-align: center;
+  background: rgba(12, 24, 20, .95); border: 1px solid var(--glass-border); color: var(--paper);
+  font-size: .9rem; font-weight: 600; box-shadow: var(--shadow-soft);
+  opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease;
+}@media (max-width: 640px) {
+  .tp-head { gap: 10px; }
+  .tp-back span { display: none; }
+  .tp-back { width: 38px; height: 38px; padding: 0; justify-content: center; border-radius: 50%; }
+  .tp-title { font-size: 1.15rem; }
+  .tp-sub { font-size: .78rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .tp-sheet { align-items: flex-end; padding: 0; }
+  .tp-sheet-card {
+    width: 100%; max-height: 92vh; border-radius: 24px 24px 0 0;
+    padding: 12px 16px calc(18px + env(safe-area-inset-bottom));
+  }
+  .tp-sheet-grip { display: block; width: 40px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .25); margin: 0 auto 12px; }
+  .tp-sheet-close { top: 18px; }
+  .cal-cell.wc-day { min-height: 58px; padding: 5px 6px; }
+  .docs-grid { grid-template-columns: repeat(2, 1fr); }
+  .tm-toast { bottom: calc(var(--dock-h) + 22px + env(safe-area-inset-bottom)); }
+}
+@media print {
+.tp-sheet,
+.tm-toast { display: none !important; }
+}
+
+@keyframes map-pin-pulse {
+  0% { transform: scale(.55); opacity: .9; }
+  70%, 100% { transform: scale(1.35); opacity: 0; }
+}
+@keyframes route-line-march { to { stroke-dashoffset: -22; } }
+@keyframes breathe-a { from { opacity: 1; } to { opacity: .25; } }
+@keyframes breathe-b { from { opacity: 0; } to { opacity: 1; } }
+@keyframes orb-float {
+  from { transform: translateY(0) scale(1); }
+  to { transform: translateY(-10px) scale(1.12); }
+}
+@keyframes calFullIn { from { opacity: 0; } to { opacity: 1; } }
+
+@keyframes ring-draw { 0% { stroke-dashoffset: 942; opacity: 0; } 12% { opacity: 1; } 55%, 100% { stroke-dashoffset: 0; } }
+@keyframes needle-settle {
+  0% { transform: rotate(-120deg); } 42% { transform: rotate(26deg); }
+  62% { transform: rotate(-9deg); } 78% { transform: rotate(4deg); }
+  88%, 100% { transform: rotate(0deg); }
+}
+@keyframes cross-fade { 0%, 30% { opacity: 0; } 55%, 100% { opacity: .85; } }
+@keyframes hub-pop { 0%, 40% { transform: scale(0); } 60% { transform: scale(1.25); } 72%, 100% { transform: scale(1); } }
+@keyframes word-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes sweep { 0% { transform: translateX(120%); } 100% { transform: translateX(-220%); } }
+
+/* ---- arrange mode: long-press a stop → everything jiggles, drag to swap ---- */
+@keyframes arr-jiggle {
+  0% { transform: rotate(-0.7deg); }
+  50% { transform: rotate(0.7deg); }
+  100% { transform: rotate(-0.7deg); }
+}
+/* the bin: a strip across the top of the screen while a stop is in the air. It
+   covers the header on purpose — nothing up there matters mid-drag — and lights
+   up red as the ghost crosses into it. Geometry-only: pointer-events stay off so
+   the drag's own hit-testing is the single source of truth. */
+@keyframes trash-in { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: none; } }
+@keyframes chatIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes chatDot { 0%, 80%, 100% { opacity: .35; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+@keyframes tpSheetIn { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+@keyframes ds-spin { to { transform: rotate(360deg); } }
+@keyframes docs-scan-pulse { 50% { opacity: .35; } }
