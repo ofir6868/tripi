@@ -69,7 +69,13 @@
     <!-- one tap on a tile = the wizard with the chips already in. Rendered from
          popular.js, the same list the wizard reads a combo back from -->
     <nav class="popular" id="popular" aria-label="יעדים פופולריים">
-      <div class="popular-label">יעדים פופולריים</div>
+      <div class="popular-head">
+        <span class="popular-label">יעדים פופולריים</span>
+        <span class="popular-nav">
+          <button type="button" id="pop-next" aria-label="הבא">‹</button>
+          <button type="button" id="pop-prev" aria-label="הקודם">›</button>
+        </span>
+      </div>
       <div class="popular-strip" id="popular-strip"></div>
     </nav>
 

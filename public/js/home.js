@@ -76,26 +76,69 @@
     const strip = document.getElementById('popular-strip');
     if (!strip || typeof POPULAR === 'undefined') return;
     const flags = (dests) => `<span class="pop-flags">${dests.map((d) => COUNTRIES.flagHtml(d.cc)).join('')}</span>`;
-    // the row of flags is what marks a multi-country route — a "3 מדינות" badge on
-    // top of them said the same thing twice and stole the width the name needs
-    const tile = ({ href, img, name, cls, dests }) => `
+    const tile = ({ href, img, name, cls, dests, badge }) => `
       <a class="pop-tile ${cls}" href="${href}" title="${TRIPMAKER.esc(name)}">
         <span class="pop-img" style="background-image:url('${img}')" aria-hidden="true"></span>
+        ${badge ? `<span class="pop-badge">${TRIPMAKER.esc(badge)}</span>` : ''}
         <span class="pop-text">${flags(dests)}<span class="pop-name">${TRIPMAKER.esc(name)}</span></span>
       </a>`;
+    // the multi-country routes lead: they are the thing a single destination name
+    // can't be searched for, so they're worth the first two slots
     strip.innerHTML =
+      POPULAR.combos.map((c) => tile({
+        href: '/plan?combo=' + encodeURIComponent(c.id),
+        img: c.img, name: c.title, cls: 'pop-combo', dests: c.dests, badge: 'טיול גדול',
+      })).join('') +
       POPULAR.singles.map((d) => tile({
         href: '/plan?' + new URLSearchParams({ dest: d.name, cc: d.cc, country: POPULAR.countryOf(d) }),
         img: d.img, name: d.name, cls: 'pop-single', dests: [d],
-      })).join('') +
-      POPULAR.combos.map((c) => tile({
-        href: '/plan?combo=' + encodeURIComponent(c.id),
-        img: c.img, name: c.title, cls: 'pop-combo', dests: c.dests,
       })).join('');
     strip.addEventListener('click', (e) => {
       const a = e.target.closest('.pop-tile');
       if (a) TRIPMAKER.track?.('popular_pick', { name: a.title, combo: a.classList.contains('pop-combo') });
     });
+
+    // ---- reaching the far end with a mouse ----
+    // The strip scrolls by swipe on a phone, but a desktop mouse had nothing to
+    // grab: the scrollbar is hidden and a wheel only scrolls the page. Arrows for
+    // the pointer, and a vertical wheel over the strip moves it sideways.
+    const nextBtn = document.getElementById('pop-next');
+    const prevBtn = document.getElementById('pop-prev');
+    // one probe: RTL scroll offsets run negative in modern engines and positive in
+    // the legacy WebKit model. Either way, further into the list is a DECREASE —
+    // only the range the wheel has to stay inside differs.
+    strip.scrollLeft = -1;
+    const negModel = strip.scrollLeft < 0;
+    strip.scrollLeft = 0;
+    const span = () => {
+      const max = strip.scrollWidth - strip.clientWidth;
+      return negModel ? [-max, 0] : [0, max];
+    };
+    const STEP = 260;
+    const nudge = (d) => strip.scrollBy({ left: d, behavior: 'smooth' });
+    nextBtn.onclick = () => nudge(-STEP);
+    prevBtn.onclick = () => nudge(STEP);
+    function paintNav() {
+      const [lo, hi] = span();
+      const pos = strip.scrollLeft;
+      nextBtn.disabled = pos - 1 <= lo;
+      prevBtn.disabled = pos + 1 >= hi;
+    }
+    strip.addEventListener('scroll', paintNav, { passive: true });
+    window.addEventListener('resize', paintNav);
+    paintNav();
+    strip.addEventListener('wheel', (e) => {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return; // a real sideways gesture already works
+      const [lo, hi] = span();
+      if (hi - lo <= 0) return;
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY; // Firefox reports lines
+      const target = strip.scrollLeft - dy;
+      // past either end the wheel goes back to being the page's — the strip never
+      // swallows a scroll it can't act on
+      if (target < lo || target > hi) return;
+      e.preventDefault();
+      strip.scrollLeft = target;
+    }, { passive: false });
   })();
 
   // ---- code lookup ----
