@@ -320,17 +320,20 @@ body::after {
    The stops trace a smoothstep instead of a straight ramp: an S-curve leaves no
    kink where the fade starts or ends, and a kink is exactly what the eye reads
    as an edge. The long flat tail near zero is what makes the last stretch
-   disappear rather than stop. */
+   disappear rather than stop. The ramp only starts below the search card
+   (64%) — starting it at the hero's midpoint began dissolving the photo behind
+   the headline and copy, which reads as the photo fading, not as the page
+   arriving. */
 .hero-clip {
   --hero-fade: linear-gradient(180deg,
-    #000 0 50%,
-    rgba(0, 0, 0, .96) 56.5%,
-    rgba(0, 0, 0, .84) 63%,
-    rgba(0, 0, 0, .68) 69%,
-    rgba(0, 0, 0, .50) 75%,
-    rgba(0, 0, 0, .32) 81%,
-    rgba(0, 0, 0, .16) 87.5%,
-    rgba(0, 0, 0, .04) 94%,
+    #000 0 64%,
+    rgba(0, 0, 0, .96) 68.7%,
+    rgba(0, 0, 0, .84) 73.4%,
+    rgba(0, 0, 0, .68) 77.7%,
+    rgba(0, 0, 0, .50) 82%,
+    rgba(0, 0, 0, .32) 86.3%,
+    rgba(0, 0, 0, .16) 91%,
+    rgba(0, 0, 0, .04) 95.7%,
     transparent calc(100% - 4px));
   -webkit-mask-image: var(--hero-fade);
   mask-image: var(--hero-fade);
@@ -3252,24 +3255,33 @@ body.cal-full-open { overflow: hidden; }
   position: relative; width: 100vw; margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
   height: 40vh; min-height: 220px; max-height: 400px;
   background-size: cover; background-position: center;
-}
-/* An S-curve, not a straight ramp — matches .hero-clip's --hero-fade. A
-   two/three-stop linear ramp reads as a hard edge where the darkening
-   suddenly kicks in; this traces the same easing (mirrored into an additive
-   veil instead of a subtractive mask) so the photo dissolves gradually
-   instead of looking cut off. */
-.seo-hero::after {
-  content: ''; position: absolute; inset: 0;
-  background: linear-gradient(180deg,
-    transparent 0 50%,
-    rgba(10, 21, 18, .04) 56.5%,
-    rgba(10, 21, 18, .16) 63%,
-    rgba(10, 21, 18, .32) 69%,
-    rgba(10, 21, 18, .50) 75%,
-    rgba(10, 21, 18, .68) 81%,
-    rgba(10, 21, 18, .84) 87.5%,
-    rgba(10, 21, 18, .96) 94%,
-    var(--ink) 100%);
+  /* A mask, not an ink veil — the same reason .hero-clip masks. The page
+     background here is not flat --ink: .atmosphere paints fixed radial glows
+     behind everything (the mid-page one alone is rgba(22,48,42,.85)), so an
+     additive veil ending at var(--ink) lands on a color the surrounding page
+     never has, and the photo's bottom edge showed as a hard line against a
+     lighter, greener backdrop. Being fixed, that backdrop also shifts with
+     scroll, so no flat endpoint could match it. Masking removes the photo
+     instead of painting over it, and whatever is actually behind shows through.
+
+     An S-curve, not a straight ramp — matches .hero-clip's --hero-fade. A
+     two/three-stop linear ramp reads as a hard edge where the fade suddenly
+     kicks in; this traces the same easing so the photo dissolves gradually
+     instead of looking cut off. The ramp starts at the photo's midpoint (not
+     .hero-clip's 64%): nothing is laid over this photo, so there is no headline
+     to keep clear of. */
+  --seo-hero-fade: linear-gradient(180deg,
+    #000 0 50%,
+    rgba(0, 0, 0, .96) 56.5%,
+    rgba(0, 0, 0, .84) 63%,
+    rgba(0, 0, 0, .68) 69%,
+    rgba(0, 0, 0, .50) 75%,
+    rgba(0, 0, 0, .32) 81%,
+    rgba(0, 0, 0, .16) 87.5%,
+    rgba(0, 0, 0, .04) 94%,
+    transparent 100%);
+  -webkit-mask-image: var(--seo-hero-fade);
+  mask-image: var(--seo-hero-fade);
 }
 .seo-hero + .page-shell { padding-top: 30px; }
 
