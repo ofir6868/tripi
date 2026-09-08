@@ -33,8 +33,8 @@ const TripArrange = (() => {
     state.active = true;
     if (navigator.vibrate) navigator.vibrate(12);
     document.body.classList.add('arrange-mode');
-    // one Done, at the bottom edge where the thumb already is — a second copy at
-    // the top only competed with the bin for the same corner of the screen
+    // one Done, pinned to the top edge — see .arrange-done in the stylesheet for
+    // why the bottom copy had to go
     doneBtn = document.createElement('button');
     doneBtn.type = 'button';
     doneBtn.className = 'btn btn-amber arrange-done';

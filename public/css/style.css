@@ -3185,12 +3185,14 @@ body.cal-full-open { overflow: hidden; }
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4), 0 0 0 3px rgba(255, 180, 95, .45);
   animation: save-pulse 1.9s ease-out infinite;
 }
-.btn.arrange-done { bottom: calc(22px + env(safe-area-inset-bottom)); }
+/* Top edge, not bottom. Pinned to the bottom this button jumped sideways on
+   iPhone, and that corner is crowded anyway — the dock, the draft pill and
+   Safari's own shrinking toolbar all live down there. Up here nothing moves
+   under it. Mid-drag it hands the strip back to the bin, which owns the top of
+   the screen then; the drag already refuses taps, so hiding it costs nothing. */
+.btn.arrange-done { top: calc(16px + env(safe-area-inset-top)); }
 .btn.arrange-done:hover { transform: translateY(-2px); }
-.dragging .arrange-done { pointer-events: none; opacity: 0.35; }
-@media (max-width: 640px) {
-  .btn.arrange-done { bottom: calc(var(--dock-h) + var(--dock-inset) + 12px); }
-}
+.dragging .arrange-done { pointer-events: none; opacity: 0; visibility: hidden; }
 /* the bin: a strip across the top of the screen while a stop is in the air. It
    covers the header on purpose — nothing up there matters mid-drag — and lights
    up red as the ghost crosses into it. Geometry-only: pointer-events stay off so
