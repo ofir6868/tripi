@@ -1884,38 +1884,41 @@ const TripModals = (() => {
     }
   }
 
-  // the shared-budget group: trip participants only — never personal-budget names
+  // shared-budget group: trip participants, plus anyone named as paid_by on a
+  // shared expense (so a payer whose display name drifted still gets credit —
+  // and the expense isn't dropped as "missing")
   function settlePeople(state) {
     const byKey = new Map(); // lowercased → display name
-    for (const p of state.participants || []) {
-      const n = String(p.name || '').trim();
-      if (!n) continue;
+    const add = (name) => {
+      const n = String(name || '').trim();
+      if (!n) return;
       const key = n.toLowerCase();
       if (!byKey.has(key)) byKey.set(key, n);
-    }
+    };
+    for (const p of state.participants || []) add(p.name);
+    for (const e of state.expenses || []) add(e.paid_by);
     return [...byKey.values()];
   }
 
-  // shared expenses → per-expense cards + whole-trip balances/transfers
+  // shared expenses only (state.expenses) → per-expense cards + whole-trip rollup.
+  // personal budget is never read. every positive shared expense with a payer counts;
+  // we no longer require paid_by to already match a participant row.
   function computeSettlement(state) {
-    const people = settlePeople(state);
     const keyOf = (name) => String(name || '').trim().toLowerCase();
-    const peopleKeys = new Set(people.map(keyOf));
     const all = (state.expenses || []).filter((e) => +e.amount > 0);
-    const expenses = [];
-    const skipped = [];
-    for (const e of all) {
-      const payer = keyOf(e.paid_by);
-      if (payer && peopleKeys.has(payer)) expenses.push(e);
-      else skipped.push(e);
-    }
+    const skipped = all.filter((e) => !String(e.paid_by || '').trim());
+    const expenses = all.filter((e) => String(e.paid_by || '').trim());
+    const people = settlePeople(state);
     const total = expenses.reduce((s, e) => s + (+e.amount || 0), 0);
 
     if (people.length < 2) {
       return { people, cards: [], balances: [], transfers: [], skipped, total, error: 'need_people' };
     }
     if (!expenses.length) {
-      return { people, cards: [], balances: [], transfers: [], skipped, total: 0, error: 'no_expenses' };
+      return {
+        people, cards: [], balances: [], transfers: [], skipped, total: 0,
+        error: all.length ? 'no_payers' : 'no_expenses',
+      };
     }
 
     const n = people.length;
@@ -1923,7 +1926,7 @@ const TripModals = (() => {
       const amount = +e.amount;
       const share = amount / n;
       const payerKey = keyOf(e.paid_by);
-      const payerName = people.find((p) => keyOf(p) === payerKey) || e.paid_by;
+      const payerName = people.find((p) => keyOf(p) === payerKey) || String(e.paid_by).trim();
       const refund = Math.max(amount - share, 0);
       const debtors = people
         .filter((p) => keyOf(p) !== payerKey)
@@ -2026,13 +2029,15 @@ const TripModals = (() => {
       return;
     }
 
-    if (result.error === 'no_expenses') {
+    if (result.error === 'no_expenses' || result.error === 'no_payers') {
       controls.innerHTML = '';
       body.innerHTML = `
         <div class="settle-empty glass">
           <div class="settle-locked-ic">${BICON.wallet}</div>
-          <h3>עוד אין הוצאות משותפות</h3>
-          <p>רשמו הוצאות בפועל בתקציב המשותף (מי שילם נשמר אוטומטית). תקציב אישי לא נכנס לחלוקה. אחר כך תחזרו לכאן ותקבלו מי חייב למי.</p>
+          <h3>${result.error === 'no_payers' ? 'חסר מי שילם' : 'עוד אין הוצאות משותפות'}</h3>
+          <p>${result.error === 'no_payers'
+            ? 'יש הוצאות בתקציב המשותף, אבל בלי שם משלם — אי אפשר לחלק. מחקו והוסיפו מחדש כשאתם מחוברים, או סמנו שולם ממסך התקציב המשותף.'
+            : 'רשמו הוצאות בפועל בתקציב המשותף (מי שילם נשמר אוטומטית). תקציב אישי לא נכנס לחלוקה. אחר כך תחזרו לכאן ותקבלו מי חייב למי.'}</p>
           <button type="button" class="btn btn-amber settle-to-budget">לתקציב המשותף</button>
         </div>`;
       body.querySelector('.settle-to-budget').onclick = () => {
