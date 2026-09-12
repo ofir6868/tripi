@@ -198,6 +198,7 @@
       hotels: data.hotels || [],
       budget: data.budget || null,
       expenses: data.expenses || [],
+      settlements: data.settlements || [],
       canEdit: !!data.canEdit,
     };
     Object.defineProperty(state, 'items', { get: () => tripItems });

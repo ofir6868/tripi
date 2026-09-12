@@ -137,6 +137,18 @@ CREATE TABLE IF NOT EXISTS trip_expenses (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- who already paid their equal share back for a shared expense (settle "שולם")
+CREATE TABLE IF NOT EXISTS trip_expense_settlements (
+  id SERIAL PRIMARY KEY,
+  trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  expense_id INT NOT NULL REFERENCES trip_expenses(id) ON DELETE CASCADE,
+  debtor_key TEXT NOT NULL,
+  debtor_name TEXT NOT NULL,
+  settled_by INT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (expense_id, debtor_key)
+);
+
 -- one row per reminder push actually claimed (trip × kind × Jerusalem date) —
 -- lib/reminders.js inserts here with ON CONFLICT DO NOTHING before sending,
 -- which is what makes its timer ticks idempotent across restarts
@@ -154,6 +166,7 @@ CREATE INDEX IF NOT EXISTS idx_trips_owner ON trips(owner_id);
 CREATE INDEX IF NOT EXISTS idx_items_trip ON trip_items(trip_id);
 CREATE INDEX IF NOT EXISTS idx_hotels_trip ON trip_hotels(trip_id);
 CREATE INDEX IF NOT EXISTS idx_expenses_trip ON trip_expenses(trip_id);
+CREATE INDEX IF NOT EXISTS idx_expense_settlements_trip ON trip_expense_settlements(trip_id);
 `;
 /* Every index here may only name columns that already exist on a database this
    schema has met before. On an existing database CREATE TABLE IF NOT EXISTS is a

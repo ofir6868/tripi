@@ -1955,12 +1955,34 @@ body.page-open { overflow: hidden; }
   padding: 6px 0;
 }
 .sc-debtor + .sc-debtor { border-top: 1px solid rgba(255, 122, 110, .14); padding-top: 10px; }
+.sc-debtor.is-settled { opacity: .72; }
+.sc-debtor.is-settled + .sc-debtor.is-settled,
+.sc-debtor + .sc-debtor.is-settled { border-top-color: rgba(143, 216, 196, .18); }
 .sd-name { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sd-actions { display: inline-flex; align-items: center; gap: 8px; flex: none; }
 .sd-amt.owes {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
   font-weight: 800; font-size: .95rem; color: var(--danger);
   font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate;
 }
+.sd-amt.settled {
+  font-weight: 800; font-size: .88rem; color: var(--mint);
+}
+.settle-paid-btn {
+  flex: none; cursor: pointer; padding: 5px 10px; border-radius: 999px;
+  border: 1px solid rgba(143, 216, 196, .45); background: rgba(143, 216, 196, .12);
+  color: var(--mint); font: inherit; font-size: .78rem; font-weight: 800;
+  transition: background .15s ease, border-color .15s ease, opacity .15s ease;
+}
+.settle-paid-btn:hover { background: rgba(143, 216, 196, .22); border-color: rgba(143, 216, 196, .7); }
+.settle-paid-btn.undo {
+  border-color: var(--glass-border); background: transparent; color: var(--paper-dim); font-weight: 700;
+}
+.settle-paid-btn:disabled { opacity: .5; cursor: wait; }
+.settle-open { margin: 8px 0 0; font-size: .9rem; color: var(--amber); font-weight: 700; }
+.settle-open.ok { color: var(--mint); }
+.settle-open b { font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
+.settle-acc.all-settled .settle-acc-amt { color: var(--mint); }
 .settle-money-ic {
   width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none;
   stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;

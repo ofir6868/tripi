@@ -1,4 +1,4 @@
-// Migrations 2–19, in order. Idempotent — safe to run on every boot, and the server
+// Migrations 2–20, in order. Idempotent — safe to run on every boot, and the server
 // does (lib/db-bootstrap.js), so a replaced database catches up by itself.
 // Usage: DATABASE_URL=postgres://... node db/migrate.js
 require('../lib/env');
@@ -215,6 +215,20 @@ async function migrate(pool, log = console.log) {
   // the index belongs with the ALTER that makes its column exist, never in
   // db/setup.js's schema string — see the note under the indexes there
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_item ON trip_expenses(item_id) WHERE item_id IS NOT NULL`);
+
+  log('Migration 20: per-expense settle marks (who already paid their share back)...');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trip_expense_settlements (
+      id SERIAL PRIMARY KEY,
+      trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+      expense_id INT NOT NULL REFERENCES trip_expenses(id) ON DELETE CASCADE,
+      debtor_key TEXT NOT NULL,
+      debtor_name TEXT NOT NULL,
+      settled_by INT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      UNIQUE (expense_id, debtor_key)
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_expense_settlements_trip ON trip_expense_settlements(trip_id)`);
 
   log('Done.');
 }

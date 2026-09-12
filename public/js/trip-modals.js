@@ -1901,36 +1901,45 @@ const TripModals = (() => {
   }
 
   // shared expenses only (state.expenses) → per-expense cards + whole-trip rollup.
-  // personal budget is never read. every positive shared expense with a payer counts;
-  // we no longer require paid_by to already match a participant row.
+  // personal budget is never read. settlements (שולם) clear a debtor's share so
+  // they no longer owe the payer for that expense.
   function computeSettlement(state) {
     const keyOf = (name) => String(name || '').trim().toLowerCase();
     const all = (state.expenses || []).filter((e) => +e.amount > 0);
     const skipped = all.filter((e) => !String(e.paid_by || '').trim());
     const expenses = all.filter((e) => String(e.paid_by || '').trim());
     const people = settlePeople(state);
-    const total = expenses.reduce((s, e) => s + (+e.amount || 0), 0);
+    const settled = new Set(
+      (state.settlements || []).map((s) => `${s.expense_id}:${keyOf(s.debtor_key || s.debtor_name)}`)
+    );
+    const isSettled = (expenseId, debtorName) => settled.has(`${expenseId}:${keyOf(debtorName)}`);
 
     if (people.length < 2) {
-      return { people, cards: [], balances: [], transfers: [], skipped, total, error: 'need_people' };
+      return { people, cards: [], balances: [], transfers: [], skipped, total: 0, openTotal: 0, error: 'need_people' };
     }
     if (!expenses.length) {
       return {
-        people, cards: [], balances: [], transfers: [], skipped, total: 0,
+        people, cards: [], balances: [], transfers: [], skipped, total: 0, openTotal: 0,
         error: all.length ? 'no_payers' : 'no_expenses',
       };
     }
 
     const n = people.length;
+    const total = expenses.reduce((s, e) => s + (+e.amount || 0), 0);
     const cards = expenses.map((e) => {
       const amount = +e.amount;
       const share = amount / n;
       const payerKey = keyOf(e.paid_by);
       const payerName = people.find((p) => keyOf(p) === payerKey) || String(e.paid_by).trim();
-      const refund = Math.max(amount - share, 0);
       const debtors = people
         .filter((p) => keyOf(p) !== payerKey)
-        .map((name) => ({ name, amount: share }));
+        .map((name) => ({
+          name,
+          amount: share,
+          settled: isSettled(e.id, name),
+        }));
+      const openDebtors = debtors.filter((d) => !d.settled);
+      const refund = share * openDebtors.length;
       return {
         id: e.id,
         title: e.title,
@@ -1940,17 +1949,34 @@ const TripModals = (() => {
         payerName,
         refund,
         debtors,
+        openDebtors,
         day_number: e.day_number || null,
+        allSettled: debtors.length > 0 && openDebtors.length === 0,
       };
     });
 
-    // whole-trip rollup: paid vs fair share, then minimize cash transfers
+    // whole-trip rollup from *unsettled* shares only — settled marks clear the debt
+    const net = Object.fromEntries(people.map((p) => [keyOf(p), 0]));
     const paid = Object.fromEntries(people.map((p) => [keyOf(p), 0]));
-    for (const e of expenses) paid[keyOf(e.paid_by)] += +e.amount;
-    const fair = total / n;
+    let openTotal = 0;
+    for (const e of expenses) {
+      const amount = +e.amount;
+      const share = amount / n;
+      const payerKey = keyOf(e.paid_by);
+      paid[payerKey] = (paid[payerKey] || 0) + amount;
+      for (const name of people) {
+        const dk = keyOf(name);
+        if (dk === payerKey) continue;
+        if (isSettled(e.id, name)) continue;
+        net[dk] -= share;
+        net[payerKey] = (net[payerKey] || 0) + share;
+        openTotal += share;
+      }
+    }
+
     const balances = people.map((name) => {
-      const p = paid[keyOf(name)] || 0;
-      return { name, paid: p, share: fair, net: p - fair };
+      const k = keyOf(name);
+      return { name, paid: paid[k] || 0, share: total / n, net: net[k] || 0 };
     }).sort((a, b) => b.net - a.net);
 
     const debtors = balances.filter((b) => b.net < -0.005).map((b) => ({ name: b.name, amt: -b.net }));
@@ -1971,7 +1997,7 @@ const TripModals = (() => {
       if (creditors[j].amt < 0.005) j += 1;
     }
 
-    return { people, cards, balances, transfers, skipped, total, error: null };
+    return { people, cards, balances, transfers, skipped, total, openTotal, error: null };
   }
 
   const MONEY_IC = '<svg class="ic settle-money-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v10"/><path d="M9.5 9.2c.6-1 1.7-1.5 2.7-1.5 1.3 0 2.3.7 2.3 1.8s-.9 1.5-2.4 1.8-2.6.7-2.6 1.8 1.1 1.8 2.6 1.8c1.1 0 2.1-.5 2.7-1.4"/></svg>';
@@ -2016,42 +2042,8 @@ const TripModals = (() => {
       return;
     }
 
-    const result = computeSettlement(state);
-
-    if (result.error === 'need_people') {
-      controls.innerHTML = '';
-      body.innerHTML = `
-        <div class="settle-empty glass">
-          <div class="settle-locked-ic">${BICON.users}</div>
-          <h3>צריך לפחות שני משתתפים</h3>
-          <p>החלוקה היא בין משתתפי הטיול על התקציב המשותף. הזמינו מישהו לטיול כדי לחלק הוצאות.</p>
-        </div>`;
-      return;
-    }
-
-    if (result.error === 'no_expenses' || result.error === 'no_payers') {
-      controls.innerHTML = '';
-      body.innerHTML = `
-        <div class="settle-empty glass">
-          <div class="settle-locked-ic">${BICON.wallet}</div>
-          <h3>${result.error === 'no_payers' ? 'חסר מי שילם' : 'עוד אין הוצאות משותפות'}</h3>
-          <p>${result.error === 'no_payers'
-            ? 'יש הוצאות בתקציב המשותף, אבל בלי שם משלם — אי אפשר לחלק. מחקו והוסיפו מחדש כשאתם מחוברים, או סמנו שולם ממסך התקציב המשותף.'
-            : 'רשמו הוצאות בפועל בתקציב המשותף (מי שילם נשמר אוטומטית). תקציב אישי לא נכנס לחלוקה. אחר כך תחזרו לכאן ותקבלו מי חייב למי.'}</p>
-          <button type="button" class="btn btn-amber settle-to-budget">לתקציב המשותף</button>
-        </div>`;
-      body.querySelector('.settle-to-budget').onclick = () => {
-        dismissModal(wrap);
-        openSharedActualBudget(ctx);
-      };
-      return;
-    }
-
-    const skippedNote = result.skipped.length
-      ? `${result.skipped.length} הוצאות בלי משלם מבין המשתתפים — לא נכנסו לחלוקה`
-      : '';
-    const catEmoji = (key) => (CATS.find((c) => c.key === key) || {}).emoji || '✨';
     const openCards = new Set(); // expense ids expanded under their day
+    const catEmoji = (key) => (CATS.find((c) => c.key === key) || {}).emoji || '✨';
 
     const dayLabel = (day) => {
       if (!day) return { title: 'בלי יום', sub: 'הוצאות שלא שויכו ליום במסלול' };
@@ -2064,10 +2056,9 @@ const TripModals = (() => {
       return { title: `יום ${day}`, sub };
     };
 
-    // day → cards, sorted; undated (null) last
-    const cardsByDay = (() => {
+    function groupByDay(cards) {
       const map = new Map();
-      for (const c of result.cards) {
+      for (const c of cards) {
         const key = c.day_number >= 1 ? c.day_number : 0;
         if (!map.has(key)) map.set(key, []);
         map.get(key).push(c);
@@ -2078,13 +2069,46 @@ const TripModals = (() => {
           if (b[0] === 0) return -1;
           return a[0] - b[0];
         })
-        .map(([day, cards]) => ({ day: day || null, cards, dayTotal: cards.reduce((s, c) => s + c.amount, 0) }));
-    })();
+        .map(([day, list]) => ({ day: day || null, cards: list, dayTotal: list.reduce((s, c) => s + c.amount, 0) }));
+    }
 
-    const attractionRowHtml = (c) => {
+    async function toggleSettled(expenseId, debtorName, currentlySettled) {
+      const headers = await ctx.ensureEdit();
+      if (!headers) return;
+      const code = state.trip.share_code;
+      try {
+        if (currentlySettled) {
+          await TRIPMAKER.api(
+            `/api/trips/code/${code}/expenses/${expenseId}/settlements?debtor=${encodeURIComponent(debtorName)}`,
+            { method: 'DELETE', headers }
+          );
+          state.settlements = (state.settlements || []).filter(
+            (s) => !(+s.expense_id === +expenseId && String(s.debtor_key || s.debtor_name).trim().toLowerCase() === debtorName.trim().toLowerCase())
+          );
+        } else {
+          const row = await TRIPMAKER.api(`/api/trips/code/${code}/expenses/${expenseId}/settlements`, {
+            method: 'POST', headers,
+            body: JSON.stringify({ debtor_name: debtorName }),
+          });
+          state.settlements = [...(state.settlements || []).filter(
+            (s) => !(+s.expense_id === +expenseId && String(s.debtor_key).toLowerCase() === String(row.debtor_key).toLowerCase())
+          ), row];
+        }
+        render();
+      } catch (e) {
+        alert(e.message || 'לא הצלחנו לעדכן');
+      }
+    }
+
+    function attractionRowHtml(c) {
       const open = openCards.has(String(c.id));
+      const payerLine = c.allSettled
+        ? 'הכל הוחזר ✓'
+        : c.refund > 0.005
+          ? `להחזיר עוד ${fmt(c.refund, cur)}`
+          : 'מאוזן';
       return `
-        <div class="settle-acc${open ? ' open' : ''}" data-id="${c.id}">
+        <div class="settle-acc${open ? ' open' : ''}${c.allSettled ? ' all-settled' : ''}" data-id="${c.id}">
           <button type="button" class="settle-acc-btn" aria-expanded="${open}">
             <span class="sc-emoji" aria-hidden="true">${catEmoji(c.category)}</span>
             <span class="settle-acc-text">
@@ -2103,24 +2127,32 @@ const TripModals = (() => {
                   <span class="sb-name">${esc(c.payerName)}</span>
                 </div>
                 <div class="sb-nums">
-                  <span class="sb-role">להחזיר</span>
-                  <span class="sb-net refund">${fmt(c.refund, cur)}</span>
+                  <span class="sb-role">${c.allSettled ? 'הוחזר' : 'להחזיר'}</span>
+                  <span class="sb-net refund">${c.allSettled ? '✓' : fmt(c.refund, cur)}</span>
                 </div>
               </div>
               <div class="sc-debtors">
-                <div class="sc-debtors-label">נדרשים להחזיר</div>
+                <div class="sc-debtors-label">${payerLine}</div>
                 ${c.debtors.map((d) => `
-                  <div class="sc-debtor">
+                  <div class="sc-debtor${d.settled ? ' is-settled' : ''}">
                     <span class="sd-name">${esc(d.name)}</span>
-                    <span class="sd-amt owes">${MONEY_IC}<span>${fmt(d.amount, cur)}</span></span>
+                    <span class="sd-actions">
+                      ${d.settled
+                        ? `<span class="sd-amt settled">שולם ✓</span>
+                           <button type="button" class="settle-paid-btn undo" data-expense="${c.id}" data-debtor="${esc(d.name)}" data-settled="1">ביטול</button>`
+                        : `<span class="sd-amt owes">${MONEY_IC}<span>${fmt(d.amount, cur)}</span></span>
+                           <button type="button" class="settle-paid-btn" data-expense="${c.id}" data-debtor="${esc(d.name)}" data-settled="0">שולם</button>`}
+                    </span>
                   </div>`).join('')}
               </div>
             </div>
           </div>
         </div>`;
-    };
+    }
 
-    const byDayHtml = () => `
+    function byDayHtml(result) {
+      const cardsByDay = groupByDay(result.cards);
+      return `
       <div class="settle-days">
         ${cardsByDay.map(({ day, cards, dayTotal }) => {
           const lab = dayLabel(day);
@@ -2140,8 +2172,9 @@ const TripModals = (() => {
             </section>`;
         }).join('')}
       </div>`;
+    }
 
-    const totalHtml = () => {
+    function totalHtml(result) {
       const balTone = (net) => (net > 0.5 ? 'owed' : net < -0.5 ? 'owes' : 'even');
       const balBlock = (b) => {
         if (Math.abs(b.net) < 0.5) {
@@ -2167,7 +2200,7 @@ const TripModals = (() => {
           </div>` : `
           <div class="settle-even glass">
             <h3>הכל מאוזן 🎉</h3>
-            <p>לפי סה״כ ההוצאות המשותפות — אף אחד לא חייב לאף אחד.</p>
+            <p>לפי ההחזרים שסומנו — אף אחד לא חייב לאף אחד.</p>
           </div>`}
 
         <div class="settle-section">
@@ -2186,9 +2219,9 @@ const TripModals = (() => {
               </div>`).join('')}
           </div>
         </div>`;
-    };
+    }
 
-    function wireAccordions() {
+    function wireInteractions() {
       body.querySelectorAll('.settle-acc-btn').forEach((btn) => {
         btn.onclick = () => {
           const id = String(btn.closest('.settle-acc')?.dataset.id || '');
@@ -2198,10 +2231,56 @@ const TripModals = (() => {
           render();
         };
       });
+      body.querySelectorAll('.settle-paid-btn').forEach((btn) => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          const expenseId = +btn.dataset.expense;
+          const debtor = btn.dataset.debtor;
+          const settled = btn.dataset.settled === '1';
+          if (!expenseId || !debtor) return;
+          btn.disabled = true;
+          toggleSettled(expenseId, debtor, settled);
+        };
+      });
     }
 
     function render() {
+      const result = computeSettlement(state);
+
+      if (result.error === 'need_people') {
+        controls.innerHTML = '';
+        body.innerHTML = `
+          <div class="settle-empty glass">
+            <div class="settle-locked-ic">${BICON.users}</div>
+            <h3>צריך לפחות שני משתתפים</h3>
+            <p>החלוקה היא בין משתתפי הטיול על התקציב המשותף. הזמינו מישהו לטיול כדי לחלק הוצאות.</p>
+          </div>`;
+        return;
+      }
+
+      if (result.error === 'no_expenses' || result.error === 'no_payers') {
+        controls.innerHTML = '';
+        body.innerHTML = `
+          <div class="settle-empty glass">
+            <div class="settle-locked-ic">${BICON.wallet}</div>
+            <h3>${result.error === 'no_payers' ? 'חסר מי שילם' : 'עוד אין הוצאות משותפות'}</h3>
+            <p>${result.error === 'no_payers'
+              ? 'יש הוצאות בתקציב המשותף, אבל בלי שם משלם — אי אפשר לחלק. מחקו והוסיפו מחדש כשאתם מחוברים, או סמנו שולם ממסך התקציב המשותף.'
+              : 'רשמו הוצאות בפועל בתקציב המשותף (מי שילם נשמר אוטומטית). תקציב אישי לא נכנס לחלוקה. אחר כך תחזרו לכאן ותקבלו מי חייב למי.'}</p>
+            <button type="button" class="btn btn-amber settle-to-budget">לתקציב המשותף</button>
+          </div>`;
+        body.querySelector('.settle-to-budget').onclick = () => {
+          dismissModal(wrap);
+          openSharedActualBudget(ctx);
+        };
+        return;
+      }
+
       const byExpense = settleView === 'by-expense';
+      const skippedNote = result.skipped.length
+        ? `${result.skipped.length} הוצאות בלי משלם — לא נכנסו לחלוקה`
+        : '';
+
       controls.innerHTML = `
         <div class="seg seg-sm settle-seg" role="tablist" aria-label="תצוגת חלוקה">
           <button type="button" data-v="by-expense" class="${byExpense ? 'active' : ''}" aria-selected="${byExpense}">לפי יום</button>
@@ -2218,16 +2297,19 @@ const TripModals = (() => {
             <span class="settle-count">${result.cards.length} הוצאות · ${result.people.length} משתתפים</span>
           </div>
           <div class="bs-figure"><b>${fmt(result.total, cur)}</b><span>≈ ${fmt(result.total / result.people.length, cur)} לאדם</span></div>
+          ${result.openTotal > 0.5
+            ? `<p class="settle-open">עדיין פתוח להחזר: <b>${fmt(result.openTotal, cur)}</b></p>`
+            : `<p class="settle-open ok">כל ההחזרים סומנו כשולמו ✓</p>`}
           <p class="settle-note">${byExpense
-            ? 'לפי ימי הטיול — לוחצים על אטרקציה כדי לפתוח את פירוט ההחזרים. תקציב אישי לא נספר.'
-            : 'סיכום לכל הטיול — כמה שילם כל אחד, ומי מחזיר למי אחרי קיזוז.'}</p>
+            ? 'לוחצים על אטרקציה לפירוט. ליד כל חייב — «שולם» מסמן שההחזר בוצע.'
+            : 'סיכום לכל הטיול אחרי סימוני «שולם» — מי עדיין חייב למי.'}</p>
         </div>
 
-        ${byExpense ? byDayHtml() : totalHtml()}
+        ${byExpense ? byDayHtml(result) : totalHtml(result)}
         ${skippedNote ? `<p class="settle-skipped">${esc(skippedNote)}</p>` : ''}
         <p class="mw-footnote">רוצים לתקן משהו? עדכנו הוצאות בתקציב המשותף ופתחו שוב את החלוקה.</p>
       `;
-      if (byExpense) wireAccordions();
+      if (byExpense) wireInteractions();
     }
 
     render();

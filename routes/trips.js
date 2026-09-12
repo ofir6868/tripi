@@ -76,7 +76,7 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
       delete trip.invite_token; // the invite link is only revealed to participants
       delete trip.plan_state; // and so is the planning chat's memory — it holds what they told the AI
     }
-    const [items, hotels, budget, expenses, participants] = await Promise.all([
+    const [items, hotels, budget, expenses, participants, settlements] = await Promise.all([
       pool.query('SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, time_label NULLS LAST, sort_order, id', [trip.id]),
       pool.query('SELECT * FROM trip_hotels WHERE trip_id = $1 ORDER BY night_start, id', [trip.id]),
       canEdit
@@ -92,6 +92,13 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
          ORDER BY (u.id = COALESCE($2, -1)) DESC, u.name`,
         [trip.id, trip.owner_id]
       ) : Promise.resolve({ rows: [] }),
+      canEdit
+        ? pool.query(
+          `SELECT id, expense_id, debtor_key, debtor_name, created_at
+           FROM trip_expense_settlements WHERE trip_id = $1`,
+          [trip.id]
+        )
+        : Promise.resolve({ rows: [] }),
     ]);
     // privacy split: viewers (gallery + share-code) see the itinerary and hotel
     // names, never money, notes, expenses or the budget — those are for
@@ -104,6 +111,7 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
       hotels: canEdit ? hotels.rows : viewerSafeHotels(hotels.rows),
       budget: canEdit ? (budget.rows[0] || null) : null,
       expenses: canEdit ? expenses.rows : [],
+      settlements: canEdit ? settlements.rows : [],
       participants: participants.rows,
     });
   } catch (err) {
@@ -710,6 +718,63 @@ router.delete('/api/trips/code/:code/expenses/:expenseId', authOptional, async (
     const trip = await tripWithEditAuth(req, res);
     if (!trip) return;
     await pool.query('DELETE FROM trip_expenses WHERE id = $1 AND trip_id = $2', [req.params.expenseId, trip.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// ---- settle marks: someone paid their equal share back for a shared expense ----
+
+function settleDebtorKey(name) {
+  return String(name || '').trim().toLowerCase().slice(0, 160);
+}
+
+router.post('/api/trips/code/:code/expenses/:expenseId/settlements', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const expenseId = parseInt(req.params.expenseId, 10);
+    if (!(expenseId > 0)) return res.status(400).json({ error: 'הוצאה לא תקינה' });
+    const owned = await pool.query(
+      'SELECT id, paid_by FROM trip_expenses WHERE id = $1 AND trip_id = $2',
+      [expenseId, trip.id]
+    );
+    if (!owned.rows[0]) return res.status(404).json({ error: 'ההוצאה לא נמצאה' });
+    const debtorName = String((req.body && req.body.debtor_name) || '').trim().slice(0, 160);
+    const debtorKey = settleDebtorKey(debtorName);
+    if (!debtorKey) return res.status(400).json({ error: 'חסר שם של מי ששילם' });
+    if (settleDebtorKey(owned.rows[0].paid_by) === debtorKey) {
+      return res.status(400).json({ error: 'מי ששילם על ההוצאה לא צריך לסמן החזר לעצמו' });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO trip_expense_settlements (trip_id, expense_id, debtor_key, debtor_name, settled_by)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (expense_id, debtor_key) DO UPDATE
+         SET debtor_name = EXCLUDED.debtor_name
+       RETURNING id, expense_id, debtor_key, debtor_name, created_at`,
+      [trip.id, expenseId, debtorKey, debtorName, req.user && req.user.id ? req.user.id : null]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+router.delete('/api/trips/code/:code/expenses/:expenseId/settlements', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const expenseId = parseInt(req.params.expenseId, 10);
+    const debtorKey = settleDebtorKey(req.query.debtor || (req.body && req.body.debtor_name));
+    if (!(expenseId > 0) || !debtorKey) return res.status(400).json({ error: 'חסרים פרטי ההחזר' });
+    await pool.query(
+      `DELETE FROM trip_expense_settlements
+       WHERE trip_id = $1 AND expense_id = $2 AND debtor_key = $3`,
+      [trip.id, expenseId, debtorKey]
+    );
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
