@@ -1281,8 +1281,7 @@
     // one-day trips skip hotels either way — sleeping at home
     budgetBtn.style.display = privileged ? '' : 'none';
     hotelsBtn.style.display = privileged && trip.days >= 2 ? '' : 'none';
-    // חלוקה: always offered to participants, but the panel itself unlocks on the
-    // trip's last day (and stays open afterwards)
+    // חלוקה: available to participants throughout the trip
     settleBtn.style.display = privileged ? '' : 'none';
     document.getElementById('docs-btn').style.display = privileged ? '' : 'none';
     hotelsBtn.onclick = () => (canEdit ? TripModals.openHotels(modalCtx) : requireSignup());

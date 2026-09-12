@@ -1846,42 +1846,16 @@ const TripModals = (() => {
 
   // =================================================================
   //  SETTLE — חלוקת הוצאות / מי חייב למי
-  //  Always offered in the trip menu for participants. The panel itself
-  //  unlocks on the trip's last calendar day (and stays open after).
+  //  Available throughout the trip for participants (not only on the last day).
   //  Shared budget only: state.expenses (server) among trip participants.
   //  Personal budget (localStorage) is never read here.
   // =================================================================
 
-  function tripEndDate(trip) {
-    if (!trip || !trip.start_date) return null;
-    const d = new Date(trip.start_date);
-    d.setDate(d.getDate() + Math.max(+trip.days || 1, 1) - 1);
-    return d;
-  }
-
-  // compare local calendar days — same basis as currentTripDay / dayDate
-  function settleAvailability(trip) {
-    const end = tripEndDate(trip);
-    if (!end) return { open: false, reason: 'nodates', unlockDate: null };
-    const today = TRIPMAKER.isoDate(new Date());
-    const endIso = TRIPMAKER.isoDate(end);
-    if (today >= endIso) return { open: true, reason: null, unlockDate: end };
-    return { open: false, reason: 'early', unlockDate: end };
-  }
-
   function syncSettleButton(state) {
     const btn = document.getElementById('settle-btn');
     if (!btn || !state || !state.trip) return;
-    const avail = settleAvailability(state.trip);
-    btn.classList.toggle('is-locked', !avail.open);
-    if (!avail.open && avail.unlockDate) {
-      const when = avail.unlockDate.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' });
-      btn.title = `חלוקת הוצאות — נפתח ביום האחרון של הטיול (${when})`;
-    } else if (!avail.open) {
-      btn.title = 'חלוקת הוצאות — נפתח כשיש תאריכים לטיול, מהיום האחרון';
-    } else {
-      btn.title = 'חלוקת הוצאות — מי חייב למי (תקציב משותף)';
-    }
+    btn.classList.remove('is-locked');
+    btn.title = 'חלוקת הוצאות — מי חייב למי (תקציב משותף)';
   }
 
   // shared-budget group: trip participants, plus anyone named as paid_by on a
@@ -2017,30 +1991,7 @@ const TripModals = (() => {
     const body = wrap.querySelector('.mw-body');
     const controls = wrap.querySelector('.mw-controls');
 
-    const avail = settleAvailability(state.trip);
     const cur = curOf(state);
-    const heLong = (d) => d.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
-
-    if (!avail.open) {
-      controls.innerHTML = '';
-      const unlock = avail.unlockDate;
-      body.innerHTML = `
-        <div class="settle-locked glass">
-          <div class="settle-locked-ic">${BICON.lock}</div>
-          <h3>עוד לא הגיע הזמן</h3>
-          ${avail.reason === 'nodates' ? `
-            <p>קודם צריך לקבוע תאריכים לטיול. החלוקה נפתחת ביום האחרון של הטיול — אחרי שסיימתם להוציא מהתקציב המשותף, אפשר לסגור חשבונות בלי לחץ.</p>
-          ` : `
-            <p>החלוקה נפתחת <b>מהיום האחרון של הטיול</b> (${esc(heLong(unlock))}). עד אז אפשר להמשיך לרשום הוצאות בתקציב המשותף — הן ייכנסו אוטומטית לחישוב.</p>
-          `}
-          <button type="button" class="btn btn-ghost settle-to-budget">לתקציב המשותף</button>
-        </div>`;
-      body.querySelector('.settle-to-budget').onclick = () => {
-        dismissModal(wrap);
-        openSharedActualBudget(ctx);
-      };
-      return;
-    }
 
     const openCards = new Set(); // expense ids expanded under their day
     const catEmoji = (key) => (CATS.find((c) => c.key === key) || {}).emoji || '✨';

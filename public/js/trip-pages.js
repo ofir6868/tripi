@@ -259,12 +259,7 @@ const TripPages = (() => {
     { id: 'hotels-btn', title: 'מלונות', desc: 'איפה ישנים — לילות, הזמנות ומחירים' },
     { id: 'participants-btn', title: () => document.getElementById('participants-label')?.textContent || 'משתתפים', desc: 'מי מתכנן איתכם, וקישור ההזמנה' },
     { id: 'settle-btn', title: 'חלוקת הוצאות',
-      cls: (el) => (el.classList.contains('is-locked') ? 'locked' : ''),
-      desc: () => {
-        const el = document.getElementById('settle-btn');
-        if (el?.classList.contains('is-locked')) return 'מוצג כבר עכשיו — נפתח ביום האחרון של הטיול';
-        return 'מי חייב למי — לפי התקציב המשותף בלבד';
-      } },
+      desc: 'מי חייב למי — לפי התקציב המשותף בלבד' },
     { id: 'wa-share', title: 'שיתוף בוואטסאפ', desc: 'שולחים את המסלול לחברים' },
     { id: 'copy-link', title: 'העתקת קישור', desc: 'קישור למסלול, להדבקה בכל מקום' },
     { id: 'like-btn', title: 'אהבתי', desc: () => `${document.getElementById('like-count')?.textContent || 0} אהבו את הטיול` },
