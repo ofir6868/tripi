@@ -1796,13 +1796,15 @@ body.page-open { overflow: hidden; }
 }
 .settle-summary { text-align: right; margin-bottom: 4px; }
 .settle-summary .bs-figure { justify-content: flex-start; }
+.settle-summary .settle-note { margin-bottom: 0; }
 .settle-count { font-size: .8rem; color: var(--paper-dim); font-weight: 600; }
+.settle-skipped { text-align: center; font-size: .8rem; color: var(--paper-dim); margin: 8px 4px 0; }
+
+.settle-cards { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+.settle-seg { width: 100%; }
 .settle-section { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
 .settle-transfers,
-.settle-balances,
-.settle-expenses {
-  padding: 4px 0; overflow: hidden;
-}
+.settle-balances { padding: 4px 0; overflow: hidden; }
 .settle-xfer {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px 16px; border-bottom: 1px solid var(--glass-border);
@@ -1810,37 +1812,95 @@ body.page-open { overflow: hidden; }
 .settle-xfer:last-child { border-bottom: none; }
 .sx-text { font-size: .95rem; line-height: 1.35; }
 .sx-text b { font-weight: 700; }
-.sx-amt {
-  flex: none; font-weight: 800; font-variant-numeric: tabular-nums;
-  color: var(--amber); direction: ltr; unicode-bidi: isolate;
+.sx-amt.owes {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  font-weight: 800; font-size: .95rem; color: var(--danger);
+  font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate;
 }
 .settle-bal {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px 16px; border-bottom: 1px solid var(--glass-border);
 }
 .settle-bal:last-child { border-bottom: none; }
-.sb-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.sb-avatar {
+.settle-bal .sb-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.settle-bal .sb-avatar {
   width: 34px; height: 34px; border-radius: 50%; flex: none;
   display: grid; place-items: center; font-weight: 800; font-size: .9rem;
   background: rgba(143, 216, 196, .16); color: var(--mint);
 }
-.sb-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sb-nums { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
-.sb-paid { font-size: .78rem; color: var(--paper-dim); direction: ltr; unicode-bidi: isolate; }
-.sb-net { font-size: .88rem; font-weight: 800; font-variant-numeric: tabular-nums; }
-.settle-bal.owed .sb-net { color: var(--mint); }
-.settle-bal.owes .sb-net { color: var(--amber); }
-.settle-bal.even .sb-net { color: var(--paper-dim); }
-.settle-exp {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-  padding: 10px 16px; border-bottom: 1px solid var(--glass-border); font-size: .9rem;
+.settle-bal .sb-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.settle-bal .sb-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settle-bal .sb-paid { font-size: .78rem; color: var(--paper-dim); }
+.settle-bal .sb-nums { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
+.settle-bal .sb-role { font-size: .78rem; font-weight: 700; }
+.settle-bal .sb-role.refund { color: var(--mint); }
+.settle-bal .sb-role.owes { color: var(--danger); }
+.settle-bal .sb-role.even { color: var(--paper-dim); }
+.settle-bal .sb-net {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: .95rem; font-weight: 800; font-variant-numeric: tabular-nums;
+  direction: ltr; unicode-bidi: isolate;
 }
-.settle-exp:last-child { border-bottom: none; }
-.se-title { min-width: 0; }
-.se-title small { color: var(--paper-dim); font-weight: 600; }
-.se-amt { flex: none; font-weight: 700; direction: ltr; unicode-bidi: isolate; color: var(--paper-dim); }
-.settle-skipped { text-align: center; font-size: .8rem; color: var(--paper-dim); margin: 8px 4px 0; }
+.settle-bal .sb-net.refund { color: var(--mint); }
+.settle-bal .sb-net.owes { color: var(--danger); }
+.settle-bal .sb-net.even { color: var(--paper-dim); }
+.settle-card { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+.sc-head { display: flex; align-items: flex-start; gap: 12px; }
+.sc-emoji {
+  width: 40px; height: 40px; flex: none; border-radius: 12px;
+  display: grid; place-items: center; font-size: 1.25rem;
+  background: rgba(255, 180, 95, .12);
+}
+.sc-titles { flex: 1; min-width: 0; }
+.sc-title {
+  margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 1.2rem; line-height: 1.25;
+}
+.sc-meta { margin: 4px 0 0; font-size: .84rem; color: var(--paper-dim); line-height: 1.4; }
+.sc-paid { margin: 0; font-size: .9rem; color: var(--paper-dim); }
+.sc-paid b { color: var(--paper); font-weight: 700; }
+
+.sc-payer {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; border-radius: 14px;
+  background: rgba(143, 216, 196, .08); border: 1px solid rgba(143, 216, 196, .22);
+}
+.sc-payer .sb-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sc-payer .sb-avatar {
+  width: 34px; height: 34px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; font-weight: 800; font-size: .9rem;
+  background: rgba(143, 216, 196, .2); color: var(--mint);
+}
+.sc-payer .sb-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-payer .sb-nums { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
+.sc-payer .sb-role { font-size: .78rem; font-weight: 700; color: var(--mint); }
+.sc-payer .sb-net.refund {
+  font-size: 1.05rem; font-weight: 800; color: var(--mint);
+  font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate;
+}
+
+.sc-debtors {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px; border-radius: 14px;
+  background: rgba(255, 122, 110, .06); border: 1px solid rgba(255, 122, 110, .2);
+}
+.sc-debtors-label {
+  font-size: .78rem; font-weight: 800; color: var(--danger); letter-spacing: .01em;
+}
+.sc-debtor {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 6px 0;
+}
+.sc-debtor + .sc-debtor { border-top: 1px solid rgba(255, 122, 110, .14); padding-top: 10px; }
+.sd-name { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sd-amt.owes {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  font-weight: 800; font-size: .95rem; color: var(--danger);
+  font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate;
+}
+.settle-money-ic {
+  width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none;
+  stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+}
 
 /* ---------- מסמכים ---------- */
 
