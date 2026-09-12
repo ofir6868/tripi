@@ -167,6 +167,17 @@ CREATE INDEX IF NOT EXISTS idx_items_trip ON trip_items(trip_id);
 CREATE INDEX IF NOT EXISTS idx_hotels_trip ON trip_hotels(trip_id);
 CREATE INDEX IF NOT EXISTS idx_expenses_trip ON trip_expenses(trip_id);
 CREATE INDEX IF NOT EXISTS idx_expense_settlements_trip ON trip_expense_settlements(trip_id);
+
+-- one-shot system banners: users see the latest published row once per device
+CREATE TABLE IF NOT EXISTS announcements (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  published_at TIMESTAMPTZ,
+  created_by INT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_announcements_published ON announcements(published_at DESC NULLS LAST);
 `;
 /* Every index here may only name columns that already exist on a database this
    schema has met before. On an existing database CREATE TABLE IF NOT EXISTS is a

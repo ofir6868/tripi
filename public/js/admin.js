@@ -18,6 +18,8 @@ const ICON = {
       <path d="M19 8v6M22 11h-6"/></svg>`,
   pencil: `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>`,
+  megaphone: `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="m3 11 18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>`,
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -26,7 +28,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const searchEl = document.getElementById('adm-search');
   const tabTrips = document.getElementById('tab-trips');
   const tabUsers = document.getElementById('tab-users');
+  const tabAnnounce = document.getElementById('tab-announce');
   const addUserBtn = document.getElementById('adm-add-user');
+  const addAnnounceBtn = document.getElementById('adm-add-announce');
 
   const locked = (msg) => {
     statsEl.innerHTML = '';
@@ -72,9 +76,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function load() {
     panel.innerHTML = '<div class="skl-rows">' + '<span class="skl"></span>'.repeat(4) + '</div>';
-    const q = encodeURIComponent(searchEl.value.trim());
     try {
-      rows = await TRIPMAKER.api(`/api/admin/${tab}?q=${q}`);
+      if (tab === 'announce') {
+        rows = await TRIPMAKER.api('/api/admin/announcements');
+        searchEl.style.display = 'none';
+      } else {
+        searchEl.style.display = '';
+        const q = encodeURIComponent(searchEl.value.trim());
+        rows = await TRIPMAKER.api(`/api/admin/${tab}?q=${q}`);
+      }
       render();
     } catch (err) {
       panel.innerHTML = `<div class="empty-day">${TRIPMAKER.esc(err.message)}</div>`;
@@ -83,11 +93,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function render() {
     if (!rows.length) {
-      panel.innerHTML = '<div class="empty-day">אין תוצאות לחיפוש הזה</div>';
+      panel.innerHTML = tab === 'announce'
+        ? '<div class="empty-day">עוד אין הודעות מערכת — שלחו את הראשונה בכפתור למעלה</div>'
+        : '<div class="empty-day">אין תוצאות לחיפוש הזה</div>';
       return;
     }
-    panel.innerHTML = tab === 'trips' ? tripsTable() : usersTable();
-    if (tab === 'trips') wireTrips(); else wireUsers();
+    if (tab === 'trips') { panel.innerHTML = tripsTable(); wireTrips(); }
+    else if (tab === 'users') { panel.innerHTML = usersTable(); wireUsers(); }
+    else { panel.innerHTML = announceList(); wireAnnounce(); }
   }
 
   function tripsTable() {
@@ -314,19 +327,117 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  function announceList() {
+    return `
+      <div class="adm-announce-list">
+        ${rows.map((a) => {
+          const live = !!a.published_at;
+          const when = heDate(a.published_at || a.created_at);
+          return `
+            <article class="adm-announce glass" data-id="${a.id}">
+              <div class="adm-announce-top">
+                <span class="adm-announce-badge ${live ? 'live' : 'draft'}">${live ? 'פורסם' : 'טיוטה'}</span>
+                <span class="adm-sub">${when}${a.author_name ? ` · ${TRIPMAKER.esc(a.author_name)}` : ''}</span>
+                <span class="adm-announce-actions">
+                  ${live ? '' : `<button type="button" class="btn btn-ghost adm-pub-ann" title="פרסום עכשיו">פרסום</button>`}
+                  <button type="button" class="adm-del" title="מחיקת ההודעה" aria-label="מחיקה">${ICON.trash}</button>
+                </span>
+              </div>
+              <h3 class="adm-announce-title">${TRIPMAKER.esc(a.title)}</h3>
+              <p class="adm-announce-body">${TRIPMAKER.esc(a.body)}</p>
+            </article>`;
+        }).join('')}
+      </div>`;
+  }
+
+  function openComposeAnnounce() {
+    const { wrap, close } = admModal(`
+      <h2>הודעת מערכת חדשה</h2>
+      <p class="modal-sub">תוצג כבאנר לכל מי שיפתח את האתר בפעם הראשונה מאז הפרסום</p>
+      <div class="field"><label>כותרת</label>
+        <input type="text" id="an-title" maxlength="160" placeholder="מה חדש ב-TRIP MAKER"></div>
+      <div class="field"><label>תוכן ההודעה</label>
+        <textarea id="an-body" rows="6" maxlength="4000" placeholder="ספרו על העדכון — בקצרה ובבהירות"></textarea></div>
+      <label class="adm-check"><input type="checkbox" id="an-publish" checked>
+        <span>לפרסם מיד — המשתמשים יראו את ההודעה בכניסה הבאה</span></label>
+      <div class="form-error" id="an-err"></div>
+      <div class="adm-modal-actions">
+        <button class="btn btn-ghost" id="an-cancel">ביטול</button>
+        <button class="btn btn-amber" id="an-go">שליחה</button>
+      </div>`);
+    wrap.querySelector('#an-cancel').onclick = close;
+    wrap.querySelector('#an-go').onclick = async (e) => {
+      const btn = e.currentTarget;
+      if (btn.disabled) return;
+      const title = wrap.querySelector('#an-title').value.trim();
+      const body = wrap.querySelector('#an-body').value.trim();
+      const publish = wrap.querySelector('#an-publish').checked;
+      const err = wrap.querySelector('#an-err');
+      err.textContent = '';
+      if (!title) { err.textContent = 'צריך כותרת'; return; }
+      if (!body) { err.textContent = 'צריך תוכן'; return; }
+      btn.disabled = true;
+      try {
+        await TRIPMAKER.api('/api/admin/announcements', {
+          method: 'POST',
+          body: JSON.stringify({ title, body, publish }),
+        });
+        close();
+        if (tab === 'announce') load();
+        else setTab('announce');
+      } catch (ex) {
+        err.textContent = ex.message;
+        btn.disabled = false;
+      }
+    };
+  }
+
+  function wireAnnounce() {
+    panel.querySelectorAll('.adm-del').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const card = btn.closest('.adm-announce');
+        const title = card.querySelector('.adm-announce-title')?.textContent?.trim() || 'ההודעה';
+        if (!confirm(`למחוק את "${title}"?`)) return;
+        btn.disabled = true;
+        try {
+          await TRIPMAKER.api('/api/admin/announcements/' + card.dataset.id, { method: 'DELETE' });
+          card.remove();
+          rows = rows.filter((a) => String(a.id) !== card.dataset.id);
+          if (!rows.length) render();
+        } catch (err) { btn.disabled = false; alert(err.message); }
+      });
+    });
+    panel.querySelectorAll('.adm-pub-ann').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const card = btn.closest('.adm-announce');
+        btn.disabled = true;
+        try {
+          const updated = await TRIPMAKER.api('/api/admin/announcements/' + card.dataset.id + '/publish', { method: 'POST' });
+          const i = rows.findIndex((a) => String(a.id) === card.dataset.id);
+          if (i >= 0) rows[i] = { ...rows[i], ...updated };
+          render();
+        } catch (err) { btn.disabled = false; alert(err.message); }
+      });
+    });
+  }
+
   function setTab(next) {
     tab = next;
     tabTrips.classList.toggle('active', next === 'trips');
     tabUsers.classList.toggle('active', next === 'users');
+    tabAnnounce.classList.toggle('active', next === 'announce');
     searchEl.placeholder = next === 'trips'
       ? 'חיפוש לפי שם, יעד, אימייל או קוד טיול…'
       : 'חיפוש לפי שם או אימייל…';
     addUserBtn.style.display = next === 'users' ? '' : 'none';
+    addAnnounceBtn.style.display = next === 'announce' ? '' : 'none';
     load();
   }
   addUserBtn.addEventListener('click', openAddUser);
+  addAnnounceBtn.addEventListener('click', openComposeAnnounce);
   tabTrips.addEventListener('click', () => setTab('trips'));
   tabUsers.addEventListener('click', () => setTab('users'));
+  tabAnnounce.addEventListener('click', () => setTab('announce'));
 
   let searchTimer;
   searchEl.addEventListener('input', () => {

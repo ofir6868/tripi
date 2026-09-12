@@ -648,4 +648,44 @@ document.addEventListener('DOMContentLoaded', async () => {
     TRIPMAKER.refreshUser().then((changed) => { if (changed) renderHeader(); });
   }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  // system announcements: one-shot banner for the latest published message —
+  // skip the admin page so composing doesn't pop the banner in your face
+  if (!location.pathname.startsWith('/admin')) {
+    checkSystemAnnouncement();
+  }
 });
+
+// latest published announcement, shown once per device until a newer one ships
+async function checkSystemAnnouncement() {
+  try {
+    const ann = await TRIPMAKER.api('/api/announcements/current');
+    if (!ann || !ann.id) return;
+    let seen = 0;
+    try { seen = Number(localStorage.getItem('tm_announcement_seen') || 0) || 0; } catch { /* no storage */ }
+    if (ann.id <= seen) return;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-backdrop announce-backdrop';
+    wrap.setAttribute('role', 'dialog');
+    wrap.setAttribute('aria-modal', 'true');
+    wrap.setAttribute('aria-labelledby', 'announce-title');
+    wrap.innerHTML = `
+      <div class="modal glass announce-modal">
+        <button type="button" class="modal-close" aria-label="סגירה">✕</button>
+        <div class="announce-eyebrow">הודעת מערכת</div>
+        <h2 id="announce-title">${TRIPMAKER.esc(ann.title)}</h2>
+        <p class="announce-body">${TRIPMAKER.esc(ann.body)}</p>
+        <button type="button" class="btn btn-amber btn-lg announce-ok" style="width:100%;justify-content:center">הבנתי</button>
+      </div>`;
+    document.body.appendChild(wrap);
+
+    const dismiss = () => {
+      try { localStorage.setItem('tm_announcement_seen', String(ann.id)); } catch { /* no storage */ }
+      TRIPMAKER.closeOverlay(wrap, { remove: true });
+    };
+    wrap.querySelector('.modal-close').onclick = dismiss;
+    wrap.querySelector('.announce-ok').onclick = dismiss;
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) dismiss(); });
+    requestAnimationFrame(() => wrap.classList.add('open'));
+  } catch { /* announcements never block the page */ }
+}

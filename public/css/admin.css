@@ -132,7 +132,32 @@
 }
 .adm-switch input:checked + span { background: rgba(255, 180, 95, .28); border-color: rgba(255, 180, 95, .5); }
 .adm-switch input:checked + span::after { transform: translateX(-18px); background: var(--amber); }
-.adm-switch input:disabled + span { opacity: .5; cursor: not-allowed; }@media (max-width: 700px) {
+.adm-switch input:disabled + span { opacity: .5; cursor: not-allowed; }
+
+/* ---------- system announcements ---------- */
+.adm-announce-list { display: flex; flex-direction: column; gap: 12px; padding: 8px; }
+.adm-announce { padding: 16px 18px; border-radius: var(--radius-sm); }
+.adm-announce-top {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.adm-announce-badge {
+  font-size: .72rem; font-weight: 800; padding: 3px 9px; border-radius: 999px;
+}
+.adm-announce-badge.live {
+  background: rgba(143, 216, 196, .16); color: var(--mint);
+}
+.adm-announce-badge.draft {
+  background: rgba(255, 255, 255, .06); color: var(--paper-dim);
+}
+.adm-announce-actions { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 6px; }
+.adm-announce-title {
+  margin: 0 0 6px; font-family: var(--font-display); font-weight: 400; font-size: 1.2rem;
+}
+.adm-announce-body {
+  margin: 0; white-space: pre-wrap; color: var(--paper-dim); font-size: .92rem; line-height: 1.5;
+}
+
+@media (max-width: 700px) {
   .adm-table { font-size: .85rem; }
   .adm-table th, .adm-table td { padding: 9px 8px; }
 }

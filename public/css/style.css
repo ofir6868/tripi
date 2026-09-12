@@ -514,6 +514,21 @@ body::after {
 .modal .modal-sub { color: var(--paper-dim); font-weight: 300; margin-bottom: 20px; }
 /* a modal with nothing to add under its title shouldn't reserve the line */
 .modal .modal-sub:empty { display: none; }
+
+/* system announcement one-shot banner — shown from common.js on first visit after publish */
+.announce-modal { width: min(440px, 100%); }
+.announce-eyebrow {
+  font-size: .78rem; font-weight: 800; color: var(--amber); letter-spacing: .02em;
+  margin-bottom: 8px;
+}
+.announce-modal h2 {
+  font-family: var(--font-display); font-weight: 400; font-size: 1.45rem;
+  margin: 0 0 12px; line-height: 1.25;
+}
+.announce-body {
+  margin: 0 0 22px; white-space: pre-wrap; color: var(--paper-dim);
+  font-size: .95rem; line-height: 1.55; max-height: min(40vh, 280px); overflow-y: auto;
+}
 .modal-close {
   position: absolute; top: 16px; left: 16px; width: 34px; height: 34px;
   display: grid; place-items: center;

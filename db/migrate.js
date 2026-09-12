@@ -1,4 +1,4 @@
-// Migrations 2–20, in order. Idempotent — safe to run on every boot, and the server
+// Migrations 2–21, in order. Idempotent — safe to run on every boot, and the server
 // does (lib/db-bootstrap.js), so a replaced database catches up by itself.
 // Usage: DATABASE_URL=postgres://... node db/migrate.js
 require('../lib/env');
@@ -229,6 +229,18 @@ async function migrate(pool, log = console.log) {
       UNIQUE (expense_id, debtor_key)
     )`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_expense_settlements_trip ON trip_expense_settlements(trip_id)`);
+
+  log('Migration 21: system announcements (one-shot banners for users)...');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS announcements (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      published_at TIMESTAMPTZ,
+      created_by INT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ DEFAULT now()
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_announcements_published ON announcements(published_at DESC NULLS LAST)`);
 
   log('Done.');
 }
