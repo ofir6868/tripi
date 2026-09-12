@@ -101,6 +101,9 @@
   font-size: .9rem; color: var(--paper-dim); line-height: 1.5; margin: 4px 0 14px;
 }
 .adm-check input { accent-color: var(--amber); width: 17px; height: 17px; margin-top: 1px; flex: none; cursor: pointer; }
+.adm-check-switch { align-items: center; }
+.adm-check-switch .adm-switch { position: relative; flex: none; }
+.adm-check-switch.is-off { opacity: .45; pointer-events: none; }
 .adm-warn {
   font-size: .92rem; line-height: 1.6; color: var(--paper-dim);
   background: rgba(255, 122, 110, .09); border: 1px solid rgba(255, 122, 110, .25);

@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v70'; // our own typefaces, and one stylesheet per page
+const VERSION = 'v71'; // announce push actions (open vs view itinerary)
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first
@@ -288,6 +288,7 @@ self.addEventListener('push', (e) => {
         .map((cc) => COUNTRIES.flagEmoji(cc)).join('')
       : '';
 
+    const announce = d.kind === 'announce';
     await self.registration.showNotification(flags ? `${title} ${flags}` : title, {
       body: d.body || '',
       icon,
@@ -300,10 +301,15 @@ self.addEventListener('push', (e) => {
       vibrate: [28, 40, 28],
       timestamp: Date.now(),
       data: { url: d.url || '/' },
-      actions: [
-        { action: 'open', title: 'לצפייה במסלול' },
-        { action: 'dismiss', title: 'אחר כך' },
-      ],
+      actions: announce
+        ? [
+          { action: 'open', title: 'לפתיחה' },
+          { action: 'dismiss', title: 'סגירה' },
+        ]
+        : [
+          { action: 'open', title: 'לצפייה במסלול' },
+          { action: 'dismiss', title: 'אחר כך' },
+        ],
     });
   })());
 });

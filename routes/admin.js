@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { pool } = require('../lib/db');
 const { authRequired, adminRequired, authOptional } = require('../lib/auth');
+const { notifyAnnouncementAsync } = require('../lib/push');
 
 const router = express.Router();
 
@@ -11,6 +12,7 @@ const router = express.Router();
 // ---- system announcements (one-shot banners) ----
 // Public: the latest published message — any page can ask without auth.
 // Admin: compose / list / delete. Dismiss is device-local (localStorage).
+// Optional push fan-out to every subscribed browser when the admin opts in.
 
 router.get('/api/announcements/current', authOptional, async (_req, res) => {
   try {
@@ -52,12 +54,15 @@ router.post('/api/admin/announcements', authRequired, adminRequired, async (req,
     if (!title) return res.status(400).json({ error: 'צריך כותרת להודעה' });
     if (!body) return res.status(400).json({ error: 'צריך תוכן להודעה' });
     const publish = !!(req.body && req.body.publish);
+    // push only makes sense on a live announcement — drafts stay quiet
+    const notify = publish && !!(req.body && req.body.notify);
     const { rows } = await pool.query(
       `INSERT INTO announcements (title, body, published_at, created_by)
        VALUES ($1, $2, $3, $4)
        RETURNING id, title, body, published_at, created_at`,
       [title, body, publish ? new Date() : null, req.user.id]
     );
+    if (notify) notifyAnnouncementAsync(rows[0]);
     res.json(rows[0]);
   } catch (err) {
     console.error(err);
@@ -69,6 +74,7 @@ router.post('/api/admin/announcements/:id/publish', authRequired, adminRequired,
   try {
     const id = parseInt(req.params.id, 10);
     if (!(id > 0)) return res.status(400).json({ error: 'הודעה לא תקינה' });
+    const notify = !!(req.body && req.body.notify);
     const { rows } = await pool.query(
       `UPDATE announcements SET published_at = now()
        WHERE id = $1
@@ -76,6 +82,7 @@ router.post('/api/admin/announcements/:id/publish', authRequired, adminRequired,
       [id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'ההודעה לא נמצאה' });
+    if (notify) notifyAnnouncementAsync(rows[0]);
     res.json(rows[0]);
   } catch (err) {
     console.error(err);

@@ -360,18 +360,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         <textarea id="an-body" rows="6" maxlength="4000" placeholder="ספרו על העדכון — בקצרה ובבהירות"></textarea></div>
       <label class="adm-check"><input type="checkbox" id="an-publish" checked>
         <span>לפרסם מיד — המשתמשים יראו את ההודעה בכניסה הבאה</span></label>
+      <label class="adm-check adm-check-switch" id="an-notify-row">
+        <span class="adm-switch"><input type="checkbox" id="an-notify" checked><span></span></span>
+        <span>לשלוח הודעת נוטיפיקציה לכולם — למי ששמר למסך הבית ואישר התראות</span></label>
       <div class="form-error" id="an-err"></div>
       <div class="adm-modal-actions">
         <button class="btn btn-ghost" id="an-cancel">ביטול</button>
         <button class="btn btn-amber" id="an-go">שליחה</button>
       </div>`);
+    const publishEl = wrap.querySelector('#an-publish');
+    const notifyEl = wrap.querySelector('#an-notify');
+    const notifyRow = wrap.querySelector('#an-notify-row');
+    const syncNotify = () => {
+      const on = publishEl.checked;
+      notifyEl.disabled = !on;
+      if (!on) notifyEl.checked = false;
+      notifyRow.classList.toggle('is-off', !on);
+    };
+    publishEl.addEventListener('change', syncNotify);
+    syncNotify();
     wrap.querySelector('#an-cancel').onclick = close;
     wrap.querySelector('#an-go').onclick = async (e) => {
       const btn = e.currentTarget;
       if (btn.disabled) return;
       const title = wrap.querySelector('#an-title').value.trim();
       const body = wrap.querySelector('#an-body').value.trim();
-      const publish = wrap.querySelector('#an-publish').checked;
+      const publish = publishEl.checked;
+      const notify = publish && notifyEl.checked;
       const err = wrap.querySelector('#an-err');
       err.textContent = '';
       if (!title) { err.textContent = 'צריך כותרת'; return; }
@@ -380,7 +395,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         await TRIPMAKER.api('/api/admin/announcements', {
           method: 'POST',
-          body: JSON.stringify({ title, body, publish }),
+          body: JSON.stringify({ title, body, publish, notify }),
         });
         close();
         if (tab === 'announce') load();
@@ -410,9 +425,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     panel.querySelectorAll('.adm-pub-ann').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const card = btn.closest('.adm-announce');
+        if (!confirm('לפרסם את ההודעה עכשיו?')) return;
+        const notify = confirm('לשלוח גם הודעת נוטיפיקציה לכולם?');
         btn.disabled = true;
         try {
-          const updated = await TRIPMAKER.api('/api/admin/announcements/' + card.dataset.id + '/publish', { method: 'POST' });
+          const updated = await TRIPMAKER.api('/api/admin/announcements/' + card.dataset.id + '/publish', {
+            method: 'POST',
+            body: JSON.stringify({ notify }),
+          });
           const i = rows.findIndex((a) => String(a.id) === card.dataset.id);
           if (i >= 0) rows[i] = { ...rows[i], ...updated };
           render();
