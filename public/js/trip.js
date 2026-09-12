@@ -201,6 +201,7 @@
       canEdit: !!data.canEdit,
     };
     Object.defineProperty(state, 'items', { get: () => tripItems });
+    Object.defineProperty(state, 'participants', { get: () => participants });
     canEditHeaders = canEdit ? {} : null;
     const container = document.getElementById('days-container');
     const tripDests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
@@ -788,6 +789,7 @@
       renderDateChip();
       renderItinerary();
       wireIcsButton();
+      TripModals.syncSettleButton(state);
       if (currentDest) loadWeather(currentDest);
     }
 
@@ -1273,13 +1275,19 @@
     };
     const hotelsBtn = document.getElementById('hotels-btn');
     const budgetBtn = document.getElementById('budget-btn');
+    const settleBtn = document.getElementById('settle-btn');
     // trip tools are for participants (and invite holders, one signup away);
     // one-day trips skip hotels either way — sleeping at home
     budgetBtn.style.display = privileged ? '' : 'none';
     hotelsBtn.style.display = privileged && trip.days >= 2 ? '' : 'none';
+    // חלוקה: always offered to participants, but the panel itself unlocks on the
+    // trip's last day (and stays open afterwards)
+    settleBtn.style.display = privileged ? '' : 'none';
     document.getElementById('docs-btn').style.display = privileged ? '' : 'none';
     hotelsBtn.onclick = () => (canEdit ? TripModals.openHotels(modalCtx) : requireSignup());
     budgetBtn.onclick = () => (canEdit ? TripModals.openBudget(modalCtx) : requireSignup());
+    settleBtn.onclick = () => (canEdit ? TripModals.openSettle(modalCtx) : requireSignup());
+    TripModals.syncSettleButton(state);
 
     function updateAmbient() {
       // the budget button doubles as the ambient alert: % of budget planned

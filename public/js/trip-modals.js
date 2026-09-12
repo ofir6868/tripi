@@ -1,5 +1,6 @@
-// Trip page modals: hotels ("איפה ישנים") + budget ("ניהול תקציב").
-// Both operate on the trip.js state object: { trip, items, hotels, budget, expenses, canEdit }.
+// Trip page modals: hotels ("איפה ישנים"), budget ("ניהול תקציב"), and settle
+// ("חלוקת הוצאות — מי חייב למי"). They operate on the trip.js state object:
+// { trip, items, hotels, budget, expenses, participants, canEdit }.
 // ctx = { state, ensureEdit(), refresh() } — ensureEdit resolves edit headers (routing
 // invite holders through signup when needed) or null; refresh() re-renders the trip page.
 const TripModals = (() => {
@@ -1839,8 +1840,237 @@ const TripModals = (() => {
     return lines;
   }
 
+  // =================================================================
+  //  SETTLE — חלוקת הוצאות / מי חייב למי
+  //  Always offered in the trip menu for participants. The panel itself
+  //  unlocks on the trip's last calendar day (and stays open after).
+  //  Math is client-side from shared expenses: equal split among the
+  //  named people (participants + anyone who paid), then a greedy
+  //  minimize-transfers pass.
+  // =================================================================
+
+  function tripEndDate(trip) {
+    if (!trip || !trip.start_date) return null;
+    const d = new Date(trip.start_date);
+    d.setDate(d.getDate() + Math.max(+trip.days || 1, 1) - 1);
+    return d;
+  }
+
+  // compare local calendar days — same basis as currentTripDay / dayDate
+  function settleAvailability(trip) {
+    const end = tripEndDate(trip);
+    if (!end) return { open: false, reason: 'nodates', unlockDate: null };
+    const today = TRIPMAKER.isoDate(new Date());
+    const endIso = TRIPMAKER.isoDate(end);
+    if (today >= endIso) return { open: true, reason: null, unlockDate: end };
+    return { open: false, reason: 'early', unlockDate: end };
+  }
+
+  function syncSettleButton(state) {
+    const btn = document.getElementById('settle-btn');
+    if (!btn || !state || !state.trip) return;
+    const avail = settleAvailability(state.trip);
+    btn.classList.toggle('is-locked', !avail.open);
+    if (!avail.open && avail.unlockDate) {
+      const when = avail.unlockDate.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' });
+      btn.title = `חלוקת הוצאות — נפתח ביום האחרון של הטיול (${when})`;
+    } else if (!avail.open) {
+      btn.title = 'חלוקת הוצאות — נפתח כשיש תאריכים לטיול, מהיום האחרון';
+    } else {
+      btn.title = 'חלוקת הוצאות — מי חייב למי';
+    }
+  }
+
+  function settlePeople(state) {
+    const byKey = new Map(); // lowercased → display name
+    const add = (name) => {
+      const n = String(name || '').trim();
+      if (!n) return;
+      const key = n.toLowerCase();
+      if (!byKey.has(key)) byKey.set(key, n);
+    };
+    for (const p of state.participants || []) add(p.name);
+    for (const e of state.expenses || []) add(e.paid_by);
+    return [...byKey.values()];
+  }
+
+  // net > 0 → should receive money; net < 0 → should pay
+  function computeSettlement(state) {
+    const people = settlePeople(state);
+    const keyOf = (name) => String(name || '').trim().toLowerCase();
+    const all = (state.expenses || []).filter((e) => +e.amount > 0);
+    const skipped = all.filter((e) => !String(e.paid_by || '').trim());
+    const expenses = all.filter((e) => String(e.paid_by || '').trim());
+    const total = expenses.reduce((s, e) => s + (+e.amount || 0), 0);
+
+    if (people.length < 2) {
+      return { people, expenses, skipped, balances: [], transfers: [], total, error: 'need_people' };
+    }
+    if (!expenses.length) {
+      return { people, expenses, skipped, balances: [], transfers: [], total: 0, error: 'no_expenses' };
+    }
+
+    const paid = Object.fromEntries(people.map((p) => [keyOf(p), 0]));
+    for (const e of expenses) {
+      const k = keyOf(e.paid_by);
+      if (k in paid) paid[k] += +e.amount;
+    }
+
+    const share = total / people.length;
+    const balances = people.map((name) => {
+      const p = paid[keyOf(name)] || 0;
+      return { name, paid: p, share, net: p - share };
+    }).sort((a, b) => b.net - a.net);
+
+    const debtors = balances.filter((b) => b.net < -0.005).map((b) => ({ name: b.name, amt: -b.net }));
+    const creditors = balances.filter((b) => b.net > 0.005).map((b) => ({ name: b.name, amt: b.net }));
+    debtors.sort((a, b) => b.amt - a.amt);
+    creditors.sort((a, b) => b.amt - a.amt);
+
+    const transfers = [];
+    let i = 0;
+    let j = 0;
+    while (i < debtors.length && j < creditors.length) {
+      const pay = Math.min(debtors[i].amt, creditors[j].amt);
+      if (pay >= 0.005) {
+        transfers.push({ from: debtors[i].name, to: creditors[j].name, amount: pay });
+      }
+      debtors[i].amt -= pay;
+      creditors[j].amt -= pay;
+      if (debtors[i].amt < 0.005) i += 1;
+      if (creditors[j].amt < 0.005) j += 1;
+    }
+
+    return { people, expenses, skipped, balances, transfers, total, error: null };
+  }
+
+  function openSettle(ctx) {
+    const { state } = ctx;
+    if (!state.canEdit) return;
+    syncSettleButton(state);
+
+    const wrap = shell('settle-modal', 'חלוקת הוצאות', 'מי חייב למי — לפי ההוצאות שנרשמו בתקציב');
+    const body = wrap.querySelector('.mw-body');
+    wrap.querySelector('.mw-controls').innerHTML = '';
+
+    const avail = settleAvailability(state.trip);
+    const cur = curOf(state);
+    const heLong = (d) => d.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
+
+    if (!avail.open) {
+      const unlock = avail.unlockDate;
+      body.innerHTML = `
+        <div class="settle-locked glass">
+          <div class="settle-locked-ic">${BICON.lock}</div>
+          <h3>עוד לא הגיע הזמן</h3>
+          ${avail.reason === 'nodates' ? `
+            <p>קודם צריך לקבוע תאריכים לטיול. החלוקה נפתחת ביום האחרון של הטיול — אחרי שסיימתם להוציא, אפשר לסגור חשבונות בלי לחץ.</p>
+          ` : `
+            <p>החלוקה נפתחת <b>מהיום האחרון של הטיול</b> (${esc(heLong(unlock))}). עד אז אפשר להמשיך לרשום הוצאות בתקציב — הן ייכנסו אוטומטית לחישוב.</p>
+          `}
+          <button type="button" class="btn btn-ghost settle-to-budget">לתקציב והוצאות</button>
+        </div>`;
+      body.querySelector('.settle-to-budget').onclick = () => {
+        dismissModal(wrap);
+        openBudget(ctx);
+      };
+      return;
+    }
+
+    const result = computeSettlement(state);
+
+    if (result.error === 'need_people') {
+      body.innerHTML = `
+        <div class="settle-empty glass">
+          <div class="settle-locked-ic">${BICON.users}</div>
+          <h3>צריך לפחות שני משתתפים</h3>
+          <p>חלוקת הוצאות עובדת בין אנשים. הזמינו מישהו לטיול, או רשמו הוצאות עם משלמים שונים בתקציב.</p>
+        </div>`;
+      return;
+    }
+
+    if (result.error === 'no_expenses') {
+      body.innerHTML = `
+        <div class="settle-empty glass">
+          <div class="settle-locked-ic">${BICON.wallet}</div>
+          <h3>עוד אין הוצאות לחלוקה</h3>
+          <p>רשמו הוצאות בפועל במסך התקציב (מי שילם נשמר אוטומטית). אחר כך תחזרו לכאן ותקבלו מי חייב למי.</p>
+          <button type="button" class="btn btn-amber settle-to-budget">לתקציב</button>
+        </div>`;
+      body.querySelector('.settle-to-budget').onclick = () => {
+        dismissModal(wrap);
+        openBudget(ctx);
+      };
+      return;
+    }
+
+    const balTone = (net) => (net > 0.5 ? 'owed' : net < -0.5 ? 'owes' : 'even');
+    const balLabel = (net) => {
+      if (Math.abs(net) < 0.5) return 'מאוזן';
+      return net > 0 ? `מגיע ${fmt(net, cur)}` : `חייב ${fmt(-net, cur)}`;
+    };
+
+    body.innerHTML = `
+      <div class="settle-summary glass">
+        <div class="bs-row">
+          <span class="bs-label">סה״כ הוצאות משותפות</span>
+          <span class="settle-count">${result.expenses.length} הוצאות · ${result.people.length} אנשים</span>
+        </div>
+        <div class="bs-figure"><b>${fmt(result.total, cur)}</b><span>≈ ${fmt(result.total / result.people.length, cur)} לאדם</span></div>
+        <p class="settle-note">כל הוצאה מתחלקת שווה בין המשתתפים. מי ששילם מקבל קרדיט — והשאר מחזירים.</p>
+      </div>
+
+      ${result.transfers.length ? `
+        <div class="settle-section">
+          <h3 class="bp-section-title">מי חייב למי</h3>
+          <div class="settle-transfers glass">
+            ${result.transfers.map((t) => `
+              <div class="settle-xfer">
+                <div class="sx-text"><b>${esc(t.from)}</b> משלם ל־<b>${esc(t.to)}</b></div>
+                <span class="sx-amt">${fmt(t.amount, cur)}</span>
+              </div>`).join('')}
+          </div>
+        </div>` : `
+        <div class="settle-even glass">
+          <h3>הכל מאוזן 🎉</h3>
+          <p>לפי ההוצאות שנרשמו — אף אחד לא חייב לאף אחד.</p>
+        </div>`}
+
+      <div class="settle-section">
+        <h3 class="bp-section-title">מאזן לפי אדם</h3>
+        <div class="settle-balances glass">
+          ${result.balances.map((b) => `
+            <div class="settle-bal ${balTone(b.net)}">
+              <div class="sb-who">
+                <span class="sb-avatar">${esc((b.name.trim()[0] || '?').toUpperCase())}</span>
+                <span class="sb-name">${esc(b.name)}</span>
+              </div>
+              <div class="sb-nums">
+                <span class="sb-paid">שילם ${fmt(b.paid, cur)}</span>
+                <span class="sb-net">${balLabel(b.net)}</span>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <div class="settle-section">
+        <h3 class="bp-section-title">ההוצאות בחישוב</h3>
+        <div class="settle-expenses glass">
+          ${result.expenses.map((e) => `
+            <div class="settle-exp">
+              <span class="se-title">${esc(e.title)}${e.paid_by ? ` <small>· ${esc(e.paid_by)}</small>` : ''}</span>
+              <span class="se-amt">${fmt(e.amount, cur)}</span>
+            </div>`).join('')}
+        </div>
+        ${result.skipped.length ? `<p class="settle-skipped">${result.skipped.length} הוצאות בלי משלם — לא נכנסו לחלוקה</p>` : ''}
+      </div>
+
+      <p class="mw-footnote">רוצים לתקן משהו? עדכנו הוצאות בתקציב ופתחו שוב את החלוקה.</p>
+    `;
+  }
+
   return {
-    openHotels, openBudget, closeBudget, travelIcon, plannedTotals, plannedByDay,
+    openHotels, openBudget, closeBudget, openSettle, syncSettleButton, travelIcon, plannedTotals, plannedByDay,
     budgetButtonState, heroChip, dayHotelLines, uncoveredRuns, fmt, curOf,
     nightCardHtml, mountNightCards, itemCostInfo, setItemPersonalCost, clearItemPersonalCost,
   };
