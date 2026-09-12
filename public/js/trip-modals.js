@@ -2051,38 +2051,95 @@ const TripModals = (() => {
       ? `${result.skipped.length} הוצאות בלי משלם מבין המשתתפים — לא נכנסו לחלוקה`
       : '';
     const catEmoji = (key) => (CATS.find((c) => c.key === key) || {}).emoji || '✨';
+    const openCards = new Set(); // expense ids expanded under their day
 
-    const cardHtml = (c) => `
-      <article class="settle-card glass">
-        <header class="sc-head">
-          <span class="sc-emoji" aria-hidden="true">${catEmoji(c.category)}</span>
-          <div class="sc-titles">
-            <h3 class="sc-title">${esc(c.title)}</h3>
-            <p class="sc-meta">משותף עולה ${fmt(c.amount, cur)} · ${fmt(c.share, cur)} לכל משתתף${c.day_number ? ` · יום ${c.day_number}` : ''}</p>
-          </div>
-        </header>
-        <p class="sc-paid"><b>${esc(c.payerName)}</b> שילם על הכל</p>
+    const dayLabel = (day) => {
+      if (!day) return { title: 'בלי יום', sub: 'הוצאות שלא שויכו ליום במסלול' };
+      let sub = '';
+      if (state.trip.start_date) {
+        const d = new Date(state.trip.start_date);
+        d.setDate(d.getDate() + day - 1);
+        sub = d.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
+      }
+      return { title: `יום ${day}`, sub };
+    };
 
-        <div class="sc-payer">
-          <div class="sb-who">
-            <span class="sb-avatar">${esc((c.payerName.trim()[0] || '?').toUpperCase())}</span>
-            <span class="sb-name">${esc(c.payerName)}</span>
-          </div>
-          <div class="sb-nums">
-            <span class="sb-role">להחזיר</span>
-            <span class="sb-net refund">${fmt(c.refund, cur)}</span>
-          </div>
-        </div>
+    // day → cards, sorted; undated (null) last
+    const cardsByDay = (() => {
+      const map = new Map();
+      for (const c of result.cards) {
+        const key = c.day_number >= 1 ? c.day_number : 0;
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(c);
+      }
+      return [...map.entries()]
+        .sort((a, b) => {
+          if (a[0] === 0) return 1;
+          if (b[0] === 0) return -1;
+          return a[0] - b[0];
+        })
+        .map(([day, cards]) => ({ day: day || null, cards, dayTotal: cards.reduce((s, c) => s + c.amount, 0) }));
+    })();
 
-        <div class="sc-debtors">
-          <div class="sc-debtors-label">נדרשים להחזיר</div>
-          ${c.debtors.map((d) => `
-            <div class="sc-debtor">
-              <span class="sd-name">${esc(d.name)}</span>
-              <span class="sd-amt owes">${MONEY_IC}<span>${fmt(d.amount, cur)}</span></span>
-            </div>`).join('')}
-        </div>
-      </article>`;
+    const attractionRowHtml = (c) => {
+      const open = openCards.has(String(c.id));
+      return `
+        <div class="settle-acc${open ? ' open' : ''}" data-id="${c.id}">
+          <button type="button" class="settle-acc-btn" aria-expanded="${open}">
+            <span class="sc-emoji" aria-hidden="true">${catEmoji(c.category)}</span>
+            <span class="settle-acc-text">
+              <b>${esc(c.title)}</b>
+              <small>${esc(c.payerName)} שילם · ${fmt(c.share, cur)} לכל אחד</small>
+            </span>
+            <span class="settle-acc-amt">${fmt(c.amount, cur)}</span>
+            <span class="settle-acc-chev" aria-hidden="true">${BICON.chev}</span>
+          </button>
+          <div class="settle-acc-panel"${open ? '' : ' hidden'}>
+            <div class="settle-card-body">
+              <p class="sc-paid"><b>${esc(c.payerName)}</b> שילם על הכל · משותף ${fmt(c.amount, cur)}</p>
+              <div class="sc-payer">
+                <div class="sb-who">
+                  <span class="sb-avatar">${esc((c.payerName.trim()[0] || '?').toUpperCase())}</span>
+                  <span class="sb-name">${esc(c.payerName)}</span>
+                </div>
+                <div class="sb-nums">
+                  <span class="sb-role">להחזיר</span>
+                  <span class="sb-net refund">${fmt(c.refund, cur)}</span>
+                </div>
+              </div>
+              <div class="sc-debtors">
+                <div class="sc-debtors-label">נדרשים להחזיר</div>
+                ${c.debtors.map((d) => `
+                  <div class="sc-debtor">
+                    <span class="sd-name">${esc(d.name)}</span>
+                    <span class="sd-amt owes">${MONEY_IC}<span>${fmt(d.amount, cur)}</span></span>
+                  </div>`).join('')}
+              </div>
+            </div>
+          </div>
+        </div>`;
+    };
+
+    const byDayHtml = () => `
+      <div class="settle-days">
+        ${cardsByDay.map(({ day, cards, dayTotal }) => {
+          const lab = dayLabel(day);
+          return `
+            <section class="settle-day">
+              <header class="settle-day-head">
+                <div class="settle-day-titles">
+                  <h3 class="settle-day-title">${esc(lab.title)}</h3>
+                  ${lab.sub ? `<p class="settle-day-sub">${esc(lab.sub)}</p>` : ''}
+                </div>
+                <div class="settle-day-sum">
+                  <span class="settle-day-count">${cards.length} הוצאות</span>
+                  <span class="settle-day-amt">${fmt(dayTotal, cur)}</span>
+                </div>
+              </header>
+              <div class="settle-acc-list glass">${cards.map(attractionRowHtml).join('')}</div>
+            </section>`;
+        }).join('')}
+      </div>`;
 
     const totalHtml = () => {
       const balTone = (net) => (net > 0.5 ? 'owed' : net < -0.5 ? 'owes' : 'even');
@@ -2131,11 +2188,23 @@ const TripModals = (() => {
         </div>`;
     };
 
+    function wireAccordions() {
+      body.querySelectorAll('.settle-acc-btn').forEach((btn) => {
+        btn.onclick = () => {
+          const id = String(btn.closest('.settle-acc')?.dataset.id || '');
+          if (!id) return;
+          if (openCards.has(id)) openCards.delete(id);
+          else openCards.add(id);
+          render();
+        };
+      });
+    }
+
     function render() {
       const byExpense = settleView === 'by-expense';
       controls.innerHTML = `
         <div class="seg seg-sm settle-seg" role="tablist" aria-label="תצוגת חלוקה">
-          <button type="button" data-v="by-expense" class="${byExpense ? 'active' : ''}" aria-selected="${byExpense}">לפי אטרקציה</button>
+          <button type="button" data-v="by-expense" class="${byExpense ? 'active' : ''}" aria-selected="${byExpense}">לפי יום</button>
           <button type="button" data-v="total" class="${!byExpense ? 'active' : ''}" aria-selected="${!byExpense}">כולל · כל הטיול</button>
         </div>`;
       controls.querySelectorAll('[data-v]').forEach((b) => {
@@ -2150,16 +2219,15 @@ const TripModals = (() => {
           </div>
           <div class="bs-figure"><b>${fmt(result.total, cur)}</b><span>≈ ${fmt(result.total / result.people.length, cur)} לאדם</span></div>
           <p class="settle-note">${byExpense
-            ? 'כל הוצאה מחולקת בנפרד בין המשתתפים. תקציב אישי לא נספר.'
+            ? 'לפי ימי הטיול — לוחצים על אטרקציה כדי לפתוח את פירוט ההחזרים. תקציב אישי לא נספר.'
             : 'סיכום לכל הטיול — כמה שילם כל אחד, ומי מחזיר למי אחרי קיזוז.'}</p>
         </div>
 
-        ${byExpense
-          ? `<div class="settle-cards">${result.cards.map(cardHtml).join('')}</div>`
-          : totalHtml()}
+        ${byExpense ? byDayHtml() : totalHtml()}
         ${skippedNote ? `<p class="settle-skipped">${esc(skippedNote)}</p>` : ''}
         <p class="mw-footnote">רוצים לתקן משהו? עדכנו הוצאות בתקציב המשותף ופתחו שוב את החלוקה.</p>
       `;
+      if (byExpense) wireAccordions();
     }
 
     render();

@@ -1800,7 +1800,71 @@ body.page-open { overflow: hidden; }
 .settle-count { font-size: .8rem; color: var(--paper-dim); font-weight: 600; }
 .settle-skipped { text-align: center; font-size: .8rem; color: var(--paper-dim); margin: 8px 4px 0; }
 
-.settle-cards { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+.settle-cards { display: flex; flex-direction: column; gap: 14px; }
+.settle-days { display: flex; flex-direction: column; gap: 22px; margin-top: 16px; }
+.settle-day-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  margin-bottom: 10px; padding-inline: 2px;
+}
+.settle-day-titles { min-width: 0; }
+.settle-day-title {
+  margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 1.15rem; line-height: 1.2;
+}
+.settle-day-sub { margin: 3px 0 0; font-size: .82rem; color: var(--paper-dim); }
+.settle-day-sum {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none;
+}
+.settle-day-count { font-size: .76rem; font-weight: 700; color: var(--paper-dim); }
+.settle-day-amt {
+  font-weight: 800; font-variant-numeric: tabular-nums; color: var(--amber);
+  direction: ltr; unicode-bidi: isolate;
+}
+
+/* attraction rows under a day — tap to expand the settle details inline */
+.settle-acc-list { padding: 4px 0; overflow: hidden; }
+.settle-acc + .settle-acc { border-top: 1px solid var(--glass-border); }
+.settle-acc-btn {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 12px 14px; border: none; background: transparent; color: inherit;
+  font: inherit; text-align: right; cursor: pointer;
+  transition: background .15s ease;
+}
+.settle-acc-btn:hover { background: rgba(255, 255, 255, .04); }
+.settle-acc-btn .sc-emoji {
+  width: 36px; height: 36px; flex: none; border-radius: 11px;
+  display: grid; place-items: center; font-size: 1.1rem;
+  background: rgba(255, 180, 95, .12);
+}
+.settle-acc-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.settle-acc-text b {
+  font-size: .95rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.settle-acc-text small { font-size: .78rem; color: var(--paper-dim); line-height: 1.3; }
+.settle-acc-amt {
+  flex: none; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--amber);
+  direction: ltr; unicode-bidi: isolate;
+}
+.settle-acc-chev {
+  flex: none; display: grid; place-items: center; color: var(--paper-dim);
+  transition: transform .2s ease;
+}
+.settle-acc-chev .ic { width: 18px; height: 18px; }
+.settle-acc.open .settle-acc-chev { transform: rotate(180deg); color: var(--amber); }
+.settle-acc-panel {
+  padding: 0 14px 14px;
+  animation: settleAccIn .18s ease;
+}
+.settle-acc-panel[hidden] { display: none; }
+.settle-card-body { display: flex; flex-direction: column; gap: 12px; }
+@keyframes settleAccIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settle-acc-panel { animation: none; }
+  .settle-acc-chev { transition: none; }
+}
+
 .settle-seg { width: 100%; }
 .settle-section { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
 .settle-transfers,
