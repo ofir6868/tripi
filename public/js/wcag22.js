@@ -282,7 +282,9 @@
       'html.aaa-links a:not(.aaa-statement):not(.aaa-skip){text-decoration:underline !important;text-underline-offset:.18em;background:#ffe14d;color:#000 !important}',
       'html.aaa-headings h1,html.aaa-headings h2,html.aaa-headings h3,html.aaa-headings h4{outline:3px solid #1f2d27;outline-offset:4px;background:#ffe14d}',
       'html.aaa-cursor,html.aaa-cursor *{cursor:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'48\' height=\'48\'%3E%3Cpath fill=\'%23000\' stroke=\'%23fff\' stroke-width=\'2\' d=\'M8 4 L8 40 L18 30 L26 46 L32 43 L24 27 L38 27 Z\'/%3E%3C/svg%3E") 4 4, auto !important}',
-      'html.aaa-motion,html.aaa-motion *,html.aaa-motion *::before,html.aaa-motion *::after{animation:none !important;transition:none !important;scroll-behavior:auto !important}',
+      /* Instantly finish entrance animations (forwards → final opacity) instead of
+         animation:none, which would leave opacity:0 elements invisible forever. */
+      'html.aaa-motion,html.aaa-motion *,html.aaa-motion *::before,html.aaa-motion *::after{animation-duration:.01ms !important;animation-delay:0s !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;transition-delay:0s !important;scroll-behavior:auto !important}',
       '.aaa-guide{position:fixed;left:0;right:0;height:10px;background:rgba(255,225,77,.75);border-block:2px solid #1f2d27;pointer-events:none;z-index:2147483645}',
       '.aaa-mask{position:fixed;inset:0;pointer-events:none;z-index:2147483644;box-shadow:0 0 0 100vmax rgba(0,0,0,.62)}',
       '.aaa-audit{position:fixed;inset-inline-end:16px;bottom:16px;z-index:2147483646;max-width:22rem;max-height:40vh;overflow:auto;background:#1f2d27;color:#fff;padding:.9rem 1rem;border-radius:.85rem;font-size:.85rem;box-shadow:0 12px 28px rgba(0,0,0,.28)}',

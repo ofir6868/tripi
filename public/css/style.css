@@ -400,6 +400,14 @@ body::after {
   text-shadow: 0 4px 40px rgba(0, 0, 0, .5);
   opacity: 0; animation: rise .8s ease .25s forwards;
 }
+/* Accessibility toolbar "stop animations": show entrance content at its end state. */
+html.aaa-motion .hero h1,
+html.aaa-motion .popular,
+html.aaa-motion .trip-card {
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
 .hero h1 .accent {
   color: var(--amber); position: relative; white-space: nowrap;
 }

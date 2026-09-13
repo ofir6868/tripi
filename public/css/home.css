@@ -33,6 +33,14 @@
   color: var(--paper-dim); font-size: clamp(1rem, 2.2vw, 1.25rem); font-weight: 300;
   max-width: 46ch; opacity: 0; animation: rise .8s ease .4s forwards;
 }
+/* Accessibility "stop animations": keep the copy visible without the rise-in. */
+html.aaa-motion .hero-kicker,
+html.aaa-motion .hero-sub,
+html.aaa-motion .search-box {
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
 
 /* ---------- search widget ---------- */
 
