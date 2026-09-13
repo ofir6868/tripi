@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v71'; // announce push actions (open vs view itinerary)
+const VERSION = 'v72'; // accessibility widget (wcag22 FAB)
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first
@@ -11,7 +11,7 @@ const STATIC = [
   // at the top of any of them)
   '/css/style.css', '/css/home.css', '/css/trip.css', '/css/plan.css', '/css/my.css',
   '/css/seo.css', '/css/admin.css',
-  '/js/common.js', '/js/geo.js', '/js/home.js', '/js/trip.js',
+  '/js/wcag22.js', '/js/common.js', '/js/geo.js', '/js/home.js', '/js/trip.js',
   '/js/trip-pages.js', '/js/trip-recs.js', '/js/trip-docs.js', '/js/doc-classify.js', '/js/doc-text.js',
   '/js/trip-modals.js', '/js/trip-arrange.js', '/js/trip-calendar.js', '/js/trip-map.js',
   '/js/plan.js', '/js/admin.js', '/js/my.js',
