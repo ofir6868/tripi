@@ -119,7 +119,7 @@ const TripMap = (() => {
       scrollWheelZoom: false,
     });
     applyStyle(mapStyle, false);
-    pinLayer = L.layerGroup().addTo(map);
+    pinLayer = L.featureGroup().addTo(map);
     return map;
   }
 
