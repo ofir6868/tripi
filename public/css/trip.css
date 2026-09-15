@@ -605,6 +605,10 @@
 .pm-switch input:focus-visible + .pm-switch-track { box-shadow: 0 0 0 4px rgba(255, 180, 95, .18); }
 .pm-switch input:disabled { cursor: wait; }
 
+/* the ask bar's travelling border beam animates a custom angle (see .ai-ask-bar) —
+   registering it is what lets the gradient turn instead of jumping between frames */
+@property --aab-a { syntax: '<angle>'; inherits: true; initial-value: 0deg; }
+
 /* ---------- invite join banner (bottom, above the action bar) ---------- */
 
 .join-banner {
@@ -721,34 +725,59 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
   body:has(.action-bar):has(.join-banner) { padding-bottom: calc(var(--dock-h) + 120px + env(safe-area-inset-bottom)); }
 
   /* ---- the ask bar: the agent's line, pinned above the dock (editors, phones) ----
-     Same glass as the dock so the two read as one floating surface; the amber hairline
-     says it talks to the AI. It belongs to the itinerary, so it steps aside while a
-     page, the budget or the full calendar covers the trip. */
+     Same glass as the dock so the two read as one floating surface. What says "this
+     one talks to the AI" is the border: a beam of amber light travelling around the
+     rim (a conic gradient whose start angle animates, cut to a ring by a mask), with
+     a soft blurred copy of the same beam glowing behind the bar's edge. */
   .ai-ask-bar {
+    --aab-a: 0deg;
     position: fixed; z-index: 118;
     bottom: calc(var(--dock-h) + var(--dock-inset) + 8px);
     inset-inline: calc(10px + max(env(safe-area-inset-left), env(safe-area-inset-right)));
-    display: flex; align-items: center; gap: 4px;
-    padding: 5px 5px 5px 12px; border-radius: 999px;
-    border: 1px solid rgba(255, 180, 95, .38);
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 5px 5px 14px; border-radius: 999px;
+    border: 1px solid rgba(255, 180, 95, .28);
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, .085), rgba(255, 255, 255, .03)),
-      rgba(11, 24, 20, .84);
+      linear-gradient(180deg, rgba(255, 255, 255, .09), rgba(255, 255, 255, .025)),
+      linear-gradient(90deg, rgba(255, 180, 95, .08), transparent 40%),
+      rgba(11, 24, 20, .86);
     -webkit-backdrop-filter: blur(26px) saturate(170%);
     backdrop-filter: blur(26px) saturate(170%);
     box-shadow:
       0 18px 40px -14px rgba(0, 0, 0, .75), 0 2px 10px -5px rgba(0, 0, 0, .5),
       inset 0 1px 0 var(--glass-highlight);
+    animation: aab-spin 4.5s linear infinite;
   }
-  .aab-spark { flex: none; font-size: .95rem; line-height: 1; filter: drop-shadow(0 0 6px rgba(255, 180, 95, .55)); }
+  /* the beam — same gradient twice: a crisp 2px ring on top, a blurred halo behind */
+  .ai-ask-bar::before,
+  .ai-ask-bar::after {
+    content: ''; position: absolute; inset: -2px; border-radius: inherit; pointer-events: none;
+    background: conic-gradient(from var(--aab-a),
+      transparent 0deg 200deg, rgba(255, 180, 95, .3) 270deg, rgba(255, 214, 140, .9) 320deg,
+      #fff1d6 345deg, var(--amber) 355deg, transparent 360deg);
+    /* cut to a ring: the box minus its content box */
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+  }
+  .ai-ask-bar::before { padding: 2px; }
+  /* the halo: the same beam, blurred, in a wider ring that stays outside the rim */
+  .ai-ask-bar::after { inset: -9px; padding: 10px; z-index: -1; opacity: .75; filter: blur(7px); }
+  @keyframes aab-spin { to { --aab-a: 360deg; } }
+  .aab-spark { flex: none; font-size: 1.05rem; line-height: 1; filter: drop-shadow(0 0 7px rgba(255, 180, 95, .65)); animation: aab-twinkle 2.6s ease-in-out infinite; }
+  @keyframes aab-twinkle { 0%, 100% { transform: scale(1); opacity: .9; } 50% { transform: scale(1.14); opacity: 1; } }
   .ai-ask-bar input {
-    flex: 1; min-width: 0; padding: 10px 8px; border: 0; background: transparent;
+    flex: 1; min-width: 0; padding: 11px 6px; border: 0; background: transparent;
     color: var(--paper); font: inherit; font-size: 1rem; /* 16px keeps iOS from zooming */
   }
   .ai-ask-bar input:focus { outline: none; }
-  .ai-ask-bar input::placeholder { color: rgba(245, 239, 227, .62); opacity: 1; }
-  .ai-ask-bar:focus-within { border-color: rgba(255, 180, 95, .7); box-shadow: 0 18px 40px -14px rgba(0, 0, 0, .75), 0 0 0 3px rgba(255, 180, 95, .14), inset 0 1px 0 var(--glass-highlight); }
-  .ai-ask-bar .chat-send { width: 40px; height: 40px; }
+  .ai-ask-bar input::placeholder { color: rgba(245, 239, 227, .7); opacity: 1; }
+  .ai-ask-bar:focus-within { border-color: rgba(255, 180, 95, .55); }
+  .ai-ask-bar:focus-within::after { opacity: .85; }
+  .ai-ask-bar .chat-send { width: 42px; height: 42px; box-shadow: 0 6px 18px -6px rgba(255, 180, 95, .9), inset 0 1px 0 rgba(255, 255, 255, .35); }
+  @media (prefers-reduced-motion: reduce) {
+    .ai-ask-bar { animation: none; --aab-a: 300deg; }
+    .aab-spark { animation: none; }
+  }
   body.page-open .ai-ask-bar,
   body.budget-open .ai-ask-bar,
   body.cal-full-open .ai-ask-bar { display: none; }
