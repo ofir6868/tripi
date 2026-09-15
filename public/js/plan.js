@@ -319,6 +319,16 @@
   const panels = {};
   for (let i = 1; i <= 3; i++) panels[i] = document.getElementById('panel-' + i);
   function goStep(n) {
+    // where people stop inside the wizard. Steps are cheap to reach and the drop
+    // between them is invisible in pageviews — /plan is a single URL.
+    if (n !== curStep) {
+      TRIPMAKER.track?.('plan_step', {
+        step: n, from: curStep,
+        destinations: destinations.length,
+        days: parseInt(daysSel.value, 10) || null,
+        dates_picked: !!tripStart,
+      });
+    }
     curStep = n;
     scheduleSave();
     Object.entries(panels).forEach(([k, p]) => { p.style.display = +k === n ? '' : 'none'; });
@@ -380,13 +390,16 @@
       aiBtn.textContent = 'פותחים את התכנון…';
       await saveDraftTrip(buildTripPayload([]), {
         plan_state: { interests: [...selectedInterests], notes: document.getElementById('ai-notes').value.trim(), mode: 'manual' },
-        hash: '#plan',
+        hash: '#plan', path: 'ai',
       });
       // still here = the save failed and rendered a retry into #ai-status
       aiBtn.disabled = false;
       aiBtn.textContent = aiLabel;
     };
-    if (!TRIPMAKER.user) openAuthModal(go, 'register');
+    TRIPMAKER.track?.('trip_create_attempt', {
+      path: 'ai', signed_in: !!TRIPMAKER.user, destinations: destinations.length,
+    });
+    if (!TRIPMAKER.user) openAuthModal(go, 'register', 'create_trip_ai');
     else go();
   };
 
@@ -436,12 +449,19 @@
   // POST the draft and move to the trip page (`hash` picks the tab it opens on). A
   // failed save keeps the payload for a retry that costs nothing.
   let savingTrip = false;
-  async function saveDraftTrip(payload, { plan_state = null, hash = '' } = {}) {
+  async function saveDraftTrip(payload, { plan_state = null, hash = '', path = '' } = {}) {
     if (savingTrip) return;
     savingTrip = true;
     try {
       const trip = await TRIPMAKER.api('/api/trips', {
         method: 'POST', body: JSON.stringify({ ...payload, draft: true, plan_state }),
+      });
+      // the far side of the wall. Compare against trip_create_attempt: the gap
+      // between the two is exactly what the account requirement costs.
+      // followed immediately by location.href — must not sit in a batch
+      TRIPMAKER.trackNow?.('trip_created', {
+        path, destinations: destinations.length,
+        days: payload.days || null, dates_picked: !!tripStart,
       });
       clearDraft();
       location.href = '/trip/' + trip.share_code + hash;
@@ -466,12 +486,15 @@
       if (savingTrip) return;
       goManualBtn.disabled = true;
       goManualBtn.textContent = 'יוצרים את הטיול…';
-      await saveDraftTrip(buildTripPayload([]));
+      await saveDraftTrip(buildTripPayload([]), { path: 'manual' });
       // still here = the save failed and rendered a retry into #ai-status
       goManualBtn.disabled = false;
       goManualBtn.textContent = goManualLabel;
     };
-    if (!TRIPMAKER.user) openAuthModal(go, 'register');
+    TRIPMAKER.track?.('trip_create_attempt', {
+      path: 'manual', signed_in: !!TRIPMAKER.user, destinations: destinations.length,
+    });
+    if (!TRIPMAKER.user) openAuthModal(go, 'register', 'create_trip_manual');
     else go();
   };
 

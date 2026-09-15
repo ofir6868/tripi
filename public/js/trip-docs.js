@@ -127,7 +127,7 @@ const TripDocs = (() => {
             <p class="de-privacy">🔒 המסמכים נשמרים במכשיר הזה בלבד, ולא עולים לשרת.</p>
           </div>
         </div>`;
-      body.querySelector('#docs-login').onclick = () => openAuthModal(() => location.reload(), 'login');
+      body.querySelector('#docs-login').onclick = () => openAuthModal(() => location.reload(), 'login', 'trip_docs');
       return;
     }
 

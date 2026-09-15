@@ -120,6 +120,17 @@ const TRIPMAKER = {
   track(name, props) {
     try { window.posthog && posthog.capture && posthog.capture(name, props); } catch { /* analytics never breaks UX */ }
   },
+  // Same, for an event whose very next act is to leave the page — a trip created
+  // (which navigates to /trip/CODE), a wall passed, an OAuth redirect, a tab
+  // closing. The normal transport batches, and a batch that has not flushed when
+  // the document unloads is simply lost: the funnel's most important steps are
+  // exactly the ones that end in navigation, so they would be the ones missing.
+  // sendBeacon survives unload by design.
+  trackNow(name, props) {
+    try {
+      if (window.posthog && posthog.capture) posthog.capture(name, props, { transport: 'sendBeacon' });
+    } catch { /* analytics never breaks UX */ }
+  },
   // the calendar day a Date falls on *here* — never toISOString(), which east of
   // UTC rolls local midnight back a day and pairs every itinerary day with the
   // previous day's forecast
@@ -318,7 +329,7 @@ function renderHeader() {
   panel.querySelector('#nav-logout')?.addEventListener('click', () => TRIPMAKER.logout());
   panel.querySelector('#nav-login')?.addEventListener('click', () => {
     setOpen(false);
-    openAuthModal();
+    openAuthModal(null, 'login', 'navbar');
   });
   panel.querySelector('#nav-settings')?.addEventListener('click', () => {
     setOpen(false);
@@ -400,12 +411,20 @@ function renderAuthModal() {
       : 'אין לכם חשבון? <a id="auth-toggle">הרשמה מהירה</a>';
     wrap.querySelector('#auth-toggle').onclick = () => setMode(mode === 'register' ? 'login' : 'register');
     wrap.querySelector('#auth-error').textContent = '';
+    // switching to login means they already had an account — a different story
+    // from a stranger meeting the wall, so the outcome carries the final mode
+    if (authWall) authWall.mode = mode;
   };
   wrap.querySelector('#auth-toggle').onclick = () => setMode('register');
 
-  wrap.querySelector('.modal-close').onclick = () => wrap.classList.remove('open');
-  wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.classList.remove('open'); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && wrap.classList.contains('open')) wrap.classList.remove('open'); });
+  // three ways out, one outcome: they met the wall and turned around
+  const dismiss = (how) => { wrap.classList.remove('open'); authWallOutcome('signup_wall_dismissed', { how }); };
+  wrap.querySelector('.modal-close').onclick = () => dismiss('close');
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) dismiss('backdrop'); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && wrap.classList.contains('open')) dismiss('escape'); });
+  // leaving the page with the wall still open is abandonment too — and the
+  // commonest shape of it. pagehide fires where unload does not (bfcache, iOS).
+  window.addEventListener('pagehide', () => authWallOutcome('signup_wall_dismissed', { how: 'left_page' }));
 
   // only show Google when the server has credentials configured
   fetch('/api/auth/providers').then((r) => r.json()).then((p) => {
@@ -415,6 +434,9 @@ function renderAuthModal() {
     wrapEl.hidden = false;
     link.addEventListener('click', (e) => {
       e.preventDefault();
+      // a deliberate redirect, not an abandonment — resolve the open before the
+      // navigation lets pagehide record it as one
+      authWallOutcome('signup_wall_google', {});
       const next = location.pathname + location.search;
       location.href = '/api/auth/google?next=' + encodeURIComponent(next);
     });
@@ -435,6 +457,7 @@ function renderAuthModal() {
       const body = authMode === 'register' ? { name, email, password } : { email, password };
       const data = await TRIPMAKER.api(path, { method: 'POST', body: JSON.stringify(body) });
       TRIPMAKER.saveAuth(data.token, data.user);
+      authWallOutcome('signup_wall_passed', { method: authMode });
       wrap.classList.remove('open');
       if (authOnSuccess) { const cb = authOnSuccess; authOnSuccess = null; cb(); }
       else location.reload();
@@ -448,8 +471,35 @@ function renderAuthModal() {
   window.setAuthMode = setMode;
 }
 
-function openAuthModal(onSuccess, mode = 'login') {
+// ---------- signup-wall instrumentation ----------
+// The wall is the narrowest point in the product: people finish the whole wizard
+// and meet it at the moment the trip would become real. Nothing recorded it, so
+// the only evidence it cost anyone was session recordings. Every open and every
+// outcome is tracked here, at the one choke point all callers pass through, so
+// "how many walked away" is a number instead of an impression.
+//
+// `reason` says which door they turned around at — without it you learn the rate
+// and nothing about where to spend the fix.
+let authWall = null;   // { reason, mode, at } while the modal is open
+
+function authWallOutcome(name, extra) {
+  if (!authWall) return;   // already resolved — never double-count one open
+  const w = authWall;
+  authWall = null;
+  // every outcome either navigates (passed → the caller's callback, google →
+  // redirect) or can coincide with the tab going away (left_page), so none of
+  // them can wait for a batch
+  TRIPMAKER.trackNow(name, {
+    reason: w.reason, mode: w.mode,
+    seconds: Math.round((Date.now() - w.at) / 1000),
+    ...extra,
+  });
+}
+
+function openAuthModal(onSuccess, mode = 'login', reason = 'unspecified') {
   authOnSuccess = onSuccess || null;
+  authWall = { reason, mode, at: Date.now() };
+  TRIPMAKER.track('signup_wall_shown', { reason, mode });
   window.setAuthMode?.(mode);
   document.getElementById('auth-modal').classList.add('open');
 }
@@ -619,7 +669,7 @@ function showGoogleAuthError() {
   q.delete('google_error');
   const clean = q.toString();
   history.replaceState(null, '', location.pathname + (clean ? `?${clean}` : ''));
-  openAuthModal();
+  openAuthModal(null, 'login', 'google_error');
   const errEl = document.querySelector('#auth-error');
   if (errEl) errEl.textContent = err;
 }
