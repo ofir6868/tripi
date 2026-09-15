@@ -177,9 +177,6 @@
     // itinerary grouped by day (weatherByDate is filled by loadWeather when dates align)
     let tripItems = items.slice();
     let weatherByDate = {};
-    // one-level AI-edit undo: {snap, snapDesc} while the last smart edit is reversible.
-    // Any manual mutation clears it — the snapshot no longer describes what's on screen.
-    let aiUndo = null;
 
     // ---- stop votes (experimental group mode): one thumbs-up/down per participant
     // per stop. Solo planners never see it — a ballot with one voter is noise. ----
@@ -289,7 +286,6 @@
         method: 'PATCH', headers: canEditHeaders, body: JSON.stringify(patch),
       });
       Object.assign(item, updated);
-      aiUndo = null;
       sortItems();
       renderItinerary();
       updateAmbient();
@@ -301,7 +297,6 @@
         method: 'POST', headers: canEditHeaders, body: JSON.stringify(data),
       });
       tripItems.push(item);
-      aiUndo = null;
       sortItems();
       renderItinerary();
       updateAmbient();
@@ -314,7 +309,6 @@
       });
       tripItems = tripItems.filter((x) => x.id !== item.id);
       TripModals.clearItemPersonalCost(state, item.id);
-      aiUndo = null;
       renderItinerary();
       updateAmbient();
     }
@@ -338,7 +332,6 @@
         });
       }
       if (!jobs.length) return;
-      aiUndo = null;
       // all PATCHes first, ONE repaint after — painting between them would flash the
       // half-moved arrangement the drag preview has already replaced on screen
       try {
@@ -1001,164 +994,41 @@
       banner.querySelector('.jb-cta').onclick = () => requireSignup('register');
     }
 
-    // ---- AI edit box: free-text itinerary changes for anyone with edit rights ----
+    // ---- שינוי חכם: the handover to the smart agent ----
+    // The free-text box that used to sit here spoke to the model once and forgot the
+    // traveller the moment it answered: no thread, no follow-up, and an undo this card
+    // had to keep by itself. The agent's chat is the same AI with the conversation kept
+    // around it — and its change cards carry their own ביטול — so the card stopped
+    // answering and started pointing. It opens the chat in automatic mode, because
+    // "say what to change and it changes" is exactly what the box promised.
     const aiCard = document.getElementById('ai-edit-card');
-    const aiInput = document.getElementById('ai-edit-input');
-    const aiBtn = document.getElementById('ai-edit-btn');
-    const aiCount = document.getElementById('ai-edit-count');
-    const aiResult = document.getElementById('ai-edit-result');
+    const aiAgentBtn = document.getElementById('ai-agent-btn');
     // the card lives below the itinerary now, so it no longer needs the compact
     // hero it used to force when it sat above the fold
     if (canEditHeaders) aiCard.style.display = '';
-
-    // area + day-range scope (multi-destination trips only) — same controls the
-    // plan wizard had; the server enforces the range on every op it applies
-    const aiArea = document.getElementById('trip-ai-area');
-    const aiRange = document.getElementById('trip-ai-range');
-    // picking an area reveals its day range, pre-filled with where that area sits today
-    function syncAiScopeRange() {
-      const area = aiArea.value;
-      aiRange.style.display = area ? '' : 'none';
-      if (!area) return;
-      const fromInp = document.getElementById('trip-ai-from');
-      const toInp = document.getElementById('trip-ai-to');
-      fromInp.max = toInp.max = trip.days;
-      const areaDays = tripItems.filter((it) => it.area === area).map((it) => it.day_number);
-      fromInp.value = areaDays.length ? Math.min(...areaDays) : 1;
-      toInp.value = areaDays.length ? Math.min(Math.max(...areaDays), trip.days) : trip.days;
-    }
-    if (multiDest()) {
-      document.getElementById('trip-ai-scope').style.display = '';
-      aiArea.innerHTML = '<option value="">כל הטיול</option>' +
-        tripDests.map((d) => `<option>${TRIPMAKER.esc(d.name)}</option>`).join('');
-      aiArea.onchange = syncAiScopeRange;
-    }
-    aiInput.addEventListener('input', () => { aiCount.textContent = `${aiInput.value.length}/200`; });
-    document.getElementById('ai-edit-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const prompt = aiInput.value.trim();
-      if (!prompt || aiBtn.disabled) return;
-      aiBtn.disabled = true;
-      aiInput.disabled = true;
-      const prevLabel = aiBtn.textContent;
-      aiBtn.textContent = 'רגע… ⏳';
-      aiResult.hidden = true;
-      aiResult.className = 'ai-edit-result';
+    // a draft talks to the agent in תכנון; once the trip is saved that tab is המלצות —
+    // same AI, same change cards, so the button follows whichever one this trip has
+    // (the condition is the one the pages are registered under, further down)
+    const agentPage = () => (trip.is_draft && canEdit ? 'plan' : 'recs');
+    aiAgentBtn.onclick = async () => {
+      if (aiAgentBtn.disabled) return;
+      const page = agentPage();
+      const label = aiAgentBtn.textContent;
+      aiAgentBtn.disabled = true;
+      aiAgentBtn.textContent = 'רגע… ⏳';
       try {
-        const scope = aiArea.value
-          ? { area: aiArea.value,
-              day_from: +document.getElementById('trip-ai-from').value || 1,
-              day_to: +document.getElementById('trip-ai-to').value || trip.days }
-          : {};
-        const snapDesc = trip.description; // for the undo — the item inverse comes from the server
-        const r = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/ai-edit`, {
-          method: 'POST', headers: canEditHeaders || {},
-          body: JSON.stringify({ prompt, ...scope }),
-        });
-        tripItems = r.items;
-        sortItems(); // the server returns slot order — a stop the AI added mid-day must land at its clock position
-        renderItinerary();
-        syncAiScopeRange(); // the area's day span may have moved
-        if (r.description) { trip.description = r.description; renderDesc(); }
-        const changed = r.added + r.updated + r.removed > 0;
-        aiResult.classList.add(changed ? 'ok' : 'info');
-        aiResult.textContent = r.summary;
-        if (changed && r.undo) {
-          aiInput.value = '';
-          aiCount.textContent = '0/200';
-          aiUndo = { ops: r.undo, snapDesc };
-          const undoBtn = document.createElement('button');
-          undoBtn.type = 'button';
-          undoBtn.className = 'ai-undo-btn';
-          undoBtn.textContent = 'ביטול השינוי';
-          undoBtn.onclick = () => undoAiEdit(undoBtn);
-          aiResult.append(' ', undoBtn);
-        }
-      } catch (err) {
-        aiResult.classList.add('err');
-        aiResult.textContent = err.message;
+        // automatic mode is written where that chat keeps it — the trip's plan state on
+        // the server for תכנון, this browser for המלצות — BEFORE the page opens, since
+        // both read the mode as they paint
+        if (page === 'plan') await TripPlan.setMode(trip, 'auto');
+        else TripRecs.setMode(trip, 'auto');
       } finally {
-        aiResult.hidden = false;
-        aiBtn.disabled = false;
-        aiInput.disabled = false;
-        aiBtn.textContent = prevLabel;
+        aiAgentBtn.disabled = false;
+        aiAgentBtn.textContent = label;
       }
-    });
-
-    // reverse the last smart edit with plain item CRUD — no model call, no quota.
-    // The inverse comes from the server (exactly the rows the edit touched, with
-    // their pre-edit values), so a stop a co-planner added or changed in the
-    // meantime is never confused for the AI's work. Per-op failures are tolerated:
-    // restoring the rest still beats nothing. One level only — re-created stops
-    // get fresh ids, so there is no redo.
-    async function undoAiEdit(btn) {
-      if (btn.disabled) return;
-      if (!aiUndo) {
-        // a manual edit since the AI ran invalidated the undo — say so instead
-        // of a button that silently does nothing
-        btn.remove();
-        aiResult.className = 'ai-edit-result info';
-        aiResult.textContent = 'המסלול השתנה מאז — אי אפשר לבטל את שינוי ה-AI אוטומטית';
-        return;
-      }
-      const { ops, snapDesc } = aiUndo;
-      aiUndo = null;
-      btn.disabled = true;
-      btn.textContent = 'רגע, מחזירים…';
-      const H = canEditHeaders || {};
-      const base = `/api/trips/code/${trip.share_code}`;
-      try {
-        for (const id of ops.added) {
-          await TRIPMAKER.api(`${base}/items/${id}`, { method: 'DELETE', headers: H }).catch(() => {});
-        }
-        for (const u of ops.updated) {
-          // exactly the columns the edit touched, back to their pre-edit values
-          await TRIPMAKER.api(`${base}/items/${u.id}`, {
-            method: 'PATCH', headers: H, body: JSON.stringify(u.fields),
-          }).catch(() => {});
-        }
-        for (const it of ops.deleted) {
-          try {
-            const row = await TRIPMAKER.api(`${base}/items`, {
-              method: 'POST', headers: H,
-              body: JSON.stringify({
-                day_number: it.day_number, time_label: it.time_label, title: it.title,
-                note: it.note, place_query: it.place_query, category: it.category,
-                area: it.area, lat: it.lat, lon: it.lon, cost: it.cost,
-              }),
-            });
-            // POST assigns MAX(sort_order)+1 — pin the original slot back so an
-            // unclocked stop returns to where it stood, not to the day's end
-            if ((row.sort_order ?? 0) !== (it.sort_order ?? 0)) {
-              await TRIPMAKER.api(`${base}/items/${row.id}`, {
-                method: 'PATCH', headers: H, body: JSON.stringify({ sort_order: it.sort_order ?? 0 }),
-              }).catch(() => {});
-            }
-          } catch { /* trip-level failure on one stop — restore the rest */ }
-        }
-        if ((snapDesc ?? '') !== (trip.description ?? '')) {
-          // the AI rewrote the trip description too — restore it server-side
-          await TRIPMAKER.api('/api/trips/' + trip.id, {
-            method: 'PATCH', body: JSON.stringify({ description: snapDesc || null }),
-          }).catch(() => {});
-        }
-      } finally {
-        // one re-fetch is the source of truth after the inverse ops — it also folds
-        // in whatever co-planners changed meanwhile instead of guessing at it
-        try {
-          const fresh = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}`);
-          tripItems = fresh.items;
-          trip.description = fresh.trip.description;
-          renderDesc();
-        } catch { /* offline mid-undo — keep the local state we have */ }
-        sortItems();
-        renderItinerary();
-        updateAmbient();
-        syncAiScopeRange();
-        aiResult.className = 'ai-edit-result info';
-        aiResult.textContent = 'השינוי בוטל — המסלול חזר לקדמותו';
-      }
-    }
+      TRIPMAKER.track?.('ai_agent_open', { code: trip.share_code, page });
+      TripPages.open(page);
+    };
 
     // ---- clone button: anyone holding the code can copy the itinerary into their
     // account. Money (budget, stop costs, hotel prices) only comes along if they
@@ -1341,11 +1211,9 @@
       // one swap, same repaint path as every other edit
       replaceItems: (list) => {
         tripItems = list;
-        aiUndo = null;
         sortItems();
         renderItinerary();
         updateAmbient();
-        syncAiScopeRange();
       },
       // the areas the chat settled, promoted to destinations: the calendar's colors and
       // the per-area editor read this list, so it changes in place

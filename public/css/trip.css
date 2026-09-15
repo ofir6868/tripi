@@ -76,29 +76,11 @@
 .ai-edit-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .ai-edit-title { font-weight: 800; font-size: 1.05rem; color: var(--amber); }
 .ai-edit-sub { margin: 6px 0 12px; font-size: .92rem; color: var(--paper-dim); font-weight: 300; }
-.ai-edit-row { display: flex; gap: 8px; }
-.ai-edit-foot { display: flex; justify-content: flex-end; margin-top: 6px; font-size: .78rem; color: var(--paper-dim); }
-.ai-edit-scope {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  margin-top: 12px; padding-top: 12px; border-top: 1px dashed rgba(255, 255, 255, .14);
-  color: var(--paper-dim); font-size: .92rem;
-}
-.ai-edit-scope label { font-weight: 600; }
-.ai-edit-scope select {
-  background: rgba(6, 13, 11, .55); border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
-  color: var(--paper); font-family: var(--font-body); font-size: .95rem; padding: 9px 12px; outline: none;
-}
-.ai-edit-scope select:focus { border-color: var(--amber); }
-.ai-edit-result { margin-top: 10px; font-size: .95rem; line-height: 1.6; }
-/* one-tap escape hatch after a smart edit — quiet, sits inside the result line */
-.ai-undo-btn {
-  background: none; border: 1px solid rgba(255, 255, 255, .25); border-radius: 999px;
-  color: var(--paper); font-family: var(--font-body); font-size: .82rem; font-weight: 700;
-  padding: 5px 14px; margin-inline-start: 8px; cursor: pointer; vertical-align: 1px;
-}
-.ai-undo-btn:hover:not(:disabled) { border-color: var(--amber); color: var(--amber); }
-.ai-undo-btn:disabled { opacity: .6; cursor: default; }@media (max-width: 560px) {
-  .ai-edit-row { flex-direction: column; }
+/* the card's one control: the handover to the agent's chat. On a phone it takes the
+   full width — it is the only thing to press here */
+.ai-edit-cta { justify-content: center; }
+@media (max-width: 560px) {
+  .ai-edit-cta { width: 100%; }
 }
 
 
@@ -290,7 +272,6 @@
 
 /* hotel star rating — shown in the hotels modal list */
 .hotel-stars { color: var(--amber); font-size: .78rem; letter-spacing: .1em; }
-.range-row { display: flex; align-items: center; gap: 8px; color: var(--paper-dim); font-size: .92rem; }
 .rc-month { text-align: center; font-weight: 800; font-size: .95rem; margin: 12px 0 6px; }
 .rc-grid { gap: 4px; margin-bottom: 8px; }
 .region-cal .cal-dow-row { gap: 4px; }
@@ -1478,8 +1459,7 @@ body.cal-full-open { overflow: hidden; }
 @media (pointer: coarse) {
   .cost-input,
 .bp-add input,
-.bp-add select,
-.ai-edit-scope select { font-size: 16px; }
+.bp-add select { font-size: 16px; }
 }
 
 body.page-open { overflow: hidden; }
