@@ -64,6 +64,21 @@ CREATE TABLE IF NOT EXISTS trip_plan_messages (
 );
 
 -- a participant can edit the trip; the owner is a participant implicitly
+-- the AI's picks for a day that has no stops yet (המלצות ליום פנוי): one row per free
+-- day, shown in the itinerary in place of the empty-day note and regenerated whenever
+-- the AI chats change the trip. routes/day-recs.js owns it.
+CREATE TABLE IF NOT EXISTS trip_day_recs (
+  trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  day_number INT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  cards JSONB NOT NULL DEFAULT '[]',
+  seen JSONB NOT NULL DEFAULT '[]',
+  token TEXT,
+  requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (trip_id, day_number)
+);
+
 CREATE TABLE IF NOT EXISTS trip_participants (
   trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
   user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

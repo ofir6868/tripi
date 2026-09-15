@@ -12,7 +12,7 @@ const STATIC = [
   '/css/style.css', '/css/home.css', '/css/trip.css', '/css/plan.css', '/css/my.css',
   '/css/seo.css', '/css/admin.css',
   '/js/wcag22.js', '/js/common.js', '/js/geo.js', '/js/home.js', '/js/trip.js',
-  '/js/trip-pages.js', '/js/trip-recs.js', '/js/trip-docs.js', '/js/doc-classify.js', '/js/doc-text.js',
+  '/js/trip-pages.js', '/js/trip-recs.js', '/js/trip-dayrecs.js', '/js/trip-docs.js', '/js/doc-classify.js', '/js/doc-text.js',
   '/js/trip-modals.js', '/js/trip-arrange.js', '/js/trip-calendar.js', '/js/trip-map.js',
   '/js/plan.js', '/js/admin.js', '/js/my.js',
   '/js/countries.js', '/js/destinations.js', '/js/popular.js', '/js/datepicker.js', '/js/push.js', '/js/webmcp.js', '/js/webmcp-tools.js',

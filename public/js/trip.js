@@ -566,11 +566,11 @@
                 ${it.note ? `<div class="item-note">${TRIPMAKER.esc(it.note)}</div>` : ''}
               </div>`;
             }).join('')}
-            ${byDay.get(day).length === 0 && editMode ? '<div class="empty-day">יום פנוי — מוסיפים תחנה למטה ↓</div>' : ''}
+            ${editMode ? TripDayRecs.blockHtml(day) : ''}
             ${editMode ? `<button class="add-item-inline" data-day="${day}">+ הוספת תחנה ליום ${day}</button>` : ''}
           </div>
         </div>
-        ${TripModals.nightCardHtml(state, day)}`;
+        ${TripModals.nightCardHtml(state, day, { suggest: byDay.get(day).length > 0 })}`;
       }).join('');
 
       // night N is the night after day N, so the card lands between the two days
@@ -641,6 +641,12 @@
       });
     }
 
+    // a free day shows the AI's picks for it (trip-dayrecs.js) — wired before the first
+    // paint so the blocks render as skeletons and fill in as the server answers
+    TripDayRecs.init({
+      trip, state, canEdit: editMode, addItem,
+      defaultArea: (day) => (multiDest() ? defaultAreaForDay(day) : (tripDests[0]?.name || trip.destination || null)),
+    });
     renderItinerary();
 
     // ---- participants: who edits the trip, the invite link, and publishing ----
@@ -1346,6 +1352,8 @@
         renderItinerary();
         updateAmbient();
         syncAiScopeRange();
+        // the AI changed the trip: every free day's picks are made again around it
+        TripDayRecs.reloadAll();
       },
       // the areas the chat settled, promoted to destinations: the calendar's colors and
       // the per-area editor read this list, so it changes in place
