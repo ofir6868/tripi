@@ -226,12 +226,6 @@ function renderHeader() {
   const userName = TRIPMAKER.user
     ? ''
     : `<span class="logo-he">מתכנן הטיולים שלך</span>`;
-  const avatarLetter = TRIPMAKER.user
-    ? TRIPMAKER.esc(TRIPMAKER.user.name.trim().charAt(0).toUpperCase())
-    : '';
-  const menuBtnIcon = TRIPMAKER.user
-    ? `<span class="nav-avatar ph-mask">${avatarLetter}</span>`
-    : NAV_ICON.user;
   el.innerHTML = `
     <a class="logo" href="/">
       <span class="logo-stack" dir="ltr" role="img" aria-label="TRIP MAKER">
@@ -262,7 +256,7 @@ function renderHeader() {
       <div class="nav-menu">
         <button type="button" class="btn btn-ghost nav-menu-btn" id="nav-menu-btn"
           aria-haspopup="menu" aria-expanded="false" aria-controls="nav-menu-panel" title="תפריט">
-          ${menuBtnIcon}<span class="sr-only">תפריט</span>
+          ${NAV_ICON.user}<span class="sr-only">תפריט</span>
         </button>
       </div>
       <a class="btn btn-amber" href="/plan">${NAV_ICON.plus}טיול חדש</a>
