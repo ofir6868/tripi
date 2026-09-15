@@ -336,11 +336,11 @@ const TripCalendar = (() => {
               ${it.note ? `<span class="cd-note">${esc(it.note)}</span>` : ''}
             </span>
             <svg class="ic cd-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
-          </button>`).join('') || `<div class="empty-day" style="border-radius:var(--radius-sm)">${
-            ctx.canEdit ? 'יום פנוי — מוסיפים תחנה למטה ↓' : 'יום פנוי — זמן לאלתורים 🌴'}</div>`}
+          </button>`).join('')}
+        ${ctx.canEdit ? TripDayRecs.blockHtml(d) : (items.length ? '' : '<div class="empty-day" style="border-radius:var(--radius-sm)">יום פנוי — זמן לאלתורים 🌴</div>')}
         ${ctx.canEdit ? `<button type="button" class="add-item-inline cal-add-stop">+ הוספת תחנה ליום ${d}</button>` : ''}
       </div>
-      ${TripModals.nightCardHtml(ctx.state, d)}`;
+      ${TripModals.nightCardHtml(ctx.state, d, { suggest: items.length > 0 })}`;
 
     // night d is the night after day d — the day view ends where the day ends
     TripModals.mountNightCards(ctx, body);

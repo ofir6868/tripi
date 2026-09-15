@@ -1285,7 +1285,7 @@ button.dest-chip.dc-add .ic { width: 15px; height: 15px; }
    slides own it, and between-card furniture (travel legs, empty-day notes) hides —
    the preview rearranges cards, and stale legs between them would lie */
 .dragging .jiggle { animation: none; }
-.dragging .travel-leg, .dragging .wd-free, .dragging .empty-day { display: none; }
+.dragging .travel-leg, .dragging .wd-free, .dragging .empty-day, .dragging .dr-block { display: none; }
 .btn.arrange-done {
   position: fixed;
   inset-inline: 12px;

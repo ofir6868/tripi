@@ -503,15 +503,18 @@
     }
 
     function renderListView() {
+      // every day is drawn, for everyone: an editor's free day carries the AI's picks
+      // for it, a viewer's says it is free. A trip with no stops at all still reads as
+      // one line to a viewer, not as N empty days.
+      if (!tripItems.length && !editMode) {
+        container.innerHTML = '<div class="empty-day glass" style="margin-top:20px;border-radius:var(--radius)">המסלול עדיין ריק — בעל הטיול עוד לא הוסיף תחנות</div>';
+        return;
+      }
       const byDay = new Map();
-      for (let d = 1; d <= (editMode ? trip.days : 0); d++) byDay.set(d, []); // edit mode shows all days
+      for (let d = 1; d <= trip.days; d++) byDay.set(d, []);
       for (const it of tripItems) {
         if (!byDay.has(it.day_number)) byDay.set(it.day_number, []);
         byDay.get(it.day_number).push(it);
-      }
-      if (!byDay.size) {
-        container.innerHTML = '<div class="empty-day glass" style="margin-top:20px;border-radius:var(--radius)">המסלול עדיין ריק — בעל הטיול עוד לא הוסיף תחנות</div>';
-        return;
       }
       const dayCosts = TripModals.plannedByDay(state);
       const cur = TripModals.curOf(state);
@@ -559,11 +562,11 @@
                 ${it.note ? `<div class="item-note">${TRIPMAKER.esc(it.note)}</div>` : ''}
               </div>`;
             }).join('')}
-            ${byDay.get(day).length === 0 && editMode ? '<div class="empty-day">יום פנוי — מוסיפים תחנה למטה ↓</div>' : ''}
+            ${editMode ? TripDayRecs.blockHtml(day) : (byDay.get(day).length ? '' : '<div class="empty-day">יום פנוי</div>')}
             ${editMode ? `<button class="add-item-inline" data-day="${day}">+ הוספת תחנה ליום ${day}</button>` : ''}
           </div>
         </div>
-        ${TripModals.nightCardHtml(state, day)}`;
+        ${TripModals.nightCardHtml(state, day, { suggest: byDay.get(day).length > 0 })}`;
       }).join('');
 
       // night N is the night after day N, so the card lands between the two days
@@ -634,6 +637,12 @@
       });
     }
 
+    // a free day shows the AI's picks for it (trip-dayrecs.js) — wired before the first
+    // paint so the blocks render as skeletons and fill in as the server answers
+    TripDayRecs.init({
+      trip, state, canEdit: editMode, addItem,
+      defaultArea: (day) => (multiDest() ? defaultAreaForDay(day) : (tripDests[0]?.name || trip.destination || null)),
+    });
     renderItinerary();
 
     // ---- participants: who edits the trip, the invite link, and publishing ----
@@ -1214,6 +1223,8 @@
         sortItems();
         renderItinerary();
         updateAmbient();
+        // the AI changed the trip: every free day's picks are made again around it
+        TripDayRecs.reloadAll();
       },
       // the areas the chat settled, promoted to destinations: the calendar's colors and
       // the per-area editor read this list, so it changes in place

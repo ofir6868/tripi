@@ -2384,6 +2384,9 @@ module.exports.undoApplied = undoApplied;
 module.exports.verifyEditOps = verifyEditOps;
 module.exports.verifyRecCards = verifyRecCards;
 module.exports.REC_CATS = REC_CATS;
+// the free-day picks (routes/day-recs.js) are the same card, verified the same way
+module.exports.REC_CARD_SCHEMA = RECS_SCHEMA.properties.cards.items;
+module.exports.REC_COSTS = REC_COSTS;
 module.exports.aiJson = aiJson;
 module.exports.aiClarify = aiClarify;
 module.exports.aiTripMeta = aiTripMeta;
