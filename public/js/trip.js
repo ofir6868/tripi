@@ -510,15 +510,18 @@
     }
 
     function renderListView() {
+      // every day is drawn, for everyone: an editor's free day carries the AI's picks
+      // for it, a viewer's says it is free. A trip with no stops at all still reads as
+      // one line to a viewer, not as N empty days.
+      if (!tripItems.length && !editMode) {
+        container.innerHTML = '<div class="empty-day glass" style="margin-top:20px;border-radius:var(--radius)">המסלול עדיין ריק — בעל הטיול עוד לא הוסיף תחנות</div>';
+        return;
+      }
       const byDay = new Map();
-      for (let d = 1; d <= (editMode ? trip.days : 0); d++) byDay.set(d, []); // edit mode shows all days
+      for (let d = 1; d <= trip.days; d++) byDay.set(d, []);
       for (const it of tripItems) {
         if (!byDay.has(it.day_number)) byDay.set(it.day_number, []);
         byDay.get(it.day_number).push(it);
-      }
-      if (!byDay.size) {
-        container.innerHTML = '<div class="empty-day glass" style="margin-top:20px;border-radius:var(--radius)">המסלול עדיין ריק — בעל הטיול עוד לא הוסיף תחנות</div>';
-        return;
       }
       const dayCosts = TripModals.plannedByDay(state);
       const cur = TripModals.curOf(state);
@@ -566,7 +569,7 @@
                 ${it.note ? `<div class="item-note">${TRIPMAKER.esc(it.note)}</div>` : ''}
               </div>`;
             }).join('')}
-            ${editMode ? TripDayRecs.blockHtml(day) : ''}
+            ${editMode ? TripDayRecs.blockHtml(day) : (byDay.get(day).length ? '' : '<div class="empty-day">יום פנוי</div>')}
             ${editMode ? `<button class="add-item-inline" data-day="${day}">+ הוספת תחנה ליום ${day}</button>` : ''}
           </div>
         </div>

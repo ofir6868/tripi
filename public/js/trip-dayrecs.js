@@ -8,7 +8,7 @@
 // again for every free day when an AI chat changes the trip (replaceItems →
 // reloadAll), and swaps one day's picks for others on the "המלצות אחרות" button.
 // While anything is on its way the day shows a skeleton and says what it is waiting
-// for. Only editors see any of this — a viewer's list doesn't draw free days at all.
+// for. Only editors see any of this — a viewer's free day just says "יום פנוי".
 const TripDayRecs = (() => {
   const esc = (s) => TRIPMAKER.esc(s);
   const CAT_EMOJI = {
