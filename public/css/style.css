@@ -223,10 +223,6 @@ body::after {
   animation: header-compass-hub-in 1.25s ease both;
 }
 .logo .logo-he { font-weight: 300; font-size: .95rem; color: var(--paper-dim); }
-.logo .logo-user {
-  font-weight: 500; font-size: .98rem; color: var(--paper);
-  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
 
 .nav-actions {
   /* LTR within the actions group: user on the left, New Trip to its right */
@@ -239,6 +235,13 @@ body::after {
   justify-content: center; border-radius: 999px;
 }
 .nav-menu-btn .ic { width: 20px; height: 20px; }
+.nav-avatar {
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 999px;
+  background: var(--amber); color: var(--ink);
+  font-family: var(--font-display); font-weight: 700; font-size: .95rem;
+  line-height: 1;
+}
 .nav-menu.open .nav-menu-btn { background: var(--glass-strong); }
 
 .nav-menu-panel {
@@ -1032,7 +1035,6 @@ button.dest-chip.dc-add .ic { width: 15px; height: 15px; }
   .map-card #trip-map { height: 280px; }
   .gal-ph { width: 102px; height: 76px; }
   .logo .logo-he { display: none; }
-  .logo .logo-user { max-width: 130px; font-size: .88rem; }
   .btn { padding: 8px 14px; font-size: .88rem; }
   .hero { min-height: 88vh; padding-top: 100px; }
   .trip-card { flex-basis: 248px; }
@@ -1096,7 +1098,7 @@ button.dest-chip.dc-add .ic { width: 15px; height: 15px; }
     transform: scale(1.45);
     order: -1;
   }
-  .logo .logo-he, .logo .logo-user { font-size: .82rem; }
+  .logo .logo-he { font-size: .82rem; }
   .site-header { padding: 7px 10px; }
   .ticket { --ticket-pad: 14px; padding: 20px var(--ticket-pad); }
   .ticket .code { font-size: 1.85rem; letter-spacing: .1em; }
