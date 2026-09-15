@@ -1116,10 +1116,36 @@ button.dest-chip.dc-add .ic { width: 15px; height: 15px; }
 .mw-head .modal-sub { margin-bottom: 0; min-height: 0; }
 .mw-body { overflow-y: auto; padding: 18px 26px 26px; }
 
+/* account settings: a glass card like every other modal (it used to have no
+   background at all), narrower than the hotels/budget modals since it's two short
+   forms. The name saves in place beside its field, the two new-password fields
+   share a row, and each form's button sits at the start of its row instead of
+   stretching across the whole card. */
+.modal-settings { width: min(560px, 100%); }
+.modal-settings .mw-head .settings-account {
+  direction: ltr; text-align: right; unicode-bidi: isolate;
+  font-size: .9rem; font-weight: 500; color: var(--paper-dim); margin-top: 2px;
+}
 .settings-sec + .settings-sec { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--glass-border); }
-.settings-sec h3 { font-family: var(--font-display); font-size: 1.15rem; margin-bottom: 10px; }
-.settings-sec .sec-sub { color: var(--paper-dim); font-size: .85rem; line-height: 1.5; margin: -4px 0 14px; }
-.settings-sec .btn { width: 100%; justify-content: center; }
+.settings-sec h3 { font-family: var(--font-display); font-size: 1.15rem; margin-bottom: 6px; }
+.settings-sec .sec-sub { color: var(--paper-dim); font-size: .85rem; line-height: 1.5; margin: 0 0 14px; }
+.settings-form { display: flex; flex-direction: column; gap: 12px; }
+.settings-form .field { margin-bottom: 0; }
+/* an empty message must not hold a flex-gap slot */
+.settings-form .form-error, .settings-form .form-success { margin: 0; }
+.settings-form .form-error:empty, .settings-form .form-success:empty { display: none; }
+.settings-row { display: flex; align-items: flex-end; gap: 10px; }
+.settings-row .field { flex: 1; min-width: 0; }
+.settings-row .btn { flex: none; min-height: 48px; }
+.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.settings-actions { display: flex; justify-content: flex-start; }
+.settings-sec .btn { justify-content: center; }
+@media (max-width: 640px) {
+  .settings-row { flex-direction: column; align-items: stretch; }
+  .settings-grid { grid-template-columns: 1fr; }
+  .settings-actions { display: block; }
+  .settings-sec .btn { width: 100%; }
+}
 .seg button .ic { width: 15px; height: 15px; }
 .seg button.active {
   background: linear-gradient(135deg, var(--amber), var(--amber-deep)); color: #241302;
