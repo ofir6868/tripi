@@ -1681,7 +1681,16 @@ body.page-open { overflow: hidden; }
 }
 .chat-chips[hidden] { display: none; }
 /* the one chip that acts instead of replying: the automatic completion of the rest */
-.chat-chip.chip-build { border-color: rgba(143, 216, 196, .5); background: rgba(143, 216, 196, .1); color: var(--mint); }@media (max-width: 420px) {
+.chat-chip.chip-build { border-color: rgba(143, 216, 196, .5); background: rgba(143, 216, 196, .1); color: var(--mint); }
+/* the build choice — שלב אחרי שלב / בבת אחת — is the question itself, not a hint at an
+   answer: the two share the row as full buttons, so nothing about them says "optional" */
+.chat-chips.chips-choice { gap: 10px; overflow-x: visible; padding-bottom: 6px; }
+.chat-chip.chip-choice {
+  flex: 1 1 0; min-width: 0; padding: 13px 10px; border-radius: 14px;
+  border-width: 2px; border-color: rgba(255, 180, 95, .8); background: rgba(255, 180, 95, .16);
+  font-size: .98rem; font-weight: 800; box-shadow: 0 6px 20px rgba(255, 180, 95, .12);
+}
+.chat-chip.chip-choice:active { background: rgba(255, 180, 95, .3); }@media (max-width: 420px) {
   .plan-mode span { display: none; }
   .plan-mode { width: 46px; padding: 0; justify-content: center; }
 }

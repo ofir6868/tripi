@@ -317,7 +317,13 @@ const TripPlan = (() => {
       // a proposal is still waiting for a word
       const waiting = msgs.some((m) => m.role === 'ai' && m.payload && m.payload.decision === 'pending');
       const fill = !busy && loaded && !waiting && (state.stage === 'days' || state.stage === 'done') && !(last?.payload?.built);
-      chips.innerHTML = sugg.map((q) => `<button type="button" class="chat-chip">${esc(q)}</button>`).join('') +
+      // choose is the one stage that offers a fork rather than a shortcut — שלב אחרי שלב
+      // או בבת אחת — so its suggestions are not suggestions: they ARE the question the
+      // message just asked, and they get painted as the choice, wide and loud, instead
+      // of two quiet chips that scroll away with the rest
+      const choosing = state.stage === 'choose' && sugg.length > 1;
+      chips.className = choosing ? 'chat-chips chips-choice' : 'chat-chips';
+      chips.innerHTML = sugg.map((q) => `<button type="button" class="chat-chip${choosing ? ' chip-choice' : ''}">${esc(q)}</button>`).join('') +
         (fill ? `<button type="button" class="chat-chip chip-build" id="plan-fill">${esc(FILL_CHIP)}</button>` : '');
       chips.querySelectorAll('.chat-chip:not(.chip-build)').forEach((b) => { b.onclick = () => send(b.textContent); });
       chips.querySelector('#plan-fill')?.addEventListener('click', () => build(true));
