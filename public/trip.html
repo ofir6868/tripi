@@ -211,26 +211,14 @@
         </div>
       </div>
       <!-- the AI editor sits BELOW the itinerary: first you read what was built,
-           then you say what to change. The 3-day list fold keeps it within reach. -->
+           then you say what to change — and saying it is the agent's job, not this
+           card's: one tap opens its chat, already in automatic mode. -->
       <div class="ai-edit-card glass" id="ai-edit-card" style="display:none">
         <div class="ai-edit-head">
           <span class="ai-edit-title">✨ שינוי חכם במסלול</span>
         </div>
-        <p class="ai-edit-sub">כותבים מה לשנות — וה-AI מעדכן את התחנות. למשל: "תוסיף אוכל רחוב ביום 2" או "תוריד את המוזיאונים"</p>
-        <form class="ai-edit-row" id="ai-edit-form">
-          <input type="text" id="ai-edit-input" maxlength="200" placeholder="מה לשנות בטיול?" autocomplete="off">
-          <button type="submit" class="btn btn-amber" id="ai-edit-btn">בצעו ✨</button>
-        </form>
-        <div class="ai-edit-scope" id="trip-ai-scope" style="display:none">
-          <label for="trip-ai-area">איפה להחיל?</label>
-          <select id="trip-ai-area"><option value="">כל הטיול</option></select>
-          <span class="range-row" id="trip-ai-range" style="display:none">
-            ימים <input id="trip-ai-from" type="number" min="1" value="1" inputmode="numeric"> עד
-            <input id="trip-ai-to" type="number" min="1" value="2" inputmode="numeric">
-          </span>
-        </div>
-        <div class="ai-edit-foot"><span id="ai-edit-count">0/200</span></div>
-        <div class="ai-edit-result" id="ai-edit-result" hidden></div>
+        <p class="ai-edit-sub">מספרים לסוכן החכם מה לשנות — והוא מעדכן את התחנות. למשל: "תוסיף אוכל רחוב ביום 2" או "תוריד את המוזיאונים"</p>
+        <button type="button" class="btn btn-amber ai-edit-cta" id="ai-agent-btn">עבור לסוכן החכם ›</button>
       </div>
     </main>
     <aside class="trip-side">

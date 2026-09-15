@@ -92,6 +92,18 @@ const TripRecs = (() => {
     try { localStorage.setItem(threadKey(ctx), JSON.stringify(msgs.slice(-40))); } catch { /* full or private — the chat still works */ }
   }
 
+  // ידני / אוטומטי is remembered per trip in this browser too, next to the thread —
+  // one place that knows where it lives, because the trip page writes it from outside:
+  // "עבור לסוכן החכם" turns automatic on before this chat ever paints
+  const modeKey = (trip) => `tripmaker_recs_mode_${trip.share_code}`;
+  const savedMode = (trip) => {
+    try { return localStorage.getItem(modeKey(trip)) === 'auto' ? 'auto' : 'manual'; } catch { return 'manual'; }
+  };
+  function setMode(trip, mode) {
+    try { localStorage.setItem(modeKey(trip), mode); } catch { /* per-visit then */ }
+    return mode;
+  }
+
   // =================================================================
   //  RENDER
   // =================================================================
@@ -153,8 +165,7 @@ const TripRecs = (() => {
     // ידני: exactly the chat as it always was. אוטומטי: an explicit "add / remove / move
     // X" comes back as a proposal card — for someone who may edit the trip. Remembered
     // per trip in this browser, like the thread.
-    const modeKey = `tripmaker_recs_mode_${ctx.trip.share_code}`;
-    let mode = ctx.canEdit && localStorage.getItem(modeKey) === 'auto' ? 'auto' : 'manual';
+    let mode = ctx.canEdit ? savedMode(ctx.trip) : 'manual';
 
     body.innerHTML = '<div class="chat-thread" id="chat-thread"></div>';
     foot.innerHTML = `
@@ -311,8 +322,7 @@ const TripRecs = (() => {
     foot.querySelectorAll('.chat-chip').forEach((b) => { b.onclick = () => send(b.textContent); });
     if (modeBtn) {
       modeBtn.onclick = () => {
-        mode = mode === 'auto' ? 'manual' : 'auto';
-        try { localStorage.setItem(modeKey, mode); } catch { /* per-visit then */ }
+        mode = setMode(ctx.trip, mode === 'auto' ? 'manual' : 'auto');
         paintMode();
         TRIPMAKER.track?.('recs_mode', { code: ctx.trip.share_code, mode });
       };
@@ -457,5 +467,5 @@ const TripRecs = (() => {
   }
 
   // the planning chat (trip-plan.js) shows the same cards and adds them the same way
-  return { render, ask, cardHtml, fromServerCard, cyclePhotoOf, addRecs, ICON };
+  return { render, ask, cardHtml, fromServerCard, cyclePhotoOf, addRecs, setMode, ICON };
 })();

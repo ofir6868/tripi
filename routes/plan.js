@@ -50,8 +50,12 @@ const SPLIT_AREAS_FROM_DAYS = 6;
 
 const SUGGEST_STEPS = 'שלב אחרי שלב 🪜';
 const SUGGEST_ONCE = 'בבת אחת ✨';
-const READY_TEXT = 'אני מוכן ליצור עבורכם טיול מושלם 🧭 רוצים שנבנה אותו שלב אחרי שלב — מהאזורים, דרך הטיסות ועד מה עושים בכל יום — או בבת אחת? ' +
-  'שלב אחרי שלב יוצא מדויק יותר, ובכל מקרה תמיד אפשר לערוך ולשנות הכול.';
+// The fork of the whole conversation, and the two buttons under it already name the
+// options — so the text does not describe them a second time. The long version spelled
+// out what each way covers ("מהאזורים, דרך הטיסות ועד מה עושים בכל יום"), and on a phone
+// it pushed the buttons themselves toward the fold: the first thing to read became a
+// paragraph instead of a choice. One line, and the choice right under it.
+const READY_TEXT = 'איך נבנה אותו? 🧭 שלב אחרי שלב יוצא מדויק יותר — ותמיד אפשר לשנות.';
 
 // A trip across several countries ("the big trip", South America) is never offered
 // "בבת אחת": it goes straight from the clarifying round into the step-by-step path,
@@ -69,8 +73,8 @@ const SUGGEST_SPLIT = 'תציע חלוקה 🗺️';
 const listNames = (names) => (names.length > 1
   ? `${names.slice(0, -1).join(', ')} ו${names[names.length - 1]}`
   : names[0] || '');
-const stepwiseText = (names) => 'טיול בכמה מדינות אנחנו מתכננים שלב אחרי שלב, מדינה אחת בכל פעם — ככה כל אחת מקבלת את תשומת הלב שלה, ותמיד אפשר לערוך ולשנות הכול. ' +
-  `נתחיל מהדבר שקובע את כל השאר: כמה ימים בכל יעד, ובאיזה סדר — ${listNames(names)}. יש לכם חלוקה בראש, או שאציע אחת?`;
+const stepwiseText = (names) => 'טיול בכמה מדינות בונים שלב אחרי שלב, מדינה בכל פעם. ' +
+  `נתחיל מהחלוקה: כמה ימים בכל יעד ובאיזה סדר — ${listNames(names)}. יש לכם חלוקה בראש, או שאציע אחת?`;
 function multiCountry(dests) {
   const ccs = new Set((dests || []).map((d) => COUNTRIES.ccByName(String((d && (d.country || d.name)) || '').trim())).filter(Boolean));
   return ccs.size >= 2;
@@ -134,13 +138,13 @@ async function openingMessage(client, trip, userId) {
   // "פרו, בוליביה וארגנטינה" — three destinations strung together with a ו each
   // ("פרו ובוליביה וארגנטינה") read as a list nobody had proofread
   const where = listNames(trip.dests.map((d) => d.name)) || trip.destination;
-  const hello = `היי! אני אתכנן איתכם את הטיול ל${where} — ${trip.days} ימים. `;
+  const hello = `היי! מתכננים יחד את הטיול ל${where} — ${trip.days} ימים. `;
   let text, payload;
   if (questions.length) {
     state.stage = 'clarify';
     state.pending = questions.map((q) => ({ question: q.question, options: q.options, multi: !!q.multi }));
     const q = state.pending[0];
-    text = hello + 'שאלה קטנה קודם, כדי שנסדר את המסלול נכון: ' + q.question;
+    text = hello + 'שאלה קטנה קודם: ' + q.question;
     payload = { suggestions: q.options.slice(0, 6), multi: q.multi };
   } else if (multiCountry(trip.dests)) {
     // no choice to make: several countries start on the areas step right away
