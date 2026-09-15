@@ -1725,7 +1725,6 @@
     async function loadWeather(d) {
       const card = document.getElementById('weather-card');
       const sub = document.getElementById('weather-sub');
-      card.classList.remove('wx-trip', 'wx-est');
       sub.hidden = true;
       // without dates the strip can only be "the coming week at the destination" —
       // nothing to do with this trip. applyDates() calls back once they're picked.
@@ -1749,7 +1748,6 @@
             weatherByDate = {};
             for (const w of est) weatherByDate[w.date] = w;
             renderItinerary(); // day headers pick up the typical-weather numbers
-            card.classList.add('wx-est');
             sub.textContent = 'טיפוסי לתאריכים האלה — ממוצע השנתיים האחרונות · תחזית אמיתית תופיע כשמתקרבים';
             sub.hidden = false;
             document.getElementById('weather-row').innerHTML = est.slice(0, 7).map(weatherDayHtml).join('');
@@ -1762,23 +1760,16 @@
         const days = await GEO.forecast(d.lat, d.lon, 16);
         weatherByDate = {};
         for (const w of days) weatherByDate[w.date] = w;
-        renderItinerary(); // stamp each day header with its own forecast
-        // the strip is always a forecast from today, so it only says something about
-        // *this trip* when the horizon actually reaches the trip's days. When it does
-        // the strip becomes the trip's own days; when it doesn't — the trip is far off
-        // and the archive that would have given its typical weather was unavailable —
-        // it stays "the coming week at the destination", true but not about this trip,
-        // so it says so and the printed sheet drops it (see .wx-trip).
+        // the forecast runs from today, so it reaches this trip only while the trip is
+        // near enough or under way. When none of its days are in it — the trip is over,
+        // or it's far off and the archive above didn't answer — there is nothing to say
+        // about its days, and the coming week at the destination isn't it.
         const tripDays = Array.from({ length: trip.days }, (_, i) => dayDate(i + 1))
           .map((d2) => d2 && weatherByDate[TRIPMAKER.isoDate(d2)])
           .filter(Boolean);
-        card.classList.toggle('wx-trip', tripDays.length > 0);
-        if (!tripDays.length) {
-          sub.textContent = 'התחזית בשבוע הקרוב ביעד — ימי הטיול עדיין רחוקים מתחזית';
-          sub.hidden = false;
-        }
-        document.getElementById('weather-row').innerHTML =
-          (tripDays.length ? tripDays : days).slice(0, 7).map(weatherDayHtml).join('');
+        if (!tripDays.length) { weatherByDate = {}; card.style.display = 'none'; return; }
+        renderItinerary(); // stamp each day header with its own forecast
+        document.getElementById('weather-row').innerHTML = tripDays.slice(0, 7).map(weatherDayHtml).join('');
         card.style.display = '';
       } catch { card.style.display = 'none'; }
     }

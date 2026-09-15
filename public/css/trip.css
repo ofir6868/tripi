@@ -635,11 +635,6 @@
 }
 .join-banner .jb-text { font-weight: 700; font-size: .95rem; text-align: center; }
 body:has(.join-banner) { padding-bottom: 92px; }@media print {
-  /* the forecast prints only when it speaks about the trip's own days — a real
-     one (.wx-trip) or the typical-for-the-dates estimate (.wx-est); otherwise
-     it's just the coming week at the destination, which the sheet would read
-     as the trip's weather */
-  #weather-card:not(.wx-trip):not(.wx-est) { display: none !important; }
   /* printing from fullscreen: the calendar prints as a normal block, not a fixed overlay */
   .cal-wrap.cal-full { position: static !important; padding: 0 !important; background: none !important; }
   .trip-hero { min-height: auto; padding: 20px 0; }
