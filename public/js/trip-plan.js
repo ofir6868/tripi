@@ -267,9 +267,20 @@ const TripPlan = (() => {
     return trip.plan_state;
   }
 
+  // a message handed over from outside — the trip page's bottom ask bar (see
+  // TripRecs.say): held until the thread has loaded, since a turn can't go out before
+  // the conversation it belongs to is on screen
+  let queued = null;
+  let flush = null;
+  function say(text) {
+    queued = String(text || '').trim() || null;
+    flush?.();
+  }
+
   function render(slots, ctx) {
     const { page, body, foot } = slots;
     page.classList.add('page-chat', 'page-plan');
+    flush = null; // a chat painted earlier is gone — nothing handed over reaches it
     let msgs = [];
     let state = ctx.trip.plan_state || { mode: 'manual', stage: 'clarify' };
     let busy = false;
@@ -400,6 +411,13 @@ const TripPlan = (() => {
         msgs = [{ role: 'ai', text: (err && err.message) || 'לא הצלחתי לטעון את התכנון — נסו לרענן', payload: {} }];
       }
       paint();
+      flush = () => {
+        if (!queued || !loaded) return;
+        const q = queued;
+        queued = null;
+        send(q);
+      };
+      flush();
     }
 
     // =================================================================
@@ -593,5 +611,5 @@ const TripPlan = (() => {
   }
 
   // the quota card and its handler are shared with the recommendations chat
-  return { render, arrival, setMode, quotaMsg, quotaMsgHtml, handleCardClick, loadReferral, referral: () => referralInfo, changeCardHtml };
+  return { render, arrival, setMode, say, quotaMsg, quotaMsgHtml, handleCardClick, loadReferral, referral: () => referralInfo, changeCardHtml };
 })();

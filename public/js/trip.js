@@ -79,6 +79,67 @@
   let editMode = false;
   let canEditHeaders = null; // truthy = edit calls allowed (auth rides on the JWT)
 
+  // a placeholder that types: each phrase is typed out, held, deleted and replaced by
+  // the next — a cursor riding the text — for as long as `active()` says the field is
+  // on screen and the traveller isn't in it. Reduced motion swaps the phrases whole.
+  function typingPlaceholder(input, phrases, active = () => true) {
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const CARET = '|';
+    let i = 0, timer = null, running = false;
+    const stop = () => { clearTimeout(timer); timer = null; running = false; };
+    const later = (fn, ms) => { timer = setTimeout(fn, ms); };
+    const idle = () => document.activeElement === input || input.value;
+    function hold(text, ms) {
+      // the caret blinks while the phrase waits to be read
+      let on = true;
+      const t0 = Date.now();
+      const blink = () => {
+        if (Date.now() - t0 >= ms) { erase(text); return; }
+        on = !on;
+        input.placeholder = text + (on ? CARET : ' ');
+        later(blink, 480);
+      };
+      input.placeholder = text + CARET;
+      later(blink, 480);
+    }
+    function erase(text) {
+      let n = text.length;
+      const step = () => {
+        if (n <= 0) { i = (i + 1) % phrases.length; later(type, 260); return; }
+        n -= 1;
+        input.placeholder = text.slice(0, n) + CARET;
+        later(step, 22);
+      };
+      step();
+    }
+    function type() {
+      const text = phrases[i];
+      if (reduce) { input.placeholder = text; i = (i + 1) % phrases.length; later(type, 3200); return; }
+      let n = 0;
+      const step = () => {
+        n += 1;
+        input.placeholder = text.slice(0, n) + CARET;
+        if (n < text.length) later(step, 34 + Math.random() * 40);
+        else hold(text, 1900);
+      };
+      step();
+    }
+    // (re)start when the field is shown and empty; a focused field shows a plain prompt
+    function resume() {
+      if (!active() || idle()) { stop(); if (idle()) input.placeholder = 'מה לשנות או להמליץ?'; return; }
+      if (running) return;
+      running = true;
+      type();
+    }
+    input.addEventListener('focus', resume);
+    input.addEventListener('blur', () => setTimeout(resume, 0));
+    input.addEventListener('input', resume);
+    matchMedia('(max-width: 640px)').addEventListener?.('change', resume);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); else resume(); });
+    resume();
+    return { resume, stop };
+  }
+
   function forgetInvite() {
     inviteToken = null;
     delete savedInvites[code];
@@ -1010,25 +1071,75 @@
     // same AI, same change cards, so the button follows whichever one this trip has
     // (the condition is the one the pages are registered under, further down)
     const agentPage = () => (trip.is_draft && canEdit ? 'plan' : 'recs');
+    // opens the agent's chat in automatic mode; with `message`, that message is sent
+    // as the chat's next turn the moment it can take one, so the traveller lands on a
+    // conversation already under way (`from` names which control asked)
+    async function openAgent(message, from) {
+      const page = agentPage();
+      // automatic mode is written where that chat keeps it — the trip's plan state on
+      // the server for תכנון, this browser for המלצות — BEFORE the page opens, since
+      // both read the mode as they paint
+      if (page === 'plan') await TripPlan.setMode(trip, 'auto');
+      else TripRecs.setMode(trip, 'auto');
+      TRIPMAKER.track?.('ai_agent_open', { code: trip.share_code, page, from, with_message: !!message });
+      // open first, say second: the page paints fresh on open, and only the chat that
+      // is on screen may take the handover
+      TripPages.open(page);
+      if (message) (page === 'plan' ? TripPlan : TripRecs).say(message);
+    }
     aiAgentBtn.onclick = async () => {
       if (aiAgentBtn.disabled) return;
-      const page = agentPage();
       const label = aiAgentBtn.textContent;
       aiAgentBtn.disabled = true;
       aiAgentBtn.textContent = 'רגע… ⏳';
-      try {
-        // automatic mode is written where that chat keeps it — the trip's plan state on
-        // the server for תכנון, this browser for המלצות — BEFORE the page opens, since
-        // both read the mode as they paint
-        if (page === 'plan') await TripPlan.setMode(trip, 'auto');
-        else TripRecs.setMode(trip, 'auto');
-      } finally {
+      try { await openAgent(null, 'card'); } finally {
         aiAgentBtn.disabled = false;
         aiAgentBtn.textContent = label;
       }
-      TRIPMAKER.track?.('ai_agent_open', { code: trip.share_code, page });
-      TripPages.open(page);
     };
+
+    // ---- the ask bar: on a phone, the agent is one line away at the bottom of the
+    // trip, above the dock. Its placeholder types out the things people come here to
+    // say — an edit, a recommendation — one after another, so it reads as an invitation
+    // rather than an empty field. Sending hands the line to the chat (already in
+    // automatic mode) as a turn that has just gone out.
+    if (canEditHeaders) {
+      const askBar = document.createElement('form');
+      askBar.className = 'ai-ask-bar';
+      askBar.id = 'ai-ask-bar';
+      askBar.setAttribute('aria-label', 'שאלה או בקשה לסוכן החכם');
+      askBar.innerHTML = `
+        <span class="aab-spark" aria-hidden="true">✨</span>
+        <input type="text" id="ai-ask-input" maxlength="400" autocomplete="off" enterkeyhint="send" aria-label="מה לשנות או להמליץ?">
+        <button type="submit" class="chat-send" aria-label="שליחה לסוכן החכם">${TripRecs.ICON.send}</button>`;
+      document.body.appendChild(askBar);
+      const askInput = askBar.querySelector('input');
+      const dest = tripDests[0]?.name || trip.destination || 'האזור';
+      const typer = typingPlaceholder(askInput, [
+        `מה חובה לראות ב${dest}?`,
+        'תוסיף אוכל רחוב ביום 2',
+        'איפה אוכלים טוב בערב?',
+        'תוריד את המוזיאונים',
+        'תכננו לי יום שלם',
+        'תזיז את השוק לבוקר',
+        'טבע ונופים באזור',
+        'תחליף את יום 3 במשהו רגוע יותר',
+      ], () => matchMedia('(max-width: 640px)').matches && !document.body.classList.contains('page-open'));
+      let sending = false;
+      askBar.onsubmit = async (e) => {
+        e.preventDefault();
+        const text = askInput.value.trim();
+        if (sending) return;
+        sending = true;
+        askInput.blur();
+        try { await openAgent(text || null, 'ask-bar'); } finally { sending = false; }
+        askInput.value = '';
+        typer.resume();
+      };
+      // the bar is the trip's, not the chat's: it steps aside while a page or the
+      // budget is open, and the animation stops with it
+      new MutationObserver(() => typer.resume()).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    }
 
     // ---- clone button: anyone holding the code can copy the itinerary into their
     // account. Money (budget, stop costs, hotel prices) only comes along if they

@@ -104,6 +104,17 @@ const TripRecs = (() => {
     return mode;
   }
 
+  // a message handed over from outside the chat — the trip page's bottom ask bar
+  // types it and the chat sends it as its own first turn, so the traveller lands on a
+  // conversation already under way. Held until the chat has painted (and, on a
+  // re-open, sent by the fresh paint), so the order of open() and say() doesn't matter.
+  let queued = null;
+  let flush = null; // the painted chat's "send whatever is queued"
+  function say(text) {
+    queued = String(text || '').trim() || null;
+    flush?.();
+  }
+
   // =================================================================
   //  RENDER
   // =================================================================
@@ -155,6 +166,7 @@ const TripRecs = (() => {
   function render(slots, ctx) {
     const { page, body, foot } = slots;
     page.classList.add('page-chat');
+    flush = null; // a chat painted earlier is gone — nothing handed over reaches it
     const mainDest = ctx.dests[0] || ctx.trip.destination || 'האזור';
     let msgs = loadThread(ctx);
     // proposal cards need a stable id to answer to — local, monotonic, survives a reload
@@ -329,6 +341,13 @@ const TripRecs = (() => {
     }
 
     paint();
+    flush = () => {
+      if (!queued) return;
+      const q = queued;
+      queued = null;
+      send(q);
+    };
+    flush();
   }
 
   // the card's photo carousel: one tap, next photo
@@ -467,5 +486,5 @@ const TripRecs = (() => {
   }
 
   // the planning chat (trip-plan.js) shows the same cards and adds them the same way
-  return { render, ask, cardHtml, fromServerCard, cyclePhotoOf, addRecs, setMode, ICON };
+  return { render, ask, cardHtml, fromServerCard, cyclePhotoOf, addRecs, setMode, say, ICON };
 })();
