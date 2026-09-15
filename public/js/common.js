@@ -201,6 +201,7 @@ const NAV_ICON = {
   login: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>',
   logout: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
   settings: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+  a11y: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="16" cy="4" r="1"/><path d="m18 19 1-7-6 1"/><path d="m5 8 3-3 5.5 3-2.36 3.5"/><path d="M4.24 14.5a5 5 0 0 0 6.88 6"/><path d="M13.76 17.5a5 5 0 0 0-6.88-6"/></svg>',
 };
 
 function renderHeader() {
@@ -209,6 +210,10 @@ function renderHeader() {
   const el = document.createElement('header');
   el.className = 'site-header glass';
   const menuItems = [];
+  // the accessibility drawer (wcag22.js) opens from here on every page, signed in
+  // or not — on the trip page it's the only way in, since the floating button
+  // kept covering the dock and the stop cards there
+  const a11yItem = `<button type="button" class="nav-menu-item" id="nav-a11y">${NAV_ICON.a11y}<span>נגישות</span></button>`;
   if (TRIPMAKER.user) {
     if (TRIPMAKER.user.is_admin) {
       menuItems.push(`<a class="nav-menu-item nav-menu-admin" href="/admin">${NAV_ICON.gear}<span>ניהול</span></a>`);
@@ -216,15 +221,17 @@ function renderHeader() {
     menuItems.push(
       `<a class="nav-menu-item" href="/my">${NAV_ICON.map}<span class="ph-mask">הטיולים של ${TRIPMAKER.esc(TRIPMAKER.user.name.split(' ')[0])}</span></a>`,
       `<button type="button" class="nav-menu-item" id="nav-settings">${NAV_ICON.settings}<span>הגדרות</span></button>`,
+      a11yItem,
       `<button type="button" class="nav-menu-item nav-menu-logout" id="nav-logout">${NAV_ICON.logout}<span>יציאה</span></button>`,
     );
   } else {
     menuItems.push(
       `<button type="button" class="nav-menu-item" id="nav-login">${NAV_ICON.login}<span>התחברות</span></button>`,
+      a11yItem,
     );
   }
   const userName = TRIPMAKER.user
-    ? `<span class="logo-user">שלום, <span class="ph-mask">${TRIPMAKER.esc(TRIPMAKER.user.name.split(' ')[0])}</span></span>`
+    ? ''
     : `<span class="logo-he">מתכנן הטיולים שלך</span>`;
   el.innerHTML = `
     <a class="logo" href="/">
@@ -323,6 +330,13 @@ function renderHeader() {
   panel.querySelector('#nav-settings')?.addEventListener('click', () => {
     setOpen(false);
     openSettingsModal();
+  });
+  panel.querySelector('#nav-a11y')?.addEventListener('click', () => {
+    setOpen(false);
+    // the drawer is the engine's; without it (a page that doesn't load wcag22.js)
+    // the statement page is the next best thing
+    if (window.WCAG22?.open) window.WCAG22.open();
+    else location.href = '/accessibility';
   });
 }
 
@@ -460,46 +474,55 @@ function renderSettingsModal() {
   wrap.className = 'modal-backdrop';
   wrap.id = 'settings-modal';
   wrap.innerHTML = `
-    <div class="modal modal-wide">
+    <div class="modal glass modal-wide modal-settings" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="mw-head">
         <button class="modal-close" aria-label="סגירה">✕</button>
-        <h2>הגדרות חשבון</h2>
-        <p class="modal-sub"></p>
+        <h2 id="settings-title">הגדרות חשבון</h2>
+        <!-- who this is: the email is the login handle and isn't editable here (see
+             routes/auth.js), so it reads as the account's name, not as a field -->
+        <p class="modal-sub ph-mask" id="settings-account" dir="ltr"></p>
       </div>
       <div class="mw-body">
-        <div class="settings-sec">
-          <h3>שם מלא</h3>
-          <form id="settings-name-form" class="ph-no-capture">
-            <div class="field">
-              <label for="settings-name" class="sr-only">שם מלא</label>
-              <input id="settings-name" type="text" autocomplete="name" required placeholder="למשל: דנה לוי">
+        <section class="settings-sec" aria-labelledby="settings-name-title">
+          <h3 id="settings-name-title">שם מלא</h3>
+          <p class="sec-sub">כך תופיעו בברכה למעלה ובפני החברים שמתכננים איתכם.</p>
+          <form id="settings-name-form" class="ph-no-capture settings-form">
+            <div class="settings-row">
+              <div class="field">
+                <label for="settings-name">שם</label>
+                <input id="settings-name" type="text" autocomplete="name" required maxlength="80" placeholder="למשל: דנה לוי">
+              </div>
+              <button class="btn btn-amber" type="submit" id="settings-name-submit">שמירת שם</button>
             </div>
-            <div class="form-error" id="settings-name-error"></div>
-            <div class="form-success" id="settings-name-success"></div>
-            <button class="btn btn-amber" type="submit" id="settings-name-submit">שמירת שם</button>
+            <div class="form-error" id="settings-name-error" role="alert"></div>
+            <div class="form-success" id="settings-name-success" role="status"></div>
           </form>
-        </div>
-        <div class="settings-sec">
-          <h3>סיסמה</h3>
+        </section>
+        <section class="settings-sec" aria-labelledby="settings-pass-title">
+          <h3 id="settings-pass-title">סיסמה</h3>
           <p class="sec-sub" id="settings-pass-hint">כדי לשנות סיסמה, הזינו את הסיסמה הנוכחית ולאחריה את החדשה.</p>
-          <form id="settings-pass-form" class="ph-no-capture">
+          <form id="settings-pass-form" class="ph-no-capture settings-form">
             <div class="field" id="settings-current-field">
               <label for="settings-current">סיסמה נוכחית</label>
               <input id="settings-current" type="password" autocomplete="current-password" placeholder="הסיסמה הנוכחית" dir="ltr" style="text-align:left">
             </div>
-            <div class="field">
-              <label for="settings-new">סיסמה חדשה</label>
-              <input id="settings-new" type="password" autocomplete="new-password" required placeholder="לפחות 6 תווים" dir="ltr" style="text-align:left">
+            <div class="settings-grid">
+              <div class="field">
+                <label for="settings-new">סיסמה חדשה</label>
+                <input id="settings-new" type="password" autocomplete="new-password" required minlength="6" placeholder="לפחות 6 תווים" dir="ltr" style="text-align:left">
+              </div>
+              <div class="field">
+                <label for="settings-new2">אימות סיסמה חדשה</label>
+                <input id="settings-new2" type="password" autocomplete="new-password" required minlength="6" placeholder="הקלידו שוב" dir="ltr" style="text-align:left">
+              </div>
             </div>
-            <div class="field">
-              <label for="settings-new2">אימות סיסמה חדשה</label>
-              <input id="settings-new2" type="password" autocomplete="new-password" required placeholder="הקלידו שוב" dir="ltr" style="text-align:left">
+            <div class="form-error" id="settings-pass-error" role="alert"></div>
+            <div class="form-success" id="settings-pass-success" role="status"></div>
+            <div class="settings-actions">
+              <button class="btn btn-amber" type="submit" id="settings-pass-submit">עדכון סיסמה</button>
             </div>
-            <div class="form-error" id="settings-pass-error"></div>
-            <div class="form-success" id="settings-pass-success"></div>
-            <button class="btn btn-amber" type="submit" id="settings-pass-submit">עדכון סיסמה</button>
           </form>
-        </div>
+        </section>
       </div>
     </div>`;
   document.body.appendChild(wrap);
@@ -570,12 +593,14 @@ async function openSettingsModal() {
   wrap.querySelector('#settings-pass-success').textContent = '';
   wrap.querySelector('#settings-pass-form').reset();
   wrap.querySelector('#settings-name').value = TRIPMAKER.user.name || '';
+  wrap.querySelector('#settings-account').textContent = TRIPMAKER.user.email || '';
   wrap.classList.add('open');
   try {
     const me = await TRIPMAKER.api('/api/me');
     TRIPMAKER.user = me;
     localStorage.setItem('tripmaker_user', JSON.stringify(me));
     wrap.querySelector('#settings-name').value = me.name || '';
+    wrap.querySelector('#settings-account').textContent = me.email || '';
     const currentField = wrap.querySelector('#settings-current-field');
     const hint = wrap.querySelector('#settings-pass-hint');
     if (me.has_password === false) {
