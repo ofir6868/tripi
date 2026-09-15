@@ -564,15 +564,18 @@
     }
 
     function renderListView() {
+      // every day is drawn, for everyone: an editor's free day carries the AI's picks
+      // for it, a viewer's says it is free. A trip with no stops at all still reads as
+      // one line to a viewer, not as N empty days.
+      if (!tripItems.length && !editMode) {
+        container.innerHTML = '<div class="empty-day glass" style="margin-top:20px;border-radius:var(--radius)">המסלול עדיין ריק — בעל הטיול עוד לא הוסיף תחנות</div>';
+        return;
+      }
       const byDay = new Map();
-      for (let d = 1; d <= (editMode ? trip.days : 0); d++) byDay.set(d, []); // edit mode shows all days
+      for (let d = 1; d <= trip.days; d++) byDay.set(d, []);
       for (const it of tripItems) {
         if (!byDay.has(it.day_number)) byDay.set(it.day_number, []);
         byDay.get(it.day_number).push(it);
-      }
-      if (!byDay.size) {
-        container.innerHTML = '<div class="empty-day glass" style="margin-top:20px;border-radius:var(--radius)">המסלול עדיין ריק — בעל הטיול עוד לא הוסיף תחנות</div>';
-        return;
       }
       const dayCosts = TripModals.plannedByDay(state);
       const cur = TripModals.curOf(state);
@@ -620,11 +623,11 @@
                 ${it.note ? `<div class="item-note">${TRIPMAKER.esc(it.note)}</div>` : ''}
               </div>`;
             }).join('')}
-            ${byDay.get(day).length === 0 && editMode ? '<div class="empty-day">יום פנוי — מוסיפים תחנה למטה ↓</div>' : ''}
+            ${editMode ? TripDayRecs.blockHtml(day) : (byDay.get(day).length ? '' : '<div class="empty-day">יום פנוי</div>')}
             ${editMode ? `<button class="add-item-inline" data-day="${day}">+ הוספת תחנה ליום ${day}</button>` : ''}
           </div>
         </div>
-        ${TripModals.nightCardHtml(state, day)}`;
+        ${TripModals.nightCardHtml(state, day, { suggest: byDay.get(day).length > 0 })}`;
       }).join('');
 
       // night N is the night after day N, so the card lands between the two days
@@ -695,6 +698,12 @@
       });
     }
 
+    // a free day shows the AI's picks for it (trip-dayrecs.js) — wired before the first
+    // paint so the blocks render as skeletons and fill in as the server answers
+    TripDayRecs.init({
+      trip, state, canEdit: editMode, addItem,
+      defaultArea: (day) => (multiDest() ? defaultAreaForDay(day) : (tripDests[0]?.name || trip.destination || null)),
+    });
     renderItinerary();
 
     // ---- participants: who edits the trip, the invite link, and publishing ----
@@ -719,8 +728,17 @@
 
     const participantsBtn = document.getElementById('participants-btn');
     participantsBtn.style.display = privileged ? '' : 'none';
-    document.getElementById('participants-label').textContent =
-      participants.length > 1 ? `${participants.length} משתתפים` : 'משתתפים';
+    // the menu button and the hero chip both read the same count: a trip that already
+    // has co-planners shows "N משתתפים", a solo trip keeps the invitation to add some
+    const PARTICIPANTS_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg>';
+    function renderParticipantsLabels() {
+      const many = participants.length > 1;
+      document.getElementById('participants-label').textContent =
+        many ? `${participants.length} משתתפים` : 'משתתפים';
+      const chip = document.getElementById('participants-chip');
+      if (chip) chip.innerHTML = `${PARTICIPANTS_ICON} ${many ? `${participants.length} משתתפים` : 'הוספת משתתפים'}`;
+    }
+    renderParticipantsLabels();
     participantsBtn.onclick = () => (canEdit ? openParticipants() : requireSignup());
 
     // ---- the dates slot in the hero row ----
@@ -855,8 +873,8 @@
       pChip.type = 'button';
       pChip.id = 'participants-chip';
       pChip.className = 'chip chip-action';
-      pChip.innerHTML = `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg> הוספת משתתפים`;
       document.getElementById('trip-meta').appendChild(pChip);
+      renderParticipantsLabels();
       pChip.onclick = () => (canEdit ? openParticipants() : requireSignup());
     }
 
@@ -897,8 +915,7 @@
             await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/participants/${uid}`, { method: 'DELETE' });
             if (self) { location.reload(); return; }
             participants = participants.filter((p) => p.id !== uid);
-            document.getElementById('participants-label').textContent =
-              participants.length > 1 ? `${participants.length} משתתפים` : 'משתתפים';
+            renderParticipantsLabels();
             renderParticipantsList(wrap);
           } catch (e) { alert(e.message); }
         };
@@ -1325,6 +1342,8 @@
         sortItems();
         renderItinerary();
         updateAmbient();
+        // the AI changed the trip: every free day's picks are made again around it
+        TripDayRecs.reloadAll();
       },
       // the areas the chat settled, promoted to destinations: the calendar's colors and
       // the per-area editor read this list, so it changes in place

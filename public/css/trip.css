@@ -1636,6 +1636,95 @@ body.page-open { overflow: hidden; }
   font: inherit; font-size: .84rem; font-weight: 700;
 }
 
+/* ---- המלצות ליום פנוי: the AI's three picks where the empty-day note used to be.
+   Rows, not tiles — wide and low, the opposite of the chat's cards: the itinerary is
+   a column, and a free day should read as three short lines you can drop in, with
+   one button to swap them for three others. Lives inside the day's timeline. ---- */
+.dr-block { margin: 2px 0 10px; }
+.dr-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.dr-title { font-weight: 700; font-size: .9rem; color: var(--amber); }
+.dr-refresh {
+  margin-inline-start: auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 11px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(255, 180, 95, .35); background: rgba(255, 180, 95, .08); color: var(--amber);
+  font: inherit; font-size: .78rem; font-weight: 700; transition: background .15s ease;
+}
+.dr-refresh:hover { background: rgba(255, 180, 95, .16); }
+.dr-refresh:disabled { opacity: .5; cursor: default; }
+.dr-refresh .ic { width: 14px; height: 14px; }
+.dr-list { display: flex; flex-direction: column; gap: 8px; }
+.dr-card {
+  display: flex; align-items: center; gap: 12px; padding: 8px 10px;
+  border-radius: 14px; background: var(--glass); border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-soft);
+}
+.dr-media {
+  position: relative; flex: 0 0 96px; height: 72px; border-radius: 10px; overflow: hidden;
+  background: linear-gradient(135deg, #16302a, #0e1f1a);
+}
+/* the category's emoji sits behind the photo — it's what shows when the photo doesn't load */
+.dr-media::before {
+  content: attr(data-emoji); position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 1.8rem; opacity: .35; filter: saturate(.6);
+}
+.dr-media img { position: relative; width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .25s ease; }
+.dr-body { flex: 1; min-width: 0; }
+.dr-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.dr-name { font-size: .95rem; font-weight: 800; line-height: 1.3; margin: 0; }
+.dr-time { color: var(--mint); font-weight: 700; font-size: .8rem; font-variant-numeric: tabular-nums; direction: ltr; }
+.dr-cat {
+  font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  background: rgba(255, 255, 255, .06); border: 1px solid var(--glass-border); color: var(--paper-dim);
+}
+.dr-blurb {
+  font-size: .8rem; color: var(--paper-dim); line-height: 1.45; margin: 3px 0 0;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.dr-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: .74rem; color: var(--paper-dim); }
+.dr-actions { display: flex; flex-direction: column; gap: 6px; flex: none; align-items: stretch; }
+.dr-add {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  padding: 7px 12px; border: 0; border-radius: 10px; cursor: pointer; white-space: nowrap;
+  background: linear-gradient(180deg, var(--amber), var(--amber-deep)); color: #2a1500;
+  font: inherit; font-weight: 800; font-size: .82rem;
+  box-shadow: 0 6px 16px -8px rgba(255, 180, 95, .8); transition: transform .12s ease;
+}
+.dr-add:active { transform: scale(.97); }
+.dr-add:disabled { opacity: .6; cursor: default; }
+.dr-add .ic { width: 15px; height: 15px; stroke-width: 2.5; }
+.dr-map {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  padding: 6px 10px; border-radius: 10px; border: 1px solid var(--glass-border);
+  font-size: .78rem; font-weight: 700; color: var(--paper-dim); text-decoration: none; white-space: nowrap;
+}
+.dr-map:hover { color: var(--paper); border-color: rgba(143, 216, 196, .4); }
+.dr-map .ic { width: 14px; height: 14px; }
+.dr-added { color: var(--mint); font-weight: 700; font-size: .82rem; text-align: center; padding: 7px 12px; }
+/* waiting: the line says what for, the three rows keep the day's height so nothing jumps */
+.dr-wait { font-size: .84rem; color: var(--paper-dim); font-weight: 300; margin-bottom: 2px; }
+.dr-skel { min-height: 88px; }
+.dr-skel .dr-media { background: rgba(255, 255, 255, .06); }
+.dr-skel .dr-media::before { content: none; }
+.dr-skel .skl { display: block; height: .8em; margin: 7px 0; }
+.dr-empty {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; border: 1px dashed var(--glass-border); border-radius: 12px;
+  font-size: .84rem; color: var(--paper-dim); font-weight: 300;
+}
+.dr-retry {
+  margin-inline-start: auto; background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--mint); font-family: var(--font-body); font-size: .82rem; font-weight: 600;
+}
+.dr-retry:hover { text-decoration: underline; }
+@media (max-width: 560px) {
+  .dr-card { flex-wrap: wrap; gap: 10px; }
+  .dr-media { flex-basis: 84px; height: 64px; }
+  .dr-body { flex-basis: calc(100% - 96px); }
+  .dr-actions { flex-direction: row; width: 100%; }
+  .dr-add { flex: 1; }
+}
+@media print { .dr-block { display: none; } }
+
 /* quick prompts + the composer */
 .chat-chips {
   display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;

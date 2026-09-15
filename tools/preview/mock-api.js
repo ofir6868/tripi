@@ -19,6 +19,17 @@
   };
   let nextId = 100;
   let expenseId = 1;
+  let dayRecsFlip = false;
+  const DAY_RECS_A = [
+    { title: 'שוק קמפו דה פיורי', blurb: 'שוק הבוקר של מרכז רומא — פירות, גבינות ומאפים חמים. הכי טוב לפני 11:00.', category: 'אוכל', duration: 'שעה', cost: '₪', time: '09:30', area: 'רומא', place_query: 'Campo de\' Fiori, Rome, Italy', lat: 41.8955, lon: 12.4722, photos: [] },
+    { title: 'גני וילה בורגזה', blurb: 'הריאה הירוקה של רומא — שכירת סירה באגם, ותצפית פינצ׳ו מעל פיאצה דל פופולו.', category: 'טבע', duration: 'שעתיים', cost: 'חינם', time: '13:00', area: 'רומא', place_query: 'Villa Borghese, Rome, Italy', lat: 41.9142, lon: 12.4922, photos: [] },
+    { title: 'טרסטוורה בערב', blurb: 'סמטאות, כיכר סנטה מריה, ומסעדות משפחתיות — הרובע לארוחת ערב ארוכה.', category: 'חיי לילה', duration: 'ערב', cost: '₪₪', time: '20:00', area: 'רומא', place_query: 'Trastevere, Rome, Italy', lat: 41.8897, lon: 12.4694, photos: [] },
+  ];
+  const DAY_RECS_B = [
+    { title: 'שוק טסטאצ׳ו', blurb: 'שוק מקורה עם דוכני אוכל מצוינים — הטריפה והסופלי של רומא האמיתית.', category: 'אוכל', duration: 'שעה-שעתיים', cost: '₪', time: '10:00', area: 'רומא', place_query: 'Mercato di Testaccio, Rome, Italy', lat: 41.8757, lon: 12.4781, photos: [] },
+    { title: 'הפנתאון', blurb: 'הכיפה השלמה ביותר מהעת העתיקה, חינם, ולהגיע מוקדם לפני הקבוצות.', category: 'תרבות', duration: 'שעה', cost: 'חינם', time: '13:30', area: 'רומא', place_query: 'Pantheon, Rome, Italy', lat: 41.8986, lon: 12.4769, photos: [] },
+    { title: 'ג׳אניקולו בשקיעה', blurb: 'הגבעה מעל טרסטוורה — הנוף הכי טוב על הגגות של רומא, בלי כרטיס ובלי תור.', category: 'נוף', duration: 'שעה', cost: 'חינם', time: '18:30', area: 'רומא', place_query: 'Gianicolo, Rome, Italy', lat: 41.8917, lon: 12.4614, photos: [] },
+  ];
   let expenses = [];
   const stop = (day, time, title, note, cat, lat, lon) => ({
     id: nextId++, trip_id: 1, day_number: day, time_label: time, title, note, place_query: `${title} Rome`,
@@ -280,6 +291,17 @@
           ? (food ? 'ברומא אוכלים הכי טוב איפה שהמקומיים אוכלים — שווקים בבוקר וסמטאות בערב. שלוש נקודות פתיחה:' : 'הנה שלוש נקודות פתיחה טובות ברומא — אחת להבין את העיר, אחת לנשום, ואחת לערב:')
           : 'כמה דברים שכדאי לדעת: קפה עומדים ליד הבר עולה אירו, אותו קפה בשולחן על הפיאצה — חמישה. לקולוסיאום ולוותיקן מזמינים כרטיס מראש; לכל השאר פשוט מגיעים.';
         return json(200, { text, cards, remaining: 29 });
+      }
+      // a free day's picks (trip_day_recs), canned: the demo's day 5 is free
+      if (rest === '/day-recs' || rest === '/day-recs/refresh') {
+        if (rest === '/day-recs/refresh' && Number.isInteger(+body.day) && body.day) dayRecsFlip = !dayRecsFlip;
+        const set = dayRecsFlip ? DAY_RECS_B : DAY_RECS_A;
+        const days = {};
+        for (let d = 1; d <= trip.days; d++) {
+          if (items.some((it) => it.day_number === d)) continue;
+          days[d] = { status: 'ready', cards: set.map((c) => ({ ...c })), updated_at: new Date().toISOString() };
+        }
+        return json(200, { days, remaining: 39 });
       }
       if (rest === '/recs/apply' && method === 'POST') {
         const undo = { added: [], updated: [], deleted: [] };

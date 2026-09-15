@@ -535,11 +535,17 @@ const TripPlan = (() => {
       const overlay = showOverlay(fill ? 'את שאר הימים' : 'את הטיול');
       try {
         const r = await api(ctx, '/build', { method: 'POST', body: JSON.stringify({ fill }) });
-        overlay.sub.textContent = 'שומרים את הטיול… ✈️';
+        overlay.say('שומרים את הטיול… ✈️');
         state = r.state;
         ctx.trip.plan_state = state;
         await promoteAreas(r.plan);
         TRIPMAKER.track?.('plan_build', { code: ctx.trip.share_code, fill, count: (r.items || []).length });
+        // the free days' picks are made now, behind the same screen, so the itinerary
+        // opens with recommendations where its empty days are — never a skeleton first
+        if (TripDayRecs.hasFreeDays(r.items, ctx.trip.days)) {
+          overlay.say('מכינים המלצות לימים הפנויים… ✨');
+          await TripDayRecs.prepare(ctx.trip).catch(() => { /* the itinerary asks again on open */ });
+        }
         // the itinerary is the point now: land on it, the chat stays a tab away
         location.href = `/trip/${ctx.trip.share_code}`;
       } catch (err) {
@@ -569,7 +575,9 @@ const TripPlan = (() => {
         sub.classList.add('swap');
         setTimeout(() => { i = (i + 1) % QUIPS.length; sub.textContent = QUIPS[i]; sub.classList.remove('swap'); }, 400);
       }, 2400);
-      return { sub, remove: () => { clearInterval(timer); el.remove(); } };
+      // say(): a line that stays — the quips stop cycling over it
+      const say = (text) => { clearInterval(timer); sub.classList.remove('swap'); sub.textContent = text; };
+      return { sub, say, remove: () => { clearInterval(timer); el.remove(); } };
     }
 
     // =================================================================

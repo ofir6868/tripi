@@ -1,4 +1,4 @@
-// Migrations 2–21, in order. Idempotent — safe to run on every boot, and the server
+// Migrations 2–22, in order. Idempotent — safe to run on every boot, and the server
 // does (lib/db-bootstrap.js), so a replaced database catches up by itself.
 // Usage: DATABASE_URL=postgres://... node db/migrate.js
 require('../lib/env');
@@ -241,6 +241,20 @@ async function migrate(pool, log = console.log) {
       created_at TIMESTAMPTZ DEFAULT now()
     )`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_announcements_published ON announcements(published_at DESC NULLS LAST)`);
+
+  log('Migration 22: per-day recommendations for free days (trip_day_recs)...');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trip_day_recs (
+      trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+      day_number INT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      cards JSONB NOT NULL DEFAULT '[]',
+      seen JSONB NOT NULL DEFAULT '[]',
+      token TEXT,
+      requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (trip_id, day_number)
+    )`);
 
   log('Done.');
 }

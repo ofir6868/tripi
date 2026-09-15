@@ -657,10 +657,13 @@ const TripModals = (() => {
 
   // The rail starts as placeholders; mountNightCards fills it when the card
   // comes near the viewport, so a 14-night trip doesn't fire 13 lookups on load.
-  function nightCardHtml(state, night) {
+  // `suggest: false` keeps a booked night's strip but drops the hotel rail — under a
+  // free day the itinerary shows the AI's picks for the day instead (trip-dayrecs.js)
+  function nightCardHtml(state, night, { suggest = true } = {}) {
     if (night < 1 || night > nightCount(state)) return '';
     const booked = nightCoverage(state)[night];
     if (booked) return bookedNightHtml(state, night, booked);
+    if (!suggest) return '';
 
     const anchor = nightAnchor(state, night);
     const hint = anchor && anchor.after
