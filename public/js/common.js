@@ -210,10 +210,14 @@ function renderHeader() {
   const el = document.createElement('header');
   el.className = 'site-header glass';
   const menuItems = [];
-  // the accessibility drawer (wcag22.js) opens from here on every page, signed in
-  // or not — on the trip page it's the only way in, since the floating button
-  // kept covering the dock and the stop cards there
-  const a11yItem = `<button type="button" class="nav-menu-item" id="nav-a11y">${NAV_ICON.a11y}<span>נגישות</span></button>`;
+  // the accessibility drawer (wcag22.js) opens from here only where its floating
+  // button is hidden — the trip page, where the FAB kept covering the dock and
+  // the stop cards. Everywhere else the FAB is the way in, and a second entry
+  // in the menu would just be noise. (wcag22.js runs before this file.)
+  const a11yInMenu = !!(window.WCAG22 && window.WCAG22.hasFab === false);
+  const a11yItem = a11yInMenu
+    ? `<button type="button" class="nav-menu-item" id="nav-a11y">${NAV_ICON.a11y}<span>נגישות</span></button>`
+    : '';
   if (TRIPMAKER.user) {
     if (TRIPMAKER.user.is_admin) {
       menuItems.push(`<a class="nav-menu-item nav-menu-admin" href="/admin">${NAV_ICON.gear}<span>ניהול</span></a>`);
@@ -339,10 +343,7 @@ function renderHeader() {
   });
   panel.querySelector('#nav-a11y')?.addEventListener('click', () => {
     setOpen(false);
-    // the drawer is the engine's; without it (a page that doesn't load wcag22.js)
-    // the statement page is the next best thing
-    if (window.WCAG22?.open) window.WCAG22.open();
-    else location.href = '/accessibility';
+    window.WCAG22.open();
   });
 }
 

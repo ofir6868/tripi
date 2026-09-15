@@ -696,6 +696,8 @@
     remount: mount,
     open: openPanel,
     close: closePanel,
+    // false when data-aaa-fab="false": the page's own menu is then the way in
+    hasFab: TOOLBAR && FAB,
     toggle: function () { panelOpen ? closePanel() : openPanel(); },
     isOpen: function () { return panelOpen; },
     sync: syncToggleUi,
