@@ -667,8 +667,17 @@
 
     const participantsBtn = document.getElementById('participants-btn');
     participantsBtn.style.display = privileged ? '' : 'none';
-    document.getElementById('participants-label').textContent =
-      participants.length > 1 ? `${participants.length} משתתפים` : 'משתתפים';
+    // the menu button and the hero chip both read the same count: a trip that already
+    // has co-planners shows "N משתתפים", a solo trip keeps the invitation to add some
+    const PARTICIPANTS_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg>';
+    function renderParticipantsLabels() {
+      const many = participants.length > 1;
+      document.getElementById('participants-label').textContent =
+        many ? `${participants.length} משתתפים` : 'משתתפים';
+      const chip = document.getElementById('participants-chip');
+      if (chip) chip.innerHTML = `${PARTICIPANTS_ICON} ${many ? `${participants.length} משתתפים` : 'הוספת משתתפים'}`;
+    }
+    renderParticipantsLabels();
     participantsBtn.onclick = () => (canEdit ? openParticipants() : requireSignup());
 
     // ---- the dates slot in the hero row ----
@@ -803,8 +812,8 @@
       pChip.type = 'button';
       pChip.id = 'participants-chip';
       pChip.className = 'chip chip-action';
-      pChip.innerHTML = `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg> הוספת משתתפים`;
       document.getElementById('trip-meta').appendChild(pChip);
+      renderParticipantsLabels();
       pChip.onclick = () => (canEdit ? openParticipants() : requireSignup());
     }
 
@@ -845,8 +854,7 @@
             await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/participants/${uid}`, { method: 'DELETE' });
             if (self) { location.reload(); return; }
             participants = participants.filter((p) => p.id !== uid);
-            document.getElementById('participants-label').textContent =
-              participants.length > 1 ? `${participants.length} משתתפים` : 'משתתפים';
+            renderParticipantsLabels();
             renderParticipantsList(wrap);
           } catch (e) { alert(e.message); }
         };
