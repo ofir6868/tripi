@@ -1570,18 +1570,27 @@
     let dests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
     if (!dests.length) dests = [{ name: trip.destination, country: trip.country, lat: null, lon: null }];
 
-    const switcher = document.getElementById('dest-switcher');
+    // the stops picker, minimized into the weather card's title row: two stops fit as
+    // a button group, more than two only fit as a dropdown
+    const switcher = document.getElementById('wx-dest');
     if (dests.length > 1) {
-      switcher.style.display = '';
-      switcher.innerHTML = '<div class="side-card-title" style="margin-bottom:8px">🧳 תחנות בטיול</div>' +
-        dests.map((d, i) => `<button class="day-tab${i === 0 ? ' active' : ''}" data-i="${i}">${TRIPMAKER.esc(d.name)}</button>`).join('');
-      switcher.querySelectorAll('.day-tab').forEach((b) => {
-        b.onclick = () => {
-          switcher.querySelectorAll('.day-tab').forEach((x) => x.classList.remove('active'));
-          b.classList.add('active');
-          showDestination(dests[+b.dataset.i]);
-        };
-      });
+      switcher.hidden = false;
+      if (dests.length > 2) {
+        switcher.innerHTML = `<select aria-label="תחנה בטיול">${dests
+          .map((d, i) => `<option value="${i}">${TRIPMAKER.esc(d.name)}</option>`).join('')}</select>`;
+        switcher.querySelector('select').onchange = (e) => showDestination(dests[+e.target.value]);
+      } else {
+        switcher.innerHTML = dests.map((d, i) =>
+          `<button type="button" class="wx-dest-btn${i === 0 ? ' active' : ''}" data-i="${i}"
+             title="${TRIPMAKER.esc(d.name)}">${TRIPMAKER.esc(d.name)}</button>`).join('');
+        switcher.querySelectorAll('.wx-dest-btn').forEach((b) => {
+          b.onclick = () => {
+            switcher.querySelectorAll('.wx-dest-btn').forEach((x) => x.classList.remove('active'));
+            b.classList.add('active');
+            showDestination(dests[+b.dataset.i]);
+          };
+        });
+      }
     }
 
     // the trip day "today" falls on, else day 1 — where the map opens
@@ -1718,7 +1727,9 @@
       const sub = document.getElementById('weather-sub');
       card.classList.remove('wx-trip', 'wx-est');
       sub.hidden = true;
-      if (d.lat == null) { card.style.display = 'none'; return; }
+      // without dates the strip can only be "the coming week at the destination" —
+      // nothing to do with this trip. applyDates() calls back once they're picked.
+      if (!trip.start_date || d.lat == null) { card.style.display = 'none'; return; }
       card.style.display = '';
       document.getElementById('weather-row').innerHTML = `
         <div class="weather-day">
@@ -1739,35 +1750,33 @@
             for (const w of est) weatherByDate[w.date] = w;
             renderItinerary(); // day headers pick up the typical-weather numbers
             card.classList.add('wx-est');
-            document.getElementById('weather-title').textContent = '🌤️ מזג האוויר הטיפוסי בימי הטיול';
-            sub.textContent = 'ממוצע השנתיים האחרונות בתאריכים האלה · תחזית אמיתית תופיע כשמתקרבים';
+            sub.textContent = 'טיפוסי לתאריכים האלה — ממוצע השנתיים האחרונות · תחזית אמיתית תופיע כשמתקרבים';
             sub.hidden = false;
             document.getElementById('weather-row').innerHTML = est.slice(0, 7).map(weatherDayHtml).join('');
             return;
           }
           // archive unavailable — fall through to the plain forecast strip below
         }
-        // when the trip has dates in the next 16 days, fetch far enough to align per itinerary day
-        const wantDates = !!trip.start_date;
-        const days = await GEO.forecast(d.lat, d.lon, wantDates ? 16 : 7);
+        // past the guard above the trip always has dates, so the window is always the
+        // 16 days it takes to align the forecast per itinerary day
+        const days = await GEO.forecast(d.lat, d.lon, 16);
         weatherByDate = {};
-        if (wantDates) {
-          for (const w of days) weatherByDate[w.date] = w;
-          renderItinerary(); // stamp each day header with its own forecast
-        }
-        // the strip is always a forecast from today, so it only says something
-        // about *this trip* when the horizon actually reaches the trip's days.
-        // When it does, the strip becomes the trip's own days and says so; when
-        // it doesn't it stays "the coming week at the destination" — true, but
-        // not about this trip, so the printed sheet drops it (see .wx-trip).
-        const tripDays = wantDates
-          ? Array.from({ length: trip.days }, (_, i) => dayDate(i + 1))
-            .map((d2) => d2 && weatherByDate[TRIPMAKER.isoDate(d2)])
-            .filter(Boolean)
-          : [];
+        for (const w of days) weatherByDate[w.date] = w;
+        renderItinerary(); // stamp each day header with its own forecast
+        // the strip is always a forecast from today, so it only says something about
+        // *this trip* when the horizon actually reaches the trip's days. When it does
+        // the strip becomes the trip's own days; when it doesn't — the trip is far off
+        // and the archive that would have given its typical weather was unavailable —
+        // it stays "the coming week at the destination", true but not about this trip,
+        // so it says so and the printed sheet drops it (see .wx-trip).
+        const tripDays = Array.from({ length: trip.days }, (_, i) => dayDate(i + 1))
+          .map((d2) => d2 && weatherByDate[TRIPMAKER.isoDate(d2)])
+          .filter(Boolean);
         card.classList.toggle('wx-trip', tripDays.length > 0);
-        document.getElementById('weather-title').textContent =
-          tripDays.length ? '🌤️ מזג האוויר בימי הטיול' : '🌤️ מזג האוויר בשבוע הקרוב';
+        if (!tripDays.length) {
+          sub.textContent = 'התחזית בשבוע הקרוב ביעד — ימי הטיול עדיין רחוקים מתחזית';
+          sub.hidden = false;
+        }
         document.getElementById('weather-row').innerHTML =
           (tripDays.length ? tripDays : days).slice(0, 7).map(weatherDayHtml).join('');
         card.style.display = '';

@@ -277,11 +277,18 @@
           <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
           שמירת הטיול</button>
       </div>
-      <div class="dest-switcher" id="dest-switcher" style="display:none"></div>
+      <!-- no dates, no card: a forecast for "this week at the destination" says
+           nothing about a trip whose days aren't on the calendar yet -->
       <div class="side-card glass" id="weather-card" style="display:none">
-        <!-- the title switches to "בימי הטיול" when the forecast reaches them,
-             and to typical-for-the-dates history when they're beyond its horizon -->
-        <div class="side-card-title" id="weather-title">🌤️ מזג האוויר בשבוע הקרוב</div>
+        <!-- the stops picker rides the title's row (trip.js fills it — a dropdown
+             past two stops, a button group for two): the forecast is the only thing
+             it changes, and here it costs the card no extra height. Which forecast
+             this is — the trip's own days, or the typical weather for its dates —
+             is said by #weather-sub, so the title can stay short beside it. -->
+        <div class="weather-head">
+          <div class="side-card-title">🌤️ מזג אוויר בטיול</div>
+          <div class="wx-dest" id="wx-dest" role="group" aria-label="תחנה בטיול" hidden></div>
+        </div>
         <div class="weather-sub" id="weather-sub" hidden></div>
         <div class="weather-row" id="weather-row"></div>
       </div>
