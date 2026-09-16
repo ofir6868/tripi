@@ -216,7 +216,7 @@ const TripMap = (() => {
     return true;
   }
 
-  // dest-switcher tap on a multi-city trip: jump to that destination's first
+  // stops-picker pick on a multi-city trip: jump to that destination's first
   // located day, else just pan the map to the destination
   function showDest(d) {
     if (!map || !ctx) return;

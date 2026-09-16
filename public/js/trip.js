@@ -79,6 +79,67 @@
   let editMode = false;
   let canEditHeaders = null; // truthy = edit calls allowed (auth rides on the JWT)
 
+  // a placeholder that types: each phrase is typed out, held, deleted and replaced by
+  // the next — a cursor riding the text — for as long as `active()` says the field is
+  // on screen and the traveller isn't in it. Reduced motion swaps the phrases whole.
+  function typingPlaceholder(input, phrases, active = () => true) {
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const CARET = '|';
+    let i = 0, timer = null, running = false;
+    const stop = () => { clearTimeout(timer); timer = null; running = false; };
+    const later = (fn, ms) => { timer = setTimeout(fn, ms); };
+    const idle = () => document.activeElement === input || input.value;
+    function hold(text, ms) {
+      // the caret blinks while the phrase waits to be read
+      let on = true;
+      const t0 = Date.now();
+      const blink = () => {
+        if (Date.now() - t0 >= ms) { erase(text); return; }
+        on = !on;
+        input.placeholder = text + (on ? CARET : ' ');
+        later(blink, 480);
+      };
+      input.placeholder = text + CARET;
+      later(blink, 480);
+    }
+    function erase(text) {
+      let n = text.length;
+      const step = () => {
+        if (n <= 0) { i = (i + 1) % phrases.length; later(type, 260); return; }
+        n -= 1;
+        input.placeholder = text.slice(0, n) + CARET;
+        later(step, 22);
+      };
+      step();
+    }
+    function type() {
+      const text = phrases[i];
+      if (reduce) { input.placeholder = text; i = (i + 1) % phrases.length; later(type, 3200); return; }
+      let n = 0;
+      const step = () => {
+        n += 1;
+        input.placeholder = text.slice(0, n) + CARET;
+        if (n < text.length) later(step, 34 + Math.random() * 40);
+        else hold(text, 1900);
+      };
+      step();
+    }
+    // (re)start when the field is shown and empty; a focused field shows a plain prompt
+    function resume() {
+      if (!active() || idle()) { stop(); if (idle()) input.placeholder = 'מה לשנות או להמליץ?'; return; }
+      if (running) return;
+      running = true;
+      type();
+    }
+    input.addEventListener('focus', resume);
+    input.addEventListener('blur', () => setTimeout(resume, 0));
+    input.addEventListener('input', resume);
+    matchMedia('(max-width: 640px)').addEventListener?.('change', resume);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); else resume(); });
+    resume();
+    return { resume, stop };
+  }
+
   function forgetInvite() {
     inviteToken = null;
     delete savedInvites[code];
@@ -177,9 +238,6 @@
     // itinerary grouped by day (weatherByDate is filled by loadWeather when dates align)
     let tripItems = items.slice();
     let weatherByDate = {};
-    // one-level AI-edit undo: {snap, snapDesc} while the last smart edit is reversible.
-    // Any manual mutation clears it — the snapshot no longer describes what's on screen.
-    let aiUndo = null;
 
     // ---- stop votes (experimental group mode): one thumbs-up/down per participant
     // per stop. Solo planners never see it — a ballot with one voter is noise. ----
@@ -289,7 +347,6 @@
         method: 'PATCH', headers: canEditHeaders, body: JSON.stringify(patch),
       });
       Object.assign(item, updated);
-      aiUndo = null;
       sortItems();
       renderItinerary();
       updateAmbient();
@@ -301,7 +358,6 @@
         method: 'POST', headers: canEditHeaders, body: JSON.stringify(data),
       });
       tripItems.push(item);
-      aiUndo = null;
       sortItems();
       renderItinerary();
       updateAmbient();
@@ -314,7 +370,6 @@
       });
       tripItems = tripItems.filter((x) => x.id !== item.id);
       TripModals.clearItemPersonalCost(state, item.id);
-      aiUndo = null;
       renderItinerary();
       updateAmbient();
     }
@@ -338,7 +393,6 @@
         });
       }
       if (!jobs.length) return;
-      aiUndo = null;
       // all PATCHes first, ONE repaint after — painting between them would flash the
       // half-moved arrangement the drag preview has already replaced on screen
       try {
@@ -510,15 +564,18 @@
     }
 
     function renderListView() {
+      // every day is drawn, for everyone: an editor's free day carries the AI's picks
+      // for it, a viewer's says it is free. A trip with no stops at all still reads as
+      // one line to a viewer, not as N empty days.
+      if (!tripItems.length && !editMode) {
+        container.innerHTML = '<div class="empty-day glass" style="margin-top:20px;border-radius:var(--radius)">המסלול עדיין ריק — בעל הטיול עוד לא הוסיף תחנות</div>';
+        return;
+      }
       const byDay = new Map();
-      for (let d = 1; d <= (editMode ? trip.days : 0); d++) byDay.set(d, []); // edit mode shows all days
+      for (let d = 1; d <= trip.days; d++) byDay.set(d, []);
       for (const it of tripItems) {
         if (!byDay.has(it.day_number)) byDay.set(it.day_number, []);
         byDay.get(it.day_number).push(it);
-      }
-      if (!byDay.size) {
-        container.innerHTML = '<div class="empty-day glass" style="margin-top:20px;border-radius:var(--radius)">המסלול עדיין ריק — בעל הטיול עוד לא הוסיף תחנות</div>';
-        return;
       }
       const dayCosts = TripModals.plannedByDay(state);
       const cur = TripModals.curOf(state);
@@ -566,11 +623,11 @@
                 ${it.note ? `<div class="item-note">${TRIPMAKER.esc(it.note)}</div>` : ''}
               </div>`;
             }).join('')}
-            ${byDay.get(day).length === 0 && editMode ? '<div class="empty-day">יום פנוי — מוסיפים תחנה למטה ↓</div>' : ''}
+            ${editMode ? TripDayRecs.blockHtml(day) : (byDay.get(day).length ? '' : '<div class="empty-day">יום פנוי</div>')}
             ${editMode ? `<button class="add-item-inline" data-day="${day}">+ הוספת תחנה ליום ${day}</button>` : ''}
           </div>
         </div>
-        ${TripModals.nightCardHtml(state, day)}`;
+        ${TripModals.nightCardHtml(state, day, { suggest: byDay.get(day).length > 0 })}`;
       }).join('');
 
       // night N is the night after day N, so the card lands between the two days
@@ -641,6 +698,12 @@
       });
     }
 
+    // a free day shows the AI's picks for it (trip-dayrecs.js) — wired before the first
+    // paint so the blocks render as skeletons and fill in as the server answers
+    TripDayRecs.init({
+      trip, state, canEdit: editMode, addItem,
+      defaultArea: (day) => (multiDest() ? defaultAreaForDay(day) : (tripDests[0]?.name || trip.destination || null)),
+    });
     renderItinerary();
 
     // ---- participants: who edits the trip, the invite link, and publishing ----
@@ -665,8 +728,17 @@
 
     const participantsBtn = document.getElementById('participants-btn');
     participantsBtn.style.display = privileged ? '' : 'none';
-    document.getElementById('participants-label').textContent =
-      participants.length > 1 ? `${participants.length} משתתפים` : 'משתתפים';
+    // the menu button and the hero chip both read the same count: a trip that already
+    // has co-planners shows "N משתתפים", a solo trip keeps the invitation to add some
+    const PARTICIPANTS_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg>';
+    function renderParticipantsLabels() {
+      const many = participants.length > 1;
+      document.getElementById('participants-label').textContent =
+        many ? `${participants.length} משתתפים` : 'משתתפים';
+      const chip = document.getElementById('participants-chip');
+      if (chip) chip.innerHTML = `${PARTICIPANTS_ICON} ${many ? `${participants.length} משתתפים` : 'הוספת משתתפים'}`;
+    }
+    renderParticipantsLabels();
     participantsBtn.onclick = () => (canEdit ? openParticipants() : requireSignup());
 
     // ---- the dates slot in the hero row ----
@@ -801,8 +873,8 @@
       pChip.type = 'button';
       pChip.id = 'participants-chip';
       pChip.className = 'chip chip-action';
-      pChip.innerHTML = `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg> הוספת משתתפים`;
       document.getElementById('trip-meta').appendChild(pChip);
+      renderParticipantsLabels();
       pChip.onclick = () => (canEdit ? openParticipants() : requireSignup());
     }
 
@@ -843,8 +915,7 @@
             await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/participants/${uid}`, { method: 'DELETE' });
             if (self) { location.reload(); return; }
             participants = participants.filter((p) => p.id !== uid);
-            document.getElementById('participants-label').textContent =
-              participants.length > 1 ? `${participants.length} משתתפים` : 'משתתפים';
+            renderParticipantsLabels();
             renderParticipantsList(wrap);
           } catch (e) { alert(e.message); }
         };
@@ -1001,163 +1072,90 @@
       banner.querySelector('.jb-cta').onclick = () => requireSignup('register');
     }
 
-    // ---- AI edit box: free-text itinerary changes for anyone with edit rights ----
+    // ---- שינוי חכם: the handover to the smart agent ----
+    // The free-text box that used to sit here spoke to the model once and forgot the
+    // traveller the moment it answered: no thread, no follow-up, and an undo this card
+    // had to keep by itself. The agent's chat is the same AI with the conversation kept
+    // around it — and its change cards carry their own ביטול — so the card stopped
+    // answering and started pointing. It opens the chat in automatic mode, because
+    // "say what to change and it changes" is exactly what the box promised.
     const aiCard = document.getElementById('ai-edit-card');
-    const aiInput = document.getElementById('ai-edit-input');
-    const aiBtn = document.getElementById('ai-edit-btn');
-    const aiCount = document.getElementById('ai-edit-count');
-    const aiResult = document.getElementById('ai-edit-result');
+    const aiAgentBtn = document.getElementById('ai-agent-btn');
     // the card lives below the itinerary now, so it no longer needs the compact
     // hero it used to force when it sat above the fold
     if (canEditHeaders) aiCard.style.display = '';
-
-    // area + day-range scope (multi-destination trips only) — same controls the
-    // plan wizard had; the server enforces the range on every op it applies
-    const aiArea = document.getElementById('trip-ai-area');
-    const aiRange = document.getElementById('trip-ai-range');
-    // picking an area reveals its day range, pre-filled with where that area sits today
-    function syncAiScopeRange() {
-      const area = aiArea.value;
-      aiRange.style.display = area ? '' : 'none';
-      if (!area) return;
-      const fromInp = document.getElementById('trip-ai-from');
-      const toInp = document.getElementById('trip-ai-to');
-      fromInp.max = toInp.max = trip.days;
-      const areaDays = tripItems.filter((it) => it.area === area).map((it) => it.day_number);
-      fromInp.value = areaDays.length ? Math.min(...areaDays) : 1;
-      toInp.value = areaDays.length ? Math.min(Math.max(...areaDays), trip.days) : trip.days;
+    // a draft talks to the agent in תכנון; once the trip is saved that tab is המלצות —
+    // same AI, same change cards, so the button follows whichever one this trip has
+    // (the condition is the one the pages are registered under, further down)
+    const agentPage = () => (trip.is_draft && canEdit ? 'plan' : 'recs');
+    // opens the agent's chat in automatic mode; with `message`, that message is sent
+    // as the chat's next turn the moment it can take one, so the traveller lands on a
+    // conversation already under way (`from` names which control asked)
+    async function openAgent(message, from) {
+      const page = agentPage();
+      // automatic mode is written where that chat keeps it — the trip's plan state on
+      // the server for תכנון, this browser for המלצות — BEFORE the page opens, since
+      // both read the mode as they paint
+      if (page === 'plan') await TripPlan.setMode(trip, 'auto');
+      else TripRecs.setMode(trip, 'auto');
+      TRIPMAKER.track?.('ai_agent_open', { code: trip.share_code, page, from, with_message: !!message });
+      // open first, say second: the page paints fresh on open, and only the chat that
+      // is on screen may take the handover
+      TripPages.open(page);
+      if (message) (page === 'plan' ? TripPlan : TripRecs).say(message);
     }
-    if (multiDest()) {
-      document.getElementById('trip-ai-scope').style.display = '';
-      aiArea.innerHTML = '<option value="">כל הטיול</option>' +
-        tripDests.map((d) => `<option>${TRIPMAKER.esc(d.name)}</option>`).join('');
-      aiArea.onchange = syncAiScopeRange;
-    }
-    aiInput.addEventListener('input', () => { aiCount.textContent = `${aiInput.value.length}/200`; });
-    document.getElementById('ai-edit-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const prompt = aiInput.value.trim();
-      if (!prompt || aiBtn.disabled) return;
-      aiBtn.disabled = true;
-      aiInput.disabled = true;
-      const prevLabel = aiBtn.textContent;
-      aiBtn.textContent = 'רגע… ⏳';
-      aiResult.hidden = true;
-      aiResult.className = 'ai-edit-result';
-      try {
-        const scope = aiArea.value
-          ? { area: aiArea.value,
-              day_from: +document.getElementById('trip-ai-from').value || 1,
-              day_to: +document.getElementById('trip-ai-to').value || trip.days }
-          : {};
-        const snapDesc = trip.description; // for the undo — the item inverse comes from the server
-        const r = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/ai-edit`, {
-          method: 'POST', headers: canEditHeaders || {},
-          body: JSON.stringify({ prompt, ...scope }),
-        });
-        tripItems = r.items;
-        sortItems(); // the server returns slot order — a stop the AI added mid-day must land at its clock position
-        renderItinerary();
-        syncAiScopeRange(); // the area's day span may have moved
-        if (r.description) { trip.description = r.description; renderDesc(); }
-        const changed = r.added + r.updated + r.removed > 0;
-        aiResult.classList.add(changed ? 'ok' : 'info');
-        aiResult.textContent = r.summary;
-        if (changed && r.undo) {
-          aiInput.value = '';
-          aiCount.textContent = '0/200';
-          aiUndo = { ops: r.undo, snapDesc };
-          const undoBtn = document.createElement('button');
-          undoBtn.type = 'button';
-          undoBtn.className = 'ai-undo-btn';
-          undoBtn.textContent = 'ביטול השינוי';
-          undoBtn.onclick = () => undoAiEdit(undoBtn);
-          aiResult.append(' ', undoBtn);
-        }
-      } catch (err) {
-        aiResult.classList.add('err');
-        aiResult.textContent = err.message;
-      } finally {
-        aiResult.hidden = false;
-        aiBtn.disabled = false;
-        aiInput.disabled = false;
-        aiBtn.textContent = prevLabel;
+    aiAgentBtn.onclick = async () => {
+      if (aiAgentBtn.disabled) return;
+      const label = aiAgentBtn.textContent;
+      aiAgentBtn.disabled = true;
+      aiAgentBtn.textContent = 'רגע… ⏳';
+      try { await openAgent(null, 'card'); } finally {
+        aiAgentBtn.disabled = false;
+        aiAgentBtn.textContent = label;
       }
-    });
+    };
 
-    // reverse the last smart edit with plain item CRUD — no model call, no quota.
-    // The inverse comes from the server (exactly the rows the edit touched, with
-    // their pre-edit values), so a stop a co-planner added or changed in the
-    // meantime is never confused for the AI's work. Per-op failures are tolerated:
-    // restoring the rest still beats nothing. One level only — re-created stops
-    // get fresh ids, so there is no redo.
-    async function undoAiEdit(btn) {
-      if (btn.disabled) return;
-      if (!aiUndo) {
-        // a manual edit since the AI ran invalidated the undo — say so instead
-        // of a button that silently does nothing
-        btn.remove();
-        aiResult.className = 'ai-edit-result info';
-        aiResult.textContent = 'המסלול השתנה מאז — אי אפשר לבטל את שינוי ה-AI אוטומטית';
-        return;
-      }
-      const { ops, snapDesc } = aiUndo;
-      aiUndo = null;
-      btn.disabled = true;
-      btn.textContent = 'רגע, מחזירים…';
-      const H = canEditHeaders || {};
-      const base = `/api/trips/code/${trip.share_code}`;
-      try {
-        for (const id of ops.added) {
-          await TRIPMAKER.api(`${base}/items/${id}`, { method: 'DELETE', headers: H }).catch(() => {});
-        }
-        for (const u of ops.updated) {
-          // exactly the columns the edit touched, back to their pre-edit values
-          await TRIPMAKER.api(`${base}/items/${u.id}`, {
-            method: 'PATCH', headers: H, body: JSON.stringify(u.fields),
-          }).catch(() => {});
-        }
-        for (const it of ops.deleted) {
-          try {
-            const row = await TRIPMAKER.api(`${base}/items`, {
-              method: 'POST', headers: H,
-              body: JSON.stringify({
-                day_number: it.day_number, time_label: it.time_label, title: it.title,
-                note: it.note, place_query: it.place_query, category: it.category,
-                area: it.area, lat: it.lat, lon: it.lon, cost: it.cost,
-              }),
-            });
-            // POST assigns MAX(sort_order)+1 — pin the original slot back so an
-            // unclocked stop returns to where it stood, not to the day's end
-            if ((row.sort_order ?? 0) !== (it.sort_order ?? 0)) {
-              await TRIPMAKER.api(`${base}/items/${row.id}`, {
-                method: 'PATCH', headers: H, body: JSON.stringify({ sort_order: it.sort_order ?? 0 }),
-              }).catch(() => {});
-            }
-          } catch { /* trip-level failure on one stop — restore the rest */ }
-        }
-        if ((snapDesc ?? '') !== (trip.description ?? '')) {
-          // the AI rewrote the trip description too — restore it server-side
-          await TRIPMAKER.api('/api/trips/' + trip.id, {
-            method: 'PATCH', body: JSON.stringify({ description: snapDesc || null }),
-          }).catch(() => {});
-        }
-      } finally {
-        // one re-fetch is the source of truth after the inverse ops — it also folds
-        // in whatever co-planners changed meanwhile instead of guessing at it
-        try {
-          const fresh = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}`);
-          tripItems = fresh.items;
-          trip.description = fresh.trip.description;
-          renderDesc();
-        } catch { /* offline mid-undo — keep the local state we have */ }
-        sortItems();
-        renderItinerary();
-        updateAmbient();
-        syncAiScopeRange();
-        aiResult.className = 'ai-edit-result info';
-        aiResult.textContent = 'השינוי בוטל — המסלול חזר לקדמותו';
-      }
+    // ---- the ask bar: on a phone, the agent is one line away at the bottom of the
+    // trip, above the dock. Its placeholder types out the things people come here to
+    // say — an edit, a recommendation — one after another, so it reads as an invitation
+    // rather than an empty field. Sending hands the line to the chat (already in
+    // automatic mode) as a turn that has just gone out.
+    if (canEditHeaders) {
+      const askBar = document.createElement('form');
+      askBar.className = 'ai-ask-bar';
+      askBar.id = 'ai-ask-bar';
+      askBar.setAttribute('aria-label', 'שאלה או בקשה לסוכן החכם');
+      askBar.innerHTML = `
+        <span class="aab-spark" aria-hidden="true">✨</span>
+        <input type="text" id="ai-ask-input" maxlength="400" autocomplete="off" enterkeyhint="send" aria-label="מה לשנות או להמליץ?">
+        <button type="submit" class="chat-send" aria-label="שליחה לסוכן החכם">${TripRecs.ICON.send}</button>`;
+      document.body.appendChild(askBar);
+      const askInput = askBar.querySelector('input');
+      const dest = tripDests[0]?.name || trip.destination || 'האזור';
+      const typer = typingPlaceholder(askInput, [
+        `מה חובה לראות ב${dest}?`,
+        'תוסיף אוכל רחוב ביום 2',
+        'איפה אוכלים טוב בערב?',
+        'תוריד את המוזיאונים',
+        'תכננו לי יום שלם',
+        'תזיז את השוק לבוקר',
+        'טבע ונופים באזור',
+        'תחליף את יום 3 במשהו רגוע יותר',
+      ], () => matchMedia('(max-width: 640px)').matches && !document.body.classList.contains('page-open'));
+      let sending = false;
+      askBar.onsubmit = async (e) => {
+        e.preventDefault();
+        const text = askInput.value.trim();
+        if (sending) return;
+        sending = true;
+        askInput.blur();
+        try { await openAgent(text || null, 'ask-bar'); } finally { sending = false; }
+        askInput.value = '';
+        typer.resume();
+      };
+      // the bar is the trip's, not the chat's: it steps aside while a page or the
+      // budget is open, and the animation stops with it
+      new MutationObserver(() => typer.resume()).observe(document.body, { attributes: true, attributeFilter: ['class'] });
     }
 
     // ---- clone button: anyone holding the code can copy the itinerary into their
@@ -1341,11 +1339,11 @@
       // one swap, same repaint path as every other edit
       replaceItems: (list) => {
         tripItems = list;
-        aiUndo = null;
         sortItems();
         renderItinerary();
         updateAmbient();
-        syncAiScopeRange();
+        // the AI changed the trip: every free day's picks are made again around it
+        TripDayRecs.reloadAll();
       },
       // the areas the chat settled, promoted to destinations: the calendar's colors and
       // the per-area editor read this list, so it changes in place
@@ -1589,18 +1587,27 @@
     let dests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
     if (!dests.length) dests = [{ name: trip.destination, country: trip.country, lat: null, lon: null }];
 
-    const switcher = document.getElementById('dest-switcher');
+    // the stops picker, minimized into the weather card's title row: two stops fit as
+    // a button group, more than two only fit as a dropdown
+    const switcher = document.getElementById('wx-dest');
     if (dests.length > 1) {
-      switcher.style.display = '';
-      switcher.innerHTML = '<div class="side-card-title" style="margin-bottom:8px">🧳 תחנות בטיול</div>' +
-        dests.map((d, i) => `<button class="day-tab${i === 0 ? ' active' : ''}" data-i="${i}">${TRIPMAKER.esc(d.name)}</button>`).join('');
-      switcher.querySelectorAll('.day-tab').forEach((b) => {
-        b.onclick = () => {
-          switcher.querySelectorAll('.day-tab').forEach((x) => x.classList.remove('active'));
-          b.classList.add('active');
-          showDestination(dests[+b.dataset.i]);
-        };
-      });
+      switcher.hidden = false;
+      if (dests.length > 2) {
+        switcher.innerHTML = `<select aria-label="תחנה בטיול">${dests
+          .map((d, i) => `<option value="${i}">${TRIPMAKER.esc(d.name)}</option>`).join('')}</select>`;
+        switcher.querySelector('select').onchange = (e) => showDestination(dests[+e.target.value]);
+      } else {
+        switcher.innerHTML = dests.map((d, i) =>
+          `<button type="button" class="wx-dest-btn${i === 0 ? ' active' : ''}" data-i="${i}"
+             title="${TRIPMAKER.esc(d.name)}">${TRIPMAKER.esc(d.name)}</button>`).join('');
+        switcher.querySelectorAll('.wx-dest-btn').forEach((b) => {
+          b.onclick = () => {
+            switcher.querySelectorAll('.wx-dest-btn').forEach((x) => x.classList.remove('active'));
+            b.classList.add('active');
+            showDestination(dests[+b.dataset.i]);
+          };
+        });
+      }
     }
 
     // Is a trip ever opened while it is happening? Nothing recorded it, so the
@@ -1756,9 +1763,10 @@
     async function loadWeather(d) {
       const card = document.getElementById('weather-card');
       const sub = document.getElementById('weather-sub');
-      card.classList.remove('wx-trip', 'wx-est');
       sub.hidden = true;
-      if (d.lat == null) { card.style.display = 'none'; return; }
+      // without dates the strip can only be "the coming week at the destination" —
+      // nothing to do with this trip. applyDates() calls back once they're picked.
+      if (!trip.start_date || d.lat == null) { card.style.display = 'none'; return; }
       card.style.display = '';
       document.getElementById('weather-row').innerHTML = `
         <div class="weather-day">
@@ -1778,38 +1786,28 @@
             weatherByDate = {};
             for (const w of est) weatherByDate[w.date] = w;
             renderItinerary(); // day headers pick up the typical-weather numbers
-            card.classList.add('wx-est');
-            document.getElementById('weather-title').textContent = '🌤️ מזג האוויר הטיפוסי בימי הטיול';
-            sub.textContent = 'ממוצע השנתיים האחרונות בתאריכים האלה · תחזית אמיתית תופיע כשמתקרבים';
+            sub.textContent = 'טיפוסי לתאריכים האלה — ממוצע השנתיים האחרונות · תחזית אמיתית תופיע כשמתקרבים';
             sub.hidden = false;
             document.getElementById('weather-row').innerHTML = est.slice(0, 7).map(weatherDayHtml).join('');
             return;
           }
           // archive unavailable — fall through to the plain forecast strip below
         }
-        // when the trip has dates in the next 16 days, fetch far enough to align per itinerary day
-        const wantDates = !!trip.start_date;
-        const days = await GEO.forecast(d.lat, d.lon, wantDates ? 16 : 7);
+        // past the guard above the trip always has dates, so the window is always the
+        // 16 days it takes to align the forecast per itinerary day
+        const days = await GEO.forecast(d.lat, d.lon, 16);
         weatherByDate = {};
-        if (wantDates) {
-          for (const w of days) weatherByDate[w.date] = w;
-          renderItinerary(); // stamp each day header with its own forecast
-        }
-        // the strip is always a forecast from today, so it only says something
-        // about *this trip* when the horizon actually reaches the trip's days.
-        // When it does, the strip becomes the trip's own days and says so; when
-        // it doesn't it stays "the coming week at the destination" — true, but
-        // not about this trip, so the printed sheet drops it (see .wx-trip).
-        const tripDays = wantDates
-          ? Array.from({ length: trip.days }, (_, i) => dayDate(i + 1))
-            .map((d2) => d2 && weatherByDate[TRIPMAKER.isoDate(d2)])
-            .filter(Boolean)
-          : [];
-        card.classList.toggle('wx-trip', tripDays.length > 0);
-        document.getElementById('weather-title').textContent =
-          tripDays.length ? '🌤️ מזג האוויר בימי הטיול' : '🌤️ מזג האוויר בשבוע הקרוב';
-        document.getElementById('weather-row').innerHTML =
-          (tripDays.length ? tripDays : days).slice(0, 7).map(weatherDayHtml).join('');
+        for (const w of days) weatherByDate[w.date] = w;
+        // the forecast runs from today, so it reaches this trip only while the trip is
+        // near enough or under way. When none of its days are in it — the trip is over,
+        // or it's far off and the archive above didn't answer — there is nothing to say
+        // about its days, and the coming week at the destination isn't it.
+        const tripDays = Array.from({ length: trip.days }, (_, i) => dayDate(i + 1))
+          .map((d2) => d2 && weatherByDate[TRIPMAKER.isoDate(d2)])
+          .filter(Boolean);
+        if (!tripDays.length) { weatherByDate = {}; card.style.display = 'none'; return; }
+        renderItinerary(); // stamp each day header with its own forecast
+        document.getElementById('weather-row').innerHTML = tripDays.slice(0, 7).map(weatherDayHtml).join('');
         card.style.display = '';
       } catch { card.style.display = 'none'; }
     }

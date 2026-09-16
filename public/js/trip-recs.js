@@ -92,6 +92,29 @@ const TripRecs = (() => {
     try { localStorage.setItem(threadKey(ctx), JSON.stringify(msgs.slice(-40))); } catch { /* full or private — the chat still works */ }
   }
 
+  // ידני / אוטומטי is remembered per trip in this browser too, next to the thread —
+  // one place that knows where it lives, because the trip page writes it from outside:
+  // "עבור לסוכן החכם" turns automatic on before this chat ever paints
+  const modeKey = (trip) => `tripmaker_recs_mode_${trip.share_code}`;
+  const savedMode = (trip) => {
+    try { return localStorage.getItem(modeKey(trip)) === 'auto' ? 'auto' : 'manual'; } catch { return 'manual'; }
+  };
+  function setMode(trip, mode) {
+    try { localStorage.setItem(modeKey(trip), mode); } catch { /* per-visit then */ }
+    return mode;
+  }
+
+  // a message handed over from outside the chat — the trip page's bottom ask bar
+  // types it and the chat sends it as its own first turn, so the traveller lands on a
+  // conversation already under way. Held until the chat has painted (and, on a
+  // re-open, sent by the fresh paint), so the order of open() and say() doesn't matter.
+  let queued = null;
+  let flush = null; // the painted chat's "send whatever is queued"
+  function say(text) {
+    queued = String(text || '').trim() || null;
+    flush?.();
+  }
+
   // =================================================================
   //  RENDER
   // =================================================================
@@ -143,6 +166,7 @@ const TripRecs = (() => {
   function render(slots, ctx) {
     const { page, body, foot } = slots;
     page.classList.add('page-chat');
+    flush = null; // a chat painted earlier is gone — nothing handed over reaches it
     const mainDest = ctx.dests[0] || ctx.trip.destination || 'האזור';
     let msgs = loadThread(ctx);
     // proposal cards need a stable id to answer to — local, monotonic, survives a reload
@@ -153,8 +177,7 @@ const TripRecs = (() => {
     // ידני: exactly the chat as it always was. אוטומטי: an explicit "add / remove / move
     // X" comes back as a proposal card — for someone who may edit the trip. Remembered
     // per trip in this browser, like the thread.
-    const modeKey = `tripmaker_recs_mode_${ctx.trip.share_code}`;
-    let mode = ctx.canEdit && localStorage.getItem(modeKey) === 'auto' ? 'auto' : 'manual';
+    let mode = ctx.canEdit ? savedMode(ctx.trip) : 'manual';
 
     body.innerHTML = '<div class="chat-thread" id="chat-thread"></div>';
     foot.innerHTML = `
@@ -311,14 +334,20 @@ const TripRecs = (() => {
     foot.querySelectorAll('.chat-chip').forEach((b) => { b.onclick = () => send(b.textContent); });
     if (modeBtn) {
       modeBtn.onclick = () => {
-        mode = mode === 'auto' ? 'manual' : 'auto';
-        try { localStorage.setItem(modeKey, mode); } catch { /* per-visit then */ }
+        mode = setMode(ctx.trip, mode === 'auto' ? 'manual' : 'auto');
         paintMode();
         TRIPMAKER.track?.('recs_mode', { code: ctx.trip.share_code, mode });
       };
     }
 
     paint();
+    flush = () => {
+      if (!queued) return;
+      const q = queued;
+      queued = null;
+      send(q);
+    };
+    flush();
   }
 
   // the card's photo carousel: one tap, next photo
@@ -457,5 +486,5 @@ const TripRecs = (() => {
   }
 
   // the planning chat (trip-plan.js) shows the same cards and adds them the same way
-  return { render, ask, cardHtml, fromServerCard, cyclePhotoOf, addRecs, ICON };
+  return { render, ask, cardHtml, fromServerCard, cyclePhotoOf, addRecs, setMode, say, ICON };
 })();

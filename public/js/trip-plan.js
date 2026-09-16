@@ -253,9 +253,34 @@ const TripPlan = (() => {
     return blocks;
   }
 
+  // מצב אוטומטי / ידני of the planning chat lives in the trip's plan state on the
+  // server — it follows the traveller between devices, and the trip page can turn it on
+  // from outside ("עבור לסוכן החכם") before this chat ever paints.
+  async function setMode(trip, mode) {
+    trip.plan_state = { ...(trip.plan_state || { stage: 'clarify' }), mode };
+    try {
+      const r = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/plan`, {
+        method: 'PATCH', body: JSON.stringify({ mode }),
+      });
+      trip.plan_state = r.state;
+    } catch { /* the next turn carries the mode anyway */ }
+    return trip.plan_state;
+  }
+
+  // a message handed over from outside — the trip page's bottom ask bar (see
+  // TripRecs.say): held until the thread has loaded, since a turn can't go out before
+  // the conversation it belongs to is on screen
+  let queued = null;
+  let flush = null;
+  function say(text) {
+    queued = String(text || '').trim() || null;
+    flush?.();
+  }
+
   function render(slots, ctx) {
     const { page, body, foot } = slots;
     page.classList.add('page-chat', 'page-plan');
+    flush = null; // a chat painted earlier is gone — nothing handed over reaches it
     let msgs = [];
     let state = ctx.trip.plan_state || { mode: 'manual', stage: 'clarify' };
     let busy = false;
@@ -303,7 +328,13 @@ const TripPlan = (() => {
       // a proposal is still waiting for a word
       const waiting = msgs.some((m) => m.role === 'ai' && m.payload && m.payload.decision === 'pending');
       const fill = !busy && loaded && !waiting && (state.stage === 'days' || state.stage === 'done') && !(last?.payload?.built);
-      chips.innerHTML = sugg.map((q) => `<button type="button" class="chat-chip">${esc(q)}</button>`).join('') +
+      // choose is the one stage that offers a fork rather than a shortcut — שלב אחרי שלב
+      // או בבת אחת — so its suggestions are not suggestions: they ARE the question the
+      // message just asked, and they get painted as the choice, wide and loud, instead
+      // of two quiet chips that scroll away with the rest
+      const choosing = state.stage === 'choose' && sugg.length > 1;
+      chips.className = choosing ? 'chat-chips chips-choice' : 'chat-chips';
+      chips.innerHTML = sugg.map((q) => `<button type="button" class="chat-chip${choosing ? ' chip-choice' : ''}">${esc(q)}</button>`).join('') +
         (fill ? `<button type="button" class="chat-chip chip-build" id="plan-fill">${esc(FILL_CHIP)}</button>` : '');
       chips.querySelectorAll('.chat-chip:not(.chip-build)').forEach((b) => { b.onclick = () => send(b.textContent); });
       chips.querySelector('#plan-fill')?.addEventListener('click', () => build(true));
@@ -380,6 +411,13 @@ const TripPlan = (() => {
         msgs = [{ role: 'ai', text: (err && err.message) || 'לא הצלחתי לטעון את התכנון — נסו לרענן', payload: {} }];
       }
       paint();
+      flush = () => {
+        if (!queued || !loaded) return;
+        const q = queued;
+        queued = null;
+        send(q);
+      };
+      flush();
     }
 
     // =================================================================
@@ -454,14 +492,10 @@ const TripPlan = (() => {
       paint();
     }
 
-    async function setMode(mode) {
+    async function switchMode(mode) {
       state.mode = mode;
-      paintMode();
-      try {
-        const r = await api(ctx, '', { method: 'PATCH', body: JSON.stringify({ mode }) });
-        state = r.state;
-        ctx.trip.plan_state = state;
-      } catch { /* the next turn carries the mode anyway */ }
+      paintMode(); // the button flips at the tap; the write follows
+      state = await setMode(ctx.trip, mode);
       paintMode();
     }
 
@@ -501,11 +535,17 @@ const TripPlan = (() => {
       const overlay = showOverlay(fill ? 'את שאר הימים' : 'את הטיול');
       try {
         const r = await api(ctx, '/build', { method: 'POST', body: JSON.stringify({ fill }) });
-        overlay.sub.textContent = 'שומרים את הטיול… ✈️';
+        overlay.say('שומרים את הטיול… ✈️');
         state = r.state;
         ctx.trip.plan_state = state;
         await promoteAreas(r.plan);
         TRIPMAKER.track?.('plan_build', { code: ctx.trip.share_code, fill, count: (r.items || []).length });
+        // the free days' picks are made now, behind the same screen, so the itinerary
+        // opens with recommendations where its empty days are — never a skeleton first
+        if (TripDayRecs.hasFreeDays(r.items, ctx.trip.days)) {
+          overlay.say('מכינים המלצות לימים הפנויים… ✨');
+          await TripDayRecs.prepare(ctx.trip).catch(() => { /* the itinerary asks again on open */ });
+        }
         // the itinerary is the point now: land on it, the chat stays a tab away
         location.href = `/trip/${ctx.trip.share_code}`;
       } catch (err) {
@@ -535,7 +575,9 @@ const TripPlan = (() => {
         sub.classList.add('swap');
         setTimeout(() => { i = (i + 1) % QUIPS.length; sub.textContent = QUIPS[i]; sub.classList.remove('swap'); }, 400);
       }, 2400);
-      return { sub, remove: () => { clearInterval(timer); el.remove(); } };
+      // say(): a line that stays — the quips stop cycling over it
+      const say = (text) => { clearInterval(timer); sub.classList.remove('swap'); sub.textContent = text; };
+      return { sub, say, remove: () => { clearInterval(timer); el.remove(); } };
     }
 
     // =================================================================
@@ -570,12 +612,12 @@ const TripPlan = (() => {
       if (undo) decide(+undo.dataset.id, 'undo', undo);
     });
     foot.querySelector('#plan-form').onsubmit = (e) => { e.preventDefault(); send(input.value); };
-    modeBtn.onclick = () => setMode(state.mode === 'auto' ? 'manual' : 'auto');
+    modeBtn.onclick = () => switchMode(state.mode === 'auto' ? 'manual' : 'auto');
 
     paint();
     load();
   }
 
   // the quota card and its handler are shared with the recommendations chat
-  return { render, arrival, quotaMsg, quotaMsgHtml, handleCardClick, loadReferral, referral: () => referralInfo, changeCardHtml };
+  return { render, arrival, setMode, say, quotaMsg, quotaMsgHtml, handleCardClick, loadReferral, referral: () => referralInfo, changeCardHtml };
 })();

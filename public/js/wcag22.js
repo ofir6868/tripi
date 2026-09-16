@@ -8,6 +8,9 @@
  *   data-aaa-skip        true | false   (skip-to-content link)
  *   data-aaa-audit       true | false
  *   data-aaa-toolbar     true | false   (FAB + overlay drawer)
+ *   data-aaa-fab         true | false   (the floating button only — the drawer stays
+ *                        and opens from WCAG22.open(), e.g. a menu item; the trip
+ *                        page does this so the FAB doesn't sit on its actions)
  *   data-aaa-embed       CSS selector for in-page menu host
  *   data-aaa-statement   accessibility statement URL
  *   data-aaa-storage     localStorage key (default tripmaker-aaa)
@@ -25,6 +28,7 @@
   var SPEECH_LANG = { he: 'he-IL', en: 'en-US', fr: 'fr-FR', ru: 'ru-RU', ar: 'ar-IL' };
   var AUDIT = !!(SCRIPT && SCRIPT.getAttribute('data-aaa-audit') === 'true');
   var TOOLBAR = !(SCRIPT && SCRIPT.getAttribute('data-aaa-toolbar') === 'false');
+  var FAB = !(SCRIPT && SCRIPT.getAttribute('data-aaa-fab') === 'false');
   var SKIP = !(SCRIPT && SCRIPT.getAttribute('data-aaa-skip') === 'false');
   var STORE_KEY = (SCRIPT && SCRIPT.getAttribute('data-aaa-storage')) || 'tripmaker-aaa';
   var EMBED_SEL = (SCRIPT && SCRIPT.getAttribute('data-aaa-embed')) || '#tripmaker-a11y-menu';
@@ -249,7 +253,13 @@
       '.aaa-skip{position:absolute;inset-inline-start:1rem;top:-120px;z-index:2147483000;background:#1f2d27;color:#fff;padding:.75rem 1.2rem;border-radius:.7rem;font-weight:800;font-size:1rem;text-decoration:none;min-height:44px;min-width:44px;display:inline-flex;align-items:center}',
       '.aaa-skip:focus{top:1rem;outline:3px solid #fff;outline-offset:3px}',
       '#' + ROOT_ID + '{font-family:Assistant,system-ui,sans-serif}',
-      '.aaa-fab{position:fixed;z-index:2147483647;left:max(12px,env(safe-area-inset-left));bottom:max(16px,env(safe-area-inset-bottom));width:42px;height:42px;border:0;border-radius:50%;background:#1f2d27;color:#fff;cursor:pointer;box-shadow:0 8px 18px rgba(31,45,39,.32);display:grid;place-items:center;padding:0}',
+      /* right side, and lifted clear of the mobile dock (--dock-h/--dock-inset, style.css)
+         so it never sits on top of the bottom toolbar; half-transparent at rest so it
+         doesn\'t hide whatever is behind it, full opacity on hover/focus so it stays usable */
+      '.aaa-fab{position:fixed;z-index:2147483647;right:max(12px,env(safe-area-inset-right));bottom:calc(var(--dock-inset,max(16px,env(safe-area-inset-bottom))) + var(--dock-h,0px) + 10px);width:42px;height:42px;border:0;border-radius:50%;background:#1f2d27;color:#fff;cursor:pointer;box-shadow:0 8px 18px rgba(31,45,39,.32);display:grid;place-items:center;padding:0;opacity:.5;transition:opacity .2s ease}',
+      '.aaa-fab:hover,.aaa-fab:focus-visible{opacity:1}',
+      /* data-aaa-fab="false": the drawer is reached from the page's own menu instead */
+      '#' + ROOT_ID + '.aaa-no-fab .aaa-fab{display:none}',
       '.aaa-fab:focus-visible{outline:3px solid #1f2d27;outline-offset:3px}',
       '.aaa-fab svg{width:20px;height:20px;fill:currentColor;pointer-events:none}',
       '.aaa-panel{display:none;position:fixed;z-index:2147483646;top:0;left:0;height:100vh;width:min(22rem,calc(100vw - 5rem));overflow:auto;background:#fffcfa;color:#1f2d27;border-right:1px solid #c5d4ca;box-shadow:12px 0 32px rgba(31,45,39,.18);padding:1rem 1rem 5.5rem;box-sizing:border-box}',
@@ -329,6 +339,7 @@
     }
     root.setAttribute('dir', t.dir);
     root.setAttribute('lang', LANG);
+    root.classList.toggle('aaa-no-fab', !FAB);
 
     var existingFab = document.querySelector('.aaa-fab');
     if (existingFab && existingFab.parentNode !== root) {
@@ -569,8 +580,16 @@
     panel.hidden = true;
     fab.setAttribute('aria-expanded', 'false');
     fab.setAttribute('aria-label', t.open);
-    if (lastFocus && typeof lastFocus.focus === 'function') lastFocus.focus();
-    else fab.focus();
+    // hand focus back to whatever opened us — but a menu item that closed its menu
+    // (and a hidden FAB) can't take it, so fall back to the page's menu button
+    var back = isFocusable(lastFocus) ? lastFocus
+      : isFocusable(fab) ? fab
+      : document.getElementById('nav-menu-btn');
+    if (back && typeof back.focus === 'function') back.focus();
+  }
+
+  function isFocusable(el) {
+    return !!(el && typeof el.focus === 'function' && el.isConnected && el.offsetParent !== null);
   }
 
   function onKey(e) {
@@ -675,6 +694,12 @@
   window.WCAG22 = {
     __kvatorAaa: true,
     remount: mount,
+    open: openPanel,
+    close: closePanel,
+    // false when data-aaa-fab="false": the page's own menu is then the way in
+    hasFab: TOOLBAR && FAB,
+    toggle: function () { panelOpen ? closePanel() : openPanel(); },
+    isOpen: function () { return panelOpen; },
     sync: syncToggleUi,
     apply: applyState,
     reset: resetAll,

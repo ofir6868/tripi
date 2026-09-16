@@ -76,29 +76,11 @@
 .ai-edit-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .ai-edit-title { font-weight: 800; font-size: 1.05rem; color: var(--amber); }
 .ai-edit-sub { margin: 6px 0 12px; font-size: .92rem; color: var(--paper-dim); font-weight: 300; }
-.ai-edit-row { display: flex; gap: 8px; }
-.ai-edit-foot { display: flex; justify-content: flex-end; margin-top: 6px; font-size: .78rem; color: var(--paper-dim); }
-.ai-edit-scope {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  margin-top: 12px; padding-top: 12px; border-top: 1px dashed rgba(255, 255, 255, .14);
-  color: var(--paper-dim); font-size: .92rem;
-}
-.ai-edit-scope label { font-weight: 600; }
-.ai-edit-scope select {
-  background: rgba(6, 13, 11, .55); border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
-  color: var(--paper); font-family: var(--font-body); font-size: .95rem; padding: 9px 12px; outline: none;
-}
-.ai-edit-scope select:focus { border-color: var(--amber); }
-.ai-edit-result { margin-top: 10px; font-size: .95rem; line-height: 1.6; }
-/* one-tap escape hatch after a smart edit — quiet, sits inside the result line */
-.ai-undo-btn {
-  background: none; border: 1px solid rgba(255, 255, 255, .25); border-radius: 999px;
-  color: var(--paper); font-family: var(--font-body); font-size: .82rem; font-weight: 700;
-  padding: 5px 14px; margin-inline-start: 8px; cursor: pointer; vertical-align: 1px;
-}
-.ai-undo-btn:hover:not(:disabled) { border-color: var(--amber); color: var(--amber); }
-.ai-undo-btn:disabled { opacity: .6; cursor: default; }@media (max-width: 560px) {
-  .ai-edit-row { flex-direction: column; }
+/* the card's one control: the handover to the agent's chat. On a phone it takes the
+   full width — it is the only thing to press here */
+.ai-edit-cta { justify-content: center; }
+@media (max-width: 560px) {
+  .ai-edit-cta { width: 100%; }
 }
 
 
@@ -241,7 +223,7 @@
 
 .copy-feedback { color: var(--mint); font-size: .85rem; min-height: 1.3em; margin-top: 8px; }
 
-/* day-tab pills: clarifying-question chips, the trip page's dest switcher, calendar */
+/* day-tab pills: clarifying-question chips, map day chips, calendar */
 .day-tab {
   padding: 9px 18px; border-radius: 999px; cursor: pointer; font-weight: 700; font-size: .92rem;
   background: var(--glass); border: 1px solid var(--glass-border); color: var(--paper-dim);
@@ -255,14 +237,31 @@
 
 .side-card { padding: 18px; }
 .side-card-title { font-weight: 800; font-size: .95rem; margin-bottom: 12px; letter-spacing: .02em; }
-.dest-switcher { padding: 14px 16px; border-radius: var(--radius); background: var(--glass);
-  border: 1px solid var(--glass-border); display: flex; flex-wrap: wrap; gap: 8px;
-  -webkit-backdrop-filter: blur(20px) saturate(150%); backdrop-filter: blur(20px) saturate(150%);
+/* title on one side, the stops picker on the other, in a row as tall as the title
+   alone was — the picker is meant to cost this card nothing */
+.weather-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+/* one line, always: a wrapped title is the one thing that would grow this row */
+.weather-head .side-card-title {
+  margin: 0; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.dest-switcher .side-card-title { width: 100%; margin: 0 0 2px; }
+/* the controls stay a comfortable size to tap, and the negative margin keeps their
+   overhang out of the row's height — so the row measures the title, as it did before */
+.wx-dest { flex: none; display: flex; gap: 4px; max-width: 55%; margin-block: -6px; }
+.wx-dest select,
+.wx-dest-btn {
+  max-width: 100%; padding: 5px 11px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--glass-border); background: var(--glass); color: var(--paper-dim);
+  font-family: var(--font-body); font-size: .78rem; font-weight: 700; line-height: 1.6;
+  outline: none; transition: color .2s ease, background .2s ease, border-color .2s ease;
+}
+.wx-dest select { color: var(--paper); padding-inline-end: 6px; }
+.wx-dest-btn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wx-dest-btn.active { background: var(--glass-strong); color: var(--paper); border-color: rgba(255, 180, 95, .5); }
+.wx-dest select:focus-visible,
+.wx-dest-btn:focus-visible { border-color: var(--amber); }
 
 .weather-row { display: flex; gap: 4px; justify-content: space-between; }
-/* the "typical, not a forecast" caption under the title (.wx-est mode) */
+/* the caption that says which forecast this is, when it isn't the trip's own days */
 .weather-sub { font-size: .76rem; color: var(--paper-dim); margin: -4px 0 8px; }
 .weather-day { text-align: center; flex: 1; padding: 6px 2px; border-radius: 12px; transition: background .15s ease; }
 .weather-day:hover { background: var(--glass-strong); }
@@ -273,7 +272,6 @@
 
 /* hotel star rating — shown in the hotels modal list */
 .hotel-stars { color: var(--amber); font-size: .78rem; letter-spacing: .1em; }
-.range-row { display: flex; align-items: center; gap: 8px; color: var(--paper-dim); font-size: .92rem; }
 .rc-month { text-align: center; font-weight: 800; font-size: .95rem; margin: 12px 0 6px; }
 .rc-grid { gap: 4px; margin-bottom: 8px; }
 .region-cal .cal-dow-row { gap: 4px; }
@@ -607,6 +605,10 @@
 .pm-switch input:focus-visible + .pm-switch-track { box-shadow: 0 0 0 4px rgba(255, 180, 95, .18); }
 .pm-switch input:disabled { cursor: wait; }
 
+/* the ask bar's travelling border beam animates a custom angle (see .ai-ask-bar) —
+   registering it is what lets the gradient turn instead of jumping between frames */
+@property --aab-a { syntax: '<angle>'; inherits: true; initial-value: 0deg; }
+
 /* ---------- invite join banner (bottom, above the action bar) ---------- */
 
 .join-banner {
@@ -618,11 +620,6 @@
 }
 .join-banner .jb-text { font-weight: 700; font-size: .95rem; text-align: center; }
 body:has(.join-banner) { padding-bottom: 92px; }@media print {
-  /* the forecast prints only when it speaks about the trip's own days — a real
-     one (.wx-trip) or the typical-for-the-dates estimate (.wx-est); otherwise
-     it's just the coming week at the destination, which the sheet would read
-     as the trip's weather */
-  #weather-card:not(.wx-trip):not(.wx-est) { display: none !important; }
   /* printing from fullscreen: the calendar prints as a normal block, not a fixed overlay */
   .cal-wrap.cal-full { position: static !important; padding: 0 !important; background: none !important; }
   .trip-hero { min-height: auto; padding: 20px 0; }
@@ -726,7 +723,72 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
   /* and the invite banner stacks on top of the dock instead of landing on it */
   body:has(.action-bar) .join-banner { bottom: calc(var(--dock-h) + 20px + env(safe-area-inset-bottom)); }
   body:has(.action-bar):has(.join-banner) { padding-bottom: calc(var(--dock-h) + 120px + env(safe-area-inset-bottom)); }
+
+  /* ---- the ask bar: the agent's line, pinned above the dock (editors, phones) ----
+     Same glass as the dock so the two read as one floating surface. What says "this
+     one talks to the AI" is the border: a beam of amber light travelling around the
+     rim (a conic gradient whose start angle animates, cut to a ring by a mask), with
+     a soft blurred copy of the same beam glowing behind the bar's edge. */
+  .ai-ask-bar {
+    --aab-a: 0deg;
+    position: fixed; z-index: 118;
+    bottom: calc(var(--dock-h) + var(--dock-inset) + 10px);
+    inset-inline: calc(10px + max(env(safe-area-inset-left), env(safe-area-inset-right)));
+    display: flex; align-items: center; gap: 6px;
+    /* the spark's side breathes, the button's side hugs the rim — logical, so RTL
+       gets the wide side where the spark is, not where the button is */
+    padding: 5px; padding-inline-start: 13px; border-radius: 999px;
+    border: 1px solid rgba(255, 180, 95, .28);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .09), rgba(255, 255, 255, .025)),
+      linear-gradient(90deg, rgba(255, 180, 95, .08), transparent 40%),
+      rgba(11, 24, 20, .86);
+    -webkit-backdrop-filter: blur(26px) saturate(170%);
+    backdrop-filter: blur(26px) saturate(170%);
+    box-shadow:
+      0 18px 40px -14px rgba(0, 0, 0, .75), 0 2px 10px -5px rgba(0, 0, 0, .5),
+      inset 0 1px 0 var(--glass-highlight);
+    animation: aab-spin 9s linear infinite;
+  }
+  /* the beam — same gradient twice: a crisp ring on top, a faint halo behind. Kept
+     slow and dim on purpose: it should be noticed, not watched — the itinerary is the
+     thing on this screen. */
+  .ai-ask-bar::before,
+  .ai-ask-bar::after {
+    content: ''; position: absolute; inset: -2px; border-radius: inherit; pointer-events: none;
+    background: conic-gradient(from var(--aab-a),
+      transparent 0deg 230deg, rgba(255, 180, 95, .18) 290deg, rgba(255, 180, 95, .8) 340deg,
+      rgba(255, 214, 140, .9) 352deg, transparent 360deg);
+    /* cut to a ring: the box minus its content box */
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+  }
+  .ai-ask-bar::before { padding: 1.5px; }
+  /* the halo: the same beam, blurred, in a ring just outside the rim — narrower than
+     the gap to the dock, so the dock never cuts it */
+  .ai-ask-bar::after { inset: -5px; padding: 6px; z-index: -1; opacity: .4; filter: blur(5px); }
+  @keyframes aab-spin { to { --aab-a: 360deg; } }
+  .aab-spark { flex: none; font-size: 1.05rem; line-height: 1; filter: drop-shadow(0 0 6px rgba(255, 180, 95, .5)); }
+  .ai-ask-bar input {
+    flex: 1; min-width: 0; padding: 11px 6px; border: 0; background: transparent;
+    color: var(--paper); font: inherit; font-size: 1rem; /* 16px keeps iOS from zooming */
+  }
+  .ai-ask-bar input:focus { outline: none; }
+  .ai-ask-bar input::placeholder { color: rgba(245, 239, 227, .7); opacity: 1; }
+  .ai-ask-bar:focus-within { border-color: rgba(255, 180, 95, .55); }
+  .ai-ask-bar:focus-within::after { opacity: .6; }
+  .ai-ask-bar .chat-send { width: 42px; height: 42px; box-shadow: 0 6px 18px -6px rgba(255, 180, 95, .9), inset 0 1px 0 rgba(255, 255, 255, .35); }
+  @media (prefers-reduced-motion: reduce) { .ai-ask-bar { animation: none; --aab-a: 300deg; } }
+  body.page-open .ai-ask-bar,
+  body.budget-open .ai-ask-bar,
+  body.cal-full-open .ai-ask-bar { display: none; }
+  /* the trip ends above the bar, and the toast lands above it too */
+  body:has(.action-bar):has(.ai-ask-bar) { padding-bottom: calc(var(--dock-h) + 96px + env(safe-area-inset-bottom)); }
+  body:has(.ai-ask-bar):not(.page-open) .tm-toast { bottom: calc(var(--dock-h) + 84px + env(safe-area-inset-bottom)); }
 }
+/* desktop keeps the card below the itinerary; the bar is a phone thing */
+@media (min-width: 641px) { .ai-ask-bar { display: none; } }
+@media print { .ai-ask-bar { display: none !important; } }
 @media (max-width: 420px) {
   .item-badges .item-area { display: none; }
 }
@@ -1466,8 +1528,7 @@ body.cal-full-open { overflow: hidden; }
 @media (pointer: coarse) {
   .cost-input,
 .bp-add input,
-.bp-add select,
-.ai-edit-scope select { font-size: 16px; }
+.bp-add select { font-size: 16px; }
 }
 
 body.page-open { overflow: hidden; }
@@ -1605,6 +1666,95 @@ body.page-open { overflow: hidden; }
   font: inherit; font-size: .84rem; font-weight: 700;
 }
 
+/* ---- המלצות ליום פנוי: the AI's three picks where the empty-day note used to be.
+   Rows, not tiles — wide and low, the opposite of the chat's cards: the itinerary is
+   a column, and a free day should read as three short lines you can drop in, with
+   one button to swap them for three others. Lives inside the day's timeline. ---- */
+.dr-block { margin: 2px 0 10px; }
+.dr-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.dr-title { font-weight: 700; font-size: .9rem; color: var(--amber); }
+.dr-refresh {
+  margin-inline-start: auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 11px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(255, 180, 95, .35); background: rgba(255, 180, 95, .08); color: var(--amber);
+  font: inherit; font-size: .78rem; font-weight: 700; transition: background .15s ease;
+}
+.dr-refresh:hover { background: rgba(255, 180, 95, .16); }
+.dr-refresh:disabled { opacity: .5; cursor: default; }
+.dr-refresh .ic { width: 14px; height: 14px; }
+.dr-list { display: flex; flex-direction: column; gap: 8px; }
+.dr-card {
+  display: flex; align-items: center; gap: 12px; padding: 8px 10px;
+  border-radius: 14px; background: var(--glass); border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-soft);
+}
+.dr-media {
+  position: relative; flex: 0 0 96px; height: 72px; border-radius: 10px; overflow: hidden;
+  background: linear-gradient(135deg, #16302a, #0e1f1a);
+}
+/* the category's emoji sits behind the photo — it's what shows when the photo doesn't load */
+.dr-media::before {
+  content: attr(data-emoji); position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 1.8rem; opacity: .35; filter: saturate(.6);
+}
+.dr-media img { position: relative; width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .25s ease; }
+.dr-body { flex: 1; min-width: 0; }
+.dr-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.dr-name { font-size: .95rem; font-weight: 800; line-height: 1.3; margin: 0; }
+.dr-time { color: var(--mint); font-weight: 700; font-size: .8rem; font-variant-numeric: tabular-nums; direction: ltr; }
+.dr-cat {
+  font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  background: rgba(255, 255, 255, .06); border: 1px solid var(--glass-border); color: var(--paper-dim);
+}
+.dr-blurb {
+  font-size: .8rem; color: var(--paper-dim); line-height: 1.45; margin: 3px 0 0;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.dr-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: .74rem; color: var(--paper-dim); }
+.dr-actions { display: flex; flex-direction: column; gap: 6px; flex: none; align-items: stretch; }
+.dr-add {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  padding: 7px 12px; border: 0; border-radius: 10px; cursor: pointer; white-space: nowrap;
+  background: linear-gradient(180deg, var(--amber), var(--amber-deep)); color: #2a1500;
+  font: inherit; font-weight: 800; font-size: .82rem;
+  box-shadow: 0 6px 16px -8px rgba(255, 180, 95, .8); transition: transform .12s ease;
+}
+.dr-add:active { transform: scale(.97); }
+.dr-add:disabled { opacity: .6; cursor: default; }
+.dr-add .ic { width: 15px; height: 15px; stroke-width: 2.5; }
+.dr-map {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  padding: 6px 10px; border-radius: 10px; border: 1px solid var(--glass-border);
+  font-size: .78rem; font-weight: 700; color: var(--paper-dim); text-decoration: none; white-space: nowrap;
+}
+.dr-map:hover { color: var(--paper); border-color: rgba(143, 216, 196, .4); }
+.dr-map .ic { width: 14px; height: 14px; }
+.dr-added { color: var(--mint); font-weight: 700; font-size: .82rem; text-align: center; padding: 7px 12px; }
+/* waiting: the line says what for, the three rows keep the day's height so nothing jumps */
+.dr-wait { font-size: .84rem; color: var(--paper-dim); font-weight: 300; margin-bottom: 2px; }
+.dr-skel { min-height: 88px; }
+.dr-skel .dr-media { background: rgba(255, 255, 255, .06); }
+.dr-skel .dr-media::before { content: none; }
+.dr-skel .skl { display: block; height: .8em; margin: 7px 0; }
+.dr-empty {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; border: 1px dashed var(--glass-border); border-radius: 12px;
+  font-size: .84rem; color: var(--paper-dim); font-weight: 300;
+}
+.dr-retry {
+  margin-inline-start: auto; background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--mint); font-family: var(--font-body); font-size: .82rem; font-weight: 600;
+}
+.dr-retry:hover { text-decoration: underline; }
+@media (max-width: 560px) {
+  .dr-card { flex-wrap: wrap; gap: 10px; }
+  .dr-media { flex-basis: 84px; height: 64px; }
+  .dr-body { flex-basis: calc(100% - 96px); }
+  .dr-actions { flex-direction: row; width: 100%; }
+  .dr-add { flex: 1; }
+}
+@media print { .dr-block { display: none; } }
+
 /* quick prompts + the composer */
 .chat-chips {
   display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
@@ -1689,7 +1839,16 @@ body.page-open { overflow: hidden; }
 }
 .chat-chips[hidden] { display: none; }
 /* the one chip that acts instead of replying: the automatic completion of the rest */
-.chat-chip.chip-build { border-color: rgba(143, 216, 196, .5); background: rgba(143, 216, 196, .1); color: var(--mint); }@media (max-width: 420px) {
+.chat-chip.chip-build { border-color: rgba(143, 216, 196, .5); background: rgba(143, 216, 196, .1); color: var(--mint); }
+/* the build choice — שלב אחרי שלב / בבת אחת — is the question itself, not a hint at an
+   answer: the two share the row as full buttons, so nothing about them says "optional" */
+.chat-chips.chips-choice { gap: 10px; overflow-x: visible; padding-bottom: 6px; }
+.chat-chip.chip-choice {
+  flex: 1 1 0; min-width: 0; padding: 13px 10px; border-radius: 14px;
+  border-width: 2px; border-color: rgba(255, 180, 95, .8); background: rgba(255, 180, 95, .16);
+  font-size: .98rem; font-weight: 800; box-shadow: 0 6px 20px rgba(255, 180, 95, .12);
+}
+.chat-chip.chip-choice:active { background: rgba(255, 180, 95, .3); }@media (max-width: 420px) {
   .plan-mode span { display: none; }
   .plan-mode { width: 46px; padding: 0; justify-content: center; }
 }
