@@ -62,10 +62,23 @@ const CASES = [
   [LOUVRE, d(2026, 1, 1), '10:00', 'closed', 'New Year, likewise'],
   [LOUVRE, d(2026, 5, 1), '10:00', 'closed', 'and May Day'],
   [LOUVRE, d(2026, 12, 24), '10:00', 'open', 'Christmas Eve is not in the list, and stays open'],
-  ['Dec 25 off', d(2026, 12, 26), '10:00', 'closed', 'a date rule is silent on other days, so nothing opens them'],
+  // A tag with nothing but closures says when the place is SHUT and never when it is
+  // open, so every other day is unknown — not closed. Encoded the wrong way round here
+  // at first, and the first real audit caught it: three false 'closed' verdicts on
+  // Kuromon Market in Osaka, whose entire tag is "Su off", on a Friday and a Tuesday.
+  ['Su off', SUN, '12:00', 'closed', 'the day a closures-only tag DOES name'],
+  ['Su off', FRI, '12:00', 'unknown', 'ANY OTHER DAY IS UNKNOWN, NOT CLOSED'],
+  ['Dec 25 off', d(2026, 12, 26), '10:00', 'unknown', 'likewise for a date-only closure'],
+  ['Mo-Fr 09:00-17:00; Su off', SAT, '12:00', 'closed', 'but once a tag says when it opens, an unlisted day is shut'],
 
   // --- explicit closure ------------------------------------------------------
-  ['off', MON, '10:00', 'closed', 'a place tagged simply off'],
+  ['off', MON, '10:00', 'closed', 'a bare "off" names every day, so it is shut'],
+  // the five real findings from the production audit of 2026-09-16, kept as fixtures
+  ['Mo-Su 17:00-22:00', d(2026, 9, 17), '12:00', 'closed', 'a dinner-only sushi bar booked for breakfast'],
+  ['Mo-Su 10:00-20:00', SUN, '09:00', 'closed', 'Osaka Aquarium, an hour before it opens'],
+  ['Sa-Th 10:00-17:00; Fr 10:00-20:00', FRI, '09:00', 'closed', 'a museum at 09:00 that opens at 10:00'],
+  ['Sa-Su 09:00-18:00; We-Th 07:00-18:00; Fr 18:00-00:00', TUE, '09:00', 'closed', 'Chatuchak is a weekend market; Tuesday is not in it'],
+  ['Sa-Su 09:00-18:00; We-Th 07:00-18:00; Fr 18:00-00:00', SAT, '10:00', 'open', 'and the weekend is'],
 
   // --- holidays: answered, but flagged --------------------------------------
   ['Mo-Su 10:00-18:00; PH off', MON, '12:00', 'open', 'an ordinary day is still answered'],
