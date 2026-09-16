@@ -1,4 +1,4 @@
-// Migrations 2–22, in order. Idempotent — safe to run on every boot, and the server
+// Migrations 2–23, in order. Idempotent — safe to run on every boot, and the server
 // does (lib/db-bootstrap.js), so a replaced database catches up by itself.
 // Usage: DATABASE_URL=postgres://... node db/migrate.js
 require('../lib/env');
@@ -254,6 +254,22 @@ async function migrate(pool, log = console.log) {
       requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (trip_id, day_number)
+    )`);
+
+  log('Migration 23: free-day picks remember what they were chosen around, and the area plan they were asked in...');
+  // `context` is the cache key of a single day's picks: its area and the stops on
+  // either side of it. A day whose surroundings did not change keeps its cards, so a
+  // stop added on day 3 of a 30-day trip costs a couple of model calls, not thirty.
+  await pool.query(`ALTER TABLE trip_day_recs ADD COLUMN IF NOT EXISTS context TEXT`);
+  // the day→area split the picks are ordered and batched by, when nothing else in the
+  // trip provides one (routes/day-recs.js). Cached per itinerary: the signature is
+  // what the split was computed from, so any change to the trip asks for it again.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trip_rec_areas (
+      trip_id INT PRIMARY KEY REFERENCES trips(id) ON DELETE CASCADE,
+      signature TEXT NOT NULL DEFAULT '',
+      areas JSONB NOT NULL DEFAULT '[]',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`);
 
   log('Done.');

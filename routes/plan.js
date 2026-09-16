@@ -26,7 +26,7 @@ const express = require('express');
 const { randomUUID } = require('crypto');
 const { pool } = require('../lib/db');
 const { authRequired } = require('../lib/auth');
-const { tripWithEditAuth, cleanPlanState, PLAN_MODES, PLAN_STAGES } = require('../lib/trips');
+const { tripWithEditAuth, cleanPlanState, areasCoverTrip, PLAN_MODES, PLAN_STAGES } = require('../lib/trips');
 const { dailyQuota, exhausted } = require('../lib/quota');
 const ai = require('./ai');
 const COUNTRIES = require('../public/js/countries.js');
@@ -498,11 +498,11 @@ router.patch('/api/trips/code/:code/plan', authRequired, async (req, res) => {
     }
     if (b.areas !== undefined) {
       const areas = cleanAreas(b.areas, trip.days);
-      if (!areas || areas[0].from !== 1 || areas[areas.length - 1].to !== trip.days) {
-        return res.status(400).json({ error: 'חלוקת האזורים לא מכסה את כל ימי הטיול' });
-      }
-      for (let i = 1; i < areas.length; i++) {
-        if (areas[i].from !== areas[i - 1].to + 1) return res.status(400).json({ error: 'חלוקת האזורים לא רציפה' });
+      // the split saved here is the one that counts — the picks for the free days read
+      // it instead of asking the model for a split of their own (routes/day-recs.js),
+      // so it is stored only when it covers the whole trip, by that same definition
+      if (!areas || !areasCoverTrip(areas, trip.days)) {
+        return res.status(400).json({ error: 'חלוקת האזורים צריכה לכסות את כל ימי הטיול ברצף' });
       }
       trip.plan_state.areas = areas;
       touched = true;

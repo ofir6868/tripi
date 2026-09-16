@@ -74,9 +74,21 @@ CREATE TABLE IF NOT EXISTS trip_day_recs (
   cards JSONB NOT NULL DEFAULT '[]',
   seen JSONB NOT NULL DEFAULT '[]',
   token TEXT,
+  context TEXT,
   requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (trip_id, day_number)
+);
+
+-- the day→area split those picks are asked for in — one call per area, earliest day
+-- first — when neither the planning chat nor the itinerary already provides one.
+-- Cached per itinerary: the signature is what it was computed from, so any change to
+-- the trip asks the model for the split again. Never binding, never shown.
+CREATE TABLE IF NOT EXISTS trip_rec_areas (
+  trip_id INT PRIMARY KEY REFERENCES trips(id) ON DELETE CASCADE,
+  signature TEXT NOT NULL DEFAULT '',
+  areas JSONB NOT NULL DEFAULT '[]',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS trip_participants (

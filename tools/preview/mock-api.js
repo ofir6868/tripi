@@ -301,7 +301,9 @@
           if (items.some((it) => it.day_number === d)) continue;
           days[d] = { status: 'ready', cards: set.map((c) => ({ ...c })), updated_at: new Date().toISOString() };
         }
-        return json(200, { days, remaining: 39 });
+        // the real route answers with the shape the page watches while a pass fills in
+        // (routes/day-recs.js); nothing is ever pending here, so it is always done
+        return json(200, { days, running: false, ready: Object.keys(days).length, waiting: 0, remaining: 39 });
       }
       if (rest === '/recs/apply' && method === 'POST') {
         const undo = { added: [], updated: [], deleted: [] };

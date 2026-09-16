@@ -540,11 +540,16 @@ const TripPlan = (() => {
         ctx.trip.plan_state = state;
         await promoteAreas(r.plan);
         TRIPMAKER.track?.('plan_build', { code: ctx.trip.share_code, fill, count: (r.items || []).length });
-        // the free days' picks are made now, behind the same screen, so the itinerary
-        // opens with recommendations where its empty days are — never a skeleton first
+        // the free days' picks start now, behind the same screen. The screen waits for
+        // the first of them and no longer: on a month-long trip the picks are minutes
+        // of model calls, and holding the traveller in front of a loading screen for
+        // all of them is how they used to arrive — the rest land on the itinerary
+        // itself, day after day, while it is already being read.
         if (TripDayRecs.hasFreeDays(r.items, ctx.trip.days)) {
           overlay.say('מכינים המלצות לימים הפנויים… ✨');
-          await TripDayRecs.prepare(ctx.trip).catch(() => { /* the itinerary asks again on open */ });
+          await TripDayRecs.prepare(ctx.trip, {
+            onProgress: (snap) => { if (snap.ready) overlay.say(`מכינים המלצות לימים הפנויים… ${snap.ready} ימים מוכנים ✨`); },
+          }).catch(() => { /* the itinerary asks again on open */ });
         }
         // the itinerary is the point now: land on it, the chat stays a tab away
         location.href = `/trip/${ctx.trip.share_code}`;

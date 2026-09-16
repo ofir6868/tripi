@@ -36,6 +36,13 @@
   }
   let inviteToken = savedInvites[code] || null;
 
+  // the free days' picks start loading here, next to the trip itself — not after the
+  // itinerary has painted. The loading screen holds the page for about two seconds
+  // anyway, and this read fits inside it, so a day whose picks are already made draws
+  // them on the first paint instead of a skeleton. Only for someone who could be an
+  // editor: a plain viewer's free day says "יום פנוי" and asks the server nothing.
+  if (TRIPMAKER.user) TripDayRecs.prefetch(code);
+
   // A long trip is calendar-only, for everyone, so the list-shaped placeholder in the
   // HTML is the wrong shape for it. The server marks the day count on the container for
   // exactly those trips — enough to lay the month grid out before the fetch, with no
@@ -451,10 +458,15 @@
       TripMap.refresh();
       if (viewMode === 'calendar') {
         TripCalendar.render(container, calCtx);
-        return;
+      } else {
+        TripCalendar.exitFull(); // the list can't live inside the fullscreen calendar
+        renderListView();
       }
-      TripCalendar.exitFull(); // the list can't live inside the fullscreen calendar
-      renderListView();
+      // a stop added, moved, edited or deleted by hand arrives here exactly like one
+      // the AI wrote — this is the funnel. The free days' picks are chosen around the
+      // neighbouring days, so the server hears about the change from here too
+      // (debounced, and a no-op when the itinerary is the same one as last time).
+      TripDayRecs.sync();
     }
 
     // lists longer than 2 days start folded — day 2 fades out into a reveal
