@@ -1294,7 +1294,6 @@ body.cal-full-open { overflow: hidden; }
 .se-time-wrap.has-time .se-time-clear { display: grid; }
 .se-time-clear:hover { color: var(--danger); background: rgba(255, 122, 110, .1); border-color: var(--danger); }
 .se-cost-scope { width: 100%; }
-.se-cost-hint { margin: 6px 0 0; font-size: .78rem; color: var(--paper-dim); line-height: 1.4; }
 /* the save row stays on screen however long the form scrolls; the sheet gives
    up its own bottom padding so the row sits flush on the bottom edge */
 .modal-stop:has(.sm-foot) { padding-bottom: 0; }

@@ -623,7 +623,6 @@ const TripCalendar = (() => {
             <button type="button" data-v="shared">${icUsers}<span>משותף</span></button>
             <button type="button" data-v="personal">${icLock}<span>אישי</span></button>
           </div>
-          ${isNew ? '' : '<p class="se-cost-hint"></p>'}
         </div>`;
     const placeField = `
         <div class="field span-2"><label for="se-place">מיקום</label>
@@ -683,13 +682,8 @@ const TripCalendar = (() => {
       f.addEventListener('input', () => { sheet.dirty = true; });
     });
     const scopeBox = body.querySelector('.se-cost-scope');
-    const scopeHint = body.querySelector('.se-cost-hint');
     const syncScope = () => {
       scopeBox.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === costScope));
-      // the add form goes without the explanation; the edit form keeps it
-      if (scopeHint) scopeHint.textContent = costScope === 'personal'
-        ? 'נכנס לתכנון האישי — רק אצלכם. ב«בפועל» מסמנים אם שולם'
-        : 'נכנס לתכנון המשותף. ב«בפועל» מסמנים אם שולם';
     };
     scopeBox.querySelectorAll('button').forEach((b) => {
       b.onclick = () => { costScope = b.dataset.v; sheet.dirty = true; syncScope(); };
