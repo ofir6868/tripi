@@ -121,6 +121,33 @@
     <div class="scroll-cue"><span>טיולים מומלצים</span><span>↓</span></div>
   </section>
 
+  <!-- the same share as the band at the foot of the page, in a tab that can be
+       reached without scrolling: it hangs on the page's edge, opens its label to a
+       pointer and its panel to a click, and steps aside once the band itself is on
+       screen. Hidden until js/home.js wires it — a tab that does nothing when the
+       script is blocked is worse than no tab. -->
+  <div class="share-flag" id="share-flag" hidden>
+    <button type="button" class="share-flag-tab" id="share-flag-tab" aria-expanded="false" aria-controls="share-flag-panel">
+      <!-- the share glyph, not the compass: on a tab at the edge of the screen the
+           compass reads as navigation, which is the one thing this is not -->
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="M8.3 13.4 15.7 17.6"/><path d="M15.7 6.4 8.3 10.6"/></svg>
+      <span class="share-flag-label">שתפו</span>
+    </button>
+    <div class="share-flag-panel glass" id="share-flag-panel" hidden>
+      <h3>שתפו את <span class="accent">הבשורה</span></h3>
+      <p>מכירים מישהו שמתכנן טיול? שלחו לו את טריפ מייקר.</p>
+      <div class="share-flag-actions">
+        <button type="button" class="btn btn-amber" id="share-flag-wa">שיתוף בוואטסאפ</button>
+        <button type="button" class="btn btn-ghost" id="share-flag-copy">העתקת קישור</button>
+      </div>
+      <div class="share-app-feedback" id="share-flag-feedback" role="status"></div>
+      <div class="share-reward" hidden>
+        <span class="share-pips" aria-hidden="true"></span>
+        <span class="share-reward-text"></span>
+      </div>
+    </div>
+  </div>
+
   <section class="section" id="suggested">
     <div class="section-head">
       <div>
@@ -353,9 +380,9 @@
       <div class="share-app-feedback" id="share-app-feedback" role="status"></div>
       <!-- three seats, filled as friends sign up — the same count the quota card
            shows in the chats. Signed-out visitors have none, so it stays hidden. -->
-      <div class="share-reward" id="share-app-reward" hidden>
-        <span class="share-pips" id="share-app-pips" aria-hidden="true"></span>
-        <span id="share-app-reward-text"></span>
+      <div class="share-reward" hidden>
+        <span class="share-pips" aria-hidden="true"></span>
+        <span class="share-reward-text"></span>
       </div>
     </div>
   </section>
