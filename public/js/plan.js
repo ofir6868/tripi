@@ -1,8 +1,8 @@
 // AI-first plan wizard: destinations → dates → style → the trip is CREATED on the
-// spot — an empty draft on the server, opened on its own page (/trip/CODE) straight
-// into the planning chat (#plan), where the AI builds it with the traveller. The style
-// answers ride along as the chat's opening memory. Publishing ("שמירת הטיול") happens
-// over there.
+// spot — an empty draft on the server, opened on its own page (/trip/CODE), on the
+// itinerary. The planning chat (#plan), where the AI builds it with the traveller, is
+// the dock's תכנון tab there; the style answers ride along as its opening memory.
+// Publishing ("שמירת הטיול") happens over there too.
 (() => {
   const DEFAULT_COVER = 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1200&q=80';
 
@@ -378,9 +378,11 @@
 
   // ---- create (as a draft) ----
 
-  // the AI path: the trip is created empty and opens on the planning chat, where the
-  // AI asks what it needs, then builds — step by step or all at once, as the traveller
-  // picks there. Nothing is generated here anymore.
+  // the AI path: the trip is created empty, with the style answers kept for the planning
+  // chat, where the AI asks what it needs, then builds — step by step or all at once, as
+  // the traveller picks there. Nothing is generated here anymore. The trip opens on its
+  // itinerary, not inside the chat: the traveller lands on the trip they just made, and
+  // the chat is one tab (תכנון) away.
   const aiBtn = document.getElementById('ai-full');
   const aiLabel = aiBtn.textContent;
   aiBtn.onclick = () => {
@@ -390,7 +392,7 @@
       aiBtn.textContent = 'פותחים את התכנון…';
       await saveDraftTrip(buildTripPayload([]), {
         plan_state: { interests: [...selectedInterests], notes: document.getElementById('ai-notes').value.trim(), mode: 'manual' },
-        hash: '#plan', path: 'ai',
+        path: 'ai',
       });
       // still here = the save failed and rendered a retry into #ai-status
       aiBtn.disabled = false;
@@ -446,10 +448,10 @@
     };
   }
 
-  // POST the draft and move to the trip page (`hash` picks the tab it opens on). A
-  // failed save keeps the payload for a retry that costs nothing.
+  // POST the draft and move to the trip page, on its itinerary. A failed save keeps
+  // the payload for a retry that costs nothing.
   let savingTrip = false;
-  async function saveDraftTrip(payload, { plan_state = null, hash = '', path = '' } = {}) {
+  async function saveDraftTrip(payload, { plan_state = null, path = '' } = {}) {
     if (savingTrip) return;
     savingTrip = true;
     try {
@@ -464,7 +466,7 @@
         days: payload.days || null, dates_picked: !!tripStart,
       });
       clearDraft();
-      location.href = '/trip/' + trip.share_code + hash;
+      location.href = '/trip/' + trip.share_code;
     } catch (e) {
       savingTrip = false;
       aiStatus.className = 'ai-status error';
@@ -472,7 +474,7 @@
         `<button type="button" class="btn btn-amber" id="retry-save">ניסיון נוסף</button>`;
       document.getElementById('retry-save').onclick = () => {
         aiStatus.textContent = 'יוצרים את הטיול…';
-        saveDraftTrip(payload, { plan_state, hash });
+        saveDraftTrip(payload, { plan_state, path });
       };
     }
   }
