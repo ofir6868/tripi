@@ -499,23 +499,24 @@
   // The band at the foot of the page hands out a link to TRIP MAKER itself — the
   // one thing on this page a visitor can give away. Signed in, that link is their
   // own referral link (/api/me/referral): three friends who sign up through it
-  // double their daily AI allowance for good, so the note says that out loud
+  // double their daily AI allowance for good, so the reward line says that out loud
   // instead of asking for a favour. Signed out it is the plain home page, tagged
   // so analytics.js can tell a shared visit from a search one.
   (function shareApp() {
     const wa = document.getElementById('share-app-wa');
     const copyBtn = document.getElementById('share-app-copy');
-    const note = document.getElementById('share-app-note');
     const feedback = document.getElementById('share-app-feedback');
+    const reward = document.getElementById('share-app-reward');
     if (!wa || !copyBtn) return;
     wa.insertAdjacentHTML('afterbegin', TRIPMAKER.waIcon);
 
     let link = `${location.origin}/?utm_source=app_share`;
     let withReferral = false;
-    // the link rides inside the message too: WhatsApp builds its preview card from
-    // the first URL it finds, and a message whose link is only in the head of the
-    // thread is one nobody taps
-    const message = () => `🧭 מצאתי משהו לטיול הבא שלנו — TRIP MAKER: מתכנן טיולים בעברית שבונה מסלול יום-אחר-יום לכל יעד, ומשתפים אותו עם כל החבר'ה בקוד אחד.\nחינם, ולוקח דקה:\n${link}`;
+    // three beats and out: what it is, what it does, what it costs. The link rides
+    // inside the message because WhatsApp builds its preview card from the first URL
+    // it finds, and a message whose link is only in the head of the thread is one
+    // nobody taps.
+    const message = () => `🧭 תכירו את TRIP MAKER — מתכנן טיולים בעברית: אומרים לאן ולכמה זמן, וה-AI בונה מסלול יום-אחר-יום. אחר כך שולחים קוד אחד וכל החבורה מתכננת ביחד.\nחינם, ולוקח דקה:\n${link}`;
     const flash = (msg) => {
       feedback.textContent = msg;
       setTimeout(() => { feedback.textContent = ''; }, 2500);
@@ -547,13 +548,16 @@
       if (!r || !r.link) return;
       link = r.link;
       withReferral = true;
-      note.hidden = false;
-      const left = Math.max(1, r.needed - r.referred);
-      note.textContent = r.bonus
-        ? 'המכסה היומית שלכם כבר כפולה 💛 — תודה שהבאתם חברים.'
-        : r.referred
-          ? `נרשמו עד עכשיו ${r.referred} מתוך ${r.needed} — עוד ${left === 1 ? 'חבר אחד' : `${left} חברים`}, והמכסה היומית שלכם מוכפלת לתמיד.`
-          : `${r.needed} חברים שנרשמים דרך הקישור שלכם — והמכסה היומית שלכם מוכפלת לתמיד.`;
+      const needed = Number(r.needed) || 3;
+      const signed = r.bonus ? needed : Math.min(Number(r.referred) || 0, needed);
+      const left = Math.max(1, needed - signed);
+      document.getElementById('share-app-pips').innerHTML =
+        Array.from({ length: needed }, (_, i) => `<i${i < signed ? ' class="on"' : ''}></i>`).join('');
+      document.getElementById('share-app-reward-text').textContent = r.bonus
+        ? 'מכסת ה-AI היומית שלכם כפולה 💛 — תודה שהבאתם חברים'
+        : `עוד ${left === 1 ? 'חבר אחד שנרשם' : `${left} חברים שנרשמים`} — ומכסת ה-AI היומית שלכם מוכפלת לתמיד`;
+      reward.classList.toggle('is-bonus', !!r.bonus);
+      reward.hidden = false;
     }).catch(() => { /* expired token / offline — the plain link still shares the app */ })
       .finally(() => { clearTimeout(coldStart); enable(); });
   })();
