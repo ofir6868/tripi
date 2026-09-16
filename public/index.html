@@ -366,7 +366,28 @@
        js/home.js wires it. -->
   <section class="section" id="share-app">
     <div class="share-band glass">
-      <span class="share-mark" aria-hidden="true">🧭</span>
+      <!-- The share glyph — three nodes, two links — with the nodes drawn as map
+           pins: what this card hands over is three places on a map, not a file.
+           Geometry, so it can be adjusted without guesswork: heads at (25,5.5),
+           (7,14.5) and (25,23.5), r 3.4, each floating 6.4 above its own tip, so the
+           flanks are the true tangents from tip to head and meet it without a kink.
+           The links stop 6 from each head, which keeps ~0.7 of clear space between
+           stroke and pin at every end. Under them runs the wide dim trace the route
+           on the real trip map wears (.route-line / .route-line-glow, css/trip.css),
+           so the badge is drawn in the product's own hand. -->
+      <span class="share-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32">
+          <g class="sm-trace"><path d="M12.37 11.82 19.63 8.18"/><path d="M12.37 17.18 19.63 20.82"/></g>
+          <path d="M12.37 11.82 19.63 8.18"/>
+          <path d="M12.37 17.18 19.63 20.82"/>
+          <path d="M25 11.9l2.88-4.59a3.4 3.4 0 1 0-5.76 0Z"/>
+          <path d="M7 20.9l2.88-4.59a3.4 3.4 0 1 0-5.76 0Z"/>
+          <path d="M25 29.9l2.88-4.59a3.4 3.4 0 1 0-5.76 0Z"/>
+          <circle cx="25" cy="5.5" r="1.4"/>
+          <circle cx="7" cy="14.5" r="1.4"/>
+          <circle cx="25" cy="23.5" r="1.4"/>
+        </svg>
+      </span>
       <h2>שתפו את <span class="accent">הבשורה</span></h2>
       <p>מכירים מישהו שמתכנן טיול? שלחו לו את טריפ מייקר — דקה אחת, ויש לו מסלול מלא וקוד שמכניס את כל החבורה לאותו עמוד.</p>
       <div class="share-band-actions">
