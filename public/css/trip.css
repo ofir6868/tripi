@@ -114,23 +114,58 @@
   color: #241302; font-size: .85rem; font-weight: 800; padding: 6px 14px; border-radius: 999px;
 }
 .timeline { margin-top: 14px; position: relative; padding-right: 24px; }
-.item-card { position: relative; padding: 16px 18px; margin-bottom: 12px; }
-/* one row that never wraps as a whole: a long title wraps INSIDE its own box, so
-   the trailing badges (עלות · אזור · קטגוריה · ✕) stay pinned to the card's top
-   corner instead of trailing after the text */
-.item-top { display: flex; align-items: flex-start; gap: 10px; }
-.item-time { font-variant-numeric: tabular-nums; color: var(--mint); font-weight: 700; font-size: .9rem; direction: ltr; }
-.item-top .item-time { margin-top: 5px; }
-.item-title { font-weight: 700; font-size: 1.08rem; line-height: 1.35; overflow-wrap: anywhere; }
-.item-badges { display: flex; align-items: center; gap: 8px; flex: none; margin-inline-start: auto; }
-.item-badges:empty { display: none; }
-.item-badges .item-del { margin-inline-start: 0; }
-.item-badges .item-cat, .item-badges .item-area {
-  max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.item-card { position: relative; margin-bottom: 10px; }
+
+/* ---- a stop, in the list and in the day view (TripCalendar.stopCardHtml) ----
+   Cut from the free day's recommendation row (.dr-card): tile · name line · note ·
+   meta. The golden border is the difference — a stop is in the trip, a pick isn't
+   yet — so the two can sit in one column and still be told apart at a glance. */
+.stop-card {
+  display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 10px 12px;
+  border-radius: 14px; background: var(--glass); border: 1px solid rgba(255, 180, 95, .38);
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 180, 95, .1);
+  color: var(--paper); font-family: var(--font-body); text-align: start; cursor: pointer;
+  transition: border-color .18s ease, background .18s ease;
 }
-/* the title takes the slack, so the trailing controls (area · category · ✕)
-   stay grouped together at the end of the row instead of drifting apart */
-.item-top > .item-title { flex: 1 1 auto; min-width: 0; }
+.stop-card:hover { border-color: rgba(255, 180, 95, .65); }
+.stop-card:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.sc-media {
+  flex: 0 0 64px; height: 64px; border-radius: 10px; display: grid; place-items: center;
+  font-size: 1.7rem; line-height: 1;
+  background: linear-gradient(135deg, rgba(255, 180, 95, .2), rgba(22, 48, 42, .9) 70%);
+  border: 1px solid rgba(255, 180, 95, .18);
+}
+.sc-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sc-top { display: flex; align-items: baseline; gap: 4px 8px; flex-wrap: wrap; }
+.sc-time { color: var(--mint); font-weight: 700; font-size: .8rem; font-variant-numeric: tabular-nums; direction: ltr; }
+.sc-name { font-size: .98rem; font-weight: 800; line-height: 1.3; overflow-wrap: anywhere; }
+.sc-cat {
+  font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  background: rgba(255, 255, 255, .06); border: 1px solid var(--glass-border); color: var(--paper-dim);
+}
+.stop-card > .item-del { flex: none; align-self: flex-start; margin: 0; padding: 0 2px; line-height: 1.2; }
+.sc-note {
+  font-size: .82rem; font-weight: 300; color: var(--paper-dim); line-height: 1.45; margin-top: 3px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.sc-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 12px; margin-top: 6px; font-size: .76rem; color: var(--paper-dim); }
+.sc-cost { color: var(--amber); font-weight: 700; font-variant-numeric: tabular-nums; }
+.sc-cost.personal { color: var(--mint); }
+.sc-map {
+  display: inline-flex; align-items: center; gap: 4px; margin-inline-start: auto;
+  padding: 3px 9px; border-radius: 999px; border: 1px solid var(--glass-border);
+  font-size: .74rem; font-weight: 700; color: var(--paper-dim); text-decoration: none; white-space: nowrap;
+}
+.sc-map:hover { color: var(--paper); border-color: rgba(143, 216, 196, .4); }
+.sc-map .ic { width: 13px; height: 13px; }
+/* a travel leg (קטגוריה: נסיעה) stays the dashed mint transit row it always was */
+.stop-card.travel { border-style: dashed; border-color: rgba(143, 216, 196, .4); background: rgba(143, 216, 196, .05); box-shadow: none; }
+.stop-card.travel .sc-media { background: rgba(143, 216, 196, .1); border-color: rgba(143, 216, 196, .25); font-size: 1.4rem; }
+@media (max-width: 560px) {
+  .stop-card { gap: 10px; padding: 9px 10px; }
+  .sc-media { flex-basis: 52px; height: 52px; font-size: 1.45rem; }
+}
+.item-time { font-variant-numeric: tabular-nums; color: var(--mint); font-weight: 700; font-size: .9rem; direction: ltr; }
 .item-cat {
   font-size: .74rem; font-weight: 700; padding: 4px 10px; border-radius: 999px;
   background: rgba(143, 216, 196, .12); color: var(--mint); border: 1px solid rgba(143, 216, 196, .25);
@@ -301,10 +336,6 @@
 
 /* ---------- stop cards + the shared stop sheet ---------- */
 
-.item-top > .item-del { margin-inline-start: 0; }
-/* the whole card is one tap target — it opens the stop sheet (same as the calendar) */
-.item-card.tappable { cursor: pointer; transition: border-color .25s ease, background .25s ease; }
-.item-card.tappable:hover { border-color: rgba(255, 180, 95, .28); }
 
 .item-more-place {
   display: flex; align-items: flex-start; gap: 7px; margin-bottom: 10px;
@@ -346,12 +377,18 @@
 /* itinerary: real day block + timeline + stop card, text swapped for bars */
 .skl-badge { width: 54px; height: 30px; border-radius: 999px; }
 .skl-daydate { width: 132px; height: 14px; }
-.skl-stop-time { width: 34px; height: 13px; }
-.skl-stop-title { width: 46%; height: 15px; margin-inline-end: auto; }
+.skl-stop { cursor: default; }
+.skl-stop .sc-media { border: 0; }
+.skl-stop .sc-top { align-items: center; min-height: 1.27rem; }
+.skl-stop .sc-note { display: block; margin-top: 5px; }
+.skl-stop .sc-meta { min-height: 1.35rem; }
+.skl-stop-time { width: 34px; height: 11px; }
+.skl-stop-title { width: 46%; height: 14px; }
 .skl-stop-title.narrow { width: 34%; }
 .skl-stop-title.wide { width: 58%; }
-.skl-stop-cat { width: 54px; height: 25px; border-radius: 999px; }
-.skl-stop-note { width: 78%; height: 13px; }
+.skl-stop-cat { width: 50px; height: 18px; border-radius: 999px; }
+.skl-stop-note { width: 78%; height: 11px; }
+.skl-stop-meta { width: 64px; height: 10px; }
 /* calendar placeholder (long trips): the real toolbar, month grid and cell metrics */
 .skl-cal-seg { width: 201px; height: 45px; border-radius: 999px; }
 .skl-cal-title { width: 168px; height: 15px; }
@@ -625,13 +662,16 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
   .trip-hero { min-height: auto; padding: 20px 0; }
 .trip-hero .crumb { color: #111; text-shadow: none; }
   .trip-layout { display: block; width: 100%; }
-.item-card,
+.stop-card,
 .side-card {
     background: #fff !important; border: 1px solid #ddd !important; box-shadow: none !important;
     -webkit-backdrop-filter: none !important; backdrop-filter: none !important; color: #111 !important;
   }
-  .item-note,
+  .item-note, .sc-note,
 .trip-desc { color: #444 !important; }
+  .sc-note { -webkit-line-clamp: unset; }
+  .sc-map { display: none; }
+  .sc-media { background: #f3f3f3; border-color: #ddd; }
   /* on paper the whole description prints — there's no toggle to reveal the rest */
   .trip-desc-text { display: block !important; -webkit-line-clamp: unset !important; overflow: visible !important; }
   .day-badge { background: #111 !important; color: #fff !important; }
@@ -654,7 +694,6 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
   .trip-desc { padding: 0; font-size: .9rem; line-height: 1.55; }
   .trip-desc-text { -webkit-line-clamp: 2; }
   .day-weather { margin-inline-start: 0; }
-  .item-card { padding: 14px 15px; }
   .timeline { padding-right: 20px; }
   .item-mini-map { height: 180px; }
   .map-toolbar { padding: 12px 12px 10px; gap: 8px; }
@@ -789,9 +828,6 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
 /* desktop keeps the card below the itinerary; the bar is a phone thing */
 @media (min-width: 641px) { .ai-ask-bar { display: none; } }
 @media print { .ai-ask-bar { display: none !important; } }
-@media (max-width: 420px) {
-  .item-badges .item-area { display: none; }
-}
 
 .mw-controls { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .mw-footnote { text-align: center; color: rgba(245, 239, 227, .45); font-size: .86rem; margin-top: 16px; }
@@ -1052,9 +1088,7 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
   font-family: var(--font-body); font-weight: 600; font-size: .88rem; cursor: pointer;
   transition: background .15s ease;
 }
-.nights-nudge:hover { background: rgba(255, 180, 95, .13); }@media (max-width: 640px) {
-  .item-badges { gap: 6px; }
-}
+.nights-nudge:hover { background: rgba(255, 180, 95, .13); }
 
 
 /* ============================================================
@@ -1195,25 +1229,6 @@ body.cal-full-open { overflow: hidden; }
 .cds-num { font-weight: 800; font-size: .95rem; }
 .cal-day-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-family: var(--font-display); font-size: 1.3rem; }
 .cal-day-list { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
-.cal-devt {
-  display: flex; align-items: center; gap: 12px; width: 100%; text-align: right;
-  padding: 14px 16px; cursor: pointer; color: var(--paper); font-family: var(--font-body);
-  transition: border-color .18s ease, background .18s ease;
-}
-.cal-devt:hover { border-color: rgba(255, 180, 95, .35); }
-.cd-emoji { font-size: 1.3rem; flex: none; }
-.cd-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.cd-title { font-weight: 700; font-size: 1.02rem; }
-.cd-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: .82rem; color: var(--paper-dim); }
-.cd-time { color: var(--mint); font-weight: 700; direction: ltr; }
-.cd-cost { color: var(--amber); font-weight: 700; font-variant-numeric: tabular-nums; }
-.cd-cost.personal { color: var(--mint); }
-.cd-note {
-  font-size: .88rem; font-weight: 300; color: var(--paper-dim);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.cd-chev { flex: none; color: var(--paper-dim); }
-.cal-devt:hover .cd-chev { color: var(--amber); }
 
 /* ---- stop details modal ---- */
 .modal-stop { width: min(520px, 100%); max-height: 88vh; overflow-y: auto; padding: 26px 24px; }
@@ -2480,5 +2495,4 @@ body.budget-open { overflow: hidden; }
   cursor: help;
 }
 .item-shut.maybe { color: rgba(255, 180, 95, .82); border-style: dashed; }
-.item-card.shut { border-color: rgba(255, 180, 95, .3); }
 @media print { .item-shut { color: #8a5a10; background: none; } }

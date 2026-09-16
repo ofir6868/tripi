@@ -53,7 +53,7 @@ const TripHours = (() => {
       const existing = card.querySelector('.item-shut');
       if (!info || info.verdict !== 'closed') { if (existing) existing.remove(); return; }
       if (existing) return; // a repaint must not stack a second chip on the same card
-      const badges = card.querySelector('.item-badges');
+      const badges = card.querySelector('.sc-meta');
       if (badges) badges.insertBefore(chip(info), badges.firstChild);
       card.classList.add('shut');
     });

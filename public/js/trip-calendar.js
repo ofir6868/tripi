@@ -83,6 +83,42 @@ const TripCalendar = (() => {
 
   const stopEmoji = (it) => it.category === 'נסיעה' ? TripModals.travelIcon(it) : (CAT_EMOJI[it.category] || '📍');
 
+  // A stop in the itinerary, drawn in the free day's recommendation row's clothes
+  // (trip-dayrecs.js) — tile · time · name · category, a line of note, a quiet meta
+  // row — so a planned day and a free day read as the same list. Stops have no photo,
+  // so the category's emoji holds the tile; the golden border is what says "this one
+  // is in the trip" next to a pick that isn't yet. Both the list and the day view
+  // draw it; `opts` is what differs between them.
+  const icMap = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>';
+  function stopCardHtml(ctx, it, { cls = '', attrs = '', votes = '', del = false, area = false } = {}) {
+    const travel = it.category === 'נסיעה';
+    const hasMap = !!(it.place_query || (it.lat != null && it.lon != null));
+    const meta = [
+      costChip(ctx, it, 'sc-cost'),
+      area && it.area ? `<span class="sc-area">📍 ${esc(it.area)}</span>` : '',
+      votes,
+    ].join('');
+    return `
+      <div class="stop-card ${cls}${travel ? ' travel' : ''}" ${attrs}
+        role="button" tabindex="0" title="לחיצה לפרטי התחנה">
+        <span class="sc-media" aria-hidden="true">${stopEmoji(it)}</span>
+        <span class="sc-body">
+          <span class="sc-top">
+            ${it.time_label ? `<span class="sc-time">${esc(it.time_label)}</span>` : ''}
+            <span class="sc-name">${esc(it.title)}</span>
+            ${it.category ? `<span class="sc-cat">${esc(it.category)}</span>` : ''}
+          </span>
+          ${it.note ? `<span class="sc-note">${esc(it.note)}</span>` : ''}
+          <span class="sc-meta">
+            ${meta}
+            ${hasMap ? `<a class="sc-map" target="_blank" rel="noopener" title="נפתח בגוגל מפות, בחלון חדש"
+              href="${esc(TRIPMAKER.mapsSearchUrl(it.place_query || `${it.lat},${it.lon}`, it.google_place_id))}">${icMap} מפה</a>` : ''}
+          </span>
+        </span>
+        ${del ? `<button type="button" class="item-del" data-id="${it.id}" title="מחיקת תחנה" aria-label="מחיקת תחנה">✕</button>` : ''}
+      </div>`;
+  }
+
   function render(container, ctx) {
     lastContainer = container;
     lastCtx = ctx;
@@ -322,21 +358,9 @@ const TripCalendar = (() => {
       ${hotelLines.length ? `<div class="day-hotels">${hotelLines.map((l) =>
         `<span class="day-hotel ${l.cls}">${l.html}</span>`).join('')}</div>` : ''}
       <div class="cal-day-list">
-        ${items.map((it) => `
-          <button type="button" class="cal-devt glass${it.category === 'נסיעה' ? ' travel' : ''}" data-item="${it.id}">
-            <span class="cd-emoji" aria-hidden="true">${stopEmoji(it)}</span>
-            <span class="cd-main">
-              <span class="cd-title">${esc(it.title)}</span>
-              <span class="cd-meta">
-                ${it.time_label ? `<span class="cd-time">${esc(it.time_label)}</span>` : ''}
-                ${it.category ? `<span>${esc(it.category)}</span>` : ''}
-                ${costChip(ctx, it, 'cd-cost')}
-                ${ctx.votes?.tally(it) || ''}
-              </span>
-              ${it.note ? `<span class="cd-note">${esc(it.note)}</span>` : ''}
-            </span>
-            <svg class="ic cd-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
-          </button>`).join('')}
+        ${items.map((it) => stopCardHtml(ctx, it, {
+          cls: 'cal-devt', attrs: `data-item="${it.id}"`, votes: ctx.votes?.tally(it) || '',
+        })).join('')}
         ${ctx.canEdit ? TripDayRecs.blockHtml(d) : (items.length ? '' : '<div class="empty-day" style="border-radius:var(--radius-sm)">יום פנוי — זמן לאלתורים 🌴</div>')}
         ${ctx.canEdit ? `<button type="button" class="add-item-inline cal-add-stop">+ הוספת תחנה ליום ${d}</button>` : ''}
       </div>
@@ -350,7 +374,10 @@ const TripCalendar = (() => {
       b.onclick = () => { view.anchor = +b.dataset.day; render(lastContainer, ctx); };
     });
     body.querySelectorAll('.cal-devt').forEach((b) => {
-      b.onclick = () => openStop(ctx, +b.dataset.item);
+      b.onclick = (e) => { if (!e.target.closest('a')) openStop(ctx, +b.dataset.item); };
+      b.onkeydown = (e) => {
+        if (e.target === b && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openStop(ctx, +b.dataset.item); }
+      };
     });
     const addBtn = body.querySelector('.cal-add-stop');
     if (addBtn) addBtn.onclick = () => openNewStop(ctx, d);
@@ -703,5 +730,5 @@ const TripCalendar = (() => {
 
   // openStop/openNewStop are shared with the list view — the stop sheet is the ONE
   // details/edit surface for a stop, whichever view it was tapped in
-  return { render, exitFull, openStop, openNewStop };
+  return { render, exitFull, openStop, openNewStop, stopCardHtml };
 })();
