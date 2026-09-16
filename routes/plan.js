@@ -711,12 +711,15 @@ router.post('/api/trips/code/:code/plan/build', authRequired, async (req, res) =
       vals.push(trip.id, dayRange(it.day_number, trip.days), it.time_label || null, String(it.title).slice(0, 200), it.note || null,
         it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null,
         Number.isFinite(it.lat) ? it.lat : null, Number.isFinite(it.lon) ? it.lon : null,
-        it.google_place_id ? String(it.google_place_id).slice(0, 300) : null, it.cost ?? null, base0 + i);
-      const b = vals.length - 13;
-      return `(${Array.from({ length: 13 }, (_, k) => '$' + (b + k + 1)).join(',')})`;
+        it.google_place_id ? String(it.google_place_id).slice(0, 300) : null,
+        it.osm_type ? String(it.osm_type).slice(0, 10) : null,
+        it.osm_id ? String(it.osm_id).slice(0, 20) : null,
+        it.cost ?? null, base0 + i);
+      const b = vals.length - 15;
+      return `(${Array.from({ length: 15 }, (_, k) => '$' + (b + k + 1)).join(',')})`;
     });
     await client.query(
-      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
+      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, osm_type, osm_id, cost, sort_order)
        VALUES ${tuples.join(',')}`, vals
     );
     if (built.meta) {
