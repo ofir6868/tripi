@@ -100,6 +100,9 @@ require('./lib/api-budget').sweep();
 // sources — a free web service has no shell to run tools/ from. No-op unless BOOT_PROBE
 // is set; see lib/boot-probe.js.
 require('./lib/boot-probe').start();
+// one-off: fill osm_type/osm_id on stops verified before migration 25 existed. No-op
+// unless BACKFILL_OSM is set; Photon only, and reversible in one UPDATE.
+require('./lib/osm-backfill').start();
 
 // Boot order after a database rotation (tools/db-rotation-runbook.md): first re-discover
 // the live instance (DATABASE_URL may still name the deleted one), then bring the schema
