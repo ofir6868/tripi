@@ -85,9 +85,10 @@ const TripCalendar = (() => {
 
   // A stop in the itinerary, drawn in the free day's recommendation row's clothes
   // (trip-dayrecs.js) — tile · time · name · category, a line of note, a quiet meta
-  // row — so a planned day and a free day read as the same list. Stops have no photo,
-  // so the category's emoji holds the tile; the golden border is what says "this one
-  // is in the trip" next to a pick that isn't yet. Both the list and the day view
+  // row — so a planned day and a free day read as the same list. The category's emoji
+  // holds the tile until trip-photos.js lays the stop's own photo over it, where there
+  // is one we can vouch for; the golden border is what says "this one is in the trip"
+  // next to a pick that isn't yet. Both the list and the day view
   // draw it; `opts` is what differs between them.
   const icMap = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>';
   function stopCardHtml(ctx, it, { cls = '', attrs = '', votes = '', del = false, area = false } = {}) {
