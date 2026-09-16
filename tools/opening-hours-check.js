@@ -15,6 +15,9 @@ const MON = d(2026, 9, 14), TUE = d(2026, 9, 15), WED = d(2026, 9, 16);
 const FRI = d(2026, 9, 18), SAT = d(2026, 9, 19), SUN = d(2026, 9, 20);
 const JAN = d(2027, 1, 13); // a Wednesday in deep winter
 
+// the Louvre's actual opening_hours tag, as OSM carries it
+const LOUVRE = 'Mo,Th,Sa-Su 09:00-18:00; Tu off; We,Fr 09:00-21:00; Jan 01,May 01,Dec 25 off';
+
 const CASES = [
   // --- the everyday shapes -------------------------------------------------
   ['24/7', WED, '03:00', 'open', 'a 24/7 place at three in the morning'],
@@ -46,6 +49,20 @@ const CASES = [
   // --- seasons --------------------------------------------------------------
   ['Apr-Oct Mo-Su 09:00-19:00', WED, '10:00', 'open', 'in season'],
   ['Apr-Oct Mo-Su 09:00-19:00', JAN, '10:00', 'closed', 'out of season'],
+
+  // --- specific calendar dates, which is what museums shut for ---------------
+  // The Louvre's real tag, in full. Read off production on 2026-09-16, and the reason
+  // date lists are supported at all: without them this whole tag came back 'unknown'
+  // and its four other rules went to waste.
+  [LOUVRE, MON, '10:00', 'open', 'the Louvre on a Monday'],
+  [LOUVRE, TUE, '10:00', 'closed', 'THE LOUVRE IS SHUT ON TUESDAYS'],
+  [LOUVRE, WED, '20:00', 'open', 'and open late on Wednesdays'],
+  [LOUVRE, WED, '21:30', 'closed', 'but not past nine'],
+  [LOUVRE, d(2026, 12, 25), '10:00', 'closed', 'Christmas, named as a date'],
+  [LOUVRE, d(2026, 1, 1), '10:00', 'closed', 'New Year, likewise'],
+  [LOUVRE, d(2026, 5, 1), '10:00', 'closed', 'and May Day'],
+  [LOUVRE, d(2026, 12, 24), '10:00', 'open', 'Christmas Eve is not in the list, and stays open'],
+  ['Dec 25 off', d(2026, 12, 26), '10:00', 'closed', 'a date rule is silent on other days, so nothing opens them'],
 
   // --- explicit closure ------------------------------------------------------
   ['off', MON, '10:00', 'closed', 'a place tagged simply off'],
