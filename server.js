@@ -96,6 +96,10 @@ require('./lib/rotation-backup').start();
 require('./lib/client-ip').start();
 // drop paid-API answers older than the 30 days Google's terms allow us to keep them
 require('./lib/api-budget').sweep();
+// the opening-hours probe and audit, run from the host that actually has to reach the
+// sources — a free web service has no shell to run tools/ from. No-op unless BOOT_PROBE
+// is set; see lib/boot-probe.js.
+require('./lib/boot-probe').start();
 
 // Boot order after a database rotation (tools/db-rotation-runbook.md): first re-discover
 // the live instance (DATABASE_URL may still name the deleted one), then bring the schema
