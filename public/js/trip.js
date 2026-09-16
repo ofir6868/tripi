@@ -614,31 +614,11 @@
           ${hotelLines.length ? `<div class="day-hotels">${hotelLines.map((l) =>
             `<span class="day-hotel ${l.cls}">${l.html}</span>`).join('')}</div>` : ''}
           <div class="timeline">
-            ${byDay.get(day).map((it) => {
-              const isTravel = it.category === 'נסיעה';
-              return `
-              <div class="item-card glass tappable${isTravel ? ' travel' : ''}"
-                ${isTravel ? `data-ticon="${TripModals.travelIcon(it)}"` : ''} data-item-id="${it.id}"
-                role="button" tabindex="0" title="לחיצה לפרטי התחנה">
-                <div class="item-top">
-                  ${it.time_label ? `<span class="item-time">${TRIPMAKER.esc(it.time_label)}</span>` : ''}
-                  <span class="item-title">${TRIPMAKER.esc(it.title)}</span>
-                  <span class="item-badges">
-                    ${voteHtml(it)}
-                    ${(() => {
-                      const info = editMode && TripModals.itemCostInfo(state, it);
-                      if (!info) return '';
-                      const personal = info.scope === 'personal';
-                      return `<span class="item-cost${personal ? ' personal' : ''}" title="${personal ? 'תקציב אישי — רק אצלכם' : 'תקציב משותף'}">${personal ? '🔒 ' : ''}${TripModals.fmt(info.amount, TripModals.curOf(state))}</span>`;
-                    })()}
-                    ${multiDest() && it.area ? `<span class="item-area">📍 ${TRIPMAKER.esc(it.area)}</span>` : ''}
-                    ${it.category ? `<span class="item-cat">${TRIPMAKER.esc(it.category)}</span>` : ''}
-                    ${editMode ? `<button class="item-del" data-id="${it.id}" title="מחיקת תחנה">✕</button>` : ''}
-                  </span>
-                </div>
-                ${it.note ? `<div class="item-note">${TRIPMAKER.esc(it.note)}</div>` : ''}
-              </div>`;
-            }).join('')}
+            ${byDay.get(day).map((it) => TripCalendar.stopCardHtml(calCtx, it, {
+              cls: 'item-card tappable',
+              attrs: `data-item-id="${it.id}"${it.category === 'נסיעה' ? ` data-ticon="${TripModals.travelIcon(it)}"` : ''}`,
+              votes: voteHtml(it), del: editMode, area: multiDest(),
+            })).join('')}
             ${editMode ? TripDayRecs.blockHtml(day) : (byDay.get(day).length ? '' : '<div class="empty-day">יום פנוי</div>')}
             ${editMode ? `<button class="add-item-inline" data-day="${day}">+ הוספת תחנה ליום ${day}</button>` : ''}
           </div>
