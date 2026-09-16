@@ -1060,9 +1060,9 @@ button.dest-chip.dc-add .ic { width: 15px; height: 15px; }
   .nav-menu-btn { width: 38px; height: 38px; }
   .nav-menu-panel { min-width: 200px; }
   .btn { padding: 8px 11px; font-size: .84rem; }
-  .logo .logo-stack { width: 50px; }
-  .logo .logo-stack .ls-trip { font-size: 18px; }
-  .logo .logo-stack .ls-maker { font-size: 9px; }
+  /* one line costs more width than the stacked block did — below ~380px the
+     wordmark gives some back, or the "טיול חדש" pill lands on its first letter */
+  .logo .logo-word { font-size: clamp(13px, 4.2vw, 16px); }
   .logo { gap: 4px; }
   .header-compass {
     width: 30px; height: 30px;
@@ -1231,6 +1231,19 @@ button.dest-chip.dc-add .ic { width: 15px; height: 15px; }
 .logo-stack b { font-weight: 400; }
 .logo-stack .ls-trip { font-size: 21px; color: var(--amber); }
 .logo-stack .ls-maker { font-size: 11px; margin-top: 3px; color: var(--paper); }
+
+/* the header wears the wordmark on one line — TRIPMAKER, one word: the top strip is a
+   single row of 42px controls, and stacking TRIP over MAKER inside it left both rows
+   too small to read. The stacked block stays where it has room: footer, splash, admin */
+.logo-word {
+  display: inline-flex; align-items: baseline; flex: none;
+  font-family: var(--font-display); font-size: 19px; line-height: 1;
+  letter-spacing: .01em; white-space: nowrap;
+  filter: drop-shadow(0 0 12px rgba(255, 180, 95, .45));
+}
+.logo-word b { font-weight: 400; }
+.logo-word .lw-trip { color: var(--amber); }
+.logo-word .lw-maker { color: var(--paper); }
 
 .site-footer .logo-stack { width: 44px; vertical-align: middle; filter: none; }
 .site-footer .logo-stack .ls-trip { font-size: 16px; }

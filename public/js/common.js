@@ -250,10 +250,7 @@ function renderHeader() {
     : `<span class="logo-he">מתכנן הטיולים שלך</span>`;
   el.innerHTML = `
     <a class="logo" href="/">
-      <span class="logo-stack" dir="ltr" role="img" aria-label="TRIP MAKER">
-        <span class="ls-trip" aria-hidden="true"><b>T</b><b>R</b><b>I</b><b>P</b></span>
-        <span class="ls-maker" aria-hidden="true"><b>M</b><b>A</b><b>K</b><b>E</b><b>R</b></span>
-      </span>
+      <span class="logo-word" dir="ltr" role="img" aria-label="TRIP MAKER"><b class="lw-trip" aria-hidden="true">TRIP</b><b class="lw-maker" aria-hidden="true">MAKER</b></span>
       <svg class="header-compass" viewBox="0 0 512 512" aria-hidden="true">
         <circle class="header-compass-ring" cx="256" cy="256" r="150" fill="none"
           stroke="rgba(245,239,227,.35)" stroke-width="18" stroke-linecap="round"
