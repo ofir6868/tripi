@@ -101,6 +101,10 @@ router.get('/api/trips/code/:code/hours', async (req, res) => {
           tag: v.tag || null,
           assumedNoon: !!v.assumedNoon,
           ignoresHolidays: !!v.ignoresHolidays,
+          // the hours themselves, for the stop sheet: "open" is worth little next to
+          // "09:00–18:00", and a shut day reads far better as the hours it keeps on the
+          // days it is open than as a bare refusal
+          windows: (v.windows || []).map((w) => w.label),
         };
       }
     });

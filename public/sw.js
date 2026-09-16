@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v85'; // stops drawn as the free day's recommendation rows (trip-calendar.js stopCardHtml, css/trip.css) on top of v84
+const VERSION = 'v86'; // opening hours in the calendar and the stop sheet (js/trip-hours.js, js/trip-calendar.js, css/trip.css)
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first

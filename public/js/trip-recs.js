@@ -368,6 +368,7 @@ const TripRecs = (() => {
       title: c.title, blurb: c.blurb, cat: c.category, dur: c.duration, cost: c.cost,
       time: c.time || null, area: c.area, place_query: c.place_query || null,
       lat: c.lat ?? null, lon: c.lon ?? null, google_place_id: c.google_place_id || null,
+      osm_type: c.osm_type || null, osm_id: c.osm_id || null,
       photos: c.photos && c.photos.length ? c.photos : [fallbackPhoto(c.area, ctx)],
       credit: c.photo_credit || null, added: c.added || null,
     };
@@ -390,6 +391,7 @@ const TripRecs = (() => {
             day_number: day, title: c.title, category: c.cat, area: c.area, note: c.blurb,
             time_label: c.time || null, place_query: c.place_query || `${c.title}, ${c.area}`,
             lat: c.lat, lon: c.lon, google_place_id: c.google_place_id,
+            osm_type: c.osm_type || null, osm_id: c.osm_id || null,
           });
         }
       } catch {

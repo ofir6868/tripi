@@ -697,6 +697,9 @@ router.post('/api/trips/code/:code/plan/build', authRequired, async (req, res) =
       presetRaw,
       existing: fill ? items : [],
       wantMeta: !trip.description,
+      // the draft already has its dates, so the build can check its own opening hours
+      // and move a stop off an hour the door is shut (lib/hours-fit.js)
+      startDate: trip.start_date || null,
       ph,
     });
     if (!built.items.length) return res.status(502).json({ error: 'ה-AI החזיר מסלול ריק — נסו שוב' });

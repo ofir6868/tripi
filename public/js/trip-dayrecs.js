@@ -334,6 +334,7 @@ const TripDayRecs = (() => {
         day_number: day, title: c.title, category: c.cat, area: c.area, note: c.blurb,
         time_label: c.time || null, place_query: c.place_query || `${c.title}, ${c.area}`,
         lat: c.lat, lon: c.lon, google_place_id: c.google_place_id,
+        osm_type: c.osm_type || null, osm_id: c.osm_id || null,
       });
       raw.added = true;
       repaint([day]);

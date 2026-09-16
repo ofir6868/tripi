@@ -44,12 +44,23 @@ const TripHours = (() => {
     return span;
   }
 
+  // What the stop sheet reads. It is only ever populated by apply(), which both views
+  // call on render, so by the time a sheet can be opened the answer is already here.
+  function get(itemId) {
+    return (cache && cache.stops && cache.stops[String(itemId)]) || null;
+  }
+
+  // The list view carries the id in data-item-id and the calendar in data-item, but both
+  // draw through the same stopCardHtml and so both have a .sc-meta to hang this on.
+  const CARDS = '.stop-card[data-item-id], .stop-card[data-item]';
+
   async function apply(container, code) {
     if (!container || !code) return;
     const data = await load(code);
     if (!data || !data.stops) return;
-    container.querySelectorAll('.item-card[data-item-id]').forEach((card) => {
-      const info = data.stops[card.dataset.itemId];
+
+    container.querySelectorAll(CARDS).forEach((card) => {
+      const info = data.stops[card.dataset.itemId || card.dataset.item];
       const existing = card.querySelector('.item-shut');
       if (!info || info.verdict !== 'closed') { if (existing) existing.remove(); return; }
       if (existing) return; // a repaint must not stack a second chip on the same card
@@ -57,7 +68,23 @@ const TripHours = (() => {
       if (badges) badges.insertBefore(chip(info), badges.firstChild);
       card.classList.add('shut');
     });
+
+    // The week view is seven columns of one-line stops and has no room for a chip with
+    // words in it, so it gets the glyph alone. It is a pointer to the day view rather
+    // than an explanation — which is what the rest of that view is too.
+    container.querySelectorAll('.cal-wevt[data-item]').forEach((el) => {
+      const info = data.stops[el.dataset.item];
+      const existing = el.querySelector('.we-shut');
+      if (!info || info.verdict !== 'closed') { if (existing) existing.remove(); el.classList.remove('shut'); return; }
+      if (existing) return;
+      const dot = document.createElement('span');
+      dot.className = 'we-shut';
+      dot.textContent = '🚪';
+      dot.title = info.assumedNoon ? 'ייתכן שסגור בשעה הזו' : 'סגור בשעה הזו';
+      el.insertBefore(dot, el.firstChild);
+      el.classList.add('shut');
+    });
   }
 
-  return { apply, invalidate };
+  return { apply, invalidate, get };
 })();

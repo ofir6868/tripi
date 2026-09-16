@@ -178,7 +178,99 @@ global.fetch = async (url) => {
     console.log(`${pass ? '  ✓' : '  ✗'} ${why}`);
   }
 
-  const total = CASES.length + GOOGLE.length + contract.length + chain.length;
+  // ---- fitting a stop to the hours, which is the half that prevents rather than reports
+  console.log('\nMoving a stop to an hour that works (lib/hours-fit.js)\n');
+  const { fitDay } = require('../lib/hours-fit');
+  const osm = (tag) => ({ source: 'osm', tag });
+  const fit = [];
+  const F = (why, got, want) => fit.push([why, JSON.stringify(got) === JSON.stringify(want), `${JSON.stringify(got)} vs ${JSON.stringify(want)}`]);
+
+  // the three real findings this exists to prevent
+  let r = fitDay([{ id: 1, time: '09:00', hours: osm('Mo-Su 10:00-20:00') }], SUN);
+  F('the aquarium at 09:00 moves to 10:00', r.moves.map((m) => [m.from, m.to]), [['09:00', '10:00']]);
+  r = fitDay([{ id: 1, time: '12:00', hours: osm('Mo-Su 17:00-22:00') }], MON);
+  F('breakfast at a dinner-only place moves to 17:00', r.moves.map((m) => [m.from, m.to]), [['12:00', '17:00']]);
+  r = fitDay([{ id: 1, time: '09:00', hours: osm('Sa-Th 10:00-17:00; Fr 10:00-20:00') }], FRI);
+  F('the museum at 09:00 moves to 10:00', r.moves.map((m) => [m.from, m.to]), [['09:00', '10:00']]);
+
+  // and the timidity
+  r = fitDay([{ id: 1, time: '09:00', hours: osm('Sa-Su 09:00-18:00') }], TUE);
+  F('a place shut all day is reported, never moved', [r.moves.length, r.shut[0] && r.shut[0].reason], [0, 'shut all day']);
+  r = fitDay([{ id: 1, time: '22:00', hours: osm('Mo-Su 09:00-18:00') }], MON);
+  F('a stop after closing is NOT dragged back to the morning', [r.moves.length, r.shut[0] && r.shut[0].reason], [0, 'the day is over by then']);
+  r = fitDay([
+    { id: 1, time: '09:00', hours: osm('Mo-Su 16:00-20:00') },
+    { id: 2, time: '11:00', hours: osm('Mo-Su 09:00-20:00') },
+  ], MON);
+  F('a move that would jump the next stop is refused', [r.moves.length, r.shut[0] && r.shut[0].reason], [0, 'opens after the next stop']);
+  r = fitDay([{ id: 1, time: '12:30', hours: osm('Mo-Fr 09:00-12:00,13:00-17:00') }], MON);
+  F('a lunch break moves the stop to when it reopens', r.moves.map((m) => m.to), ['13:00']);
+  r = fitDay([{ id: 1, time: '10:00', hours: osm('Mo-Su 09:00-18:00') }], MON);
+  F('a stop that is already fine is left alone', [r.moves.length, r.shut.length], [0, 0]);
+  r = fitDay([{ id: 1, time: '09:00', hours: osm('sunrise-sunset') }], MON);
+  F('an unreadable tag moves nothing', [r.moves.length, r.shut.length], [0, 0]);
+  r = fitDay([{ id: 1, time: '09:00', hours: null }], MON);
+  F('no hours at all moves nothing', [r.moves.length, r.shut.length], [0, 0]);
+  r = fitDay([{ id: 1, time: '09:00', hours: { source: 'error' } }], MON);
+  F('an unreachable source moves nothing', [r.moves.length, r.shut.length], [0, 0]);
+  r = fitDay([{ id: 1, time: null, hours: osm('Mo-Su 10:00-20:00') }], MON);
+  F('a stop with no hour of its own is not given one', [r.moves.length, r.shut.length], [0, 0]);
+  // one move must not shove the rest of the day
+  r = fitDay([
+    { id: 1, time: '09:00', hours: osm('Mo-Su 10:00-20:00') },
+    { id: 2, time: '11:00', hours: osm('Mo-Su 10:00-20:00') },
+    { id: 3, time: '13:00', hours: osm('Mo-Su 10:00-20:00') },
+  ], MON);
+  F('only the stop that needed it moves', r.moves.map((m) => [m.id, m.to]), [[1, '10:00']]);
+
+  for (const [why, pass, extra] of fit) {
+    if (!pass) failures++;
+    console.log(`${pass ? '  ✓' : '  ✗'} ${why}${pass ? '' : ' — ' + extra}`);
+  }
+
+  // ---- and the same thing over a whole built itinerary, which is where it runs
+  console.log('\nA built itinerary, corrected before anyone sees it\n');
+  const TAGS = {
+    10: { opening_hours: 'Mo-Su 10:00-20:00' },   // opens at ten
+    20: { opening_hours: 'Mo-Su 17:00-22:00' },   // dinner only
+    30: { opening_hours: 'Sa-Su 09:00-18:00' },   // weekends only
+    40: { opening_hours: 'Mo-Su 08:00-22:00' },   // wide open
+    50: { name: 'untagged' },                     // nothing known
+  };
+  global.fetch = async (url) => {
+    const m = /api\.openstreetmap\.org\/api\/0\.6\/\w+\/(\d+)\.json/.exec(String(url));
+    const tags = m && TAGS[m[1]];
+    return tags ? { ok: true, json: async () => ({ elements: [{ tags }] }) } : { ok: false, status: 404 };
+  };
+  const { fitItinerary } = require('../lib/hours-fit');
+  const items = [
+    { day_number: 1, time_label: '09:00', title: 'museum',  osm_type: 'way', osm_id: '10' },
+    { day_number: 1, time_label: '12:00', title: 'dinner',  osm_type: 'way', osm_id: '20' },
+    { day_number: 1, time_label: '19:00', title: 'promenade', osm_type: 'way', osm_id: '40' },
+    { day_number: 2, time_label: '09:00', title: 'weekend market', osm_type: 'way', osm_id: '30' },
+    { day_number: 2, time_label: '11:00', title: 'untagged', osm_type: 'way', osm_id: '50' },
+  ];
+  const rep = await fitItinerary(items, { startDate: '2026-09-14' }); // day 1 = Monday
+  const built = [
+    ['the 09:00 museum is served at 10:00', items[0].time_label === '10:00'],
+    ['breakfast at a dinner-only place becomes 17:00', items[1].time_label === '17:00'],
+    ['a stop that already worked is untouched', items[2].time_label === '19:00'],
+    ['a weekend market on a Tuesday is reported, not moved',
+      items[3].time_label === '09:00' && rep.shut.some((x) => x.reason === 'shut all day')],
+    ['a place with no hours is untouched', items[4].time_label === '11:00'],
+    ['an undated trip is never touched',
+      (await (async () => { const u = [{ day_number: 1, time_label: '09:00', title: 'u', osm_type: 'way', osm_id: '10' }];
+        await fitItinerary(u, { startDate: null }); return u[0].time_label === '09:00'; })())],
+    ['a spent time budget changes nothing',
+      (await (async () => { const u = [{ day_number: 1, time_label: '09:00', title: 'u', osm_type: 'way', osm_id: '10' }];
+        await fitItinerary(u, { startDate: '2026-09-14', budgetMs: -1 }); return u[0].time_label === '09:00'; })())],
+  ];
+  for (const [why, pass] of built) {
+    if (!pass) failures++;
+    console.log(`${pass ? '  ✓' : '  ✗'} ${why}`);
+  }
+
+  const total = CASES.length + GOOGLE.length + contract.length + chain.length + fit.length + built.length;
   console.log(`\n${total - failures}/${total} correct`);
   process.exit(failures ? 1 : 0);
 })();
