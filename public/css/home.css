@@ -346,23 +346,27 @@ html.aaa-motion .search-box {
 /* the mark: the share glyph with its three nodes drawn as map pins, because what
    this card hands over is three places on a map. It is inline SVG and not the
    compass emoji it replaced — an emoji is a different picture on every platform,
-   and this one has to sit inside an amber ring and look deliberate on all of them. */
+   and this one has to look deliberate on all of them.
+   No ring. A hard 1px circle here drew a second edge inside a card that already has
+   one, and the drop shadow under it turned the whole thing into a sticker. What is
+   left is a bloom that fades to nothing, so the mark is anchored without being
+   framed — the same move the card's own ::before wash makes. */
 .share-mark {
-  display: grid; place-items: center; width: 58px; height: 58px; margin: 0 auto 15px;
+  display: grid; place-items: center; width: 80px; height: 80px; margin: 0 auto 12px;
   color: var(--amber); border-radius: 50%;
-  background: rgba(255, 180, 95, .16); border: 1px solid rgba(255, 180, 95, .45);
-  box-shadow: 0 12px 30px -12px rgba(232, 133, 58, .85);
+  background: radial-gradient(closest-side,
+    rgba(255, 180, 95, .26), rgba(255, 180, 95, .07) 60%, transparent);
 }
-/* not .ic: that class sets its stroke for icons drawn at 17px, and at 32px the same
-   ratio comes out spindly. 1.9 on a 32 viewBox is ~1.9px on screen, the weight the
-   pins need to keep their necks open. */
+/* not .ic: that class sets its stroke for icons drawn at 17px, and the same ratio at
+   48px comes out spindly. 1.55 on a 32 viewBox is ~2.3px on screen — the weight the
+   pins need to keep their necks open without going fat. */
 .share-mark svg {
-  width: 32px; height: 32px;
-  fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
+  width: 48px; height: 48px;
+  fill: none; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round;
 }
 .share-mark circle { fill: currentColor; stroke: none; }
 /* the soft wide line under each link, the same trace the route wears on the real
-   trip map. Dim and behind, so at 32px it reads as glow rather than as a second line. */
+   trip map. Dim and behind, so it reads as glow rather than as a second line. */
 .share-mark .sm-trace { stroke-width: 4.6; opacity: .26; }
 .share-band h2 {
   font-family: var(--font-display); font-size: clamp(1.6rem, 4vw, 2.2rem); line-height: 1.15;
