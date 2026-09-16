@@ -516,57 +516,71 @@
     const message = () => `🧭 תכירו את TRIP MAKER — מתכנן טיולים בעברית: אומרים לאן ולכמה זמן, וה-AI בונה מסלול יום-אחר-יום. אחר כך שולחים קוד אחד וכל החבורה מתכננת ביחד.\nחינם, ולוקח דקה:\n${link}`;
 
     // every surface registers its pair of buttons here, so the referral link and the
-    // window where they are still waiting for it reach all of them from one place
+    // window where they are still waiting for it reach all of them from one place.
+    // Each brings its own way of saying "copied": the band has a line to write it
+    // on, the flag has a button that becomes a tick.
     const wired = [];
-    function surface(name, waEl, copyEl, feedbackEl) {
+    function surface(name, waEl, copyEl, said) {
       if (!waEl || !copyEl) return;
       waEl.insertAdjacentHTML('afterbegin', TRIPMAKER.waIcon);
-      const flash = (msg) => {
-        if (!feedbackEl) return;
-        feedbackEl.textContent = msg;
-        setTimeout(() => { feedbackEl.textContent = ''; }, 2500);
-      };
       const track = (via) => TRIPMAKER.track?.('app_share', { via, surface: name, referral: withReferral });
-      waEl.onclick = () => {
+      waEl.addEventListener('click', () => {
         track('whatsapp');
         window.open('https://wa.me/?text=' + encodeURIComponent(message()), '_blank', 'noopener');
-      };
-      copyEl.onclick = async () => {
+      });
+      copyEl.addEventListener('click', async () => {
         track('copy');
-        const ok = await TRIPMAKER.copy(link);
-        flash(ok ? 'הקישור הועתק! ✓' : 'הדפדפן חסם את ההעתקה — נסו את כפתור הוואטסאפ');
-      };
+        said(await TRIPMAKER.copy(link));
+      });
       wired.push(waEl, copyEl);
     }
-    surface('band', document.getElementById('share-app-wa'), document.getElementById('share-app-copy'),
-      document.getElementById('share-app-feedback'));
-    surface('flag', document.getElementById('share-flag-wa'), document.getElementById('share-flag-copy'),
-      document.getElementById('share-flag-feedback'));
+
+    const bandFeedback = document.getElementById('share-app-feedback');
+    surface('band', document.getElementById('share-app-wa'), document.getElementById('share-app-copy'), (ok) => {
+      if (!bandFeedback) return;
+      bandFeedback.textContent = ok ? 'הקישור הועתק! ✓' : 'הדפדפן חסם את ההעתקה — נסו את כפתור הוואטסאפ';
+      setTimeout(() => { bandFeedback.textContent = ''; }, 2500);
+    });
+
+    const flagCopy = document.getElementById('share-flag-copy');
+    const flagSaid = document.getElementById('share-flag-feedback');
+    surface('flag', document.getElementById('share-flag-wa'), flagCopy, (ok) => {
+      flagCopy.classList.add(ok ? 'is-done' : 'is-failed');
+      if (flagSaid) flagSaid.textContent = ok ? 'הקישור הועתק' : 'הדפדפן חסם את ההעתקה';
+      setTimeout(() => {
+        flagCopy.classList.remove('is-done', 'is-failed');
+        if (flagSaid) flagSaid.textContent = '';
+      }, 1800);
+    });
     if (!wired.length) return;
 
     // ---- the flag ----
     const flag = document.getElementById('share-flag');
     const tab = document.getElementById('share-flag-tab');
-    const panel = document.getElementById('share-flag-panel');
-    if (flag && tab && panel) {
+    const rail = document.getElementById('share-flag-rail');
+    if (flag && tab && rail) {
       const setOpen = (open) => {
         flag.classList.toggle('open', open);
-        panel.hidden = !open;
+        rail.hidden = !open;
         tab.setAttribute('aria-expanded', String(open));
       };
-      tab.onclick = () => {
-        const open = panel.hidden;
+      tab.addEventListener('click', () => {
+        const open = rail.hidden;
         setOpen(open);
         if (open) TRIPMAKER.track?.('app_share_open', { surface: 'flag' });
-      };
+      });
+      // WhatsApp takes the traveller out of the page; there is nothing left for the
+      // rail to offer when they come back to it. Copy stays open on purpose — the
+      // tick it just turned into is the answer, and closing would take it away.
+      document.getElementById('share-flag-wa')?.addEventListener('click', () => setOpen(false));
       // click-away and Escape close it. 'click' and not 'pointerdown', for the same
       // reason the search dropdown uses it: a touch that turns into a scroll swipe
       // never becomes a click, so a pan that starts outside doesn't slam it shut.
       document.addEventListener('click', (e) => {
-        if (!panel.hidden && !flag.contains(e.target)) setOpen(false);
+        if (!rail.hidden && !flag.contains(e.target)) setOpen(false);
       });
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !panel.hidden) { setOpen(false); tab.focus(); }
+        if (e.key === 'Escape' && !rail.hidden) { setOpen(false); tab.focus(); }
       });
       // once the band is on screen the flag has nothing left to offer — it fades out
       // rather than sitting beside a card that says the same thing, louder
@@ -575,7 +589,7 @@
         new IntersectionObserver((entries) => {
           const seen = entries[0].isIntersecting;
           flag.classList.toggle('band-visible', seen);
-          if (seen && !panel.hidden) setOpen(false);
+          if (seen && !rail.hidden) setOpen(false);
         }, { threshold: 0.2 }).observe(band);
       }
       flag.hidden = false;

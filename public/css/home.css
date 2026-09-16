@@ -396,8 +396,10 @@ html.aaa-motion .search-box {
 }
 
 /* ---------- the pull-out share flag ---------- */
-/* The band at the foot of the page, reachable without scrolling to it: a tab on the
-   page's edge that opens its label to a pointer and its panel to a click.
+/* The band at the foot of the page, reachable without scrolling to it. It does not
+   open a window beside itself — it unrolls: the tab stays put and a rail of actions
+   slides out from behind it, so tab and rail read as one pill still hugging the
+   edge rather than as a card that appeared out of nowhere.
    Physical left/right properties throughout, not logical ones — this is pinned to an
    edge of the SCREEN, and under `dir="rtl"` the logical ones would swing it across to
    the other side, straight under the header's buttons. It sits below the header
@@ -406,71 +408,101 @@ html.aaa-motion .search-box {
 .share-flag {
   position: fixed; z-index: 90;
   top: calc(92px + env(safe-area-inset-top)); left: 0;
+  display: flex; align-items: stretch;
+  /* LTR for the same reason .nav-actions is: a flex row lays its children along the
+     WRITING direction, so under dir="rtl" the tab landed at the right end of the
+     group and the rail unrolled leftwards, off the screen edge it is pinned to.
+     The group's order is physical — tab against the edge, rail out from behind it —
+     so the group says so, and the Hebrew label takes its own direction back below. */
+  direction: ltr;
   transition: opacity .25s ease, transform .25s ease;
 }
 .share-flag[hidden] { display: none; }
 /* the band itself is on screen — two of the same ask in view at once is one too many */
 .share-flag.band-visible { opacity: 0; transform: translateX(-14px); pointer-events: none; }
 
+.share-flag-tab,
+.share-flag-rail {
+  border: 1px solid rgba(255, 180, 95, .45); border-left: none;
+  /* 180deg and not 135: the two are separate boxes of equal height, and a diagonal
+     ramp restarts in each of them — open, the seam between tab and rail showed as a
+     step in the tint, and the one pill read as two blocks. Down the same height,
+     both paint the identical ramp and the seam disappears. */
+  background: linear-gradient(180deg, rgba(255, 180, 95, .3), rgba(232, 133, 58, .18));
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  box-shadow: 0 10px 26px -12px rgba(0, 0, 0, .75), inset 0 1px 0 var(--glass-highlight);
+}
 .share-flag-tab {
+  /* above the rail in paint order, so the rail slides out from BEHIND it */
+  position: relative; z-index: 1;
+  direction: rtl;
   display: flex; align-items: center; gap: 0;
   padding: 9px 10px 9px 9px; cursor: pointer;
-  border: 1px solid rgba(255, 180, 95, .45); border-left: none;
   border-radius: 0 16px 16px 0;
-  background: linear-gradient(135deg, rgba(255, 180, 95, .3), rgba(232, 133, 58, .18));
-  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
   color: var(--paper); font-family: var(--font-body);
-  box-shadow: 0 10px 26px -12px rgba(0, 0, 0, .75), inset 0 1px 0 var(--glass-highlight);
-  transition: gap .22s ease, padding .22s ease, background .2s ease;
+  transition: gap .22s ease, padding .22s ease, background .2s ease, border-radius .2s ease;
 }
 .share-flag-tab .ic { width: 18px; height: 18px; color: var(--amber); }
+/* open, the tab is the left end of one pill: its right edge stops being an edge */
+.share-flag.open .share-flag-tab { border-radius: 0; border-right-color: transparent; }
 /* the label grows out of the edge from zero — no width to guess, and nothing to
-   measure when the font finally lands */
+   measure when the font finally lands. A touch device never hovers, so there it
+   simply never opens: on a phone the flag is the glyph alone, and the rail is one
+   tap away. */
 .share-flag-label {
   display: inline-block; max-width: 0; overflow: hidden; white-space: nowrap;
   font-weight: 700; font-size: .88rem; opacity: 0;
   transition: max-width .25s ease, opacity .2s ease;
 }
-.share-flag:hover .share-flag-label,
-.share-flag.open .share-flag-label,
+.share-flag:hover:not(.open) .share-flag-label,
 .share-flag-tab:focus-visible .share-flag-label { max-width: 110px; opacity: 1; }
-.share-flag:hover .share-flag-tab,
-.share-flag.open .share-flag-tab,
+.share-flag:hover:not(.open) .share-flag-tab,
+.share-flag-tab:focus-visible { gap: 7px; padding-right: 14px; }
+/* open, the tab keeps the rail's exact tint — brightening it would put the seam
+   back. Focus is the one thing allowed to override that, because it has to. */
+.share-flag:hover:not(.open) .share-flag-tab,
 .share-flag-tab:focus-visible {
-  gap: 7px; padding-right: 14px;
-  background: linear-gradient(135deg, rgba(255, 180, 95, .38), rgba(232, 133, 58, .24));
+  background: linear-gradient(180deg, rgba(255, 180, 95, .4), rgba(232, 133, 58, .26));
 }
 
-.share-flag-panel {
-  position: absolute; top: calc(100% + 8px); left: 0;
-  width: min(272px, calc(100vw - 26px));
-  padding: 16px 16px 12px; text-align: center;
-  animation: flag-in .18s ease-out;
-  /* nearly opaque, unlike every other .glass surface on the page: this one floats
-     over the hero, and through the plain glass tint the headline behind it came out
-     legible THROUGH the panel's own words. A card sitting on a quiet section can be
-     a pane; a popover over a photo and a display face has to be a card. */
-  background: rgba(16, 32, 27, .95);
+.share-flag-rail {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 8px 5px 5px; border-radius: 0 16px 16px 0;
+  animation: rail-out .22s ease-out;
 }
-.share-flag-panel[hidden] { display: none; }
-.share-flag-panel h3 { font-family: var(--font-display); font-size: 1.05rem; }
-.share-flag-panel h3 .accent { color: var(--amber); }
-.share-flag-panel > p { font-size: .83rem; color: var(--paper-dim); font-weight: 300; line-height: 1.55; margin-top: 5px; }
-.share-flag-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 13px; }
-.share-flag-actions .btn { width: 100%; justify-content: center; }
-.share-flag-panel .share-app-feedback { margin-top: 8px; font-size: .8rem; }
-.share-flag-panel .share-reward { font-size: .8rem; gap: 8px; padding-top: 12px; margin-top: 2px; }
-@keyframes flag-in { from { opacity: 0; transform: translateY(-6px); } }
+.share-flag-rail[hidden] { display: none; }
+/* out from under the tab, not down from above it */
+@keyframes rail-out { from { opacity: 0; transform: translateX(-24px); } }
+.share-flag-act {
+  width: 34px; height: 34px; flex: none; padding: 0;
+  display: grid; place-items: center; cursor: pointer;
+  border: none; border-radius: 50%;
+  background: rgba(255, 255, 255, .1); color: var(--paper);
+  transition: background .18s ease, transform .18s ease;
+}
+.share-flag-act:hover { background: rgba(255, 255, 255, .2); }
+.share-flag-act:active { transform: scale(.94); }
+.share-flag-act:disabled { opacity: .5; cursor: wait; pointer-events: none; }
+.share-flag-act .ic, .share-flag-act .wa-icon { width: 17px; height: 17px; }
+.sfa-wa { background: linear-gradient(135deg, var(--amber), var(--amber-deep)); color: #241302; }
+.sfa-wa:hover { background: linear-gradient(135deg, var(--amber), var(--amber-deep)); filter: brightness(1.08); }
+/* the copy button answers on itself: the chain becomes a tick, or turns the colour
+   the app uses for "that did not work" — there is no room here for a sentence, and
+   the sentence a screen reader needs is in the .sr-only status beside it */
+.share-flag-act .ic-done { display: none; }
+.share-flag-act.is-done .ic-link { display: none; }
+.share-flag-act.is-done .ic-done { display: block; color: var(--mint); }
+.share-flag-act.is-failed { color: var(--danger); }
 
-/* no hover to open the label with, so it stays out — a lone glyph on the edge of
-   the screen is a riddle, not a button */
-@media (hover: none) {
-  .share-flag-label { max-width: 110px; opacity: 1; }
-  .share-flag-tab { gap: 7px; padding-right: 14px; }
+@media (max-width: 560px) {
+  .share-flag { top: calc(86px + env(safe-area-inset-top)); }
+  .share-flag-tab { padding: 7px 9px 7px 8px; }
+  .share-flag-tab .ic { width: 16px; height: 16px; }
+  .share-flag-act { width: 32px; height: 32px; }
 }
 /* "stop animations" in the accessibility widget: the flag still opens, it just
    stops sliding while it does */
 html.aaa-motion .share-flag,
 html.aaa-motion .share-flag-tab,
 html.aaa-motion .share-flag-label { transition: none; }
-html.aaa-motion .share-flag-panel { animation: none; }
+html.aaa-motion .share-flag-rail { animation: none; }
