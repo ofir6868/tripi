@@ -111,7 +111,13 @@ router.get('/api/admin/stats', authRequired, adminRequired, async (_req, res) =>
              (SELECT count(*) FROM trip_items)::int                 AS items,
              (SELECT count(*) FROM users WHERE created_at > now() - interval '7 days')::int AS new_users,
              (SELECT count(*) FROM trips WHERE created_at > now() - interval '7 days')::int AS new_trips`);
-    res.json(rows[0]);
+    // What the paid APIs have cost this month, per SKU (lib/api-budget.js). A budget
+    // running out degrades a feature quietly — the picker drops to Photon, the cards
+    // drop to Wikipedia — so the number belongs somewhere a human actually looks.
+    const { rows: spend } = await pool.query(
+      `SELECT meter, count FROM api_usage WHERE month = to_char(now(), 'YYYY-MM') ORDER BY meter`
+    );
+    res.json({ ...rows[0], api_spend: spend });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });

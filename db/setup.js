@@ -205,6 +205,27 @@ CREATE TABLE IF NOT EXISTS announcements (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_announcements_published ON announcements(published_at DESC NULLS LAST);
+
+-- what the paid third-party APIs have cost us this month, per SKU. In the database and
+-- not in the process for the same reason ai_usage is: the free instance restarts on
+-- every deploy, and a ceiling that counts back from zero each time is not a ceiling.
+CREATE TABLE IF NOT EXISTS api_usage (
+  meter TEXT NOT NULL,
+  month CHAR(7) NOT NULL,
+  count INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (meter, month)
+);
+
+-- what they already bought, so a deploy does not buy it again. Swept at 30 days, which
+-- is as long as Google's terms allow their content to be kept (lib/api-budget.js).
+CREATE TABLE IF NOT EXISTS api_cache (
+  scope TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value JSONB,
+  fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (scope, key)
+);
+CREATE INDEX IF NOT EXISTS idx_api_cache_fetched ON api_cache(fetched_at);
 `;
 /* Every index here may only name columns that already exist on a database this
    schema has met before. On an existing database CREATE TABLE IF NOT EXISTS is a

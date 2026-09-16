@@ -93,6 +93,8 @@ require('./lib/reminders').start();
 require('./lib/rotation-backup').start();
 // Cloudflare's published edge ranges, refreshed daily — see lib/client-ip.js
 require('./lib/client-ip').start();
+// drop paid-API answers older than the 30 days Google's terms allow us to keep them
+require('./lib/api-budget').sweep();
 
 // Boot order after a database rotation (tools/db-rotation-runbook.md): first re-discover
 // the live instance (DATABASE_URL may still name the deleted one), then bring the schema

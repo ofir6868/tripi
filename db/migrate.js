@@ -1,4 +1,4 @@
-// Migrations 2–23, in order. Idempotent — safe to run on every boot, and the server
+// Migrations 2–24, in order. Idempotent — safe to run on every boot, and the server
 // does (lib/db-bootstrap.js), so a replaced database catches up by itself.
 // Usage: DATABASE_URL=postgres://... node db/migrate.js
 require('../lib/env');
@@ -271,6 +271,31 @@ async function migrate(pool, log = console.log) {
       areas JSONB NOT NULL DEFAULT '[]',
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`);
+
+  log('Migration 24: the paid APIs remember what they bought (a restart used to re-buy it)...');
+  // What we have spent this month, per paid SKU. The photo cap used to be `let capUsed`
+  // in lib/place-photos.js, which meant the free instance counted back from zero on
+  // every deploy and the 900-call ceiling never actually held — the same failure
+  // migration 18 fixed for the AI quotas, one resource over.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS api_usage (
+      meter TEXT NOT NULL,
+      month CHAR(7) NOT NULL,
+      count INT NOT NULL DEFAULT 0,
+      PRIMARY KEY (meter, month)
+    )`);
+  // What we already bought. Keyed by scope so all four Google call sites share one
+  // definition, and swept at 30 days because that is as long as Google's terms allow
+  // their content to be kept (lib/api-budget.js).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS api_cache (
+      scope TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value JSONB,
+      fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (scope, key)
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_api_cache_fetched ON api_cache(fetched_at)`);
 
   log('Done.');
 }
