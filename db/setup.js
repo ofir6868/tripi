@@ -111,6 +111,10 @@ CREATE TABLE IF NOT EXISTS trip_items (
   lat DOUBLE PRECISION,
   lon DOUBLE PRECISION,
   google_place_id TEXT,
+  -- the OSM element the geocoder matched, kept from verification: the keyless way back
+  -- to the place's own tags, opening_hours included (lib/opening-hours.js)
+  osm_type TEXT,
+  osm_id TEXT,
   cost NUMERIC(10,2),
   cost_paid BOOLEAN NOT NULL DEFAULT false,
   sort_order INT DEFAULT 0

@@ -5,7 +5,7 @@ const {
   uniqueShareCode, tripFields, newInviteToken, isParticipant, tripWithEditAuth,
   viewerSafeItems, viewerSafeHotels, numOrNull, moneyOrNull, cleanDestinations, cleanPlanState,
 } = require('../lib/trips');
-const { rateLimiter } = require('../lib/rate-limit');
+const { rateLimiter, codeMissLimit, CODE_MISS_ERROR } = require('../lib/rate-limit');
 const { notifyTripAsync } = require('../lib/push');
 const { verifyPlaces } = require('../lib/places');
 
@@ -14,8 +14,7 @@ const router = express.Router();
 // the 6-digit share code is the only thing protecting unpublished trips, so codes
 // must not be enumerable. Only *missed* lookups count — typos are rare and page
 // loads of real trips never touch the counter, but a scanner burns out in seconds.
-const codeMissLimit = rateLimiter({ windowMs: 15 * 60 * 1000, max: 20 });
-const CODE_MISS_ERROR = 'יותר מדי קודים שגויים — נסו שוב בעוד רבע שעה';
+
 
 router.get('/api/trips/suggested', async (_req, res) => {
   try {
@@ -397,14 +396,16 @@ router.post('/api/trips/code/:code/items', authOptional, async (req, res) => {
     const it = req.body || {};
     if (!it.title || !String(it.title).trim()) return res.status(400).json({ error: 'חסרה כותרת לתחנה' });
     const { rows } = await pool.query(
-      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
+      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, osm_type, osm_id, cost, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
        RETURNING *`,
       [trip.id, Math.min(Math.max(parseInt(it.day_number, 10) || 1, 1), trip.days),
        it.time_label || null, String(it.title).slice(0, 200).trim(), it.note || null,
        it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null,
        numOrNull(it.lat), numOrNull(it.lon),
        it.google_place_id ? String(it.google_place_id).slice(0, 300) : null,
+       it.osm_type ? String(it.osm_type).slice(0, 10) : null,
+       it.osm_id ? String(it.osm_id).slice(0, 20) : null,
        moneyOrNull(it.cost)]
     );
     pingEdit(req, trip);
@@ -439,6 +440,12 @@ router.patch('/api/trips/code/:code/items/:itemId', authOptional, async (req, re
     // a rewritten place with no id sent along must not keep the OLD id — the maps
     // link would keep opening the place this stop no longer is
     else if ('place_query' in body) add('google_place_id', null);
+    // the OSM element identity follows the place the same way: a stop repointed by hand
+    // must not keep answering opening-hours questions about where it used to stand
+    if ('osm_type' in body) add('osm_type', body.osm_type ? String(body.osm_type).slice(0, 10) : null);
+    else if ('place_query' in body) add('osm_type', null);
+    if ('osm_id' in body) add('osm_id', body.osm_id ? String(body.osm_id).slice(0, 20) : null);
+    else if ('place_query' in body) add('osm_id', null);
     if ('lat' in body) add('lat', numOrNull(body.lat));
     if ('lon' in body) add('lon', numOrNull(body.lon));
     if ('cost' in body) add('cost', moneyOrNull(body.cost));
@@ -809,8 +816,8 @@ router.post('/api/trips/code/:code/clone', authRequired, async (req, res) => {
        src.start_date, src.end_date, src.days, code, src.emoji, JSON.stringify(src.destinations || []), newInviteToken()]
     );
     await client.query(
-      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
-       SELECT $1, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id,
+      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, osm_type, osm_id, cost, sort_order)
+       SELECT $1, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, osm_type, osm_id,
               CASE WHEN $3 THEN cost ELSE NULL END, sort_order
        FROM trip_items WHERE trip_id = $2`,
       [t.rows[0].id, src.id, copyMoney]
@@ -970,13 +977,15 @@ router.post('/api/trips', authRequired, async (req, res) => {
           it.place_query || null, it.category || null, it.area ? String(it.area).slice(0, 80) : null,
           numOrNull(it.lat), numOrNull(it.lon),
           it.google_place_id ? String(it.google_place_id).slice(0, 300) : null,
+          it.osm_type ? String(it.osm_type).slice(0, 10) : null,
+          it.osm_id ? String(it.osm_id).slice(0, 20) : null,
           moneyOrNull(it.cost), i
         );
-        const base = vals.length - 13;
-        return `(${Array.from({ length: 13 }, (_, k) => '$' + (base + k + 1)).join(',')})`;
+        const base = vals.length - 15;
+        return `(${Array.from({ length: 15 }, (_, k) => '$' + (base + k + 1)).join(',')})`;
       });
       await client.query(
-        `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
+        `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, osm_type, osm_id, cost, sort_order)
          VALUES ${tuples.join(',')}`,
         vals
       );

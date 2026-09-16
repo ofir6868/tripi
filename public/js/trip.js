@@ -355,6 +355,9 @@
       });
       Object.assign(item, updated);
       sortItems();
+      // a stop that changed day, hour or place is no longer described by the
+      // closed-door verdict we hold for it
+      TripHours.invalidate();
       renderItinerary();
       updateAmbient();
       return item;
@@ -366,6 +369,7 @@
       });
       tripItems.push(item);
       sortItems();
+      TripHours.invalidate();
       renderItinerary();
       updateAmbient();
       return item;
@@ -654,6 +658,10 @@
 
       // a tap anywhere on the card opens the stop sheet — the same details/edit
       // popover the calendar uses. One surface for a stop, whichever view it's in.
+      // the closed-door marks, drawn over the cards once they exist — never blocking
+      // the render, and a no-op when nothing is known (public/js/trip-hours.js)
+      TripHours.apply(container, state.trip.share_code);
+
       container.querySelectorAll('.item-card.tappable').forEach((card) => {
         const open = (e) => {
           if (e.target.closest('.item-del') || e.target.closest('.stop-votes') || e.target.closest('a')) return;

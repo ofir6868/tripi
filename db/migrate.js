@@ -1,4 +1,4 @@
-// Migrations 2–24, in order. Idempotent — safe to run on every boot, and the server
+// Migrations 2–25, in order. Idempotent — safe to run on every boot, and the server
 // does (lib/db-bootstrap.js), so a replaced database catches up by itself.
 // Usage: DATABASE_URL=postgres://... node db/migrate.js
 require('../lib/env');
@@ -296,6 +296,14 @@ async function migrate(pool, log = console.log) {
       PRIMARY KEY (scope, key)
     )`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_api_cache_fetched ON api_cache(fetched_at)`);
+
+  log('Migration 25: a verified stop remembers which OSM element it is...');
+  // Photon already names the element it matched when a place is verified (lib/places.js);
+  // until now that was thrown away. Kept, it is the free key to everything else OSM holds
+  // about the place — opening_hours above all, which is the one thing a plan can get
+  // wrong in a way the traveller only discovers at the door (lib/opening-hours.js).
+  await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS osm_type TEXT`);
+  await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS osm_id TEXT`);
 
   log('Done.');
 }

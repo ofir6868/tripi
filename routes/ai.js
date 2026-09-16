@@ -743,6 +743,10 @@ async function repairPlaces(entries, { where, ph, flagMore, dests }) {
       // the id Google vouched with (second-opinion passes only) — stored on the stop,
       // it makes the maps link deterministic and every future details lookup direct
       if (r.best.place_id) e.google_place_id = r.best.place_id;
+      // and the OSM element the geocoder matched — the free key to the place's
+      // opening_hours (lib/opening-hours.js), already paid for by this same lookup
+      e.osm_type = r.best.osm_type || null;
+      e.osm_id = r.best.osm_id || null;
     };
     for (const e of entries) if (e.place_query) setGeo(e, results.get(e.place_query));
     const unfound = (q) => { const r = results.get(q); return r && (r.verdict === 'mismatch' || r.verdict === 'none'); };
@@ -865,6 +869,8 @@ async function repairPlaces(entries, { where, ph, flagMore, dests }) {
         if (r.verdict === 'ok' && r.best && r.best.lat != null) { e.lat = r.best.lat; e.lon = r.best.lon; }
         else { e.lat = null; e.lon = null; }
         e.google_place_id = (r.verdict === 'ok' && r.best && r.best.place_id) ? r.best.place_id : null;
+        e.osm_type = (r.verdict === 'ok' && r.best) ? (r.best.osm_type || null) : null;
+        e.osm_id = (r.verdict === 'ok' && r.best) ? (r.best.osm_id || null) : null;
         // the title follows the place: left as written, a repaired stop keeps naming
         // the place it no longer points at ("שוק נישיקי" standing on a Nakamise pin)
         if (titleByIndex.has(i)) e.newTitle = titleByIndex.get(i);
@@ -1829,6 +1835,8 @@ async function verifyEditOps(result, args) {
     // having to re-geocode, and a moved stop can't keep pointing at its old spot
     if (e.place_query != null && e.lat != null) { e.op.lat = e.lat; e.op.lon = e.lon; }
     e.op.google_place_id = e.place_query != null ? (e.google_place_id || null) : null;
+    e.op.osm_type = e.place_query != null ? (e.osm_type || null) : null;
+    e.op.osm_id = e.place_query != null ? (e.osm_id || null) : null;
   }
   return result;
 }
@@ -1871,6 +1879,8 @@ async function applyEditOps(client, trip, items, ops, { area = null, from = 1, t
         add('lat', Number.isFinite(op.lat) ? op.lat : null);
         add('lon', Number.isFinite(op.lon) ? op.lon : null);
         add('google_place_id', op.google_place_id ? String(op.google_place_id).slice(0, 300) : null);
+        add('osm_type', op.osm_type ? String(op.osm_type).slice(0, 10) : null);
+        add('osm_id', op.osm_id ? String(op.osm_id).slice(0, 20) : null);
       }
       if (op.category != null && AI_CATEGORIES.includes(op.category)) add('category', op.category);
       if (op.area != null) add('area', String(op.area).slice(0, 80) || null);
@@ -1887,8 +1897,8 @@ async function applyEditOps(client, trip, items, ops, { area = null, from = 1, t
       const day = clampDay(op.day_number, trip.days, from);
       if (!inScope(day)) continue;
       const { rows: ins } = await client.query(
-        `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
+        `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, osm_type, osm_id, cost, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
          RETURNING id`,
         [trip.id, day, cleanTime(op.time_label), String(op.title).slice(0, 200).trim(),
          op.note ? String(op.note).slice(0, 300) : null,
@@ -1898,6 +1908,8 @@ async function applyEditOps(client, trip, items, ops, { area = null, from = 1, t
          Number.isFinite(op.lat) ? op.lat : null,
          Number.isFinite(op.lon) ? op.lon : null,
          op.google_place_id ? String(op.google_place_id).slice(0, 300) : null,
+         op.osm_type ? String(op.osm_type).slice(0, 10) : null,
+         op.osm_id ? String(op.osm_id).slice(0, 20) : null,
          cleanCost(op.cost)]
       );
       undoOps.added.push(ins[0].id);
@@ -1924,10 +1936,10 @@ async function undoApplied(client, trip, undo) {
   }
   for (const it of undo.deleted || []) {
     await client.query(
-      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, cost, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, place_query, category, area, lat, lon, google_place_id, osm_type, osm_id, cost, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
       [trip.id, it.day_number, it.time_label, it.title, it.note, it.place_query, it.category, it.area,
-       it.lat, it.lon, it.google_place_id, it.cost, it.sort_order ?? 0]
+       it.lat, it.lon, it.google_place_id, it.osm_type ?? null, it.osm_id ?? null, it.cost, it.sort_order ?? 0]
     );
   }
 }
@@ -2240,12 +2252,13 @@ async function applyClientOps(req, res, mode) {
         added: (Array.isArray(u.added) ? u.added : []).map((id) => parseInt(id, 10)).filter(Number.isInteger),
         updated: (Array.isArray(u.updated) ? u.updated : []).filter((x) => x && Number.isInteger(+x.id) && x.fields && typeof x.fields === 'object')
           .map((x) => ({ id: +x.id, fields: Object.fromEntries(Object.entries(x.fields)
-            .filter(([k]) => ['day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area', 'lat', 'lon', 'google_place_id', 'cost'].includes(k))) })),
+            .filter(([k]) => ['day_number', 'time_label', 'title', 'note', 'place_query', 'category', 'area', 'lat', 'lon', 'google_place_id', 'osm_type', 'osm_id', 'cost'].includes(k))) })),
         deleted: (Array.isArray(u.deleted) ? u.deleted : []).filter((it) => it && it.title).slice(0, 20).map((it) => ({
           day_number: clampDay(it.day_number, trip.days), time_label: cleanTime(it.time_label), title: String(it.title).slice(0, 200),
           note: it.note ? String(it.note).slice(0, 500) : null, place_query: cleanPlaceQuery(it.place_query), category: it.category ? String(it.category).slice(0, 40) : null,
           area: it.area ? String(it.area).slice(0, 80) : null, lat: Number.isFinite(+it.lat) && it.lat !== null ? +it.lat : null,
           lon: Number.isFinite(+it.lon) && it.lon !== null ? +it.lon : null, google_place_id: it.google_place_id ? String(it.google_place_id).slice(0, 300) : null,
+          osm_type: it.osm_type ? String(it.osm_type).slice(0, 10) : null, osm_id: it.osm_id ? String(it.osm_id).slice(0, 20) : null,
           cost: cleanCost(it.cost), sort_order: parseInt(it.sort_order, 10) || 0,
         })),
       });

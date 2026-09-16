@@ -2466,3 +2466,19 @@ body.budget-open { overflow: hidden; }
 @keyframes tpSheetIn { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
 @keyframes ds-spin { to { transform: rotate(360deg); } }
 @keyframes docs-scan-pulse { 50% { opacity: .35; } }
+
+/* The closed-door mark. Amber rather than red: this is a warning to check, not an
+   error — hours go stale, and the traveller is the one who can tell. `.maybe` is the
+   softer case, a stop with no clock time that was judged at noon. */
+.item-shut {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: .78rem; font-weight: 600; white-space: nowrap;
+  color: #ffb45f;
+  background: rgba(255, 180, 95, .12);
+  border: 1px solid rgba(255, 180, 95, .38);
+  cursor: help;
+}
+.item-shut.maybe { color: rgba(255, 180, 95, .82); border-style: dashed; }
+.item-card.shut { border-color: rgba(255, 180, 95, .3); }
+@media print { .item-shut { color: #8a5a10; background: none; } }
