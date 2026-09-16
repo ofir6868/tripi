@@ -115,7 +115,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             <td>
               <a class="adm-link" href="/trip/${t.share_code}">${t.emoji || '🧭'} ${TRIPMAKER.esc(t.title)}</a>
               ${t.is_draft ? '<span class="adm-draft">✍️ בתכנון</span>' : ''}
-              <div class="adm-sub">${TRIPMAKER.esc(t.destination)}${t.country ? ' · ' + TRIPMAKER.esc(t.country) : ''} · ${t.days} ימים</div>
+              <div class="adm-sub">${TRIPMAKER.esc(TRIPMAKER.destLine(t, ' · '))} · ${t.days} ימים</div>
             </td>
             <td>${t.owner_name ? TRIPMAKER.esc(t.owner_name) : '<span class="adm-sub">— ללא בעלים</span>'}
               ${t.owner_email ? `<div class="adm-sub" dir="ltr">${TRIPMAKER.esc(t.owner_email)}</div>` : ''}</td>

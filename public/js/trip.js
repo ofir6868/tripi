@@ -217,7 +217,7 @@
       `${trip.emoji || '🧭'} ${TRIPMAKER.esc(trip.title)}${tripFlags ? ' ' + tripFlags : ''}`;
 
     const meta = [];
-    meta.push(`<span class="chip"><span class="dot">●</span> ${TRIPMAKER.esc(trip.destination)}${trip.country ? ', ' + TRIPMAKER.esc(trip.country) : ''}</span>`);
+    meta.push(`<span class="chip"><span class="dot">●</span> ${TRIPMAKER.esc(TRIPMAKER.destLine(trip))}</span>`);
     meta.push(`<span class="chip"><span class="dot">●</span> ${trip.days} ימים</span>`);
     // the dates chip goes in between, added by renderDateChip() once edit rights are
     // known — with no dates on the trip it's a badge that sets them, not a chip
