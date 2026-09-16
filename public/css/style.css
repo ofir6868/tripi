@@ -559,20 +559,6 @@ html.aaa-motion .trip-card {
 .form-success { color: var(--mint); font-size: .9rem; min-height: 1.4em; margin: 4px 0 10px; }
 .switch-auth { text-align: center; margin-top: 16px; font-size: .92rem; color: var(--paper-dim); }
 .switch-auth a { color: var(--amber); cursor: pointer; text-decoration: none; font-weight: 700; }
-/* the quiet way out of a signup wall, under everything else on purpose: it is the
-   answer to "not now", not a third thing to choose between. Full width so it is a
-   real target on a phone, and never amber — nothing here competes with the button
-   that creates the account. */
-.auth-later {
-  display: block; width: 100%; margin-top: 12px; padding: 10px 14px;
-  background: none; border: none; cursor: pointer;
-  font-family: var(--font-body); font-size: .88rem; font-weight: 600;
-  color: var(--paper-dim); text-decoration: underline;
-  text-decoration-color: rgba(207, 199, 182, .35); text-underline-offset: 3px;
-  transition: color .15s ease;
-}
-.auth-later:hover { color: var(--paper); text-decoration-color: rgba(245, 239, 227, .6); }
-.auth-later[hidden] { display: none; }
 
 .auth-google-wrap { margin-top: 14px; }
 .auth-divider {

@@ -378,23 +378,6 @@
 
   // ---- create (as a draft) ----
 
-  // The wall in front of "create a trip" is real: a trip belongs to an owner, and
-  // the server has no such thing as a trip without one. So "later" cannot mean
-  // "create it anyway" — what it CAN mean is that nothing is lost: the three steps
-  // already live in localStorage (saveDraft), and this writes them now rather than
-  // on the 600ms debounce, says so out loud, and gets out of the way. The banner on
-  // the next visit offers them back.
-  const laterDoor = {
-    label: 'אחר כך — שמרו לי את הטיוטה',
-    onPick: () => {
-      saveDraft();
-      const st = document.getElementById('ai-status');
-      st.className = 'ai-status done';
-      st.textContent = '✓ שמרנו את הטיוטה במכשיר — תמצאו אותה כאן כשתחזרו. ליצירת הטיול עצמו צריך חשבון.';
-    },
-  };
-
-
   // the AI path: the trip is created empty and opens on the planning chat, where the
   // AI asks what it needs, then builds — step by step or all at once, as the traveller
   // picks there. Nothing is generated here anymore.
@@ -416,7 +399,7 @@
     TRIPMAKER.track?.('trip_create_attempt', {
       path: 'ai', signed_in: !!TRIPMAKER.user, destinations: destinations.length,
     });
-    if (!TRIPMAKER.user) openAuthModal(go, 'register', 'create_trip_ai', laterDoor);
+    if (!TRIPMAKER.user) openAuthModal(go, 'register', 'create_trip_ai');
     else go();
   };
 
@@ -511,7 +494,7 @@
     TRIPMAKER.track?.('trip_create_attempt', {
       path: 'manual', signed_in: !!TRIPMAKER.user, destinations: destinations.length,
     });
-    if (!TRIPMAKER.user) openAuthModal(go, 'register', 'create_trip_manual', laterDoor);
+    if (!TRIPMAKER.user) openAuthModal(go, 'register', 'create_trip_manual');
     else go();
   };
 
