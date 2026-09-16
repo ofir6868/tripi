@@ -374,9 +374,16 @@
            The links stop 6 from each head, which keeps ~0.7 of clear space between
            stroke and pin at every end. Under them runs the wide dim trace the route
            on the real trip map wears (.route-line / .route-line-glow, css/trip.css),
-           so the badge is drawn in the product's own hand. -->
+           so the badge is drawn in the product's own hand.
+           The viewBox is offset, and deliberately: centred on 0 0 32 32 the mark is
+           centred to the pixel and still looks pushed right and high, because two of
+           the three pins sit on the right and the bottom third of every pin is an
+           almost-empty taper. Measured on the rendered alpha, the ink's centre of
+           mass is (18.22, 15.09) rather than (16, 16) — so the window is centred on
+           that instead, which is what the eye actually reads as centred. Move a pin
+           and this pair of numbers has to be measured again. -->
       <span class="share-mark" aria-hidden="true">
-        <svg viewBox="0 0 32 32">
+        <svg viewBox="2.22 -0.91 32 32">
           <g class="sm-trace"><path d="M12.37 11.82 19.63 8.18"/><path d="M12.37 17.18 19.63 20.82"/></g>
           <path d="M12.37 11.82 19.63 8.18"/>
           <path d="M12.37 17.18 19.63 20.82"/>
