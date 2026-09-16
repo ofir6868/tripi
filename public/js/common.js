@@ -383,6 +383,7 @@ document.addEventListener('click', async (e) => {
 // ---------- auth modal ----------
 let authMode = 'login';
 let authOnSuccess = null;
+let authLater = null;   // { label, onPick } — what this wall offers instead of an account
 
 function renderAuthModal() {
   const wrap = document.createElement('div');
@@ -425,6 +426,13 @@ function renderAuthModal() {
       <div class="switch-auth" id="auth-switch">
         אין לכם חשבון? <a id="auth-toggle">הרשמה מהירה</a>
       </div>
+      <!-- the way out, for the walls that have somewhere to go. The ✕ and the
+           backdrop are exits too, but silent ones: the traveller who does not want
+           an account right now closes the modal and has no idea whether the three
+           steps they just filled in survived. Shown only when the caller says what
+           "later" means (openAuthModal's 4th argument) — a door that leads nowhere
+           is worse than no door. -->
+      <button type="button" class="auth-later" id="auth-later" hidden></button>
     </div>`;
   document.body.appendChild(wrap);
 
@@ -446,8 +454,16 @@ function renderAuthModal() {
   wrap.querySelector('#auth-toggle').onclick = () => setMode('register');
 
   // three ways out, one outcome: they met the wall and turned around
-  const dismiss = (how) => { wrap.classList.remove('open'); authWallOutcome('signup_wall_dismissed', { how }); };
+  const dismiss = (how) => { wrap.classList.remove('open'); authLater = null; authWallOutcome('signup_wall_dismissed', { how }); };
   wrap.querySelector('.modal-close').onclick = () => dismiss('close');
+  // a fourth way out, and the only one that leaves something behind. It is still a
+  // dismissal — the wall turned someone around — so it lands in the same outcome
+  // and the rate stays honest; `how` is what tells the two apart.
+  wrap.querySelector('#auth-later').onclick = () => {
+    const pick = authLater;
+    dismiss('later');
+    pick?.onPick?.();
+  };
   wrap.addEventListener('click', (e) => { if (e.target === wrap) dismiss('backdrop'); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && wrap.classList.contains('open')) dismiss('escape'); });
   // leaving the page with the wall still open is abandonment too — and the
@@ -519,15 +535,26 @@ function authWallOutcome(name, extra) {
   // them can wait for a batch
   TRIPMAKER.trackNow(name, {
     reason: w.reason, mode: w.mode,
+    // whether this wall had a way out to offer: a dismissal rate means two
+    // different things depending on whether there was anywhere else to go
+    later: !!w.later,
     seconds: Math.round((Date.now() - w.at) / 1000),
     ...extra,
   });
 }
 
-function openAuthModal(onSuccess, mode = 'login', reason = 'unspecified') {
+// `later` is the way out this particular wall can offer: { label, onPick }. The
+// caller owns it, because only the caller knows what continuing without an account
+// means where it stands — in the trip wizard it means the answers stay on the
+// device. Leave it out and the button stays hidden.
+function openAuthModal(onSuccess, mode = 'login', reason = 'unspecified', later = null) {
   authOnSuccess = onSuccess || null;
-  authWall = { reason, mode, at: Date.now() };
-  TRIPMAKER.track('signup_wall_shown', { reason, mode });
+  authLater = later && typeof later.onPick === 'function' ? later : null;
+  const laterBtn = document.getElementById('auth-later');
+  laterBtn.hidden = !authLater;
+  if (authLater) laterBtn.textContent = authLater.label || 'אחר כך';
+  authWall = { reason, mode, at: Date.now(), later: !!authLater };
+  TRIPMAKER.track('signup_wall_shown', { reason, mode, later: !!authLater });
   window.setAuthMode?.(mode);
   document.getElementById('auth-modal').classList.add('open');
 }
