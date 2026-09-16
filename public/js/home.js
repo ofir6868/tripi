@@ -274,7 +274,7 @@
             <img src="${TRIPMAKER.esc(t.cover_image || '')}" alt="" loading="lazy" onerror="this.style.display='none'">
             <div>
               <div class="sr-title">${t.emoji || '🧭'} ${TRIPMAKER.esc(t.title)}</div>
-              <div class="sr-meta">${TRIPMAKER.esc(t.destination)}${t.country ? ' · ' + TRIPMAKER.esc(t.country) : ''} · ${t.days} ימים</div>
+              <div class="sr-meta">${TRIPMAKER.esc(TRIPMAKER.destLine(t, ' · '))} · ${t.days} ימים</div>
             </div>
             ${GO_ARROW}
           </a>`).join('')

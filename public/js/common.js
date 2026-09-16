@@ -110,6 +110,22 @@ const TRIPMAKER = {
     el.classList.remove('open');
     setTimeout(finish, 520);
   },
+  // "היעד, המדינה" לכותרת — בלי לומר את אותה מדינה פעמיים. טיול רב-מדינתי מחזיק
+  // destination="תאילנד · לאוס · ויטנאם" ולצידו country="תאילנד, לאוס, ויטנאם"
+  // (שתי העמודות נפרדות בכוונה: country מזין חיפוש, דגלים ותמונות), וההדבקה
+  // הנאיבית של השתיים הדפיסה את אותה רשימה פעמיים. מוסיפים רק מדינה שהיעד
+  // עצמו לא כבר אמר.
+  destLine(trip, sep = ', ') {
+    const dest = String(trip?.destination ?? '').trim();
+    const named = dest.split(/[·,]/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const low = dest.toLowerCase();
+    const extra = String(trip?.country ?? '').split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((c) => !named.includes(c.toLowerCase()) && !low.includes(c.toLowerCase()));
+    if (!dest) return extra.join(', '); // יעד ריק (טיוטה ישנה) — המדינה לבדה, בלי פסיק מוביל
+    return dest + (extra.length ? sep + extra.join(', ') : '');
+  },
   // with a stored place_id the link opens THE place, not whatever a text search
   // happens to rank first — the id wins whenever a stop carries one
   mapsSearchUrl(q, placeId) {
