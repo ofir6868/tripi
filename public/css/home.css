@@ -343,14 +343,27 @@ html.aaa-motion .search-box {
     radial-gradient(100% 80% at 50% 125%, rgba(143, 216, 196, .13), transparent 58%);
 }
 .share-band > * { position: relative; }
-/* the compass is the product's own mark — the same one that rides at the head of
-   every message this button sends, so the card shows what is being handed over */
+/* the mark: the share glyph with its three nodes drawn as map pins, because what
+   this card hands over is three places on a map. It is inline SVG and not the
+   compass emoji it replaced — an emoji is a different picture on every platform,
+   and this one has to sit inside an amber ring and look deliberate on all of them. */
 .share-mark {
   display: grid; place-items: center; width: 58px; height: 58px; margin: 0 auto 15px;
-  font-size: 1.95rem; border-radius: 50%;
+  color: var(--amber); border-radius: 50%;
   background: rgba(255, 180, 95, .16); border: 1px solid rgba(255, 180, 95, .45);
   box-shadow: 0 12px 30px -12px rgba(232, 133, 58, .85);
 }
+/* not .ic: that class sets its stroke for icons drawn at 17px, and at 32px the same
+   ratio comes out spindly. 1.9 on a 32 viewBox is ~1.9px on screen, the weight the
+   pins need to keep their necks open. */
+.share-mark svg {
+  width: 32px; height: 32px;
+  fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
+}
+.share-mark circle { fill: currentColor; stroke: none; }
+/* the soft wide line under each link, the same trace the route wears on the real
+   trip map. Dim and behind, so at 32px it reads as glow rather than as a second line. */
+.share-mark .sm-trace { stroke-width: 4.6; opacity: .26; }
 .share-band h2 {
   font-family: var(--font-display); font-size: clamp(1.6rem, 4vw, 2.2rem); line-height: 1.15;
 }
