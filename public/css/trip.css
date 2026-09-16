@@ -130,11 +130,31 @@
 .stop-card:hover { border-color: rgba(255, 180, 95, .65); }
 .stop-card:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .sc-media {
+  position: relative; overflow: hidden;
   flex: 0 0 64px; height: 64px; border-radius: 10px; display: grid; place-items: center;
   font-size: 1.7rem; line-height: 1;
   background: linear-gradient(135deg, rgba(255, 180, 95, .2), rgba(22, 48, 42, .9) 70%);
   border: 1px solid rgba(255, 180, 95, .18);
 }
+.sc-emoji { font-style: normal; }
+/* the stop's photo (trip-photos.js) lies over the emoji and only shows once it has
+   loaded — a slow or broken image leaves the tile exactly as it was */
+.sc-media img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  opacity: 0; transition: opacity .3s ease;
+}
+.sc-media.has-photo img { opacity: 1; }
+.sc-media.has-photo { border-color: rgba(255, 180, 95, .3); }
+/* the stop sheet: the same photo, large, with the credit its source asks for */
+.sm-photo { margin: 30px 0 14px; } /* clears the sheet's ✕, which sits over the top corner */
+.sm-photo img {
+  display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover;
+  border-radius: var(--radius-sm); border: 1px solid var(--glass-border); background: var(--ink-3);
+}
+.sm-photo figcaption { margin-top: 5px; font-size: .72rem; color: var(--paper-dim); font-weight: 300; }
+.sm-photo figcaption a { color: inherit; text-decoration: none; }
+.sm-photo figcaption a:hover { text-decoration: underline; }
+@media print { .sc-media img { opacity: 1; } }
 .sc-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .sc-top { display: flex; align-items: baseline; gap: 4px 8px; flex-wrap: wrap; }
 .sc-time { color: var(--mint); font-weight: 700; font-size: .8rem; font-variant-numeric: tabular-nums; direction: ltr; }
