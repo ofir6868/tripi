@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v91'; // the stop's photo leads the sheet's photo strip, credit in the lightbox (geo.js, common.js, trip-calendar.js) on top of v90
+const VERSION = 'v92'; // the add-stop form asks where right after what, without the budget explanation (js/trip-calendar.js) on top of v91
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first

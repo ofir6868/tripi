@@ -597,7 +597,7 @@ const TripCalendar = (() => {
     const costValue = existingCost ? existingCost.amount : '';
     let costScope = existingCost && existingCost.scope === 'personal' ? 'personal' : 'shared';
 
-    // Adding asks four things — what, when, what it costs and whose budget, where. The day
+    // Adding asks four things — what, where, when, what it costs and whose budget. The day
     // is the one whose header was tapped, the area that day's default, and the category is
     // the model's to pick while the add button waits (classify-stop). Editing keeps every
     // field: that is where a traveller goes to change the rest.
@@ -623,7 +623,7 @@ const TripCalendar = (() => {
             <button type="button" data-v="shared">${icUsers}<span>משותף</span></button>
             <button type="button" data-v="personal">${icLock}<span>אישי</span></button>
           </div>
-          <p class="se-cost-hint"></p>
+          ${isNew ? '' : '<p class="se-cost-hint"></p>'}
         </div>`;
     const placeField = `
         <div class="field span-2"><label for="se-place">מיקום</label>
@@ -636,9 +636,9 @@ const TripCalendar = (() => {
       <h2 class="sm-title sm-edit-head">מה מוסיפים למסלול?</h2>
       <div class="form-grid sm-form sm-form-new">
         ${titleField}
+        ${placeField}
         ${timeField}
         ${costFields}
-        ${placeField}
       </div>
       <div class="form-error se-err"></div>
       <div class="sm-foot">
@@ -686,7 +686,8 @@ const TripCalendar = (() => {
     const scopeHint = body.querySelector('.se-cost-hint');
     const syncScope = () => {
       scopeBox.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === costScope));
-      scopeHint.textContent = costScope === 'personal'
+      // the add form goes without the explanation; the edit form keeps it
+      if (scopeHint) scopeHint.textContent = costScope === 'personal'
         ? 'נכנס לתכנון האישי — רק אצלכם. ב«בפועל» מסמנים אם שולם'
         : 'נכנס לתכנון המשותף. ב«בפועל» מסמנים אם שולם';
     };
