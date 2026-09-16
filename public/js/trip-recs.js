@@ -301,7 +301,7 @@ const TripRecs = (() => {
         msgs.push({ role: 'user', text: q });
         msgs.push({ role: 'ai', html: `כדי לשאול צריך להיות מחוברים — זה לוקח רגע. <button type="button" class="chat-login">התחברות</button>` });
         paint();
-        thread.querySelector('.chat-login:last-of-type')?.addEventListener('click', () => openAuthModal(() => location.reload(), 'login'));
+        thread.querySelector('.chat-login:last-of-type')?.addEventListener('click', () => openAuthModal(() => location.reload(), 'login', 'recs_chat'));
         return;
       }
       // what the model sees of the conversation: the last turns, text only

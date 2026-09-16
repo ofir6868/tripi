@@ -728,7 +728,7 @@
       openAuthModal(async () => {
         await redeemInvite();
         location.reload();
-      }, mode);
+      }, mode, 'join_invited_trip');
     }
 
     // one gate for every edit-protected action (stops, hotels, budget)
@@ -1196,7 +1196,7 @@
     }
     cloneBtn.onclick = () => {
       // cloning needs an account to own the copy — register, then clone right away
-      if (!TRIPMAKER.user) { openAuthModal(doClone, 'register'); return; }
+      if (!TRIPMAKER.user) { openAuthModal(doClone, 'register', 'clone_trip'); return; }
       doClone();
     };
 
@@ -1240,7 +1240,7 @@
       const teCta = endcap.querySelector('.te-cta');
       teCta.onclick = () => {
         // no account yet? register first — that signup is the whole point of this card
-        if (!TRIPMAKER.user) { openAuthModal(() => doClone(teCta), 'register'); return; }
+        if (!TRIPMAKER.user) { openAuthModal(() => doClone(teCta), 'register', 'clone_trip_endcap'); return; }
         doClone(teCta);
       };
     }
@@ -1468,17 +1468,27 @@
       document.getElementById('copy-link-label').textContent = 'העתקת קישור הזמנה';
       document.getElementById('view-link-row').style.display = '';
       document.getElementById('copy-view-link').onclick = async () => {
+        TRIPMAKER.track?.('trip_share', { via: 'copy', kind: 'view', code: trip.share_code, role: 'editor' });
         await TRIPMAKER.copy(tripLink());
         flash('קישור הצפייה הועתק! ✓');
       };
     }
+    // every share leaves a record now: which surface, and whether it handed out
+    // an invite (co-planner) or a view link. Without this, a dead share loop and
+    // an unshared product look identical in the data.
+    const trackShare = (via) => TRIPMAKER.track?.('trip_share', {
+      via, kind: shareInvite ? 'invite' : 'view',
+      code: trip.share_code, is_draft: !!trip.is_draft, role: canEdit ? 'editor' : 'viewer',
+    });
     document.getElementById('wa-share').onclick = () => {
+      trackShare('whatsapp');
       const text = shareInvite
         ? `${trip.emoji || '🧭'} בואו לתכנן איתי את "${trip.title}"!\nנכנסים לקישור, נרשמים בשנייה — ועורכים את הטיול יחד:\n${inviteLink()}`
         : `${trip.emoji || '🧭'} ${trip.title}\n${trip.destination} · ${trip.days} ימים\nקוד טיול: ${trip.share_code}\n${tripLink()}`;
       window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
     };
     document.getElementById('copy-link').onclick = async () => {
+      trackShare('copy');
       await TRIPMAKER.copy(shareInvite ? inviteLink() : tripLink());
       flash(shareInvite ? 'קישור ההזמנה הועתק! ✓' : 'הקישור הועתק! ✓');
     };
@@ -1524,6 +1534,15 @@
           method: 'POST', headers: canEditHeaders || {},
         });
         Object.assign(trip, updated); // no invite_token in the response — the loaded one survives
+        // publishing is what mints a visible share code and turns on every sharing
+        // surface. Until this fires, a trip cannot be shared at all — which is why
+        // "nobody shares" was never a statement about what people want.
+        TRIPMAKER.track?.('trip_published', {
+          code: trip.share_code, days: trip.days,
+          stops: tripItems.length, has_dates: !!trip.start_date,
+          minutes_since_created: trip.created_at
+            ? Math.round((Date.now() - new Date(trip.created_at).getTime()) / 60000) : null,
+        });
         applyDraftState();
         openCelebration();
       } catch (e) {
@@ -1602,6 +1621,27 @@
         });
       }
     }
+
+    // Is a trip ever opened while it is happening? Nothing recorded it, so the
+    // "in-trip companion" question could not be reasoned about at all — the whole
+    // difference between a once-a-year planner and a daily tool. One event on
+    // load, only when today actually falls inside the trip's own dates.
+    (function trackInTripOpen() {
+      if (!trip.start_date) return;
+      const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime(); };
+      const today = startOfDay(Date.now());
+      const start = startOfDay(trip.start_date);
+      const end = trip.end_date
+        ? startOfDay(trip.end_date)
+        : start + Math.max((trip.days || 1) - 1, 0) * 86400000;
+      if (today < start || today > end) return;
+      TRIPMAKER.track?.('trip_open_during', {
+        code: trip.share_code,
+        day: Math.round((today - start) / 86400000) + 1,
+        days: trip.days,
+        role: canEdit ? 'editor' : 'viewer',
+      });
+    }());
 
     // the trip day "today" falls on, else day 1 — where the map opens
     const liveTripDay = () => {

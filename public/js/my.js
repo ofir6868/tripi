@@ -10,7 +10,7 @@
 document.addEventListener('DOMContentLoaded', async () => {
   const wrap = document.getElementById('my-wrap');
   const grid = document.getElementById('my-grid');
-  if (!TRIPMAKER.user) { grid.innerHTML = ''; openAuthModal(() => location.reload()); return; }
+  if (!TRIPMAKER.user) { grid.innerHTML = ''; openAuthModal(() => location.reload(), 'login', 'my_trips'); return; }
   // a draft card shows a "בתכנון" tag where the (not yet revealed) code chip
   // would be; everything else — cover, delete, link — behaves the same
   const card = (t) => `

@@ -39,7 +39,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (!TRIPMAKER.token) {
     locked('צריך להתחבר כדי להיכנס לאזור הניהול.');
-    openAuthModal(() => location.reload());
+    openAuthModal(() => location.reload(), 'login', 'admin');
     return;
   }
   // the cached user can be stale in both directions — ask the server who we are
