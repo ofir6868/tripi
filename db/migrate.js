@@ -1,4 +1,4 @@
-// Migrations 2–25, in order. Idempotent — safe to run on every boot, and the server
+// Migrations 2–26, in order. Idempotent — safe to run on every boot, and the server
 // does (lib/db-bootstrap.js), so a replaced database catches up by itself.
 // Usage: DATABASE_URL=postgres://... node db/migrate.js
 require('../lib/env');
@@ -304,6 +304,26 @@ async function migrate(pool, log = console.log) {
   // wrong in a way the traveller only discovers at the door (lib/opening-hours.js).
   await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS osm_type TEXT`);
   await pool.query(`ALTER TABLE trip_items ADD COLUMN IF NOT EXISTS osm_id TEXT`);
+
+  log('Migration 26: every Google call leaves a daily record of what became of it...');
+  // api_usage is the gate — one atomic count per SKU per month. This is the record beside
+  // it: per SKU per Pacific day, how many calls Google served (billed), rejected (given
+  // back), never answered (kept counted), how many we refused before sending, and how many
+  // the cache answered instead. The admin page (/admin/google) is built from it, and so is
+  // any question of the form "why did the photos stop on the 12th" (lib/api-budget.js).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS api_usage_daily (
+      meter TEXT NOT NULL,
+      day DATE NOT NULL,
+      ok INT NOT NULL DEFAULT 0,
+      rejected INT NOT NULL DEFAULT 0,
+      timeouts INT NOT NULL DEFAULT 0,
+      refused INT NOT NULL DEFAULT 0,
+      cache_hits INT NOT NULL DEFAULT 0,
+      last_error TEXT,
+      last_error_at TIMESTAMPTZ,
+      PRIMARY KEY (meter, day)
+    )`);
 
   log('Done.');
 }

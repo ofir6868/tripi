@@ -84,11 +84,12 @@ npm start          # http://localhost:3000
 | `GOOGLE_PLACES_API_KEY` | מפתח Google Places (New) — אוטוקומפליט של יעדים, וגם תמונות המקומות בכרטיסי ההמלצות. בלעדיו התמונות נופלות חזרה לוויקיפדיה |
 | `AI_MODEL_PLAN` | אופציונלי — המודל של צ'אט התכנון. ברירת מחדל: `AI_MODEL_STRONG`, כי התורות שלו מכניסות מקומות אמיתיים ישר למסלול |
 | `AI_QUOTA_PLAN` / `AI_QUOTA_RECS` / `AI_QUOTA_BUILD` / `AI_QUOTA_EDIT` | אופציונלי — מכסה יומית למשתמש לכל מונה (ברירות מחדל 20 / 30 / 20 / 3). `AI_QUOTA_PLAN=2` הוא הדרך לראות את כרטיס המכסה בלי שישים תורות אמיתיים |
-| `PLACE_PHOTO_MONTHLY_LIMIT` | תקרת בקשות תמונה ל-Google בחודש (ברירת מחדל 900 — מתחת למכסת החינם של 1,000 בדרג Enterprise + Atmosphere). מעבר לתקרה, תמונות מגיעות מוויקיפדיה. כל מקום נמשך פעם אחת ונשמר בקאש **ב-DB** (`api_cache`), כך שגם deploy לא קונה אותו מחדש |
+| `PLACE_PHOTO_MONTHLY_LIMIT` | תקרת הורדות התמונה מ-Google בחודש (ברירת מחדל 900 — מתחת ל-1,000 החינמיות של SKU ‏Place Details Photos). מעבר לתקרה, תמונות מגיעות מוויקיפדיה. כל מקום נמשך פעם אחת ונשמר בקאש **ב-DB** (`api_cache`), כך שגם deploy לא קונה אותו מחדש. כל תקרות Google מוגדרות ב-`lib/google-skus.js`, נספרות לפי החודש של גוגל (שעון פסיפיק), משתחררות לאורך החודש, ומוצגות ב-`/admin/google` |
 | `PLACE_HOURS_MONTHLY_LIMIT` | תקרת בדיקות שעות הפתיחה מול Google בחודש (ברירת מחדל 900 — מתחת למכסת החינם של 1,000 בדרג Enterprise). OSM עונה חינם ובלי מכסה, וגוגל נשאל רק על מה ש-OSM לא ידע |
 | `PLACE_SEARCH_MONTHLY_LIMIT` | תקרת "חוות הדעת השנייה" של Google באימות מקומות (ברירת מחדל 4,000). מעבר לתקרה האימות נשאר על Photon בלבד — **הוורדיקט אף פעם לא הופך ל-`ok` בגלל תקציב**, הוא פשוט נשאר מה ש-OSM אמר |
 | `PLACES_AUTOCOMPLETE_MONTHLY_LIMIT` | תקרת האוטוקומפליט של בוחר המקומות (ברירת מחדל 4,000). מעבר לתקרה הבוחר נופל ל-Photon, בדיוק כמו בלי מפתח |
 | `PLACES_DETAILS_MONTHLY_LIMIT` | תקרת פענוח הקואורדינטות של מקום שנבחר (ברירת מחדל 5,000) |
+| `GOOGLE_MONITORING_KEY` | אופציונלי — JSON של service account עם התפקיד Monitoring Viewer בפרויקט של מפתח ה-Places (גולמי או ב-base64). כשמוגדר, `/admin/google` משווה את המונה שלנו למה שגוגל עצמו ספר. `GOOGLE_MONITORING_PROJECT` דורס את הפרויקט שהמפתח מציין |
 | `GOOGLE_CLIENT_ID` | OAuth 2.0 Client ID מ-Google Cloud |
 | `GOOGLE_CLIENT_SECRET` | OAuth 2.0 Client Secret מ-Google Cloud |
 | `GOOGLE_REDIRECT_URI` | אופציונלי — ברירת מחדל `{origin}/api/auth/google/callback` (בפרודקשן: `https://tripi-caw3.onrender.com/api/auth/google/callback`) |

@@ -111,13 +111,103 @@ router.get('/api/admin/stats', authRequired, adminRequired, async (_req, res) =>
              (SELECT count(*) FROM trip_items)::int                 AS items,
              (SELECT count(*) FROM users WHERE created_at > now() - interval '7 days')::int AS new_users,
              (SELECT count(*) FROM trips WHERE created_at > now() - interval '7 days')::int AS new_trips`);
-    // What the paid APIs have cost this month, per SKU (lib/api-budget.js). A budget
-    // running out degrades a feature quietly — the picker drops to Photon, the cards
-    // drop to Wikipedia — so the number belongs somewhere a human actually looks.
-    const { rows: spend } = await pool.query(
-      `SELECT meter, count FROM api_usage WHERE month = to_char(now(), 'YYYY-MM') ORDER BY meter`
-    );
-    res.json({ ...rows[0], api_spend: spend });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// ---- Google Places: what this month costs, and what each SKU is doing about it ----
+// Everything the /admin/google page shows, in one answer. A budget running out degrades a
+// feature quietly — the picker drops to Photon, the cards drop to Wikipedia — so the
+// numbers belong somewhere a human actually looks, next to what each limit means.
+// Definitions come from lib/google-skus.js, the gate from api_usage, the history from
+// api_usage_daily, and Google's own count from Cloud Monitoring when it is connected.
+router.get('/api/admin/google', authRequired, adminRequired, async (_req, res) => {
+  try {
+    const { flushStats, meter, clock } = require('../lib/api-budget');
+    const { SKUS, CONSOLE_DAILY_QUOTA } = require('../lib/google-skus');
+    const { googleCounts } = require('../lib/google-usage');
+
+    await flushStats(); // the last minute of calls, so the page is not a minute behind
+    const now = new Date();
+    const month = clock.month(now);
+    const today = clock.day(now);
+    const dayOfMonth = clock.ptParts(now).d;
+    const daysInMonth = clock.daysInMonth(now);
+    const since = clock.monthStart(now);
+
+    const [{ rows: usage }, { rows: daily }, google] = await Promise.all([
+      pool.query('SELECT meter, count FROM api_usage WHERE month = $1', [month]),
+      pool.query(
+        `SELECT meter, to_char(day, 'YYYY-MM-DD') AS day, ok, rejected, timeouts, refused, cache_hits,
+                last_error, last_error_at
+         FROM api_usage_daily WHERE day > $1::date - 30 ORDER BY day`, [today]
+      ),
+      googleCounts(since),
+    ]);
+    const used = Object.fromEntries(usage.map((r) => [r.meter, r.count]));
+    const hasKey = !!process.env.GOOGLE_PLACES_API_KEY;
+
+    const skus = SKUS.map((def) => {
+      const m = meter(def.meter);
+      const rows = daily.filter((r) => r.meter === def.meter);
+      const inMonth = rows.filter((r) => r.day.slice(0, 7) === month);
+      const sum = (list, f) => list.reduce((n, r) => n + r[f], 0);
+      const todayRow = rows.find((r) => r.day === today) || null;
+      const spent = used[def.meter] || 0;
+      const allowed = m.allowedNow(now);
+
+      // the pace of the last seven days, carried to the end of the month — a straight
+      // line on purpose: it answers "at this rate", not "what will happen"
+      const week = rows.filter((r) => r.day > clock.day(new Date(now - 7 * 86400000)));
+      const perDay = sum(week, 'ok') / 7 + sum(week, 'timeouts') / 7;
+      const projected = Math.round(spent + perDay * (daysInMonth - dayOfMonth));
+      const over = def.free === null ? 0 : Math.max(0, projected - def.free);
+
+      const lastErr = rows.filter((r) => r.last_error_at).sort((a, b) => new Date(b.last_error_at) - new Date(a.last_error_at))[0];
+      let status = 'ok';
+      if (!hasKey) status = 'off';
+      else if (m.limit !== null && spent >= m.limit) status = 'spent';
+      else if (allowed !== null && spent >= allowed) status = 'paced';
+      else if (m.limit !== null && spent >= m.limit * 0.8) status = 'near';
+
+      return {
+        meter: def.meter, method: def.method, sku: def.sku, tier: def.tier,
+        what: def.what, fallback: def.fallback, where: def.where,
+        free: def.free, price_per_1k: def.pricePer1k, limit: m.limit, env: def.env,
+        used: spent, allowed_now: allowed, projected, projected_cost: +(over * def.pricePer1k / 1000).toFixed(2),
+        status,
+        today: todayRow ? { ok: todayRow.ok, rejected: todayRow.rejected, timeouts: todayRow.timeouts, refused: todayRow.refused, cache_hits: todayRow.cache_hits } : null,
+        month: { ok: sum(inMonth, 'ok'), rejected: sum(inMonth, 'rejected'), timeouts: sum(inMonth, 'timeouts'), refused: sum(inMonth, 'refused'), cache_hits: sum(inMonth, 'cache_hits') },
+        days: rows.map((r) => ({ day: r.day, ok: r.ok, rejected: r.rejected, timeouts: r.timeouts, refused: r.refused, cache_hits: r.cache_hits })),
+        last_error: lastErr ? { text: lastErr.last_error, at: lastErr.last_error_at } : null,
+      };
+    });
+
+    // per API method: the level Google's quotas and its own counters work at
+    const methods = Object.keys(CONSOLE_DAILY_QUOTA).map((method) => {
+      const mine = skus.filter((s) => s.method === method);
+      const t = (f) => mine.reduce((n, s) => n + (s.today ? s.today[f] : 0), 0);
+      return {
+        method,
+        meters: mine.map((s) => s.meter),
+        console_daily_quota: CONSOLE_DAILY_QUOTA[method],
+        // what Google's daily quota sees: every request that reached it, served or not
+        today_sent: t('ok') + t('rejected') + t('timeouts'),
+        month_billed: mine.reduce((n, s) => n + s.used, 0),
+        google: google.methods ? (google.methods[method] || { ok: 0, other: 0 }) : null,
+      };
+    });
+
+    res.json({
+      now: now.toISOString(), month, today, day_of_month: dayOfMonth, days_in_month: daysInMonth,
+      month_start: since.toISOString(), next_reset: clock.nextReset(now).toISOString(),
+      pace_ahead_days: clock.PACE_AHEAD_DAYS, has_key: hasKey,
+      skus, methods,
+      google: { connected: google.connected, error: google.error || null, project: google.project || null, fetched_at: google.fetched_at || null },
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
