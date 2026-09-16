@@ -331,6 +331,28 @@
     </div>
   </section>
 
+  <!-- the closing note. Someone who read this far is the one who knows another
+       person planning a trip, so the last thing on the page is a link to hand them.
+       Signed in it is the visitor's OWN referral link (routes/auth.js) and the copy
+       says what it earns: three friends who sign up through it double their daily AI
+       allowance for good. Signed out it is the plain home page. js/home.js wires it. -->
+  <section class="section" id="share-app">
+    <div class="share-band glass">
+      <div class="share-band-text">
+        <h2>מכירים מישהו ש<span class="accent">חולם על טיול?</span></h2>
+        <p>שלחו להם את טריפ מייקר — דקה אחת, וכבר יש להם מסלול טיול מלא ליעד שהם חולמים עליו, עם כל החבר'ה באותו עמוד.</p>
+        <p class="share-app-note" id="share-app-note" hidden></p>
+      </div>
+      <div class="share-band-actions">
+        <button type="button" class="btn btn-amber" id="share-app-wa">שיתוף בוואטסאפ</button>
+        <button type="button" class="btn btn-ghost" id="share-app-copy">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          העתקת קישור</button>
+      </div>
+      <div class="share-app-feedback" id="share-app-feedback" role="status"></div>
+    </div>
+  </section>
+
   <footer class="site-footer">
     <nav class="seo-footer-links">
       <a href="/destinations">כל היעדים</a> · <a href="/friends">טיול חברים</a> · <a href="/big-trip">תכנון טיול גדול אחרי צבא</a> · <a href="/city-break">סופ"ש ארוך בחו"ל</a> · <a href="/ai-trip-planner">תכנון טיול AI</a> · <a href="/plan">תכנון טיול חדש</a><span class="legal-links"><a href="/terms">תנאי שימוש</a> · <a href="/privacy">מדיניות פרטיות</a> · <a href="/accessibility">הצהרת נגישות</a></span>

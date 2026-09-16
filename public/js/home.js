@@ -494,4 +494,67 @@
   reducedMotion.addEventListener?.('change', maybeDrift);
 
   loadSuggested();
+
+  // ---- share the app ----
+  // The band at the foot of the page hands out a link to TRIP MAKER itself — the
+  // one thing on this page a visitor can give away. Signed in, that link is their
+  // own referral link (/api/me/referral): three friends who sign up through it
+  // double their daily AI allowance for good, so the note says that out loud
+  // instead of asking for a favour. Signed out it is the plain home page, tagged
+  // so analytics.js can tell a shared visit from a search one.
+  (function shareApp() {
+    const wa = document.getElementById('share-app-wa');
+    const copyBtn = document.getElementById('share-app-copy');
+    const note = document.getElementById('share-app-note');
+    const feedback = document.getElementById('share-app-feedback');
+    if (!wa || !copyBtn) return;
+    wa.insertAdjacentHTML('afterbegin', TRIPMAKER.waIcon);
+
+    let link = `${location.origin}/?utm_source=app_share`;
+    let withReferral = false;
+    // the link rides inside the message too: WhatsApp builds its preview card from
+    // the first URL it finds, and a message whose link is only in the head of the
+    // thread is one nobody taps
+    const message = () => `🧭 מצאתי משהו לטיול הבא שלנו — TRIP MAKER: מתכנן טיולים בעברית שבונה מסלול יום-אחר-יום לכל יעד, ומשתפים אותו עם כל החבר'ה בקוד אחד.\nחינם, ולוקח דקה:\n${link}`;
+    const flash = (msg) => {
+      feedback.textContent = msg;
+      setTimeout(() => { feedback.textContent = ''; }, 2500);
+    };
+    const track = (via) => TRIPMAKER.track?.('app_share', { via, referral: withReferral });
+
+    wa.onclick = () => {
+      track('whatsapp');
+      window.open('https://wa.me/?text=' + encodeURIComponent(message()), '_blank', 'noopener');
+    };
+    copyBtn.onclick = async () => {
+      track('copy');
+      const ok = await TRIPMAKER.copy(link);
+      flash(ok ? 'הקישור הועתק! ✓' : 'הדפדפן חסם את ההעתקה — נסו את כפתור הוואטסאפ');
+    };
+
+    // Signed out there is nothing to look up. Signed in the buttons wait for the
+    // referral call: a share that left before it answered would carry the plain
+    // link and silently drop the credit it was sent to earn. But the host naps,
+    // and a cold start can hold a request far longer than anyone waits with a
+    // finger on the button — so after three seconds they open with the plain link.
+    // A share without the code beats a share that never happened.
+    if (!TRIPMAKER.token) return;
+    wa.disabled = true;
+    copyBtn.disabled = true;
+    const enable = () => { wa.disabled = false; copyBtn.disabled = false; };
+    const coldStart = setTimeout(enable, 3000);
+    TRIPMAKER.api('/api/me/referral').then((r) => {
+      if (!r || !r.link) return;
+      link = r.link;
+      withReferral = true;
+      note.hidden = false;
+      const left = Math.max(1, r.needed - r.referred);
+      note.textContent = r.bonus
+        ? 'המכסה היומית שלכם כבר כפולה 💛 — תודה שהבאתם חברים.'
+        : r.referred
+          ? `נרשמו עד עכשיו ${r.referred} מתוך ${r.needed} — עוד ${left === 1 ? 'חבר אחד' : `${left} חברים`}, והמכסה היומית שלכם מוכפלת לתמיד.`
+          : `${r.needed} חברים שנרשמים דרך הקישור שלכם — והמכסה היומית שלכם מוכפלת לתמיד.`;
+    }).catch(() => { /* expired token / offline — the plain link still shares the app */ })
+      .finally(() => { clearTimeout(coldStart); enable(); });
+  })();
 })();

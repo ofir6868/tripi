@@ -321,3 +321,32 @@ html.aaa-motion .search-box {
 .home-what p a { color: var(--amber); text-decoration: none; border-bottom: 1px solid rgba(255, 180, 95, .4); }
 .home-what p a:hover { border-bottom-color: var(--amber); }
 @keyframes bob { 0%, 100% { transform: translate(50%, 0); } 50% { transform: translate(50%, 8px); } }
+
+/* ---------- share the app: the closing band ---------- */
+/* One row on a desktop (words beside buttons), stacked on a phone. The feedback
+   line takes the full basis so the "copied ✓" never shoves the buttons around. */
+.share-band {
+  width: min(880px, calc(100% - 40px)); margin: 0 auto;
+  padding: 30px 32px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 18px 24px; flex-wrap: wrap;
+}
+.share-band-text { flex: 1 1 320px; }
+.share-band h2 {
+  font-family: var(--font-display); font-size: clamp(1.45rem, 3.4vw, 2rem); line-height: 1.15;
+}
+.share-band h2 .accent { color: var(--amber); }
+.share-band p { color: var(--paper-dim); font-weight: 300; line-height: 1.65; margin-top: 8px; }
+/* the referral line: what the link earns the person sending it, in the mint the
+   rest of the app uses for "this went well" */
+.share-band p.share-app-note { color: var(--mint); font-size: .9rem; }
+.share-band-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.share-app-feedback {
+  flex-basis: 100%; min-height: 1.3em;
+  color: var(--mint); font-size: .85rem; text-align: center;
+}
+@media (max-width: 640px) {
+  .share-band { padding: 24px 20px; }
+  .share-band-actions { width: 100%; }
+  .share-band-actions .btn { flex: 1; justify-content: center; }
+}
