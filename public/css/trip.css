@@ -2516,3 +2516,20 @@ body.budget-open { overflow: hidden; }
 }
 .item-shut.maybe { color: rgba(255, 180, 95, .82); border-style: dashed; }
 @media print { .item-shut { color: #8a5a10; background: none; } }
+
+/* The hours on the stop sheet. Neutral when the place is open — it is a fact, not a
+   warning — and amber only when this stop lands outside them. */
+.item-hours {
+  display: flex; align-items: center; gap: 7px;
+  margin: 8px 0 0; padding: 7px 11px;
+  border-radius: var(--radius-sm);
+  font-size: .84rem; color: var(--paper-dim);
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid var(--glass-border);
+  cursor: help;
+}
+.item-hours.shut { color: #ffb45f; background: rgba(255, 180, 95, .1); border-color: rgba(255, 180, 95, .34); }
+.item-hours .ih-icon { flex: none; }
+/* the week view's one-line version of the same mark — a glyph, no words */
+.we-shut { flex: none; font-size: .78rem; line-height: 1; }
+.cal-wevt.shut { border-color: rgba(255, 180, 95, .38); }

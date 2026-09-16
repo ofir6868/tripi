@@ -48,6 +48,7 @@ const { authRequired, authOptional } = require('../lib/auth');
 const { tripWithEditAuth, cleanPlanState, areasCoverTrip } = require('../lib/trips');
 const { dailyQuota, exhausted } = require('../lib/quota');
 const ai = require('./ai');
+const { placeHours, openWindows } = require('../lib/opening-hours');
 
 const router = express.Router();
 
@@ -430,13 +431,45 @@ async function generateBlock(trip, items, { block, days }, { seenByDay, contexts
     try {
       const { cards: verified, dropped } = await ai.verifyRecCards(filed, { dests, areaNames });
       if (dropped) console.warn(`day-recs: trip ${trip.id} day ${d}: ${dropped} of ${filed.length} picks dropped in verification`);
-      results.set(d, verified);
+      results.set(d, await keepOnlyOpen(trip, d, verified));
     } catch (err) {
       console.error(`day-recs: trip ${trip.id} day ${d} verification failed`, err.message);
       results.set(d, null);
     }
   }));
   return results;
+}
+
+// A pick for one named day is the one place in the product where a closed door can be
+// avoided outright rather than reported: unlike a built itinerary, nothing here is
+// anchored yet, and a shut museum can simply be left out of the three suggestions
+// instead of becoming a stop with a warning on it.
+//
+// Only a place known to be shut all that day is dropped. A wrong hour is not — the card
+// keeps its suggested time and the itinerary's own hours pass will fix that once it is
+// added — and a place we know nothing about is never dropped, because absence of hours
+// is not evidence (lib/opening-hours.js). Best effort: if the lookups fail, every card
+// survives exactly as it would have before this existed.
+async function keepOnlyOpen(trip, day, cards) {
+  if (!trip.start_date || !Array.isArray(cards) || !cards.length) return cards;
+  const date = new Date(trip.start_date);
+  if (Number.isNaN(date.getTime())) return cards;
+  date.setDate(date.getDate() + day - 1);
+
+  const kept = [];
+  await Promise.all(cards.map(async (c, i) => {
+    if (!c.osm_id && !c.google_place_id) { kept[i] = c; return; }
+    try {
+      const hours = await placeHours({ osmType: c.osm_type, osmId: c.osm_id, googlePlaceId: c.google_place_id });
+      const windows = openWindows(hours, date);
+      if (windows && !windows.length) {
+        console.log(`day-recs: trip ${trip.id} day ${day}: dropped "${c.title}" — shut all day`);
+        return; // the one case worth dropping
+      }
+    } catch { /* a lookup that failed says nothing about the place */ }
+    kept[i] = c;
+  }));
+  return kept.filter(Boolean);
 }
 
 // =====================================================================

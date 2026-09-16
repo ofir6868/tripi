@@ -302,6 +302,7 @@ const TripCalendar = (() => {
     body.querySelectorAll('.cal-wday-head').forEach((b) => {
       b.onclick = () => { view.mode = 'day'; view.anchor = +b.dataset.day; render(lastContainer, ctx); };
     });
+    TripHours.apply(body, ctx.state.trip.share_code);
     body.querySelectorAll('.cal-wevt').forEach((b) => {
       b.onclick = () => openStop(ctx, +b.dataset.item);
     });
@@ -374,6 +375,9 @@ const TripCalendar = (() => {
     body.querySelectorAll('.cds-btn').forEach((b) => {
       b.onclick = () => { view.anchor = +b.dataset.day; render(lastContainer, ctx); };
     });
+    // the closed-door marks, over the day's stops (public/js/trip-hours.js)
+    TripHours.apply(body, ctx.state.trip.share_code);
+
     body.querySelectorAll('.cal-devt').forEach((b) => {
       b.onclick = (e) => { if (!e.target.closest('a')) openStop(ctx, +b.dataset.item); };
       b.onkeydown = (e) => {
@@ -474,6 +478,27 @@ const TripCalendar = (() => {
     renderStopEdit(ctx, draft, null, true);
   }
 
+  // The hours the place keeps on THIS stop's day, when we hold them. Shown for open and
+  // shut alike: on the sheet there is room to say the useful thing, and "פתוח 09:00–18:00"
+  // is worth more to someone deciding when to go than a card with no line at all. Absent
+  // entirely when nothing is known — a line that says "we don't know" is not information.
+  function hoursLineHtml(it) {
+    const info = typeof TripHours === 'undefined' ? null : TripHours.get(it.id);
+    if (!info) return '';
+    const windows = (info.windows || []).join(', ');
+    const shut = info.verdict === 'closed';
+    const label = shut
+      ? (windows ? `סגור בשעה הזו · פתוח היום ${windows}` : 'סגור ביום הזה')
+      : `פתוח היום ${windows || ''}`.trim();
+    const why = [];
+    if (info.tag) why.push(`שעות הפתיחה: ${info.tag}`);
+    why.push(info.source === 'google' ? 'לפי גוגל' : 'לפי OpenStreetMap');
+    if (info.ignoresHolidays) why.push('לא כולל חגים');
+    why.push('שווה לאמת לפני שיוצאים');
+    return `<div class="item-hours${shut ? ' shut' : ''}" title="${esc(why.join(' · '))}">
+      <span class="ih-icon">${shut ? '🚪' : '🕒'}</span><span>${esc(label)}</span></div>`;
+  }
+
   function renderStopView(ctx, it) {
     const wrap = stopSheet();
     const date = ctx.dayDate(it.day_number);
@@ -504,6 +529,7 @@ const TripCalendar = (() => {
       ${ctx.votes?.on() ? `<div class="sm-votes">${ctx.votes.html(it)}<span class="sm-votes-hint">מה כולם חושבים על התחנה הזו?</span></div>` : ''}
       ${it.note ? `<div class="item-note"${tap('note')}>${esc(it.note)}</div>` : ''}
       ${it.place_query ? `<div class="item-more-place"${tap('place')}><span class="imp-pin">📍</span><span class="imp-text">${esc(it.place_query)}</span></div>` : ''}
+      ${hoursLineHtml(it)}
       ${hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPMAKER.mapsEmbedUrlExact(it)}"></iframe>` : ''}
       ${it.place_query ? '<div class="stop-gallery"></div>' : ''}
       ${hasMap ? `<a class="btn btn-ghost sm-maps" target="_blank" rel="noopener"

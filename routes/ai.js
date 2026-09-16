@@ -7,6 +7,7 @@ const { rateLimiter } = require('../lib/rate-limit');
 const { tripWithEditAuth, cleanDestinations, isParticipant } = require('../lib/trips');
 const { verifyPlaces } = require('../lib/places');
 const { placePhoto } = require('../lib/place-photos');
+const { fitItinerary } = require('../lib/hours-fit');
 // the Hebrew country name → ISO code table the client uses for flags, read here to tell
 // whether a stop landed in a country the traveller actually picked. It lives under
 // public/ because the browser and the service worker load it too — one table, so a
@@ -1206,7 +1207,7 @@ router.post('/api/ai/plan-regions', authRequired, async (req, res) => {
 // exists — "בבת אחת" straight after the clarifying round, or "להשלים את השאר" around
 // the anchors settled in conversation. Returns {questions} when a clarifying round is
 // due and the caller hasn't been through one, else {items, plan, meta}.
-async function buildItinerary({ dests, area = null, from, to, interestList, freeText, answerList, presetRaw = null, existing = [], wantMeta = false, ph }) {
+async function buildItinerary({ dests, area = null, from, to, interestList, freeText, answerList, presetRaw = null, existing = [], wantMeta = false, startDate = null, ph }) {
   const areaNames = dests.map((d) => d.name);
   if (area && !areaNames.includes(area)) throw Object.assign(new Error('אזור לא מוכר'), { status: 400 });
   const broadSingle = dests.length === 1 && (!dests[0].country || dests[0].country === dests[0].name);
@@ -1300,6 +1301,30 @@ async function buildItinerary({ dests, area = null, from, to, interestList, free
   const items = results.flat()
     .sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')))
     .slice(0, 200);
+
+  // The places are verified; now the hours are. The model writes a plausible-looking
+  // clock time with no idea when the door opens, and the first production audit found
+  // that exact shape three times over — a museum and an aquarium at 09:00 that open at
+  // 10:00, and a dinner-only sushi bar booked for breakfast. Each one moves within its
+  // own day to an hour that works, or is left alone and reported. Best effort on a
+  // clock, and skipped entirely for a trip with no dates (lib/hours-fit.js).
+  if (startDate) {
+    try {
+      const fit = await fitItinerary(items, { startDate });
+      if (fit.moved.length) {
+        console.log(`hours: moved ${fit.moved.length} stop(s) to an open hour — ` +
+          fit.moved.map((m) => `${m.title} ${m.from}→${m.to}`).join(' | '));
+      }
+      if (fit.shut.length) {
+        console.log(`hours: ${fit.shut.length} stop(s) shut and not moved — ` +
+          fit.shut.map((x) => `${x.title} (${x.reason})`).join(' | '));
+      }
+    } catch (err) {
+      // a build must never fail over an hour — the page still marks what it finds
+      console.error(`hours: fit failed (${err.message}) — itinerary kept as built`);
+    }
+  }
+
   return {
     items,
     // cities ride along so the client can place an area on the map — a region name
@@ -1367,7 +1392,11 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
       built = await buildItinerary({
         dests, area: area || null, from, to, interestList, freeText, answerList,
         presetRaw: Array.isArray(req.body.plan) ? req.body.plan : null,
-        wantMeta: !!(want_description || req.body.want_meta), ph,
+        wantMeta: !!(want_description || req.body.want_meta),
+        // optional here: this route builds before a trip exists, so the caller is the
+        // only one who knows the dates. Without them the hours pass simply does nothing.
+        startDate: typeof req.body.start_date === 'string' ? req.body.start_date : null,
+        ph,
       });
     } catch (err) {
       if (err.status) return res.status(err.status).json({ error: err.message });
@@ -2292,7 +2321,7 @@ async function verifyRecCards(rawCards, { dests, areaNames }) {
     time: cleanTime(c.time),
     area: areaNames.includes(c.area) ? c.area : (areaNames[0] || null),
     place_query: cleanPlaceQuery(c.place_query),
-    lat: null, lon: null, google_place_id: null, photos: [], photo_credit: null,
+    lat: null, lon: null, google_place_id: null, osm_type: null, osm_id: null, photos: [], photo_credit: null,
   })).filter((c) => c.title && c.place_query);
 
   // verify first — the verdict carries the place_id that a real Google photo needs, and
@@ -2310,6 +2339,9 @@ async function verifyRecCards(rawCards, { dests, areaNames }) {
     }
     if (v && v.verdict === 'ok' && v.best) {
       c.lat = v.best.lat; c.lon = v.best.lon; c.google_place_id = v.best.place_id || null;
+      // the OSM element rides along too, so a card the traveller drops into a day can be
+      // asked about its hours afterwards without geocoding it a second time
+      c.osm_type = v.best.osm_type || null; c.osm_id = v.best.osm_id || null;
       entries.push({ card: c, place_query: c.place_query, cc: v.best.cc, lat: v.best.lat, lon: v.best.lon, geoWhere: v.best.where });
     }
     kept.push(c); // 'skipped' (geocoder quiet) fails open, uncoordinated — same as a build
