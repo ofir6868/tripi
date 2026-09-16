@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v89'; // add-stop moves into the day's header, travel legs lose the dashed border (css/trip.css) on top of v88
+const VERSION = 'v90'; // the add-stop form asks four things and the model picks the category (js/trip-calendar.js, css/trip.css) on top of v89
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first

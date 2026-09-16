@@ -1312,6 +1312,17 @@ body.cal-full-open { overflow: hidden; }
   border-top: 1px solid var(--glass-border);
 }
 .sm-foot .se-save { flex: 1; justify-content: center; }
+/* adding a stop: the button holds while the model names its category (classify-stop) */
+.se-save.is-busy { gap: 8px; cursor: progress; opacity: .92; }
+.se-save.is-busy::before {
+  content: ''; width: 14px; height: 14px; border-radius: 50%; flex: none;
+  border: 2px solid rgba(42, 21, 0, .25); border-top-color: #2a1500;
+  animation: se-spin .7s linear infinite;
+}
+@keyframes se-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .se-save.is-busy::before { animation-duration: 2.4s; } }
+/* the add form is four fields — they sit a little further apart than the full edit */
+.sm-form-new { row-gap: 14px; }
 /* delete rides the sticky foot as a compact icon — always on screen, and the
    cancel button sits between it and the save it must not be mistaken for */
 .sm-del {

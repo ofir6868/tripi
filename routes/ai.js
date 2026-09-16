@@ -2309,6 +2309,64 @@ async function applyClientOps(req, res, mode) {
 router.post('/api/trips/code/:code/recs/apply', authOptional, (req, res) => applyClientOps(req, res, 'apply'));
 router.post('/api/trips/code/:code/recs/undo', authOptional, (req, res) => applyClientOps(req, res, 'undo'));
 
+// A stop added by hand is asked for what it is and when, never what kind of thing it is:
+// the category is chosen here, while the add button waits. It is the smallest call in
+// the codebase — a title and a place in, one word out, on the weak model — and it is
+// never a reason for the stop not to be added: no key, no answer in time, too many
+// asks, a word outside the list — each one answers { category: null }, the stop is
+// saved without one, and its card shows the generic tile. The list is the stop sheet's
+// own (the categories with an icon), plus the travel leg a hand-added flight is.
+//
+// Every category carries a one-line meaning, and "אחר" is a real answer: without the
+// meanings the weak model filed a rooftop cocktail bar under food, a hotel check-in under
+// travel and swimming under view; without "אחר" it forced "meeting Danny" into culture.
+// With both, 15 of 16 typical hand-added stops land right (2026-09-17). אחר → null.
+const STOP_CAT_MEANING = {
+  'אוכל': 'a meal, café, restaurant, bakery, ice cream or food market',
+  'חיי לילה': 'a bar, pub, club or evening drinks',
+  'נסיעה': 'getting from one place to another: flight, train, bus, ferry, drive, transfer',
+  'לינה': 'the hotel or apartment itself: check-in, check-out, resting at the hotel',
+  'ים': 'a beach, swimming, snorkelling, or a boat trip on the sea or a river',
+  'טבע': 'a park, garden, forest, hike, lake or nature walk',
+  'נוף': 'a viewpoint or lookout, a place visited for the view',
+  'תרבות': 'a museum, gallery, church, temple, show or concert',
+  'קניות': 'shopping: a shopping street, mall, a market for goods, souvenirs',
+  'אטרקציה': 'a landmark, monument, square, theme park or sight that fits nothing above',
+};
+const STOP_CATS = Object.keys(STOP_CAT_MEANING);
+const STOP_CAT_SYSTEM = 'You label one stop of a travel itinerary with one category. The categories:\n'
+  + STOP_CATS.map((c) => `${c} — ${STOP_CAT_MEANING[c]}`).join('\n')
+  + '\nאחר — anything that is not a place to visit or a way to get there (meeting someone, free time, packing, a reminder).'
+  + '\nAnswer the single best fit.';
+const classifyLimit = rateLimiter({ windowMs: 10 * 60 * 1000, max: 60, error: '' });
+router.post('/api/trips/code/:code/classify-stop', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const title = String((req.body && req.body.title) || '').trim().slice(0, 120);
+    const place = String((req.body && req.body.place) || '').trim().slice(0, 120);
+    if (!title || !process.env.OPENAI_API_KEY || classifyLimit.blocked(req.ip)) return res.json({ category: null });
+    classifyLimit.hit(req.ip);
+    const r = await aiJson({
+      system: STOP_CAT_SYSTEM,
+      user: `Stop: ${title}${place ? `\nPlace: ${place}` : ''}\nDestination: ${trip.destination || ''}`,
+      schemaName: 'stop_category',
+      schema: {
+        type: 'object', additionalProperties: false, required: ['category'],
+        properties: { category: { type: 'string', enum: [...STOP_CATS, 'אחר'] } },
+      },
+      maxTokens: 30,
+      timeoutMs: 6000,
+      ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
+    });
+    const category = r && STOP_CATS.includes(r.category) ? r.category : null;
+    res.json({ category });
+  } catch (err) {
+    console.error('classify-stop failed', err.message);
+    res.json({ category: null });
+  }
+});
+
 // model-proposed place cards → verified, geolocated, photographed cards; what the
 // recs chat and the planning chat both show. Returns the survivors and how many fell.
 async function verifyRecCards(rawCards, { dests, areaNames }) {

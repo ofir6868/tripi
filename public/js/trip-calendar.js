@@ -568,6 +568,24 @@ const TripCalendar = (() => {
     wrap.querySelector('.modal-stop').scrollTop = 0;
   }
 
+  // A hand-added stop's category, picked by the model from its title and place
+  // (POST …/classify-stop). Quiet by design: a slow model, an error or no answer is a
+  // null category and a generic tile, never a stop that failed to be added. The server
+  // gives up at 6s; the page stops waiting a little after, whatever the network does.
+  async function classifyStop(ctx, title, place) {
+    try {
+      const r = await Promise.race([
+        TRIPMAKER.api(`/api/trips/code/${ctx.trip.share_code}/classify-stop`, {
+          method: 'POST', body: JSON.stringify({ title, place }),
+        }),
+        new Promise((resolve) => setTimeout(() => resolve(null), 7000)),
+      ]);
+      return r && CATS.includes(r.category) ? r.category : null;
+    } catch {
+      return null;
+    }
+  }
+
   // focusSel = the field the user tapped to get here, so the caret lands on it.
   // isNew = the draft of a stop that doesn't exist yet (same form, POST instead of PATCH)
   function renderStopEdit(ctx, it, focusSel, isNew) {
@@ -582,29 +600,24 @@ const TripCalendar = (() => {
     const costValue = existingCost ? existingCost.amount : '';
     let costScope = existingCost && existingCost.scope === 'personal' ? 'personal' : 'shared';
 
-    body.innerHTML = `
-      <div class="sm-day">${isNew ? 'תחנה חדשה' : 'עריכת תחנה'}</div>
-      <h2 class="sm-title sm-edit-head">${isNew ? 'מה מוסיפים למסלול?' : `${stopEmoji(it)} ${esc(it.title)}`}</h2>
-      <div class="form-grid sm-form">
-        <div class="field"><label for="se-day">יום</label>
-          <select id="se-day" class="se-day">${Array.from({ length: ctx.trip.days }, (_, i) => i + 1).map((n) => {
-            const dt = ctx.dayDate(n);
-            return `<option value="${n}"${n === it.day_number ? ' selected' : ''}>יום ${n}${dt ? ` · ${dt.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}` : ''}</option>`;
-          }).join('')}</select></div>
+    // Adding asks four things — what, when, what it costs and whose budget, where. The day
+    // is the one whose header was tapped, the area that day's default, and the category is
+    // the model's to pick while the add button waits (classify-stop). Editing keeps every
+    // field: that is where a traveller goes to change the rest.
+    const timeField = `
         <div class="field"><label for="se-time">שעה <small>(לא חובה)</small></label>
           <div class="se-time-wrap${it.time_label ? ' has-time' : ''}">
             ${timePicker
               ? `<input id="se-time" class="se-time" type="time" value="${esc(it.time_label || '')}" autocomplete="off">`
               : `<input id="se-time" class="se-time" type="text" maxlength="20" value="${esc(it.time_label || '')}" placeholder="למשל 09:00" autocomplete="off">`}
             <button type="button" class="se-time-clear" aria-label="ללא שעה" title="ללא שעה">${icX}</button>
-          </div></div>
+          </div></div>`;
+    const titleField = `
         <div class="field span-2"><label for="se-title">מה עושים? *</label>
           <input id="se-title" class="se-title" type="text" maxlength="120"
-            placeholder="למשל: ארוחת ערב על הגג" value="${esc(it.title)}"></div>
-        <div class="field"><label for="se-cat">קטגוריה</label>
-          <select id="se-cat" class="se-cat">${cats.map((c) =>
-            `<option${c === it.category ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
-        <div class="field"><label for="se-cost">עלות משוערת</label>
+            placeholder="למשל: ארוחת ערב על הגג" value="${esc(it.title)}"></div>`;
+    const costFields = `
+        <div class="field"><label for="se-cost">${isNew ? 'תקציב משוער' : 'עלות משוערת'}</label>
           <input id="se-cost" class="se-cost" type="number" min="0" placeholder="למשל 80"
             value="${costValue}"></div>
         <div class="field span-2 se-scope-field">
@@ -614,21 +627,53 @@ const TripCalendar = (() => {
             <button type="button" data-v="personal">${icLock}<span>אישי</span></button>
           </div>
           <p class="se-cost-hint"></p>
-        </div>
+        </div>`;
+    const placeField = `
+        <div class="field span-2"><label for="se-place">מיקום</label>
+          <input id="se-place" class="se-place" type="text" maxlength="120" autocomplete="off"
+            placeholder="הקלידו ובחרו מהרשימה…" value="${esc(it.place_query || '')}"></div>`;
+    const dayDate = ctx.dayDate(it.day_number);
+
+    body.innerHTML = isNew ? `
+      <div class="sm-day">תחנה חדשה · יום ${it.day_number}${dayDate ? ` · ${dayDate.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}` : ''}</div>
+      <h2 class="sm-title sm-edit-head">מה מוסיפים למסלול?</h2>
+      <div class="form-grid sm-form sm-form-new">
+        ${titleField}
+        ${timeField}
+        ${costFields}
+        ${placeField}
+      </div>
+      <div class="form-error se-err"></div>
+      <div class="sm-foot">
+        <button type="button" class="btn btn-amber se-save"><span class="se-save-label">הוספה למסלול</span></button>
+        <button type="button" class="btn btn-ghost se-cancel">ביטול</button>
+      </div>` : `
+      <div class="sm-day">עריכת תחנה</div>
+      <h2 class="sm-title sm-edit-head">${stopEmoji(it)} ${esc(it.title)}</h2>
+      <div class="form-grid sm-form">
+        <div class="field"><label for="se-day">יום</label>
+          <select id="se-day" class="se-day">${Array.from({ length: ctx.trip.days }, (_, i) => i + 1).map((n) => {
+            const dt = ctx.dayDate(n);
+            return `<option value="${n}"${n === it.day_number ? ' selected' : ''}>יום ${n}${dt ? ` · ${dt.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}` : ''}</option>`;
+          }).join('')}</select></div>
+        ${timeField}
+        ${titleField}
+        <div class="field"><label for="se-cat">קטגוריה</label>
+          <select id="se-cat" class="se-cat">${cats.map((c) =>
+            `<option${c === it.category ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
+        ${costFields}
         ${areas.length ? `<div class="field span-2"><label for="se-area">אזור</label>
           <select id="se-area" class="se-area"><option value="">ללא אזור</option>${areas.map((a) =>
             `<option${a === it.area ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select></div>` : ''}
-        <div class="field span-2"><label for="se-place">מיקום</label>
-          <input id="se-place" class="se-place" type="text" maxlength="120" autocomplete="off"
-            placeholder="הקלידו ובחרו מהרשימה…" value="${esc(it.place_query || '')}"></div>
+        ${placeField}
         <div class="field span-2"><label for="se-note">הערה</label>
           <textarea id="se-note" class="se-note" maxlength="500" placeholder="טיפ, הזמנה, מה שווה לדעת…">${esc(it.note || '')}</textarea></div>
       </div>
       <div class="form-error se-err"></div>
       <div class="sm-foot">
-        <button type="button" class="btn btn-amber se-save">${isNew ? 'הוספה למסלול' : 'שמירה'}</button>
+        <button type="button" class="btn btn-amber se-save">שמירה</button>
         <button type="button" class="btn btn-ghost se-cancel">ביטול</button>
-        ${isNew ? '' : `<button type="button" class="sm-del" title="מחיקת התחנה" aria-label="מחיקת התחנה">${icTrash}</button>`}
+        <button type="button" class="sm-del" title="מחיקת התחנה" aria-label="מחיקת התחנה">${icTrash}</button>
       </div>`;
 
     const placeInput = body.querySelector('.se-place');
@@ -702,20 +747,23 @@ const TripCalendar = (() => {
       if (!title) { err.textContent = 'צריך לכתוב מה עושים'; titleInput.focus(); return; }
       const place = placeInput.value.trim();
       const picked = picker.getPicked();
-      const day = +body.querySelector('.se-day').value;
+      // a new stop has no day, category, area or note field: the day and area come with
+      // the draft, and the category is asked for below
+      const day = isNew ? it.day_number : +body.querySelector('.se-day').value;
       const cost = body.querySelector('.se-cost').value;
       const amount = cost === '' ? 0 : +cost;
       const patch = {
         day_number: day,
         time_label: body.querySelector('.se-time').value.trim() || null,
         title,
-        category: body.querySelector('.se-cat').value || null,
-        note: body.querySelector('.se-note').value.trim() || null,
+        category: isNew ? null : (body.querySelector('.se-cat').value || null),
+        note: isNew ? null : (body.querySelector('.se-note').value.trim() || null),
         place_query: place || null,
         cost: costScope === 'personal' || !(amount > 0) ? null : amount,
       };
       const areaSel = body.querySelector('.se-area');
-      if (areaSel) patch.area = areaSel.value || null;
+      if (isNew) patch.area = it.area || null;
+      else if (areaSel) patch.area = areaSel.value || null;
       // coordinates and the Google id belong to a picked place: a hand-typed edit
       // drops both rather than pointing the map at the previous spot
       if (picked) { patch.lat = picked.lat; patch.lon = picked.lon; patch.google_place_id = picked.place_id || null; }
@@ -725,6 +773,13 @@ const TripCalendar = (() => {
       btn.disabled = true;
       err.textContent = '';
       try {
+        if (isNew) {
+          // the button waits while the model names the category; whatever goes wrong
+          // there, the stop is still added — just without one (the generic tile)
+          btn.classList.add('is-busy');
+          btn.querySelector('.se-save-label').textContent = 'מוסיפים…';
+          patch.category = await classifyStop(ctx, title, place);
+        }
         // the fresh stop's own details page is the confirmation that it landed
         const saved = isNew ? await ctx.addItem(patch) : await ctx.saveItem(it, patch);
         if (costScope === 'personal' && amount > 0) {
@@ -745,6 +800,9 @@ const TripCalendar = (() => {
       } catch (ex) {
         err.textContent = ex.message;
         btn.disabled = false;
+        btn.classList.remove('is-busy');
+        const label = btn.querySelector('.se-save-label');
+        if (label) label.textContent = 'הוספה למסלול';
       }
     };
 

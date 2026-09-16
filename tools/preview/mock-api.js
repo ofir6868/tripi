@@ -292,6 +292,15 @@
           hotels: [], budget: null, expenses, participants: [{ id: 1, name: user.name, is_owner: true }],
         });
       }
+      // the model's category for a hand-added stop — a keyword guess here, and null
+      // (the generic tile) for anything it cannot place, which is the path to preview
+      if (rest === '/classify-stop' && method === 'POST') {
+        const t = `${body.title || ''} ${body.place || ''}`;
+        const guess = [[/ארוח|קפה|מסעד|פיצה|גלידה|שוק אוכל|בר /, 'אוכל'], [/טיסה|רכבת|אוטובוס|מעבורת|נסיעה|העברה/, 'נסיעה'],
+          [/מוזיאון|גלריה|כנסי|מופע|קונצרט/, 'תרבות'], [/פארק|גן |טבע|יער|הליכה/, 'טבע'], [/חוף|ים /, 'ים'],
+          [/קניות|קניון|שוק/, 'קניות'], [/תצפית|נוף/, 'נוף'], [/מלון|צ׳ק אין|צ'ק אין/, 'לינה']].find(([re]) => re.test(t));
+        return json(200, { category: guess ? guess[1] : null });
+      }
       if (rest === '/photos') {
         const stops = {};
         for (const it of items) if (STOP_PHOTOS[it.id]) stops[it.id] = STOP_PHOTOS[it.id];
