@@ -35,6 +35,60 @@
     id: nextId++, trip_id: 1, day_number: day, time_label: time, title, note, place_query: `${title} Rome`,
     category: cat, area: 'רומא', lat, lon, cost: null, google_place_id: null, sort_order: nextId,
   });
+  // The demo trip's stop photos, keyed by the ids its stops are created with (100-108,
+  // in order below). Real ones, fetched once through lib/stop-photos.js's free road
+  // (OSM element -> Wikidata -> Commons). The Spanish Steps have none there, so that card
+  // keeps its emoji tile - the fallback is part of what the preview should show.
+  const STOP_PHOTOS = {
+    "100": {
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/de/Colosseo_2020.jpg/330px-Colosseo_2020.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "credit": "Wikimedia Commons · FeaturedPics · CC BY-SA 4.0",
+      "link": "https://commons.wikimedia.org/wiki/File:Colosseo_2020.jpg",
+      "source": "commons"
+    },
+    "101": {
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/62/Palatine_Hill_from_across_the_Circus_Maximus_April_2019.jpg/330px-Palatine_Hill_from_across_the_Circus_Maximus_April_2019.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "credit": "Wikimedia Commons · Lil Herodotus · CC BY-SA 4.0",
+      "link": "https://commons.wikimedia.org/wiki/File:Palatine_Hill_from_across_the_Circus_Maximus_April_2019.jpg",
+      "source": "commons"
+    },
+    "102": {
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/de/Santa_Maria_in_Trastevere_fountain.jpg/330px-Santa_Maria_in_Trastevere_fountain.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "credit": "Wikimedia Commons · Jensens · Public domain",
+      "link": "https://commons.wikimedia.org/wiki/File:Santa_Maria_in_Trastevere_fountain.jpg",
+      "source": "commons"
+    },
+    "103": {
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0e/Mura_vaticane_-_ingresso_ai_Musei_00410.JPG/330px-Mura_vaticane_-_ingresso_ai_Musei_00410.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "credit": "Wikimedia Commons · user:Lalupa · CC BY-SA 3.0",
+      "link": "https://commons.wikimedia.org/wiki/File:Mura_vaticane_-_ingresso_ai_Musei_00410.JPG",
+      "source": "commons"
+    },
+    "104": {
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f5/Basilica_di_San_Pietro_in_Vaticano_September_2015-1a.jpg/330px-Basilica_di_San_Pietro_in_Vaticano_September_2015-1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "credit": "Wikimedia Commons · Alvesgaspar · CC BY-SA 4.0",
+      "link": "https://commons.wikimedia.org/wiki/File:Basilica_di_San_Pietro_in_Vaticano_September_2015-1a.jpg",
+      "source": "commons"
+    },
+    "105": {
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/7b/Pantheon_%28Rome%29_-_Right_side_and_front.jpg/330px-Pantheon_%28Rome%29_-_Right_side_and_front.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "credit": "Wikimedia Commons · NikonZ7II · CC BY-SA 4.0",
+      "link": "https://commons.wikimedia.org/wiki/File:Pantheon_(Rome)_-_Right_side_and_front.jpg",
+      "source": "commons"
+    },
+    "106": {
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c7/Trevi_Fountain_-_Roma.jpg/330px-Trevi_Fountain_-_Roma.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "credit": "Wikimedia Commons · NikonZ7II · CC BY-SA 4.0",
+      "link": "https://commons.wikimedia.org/wiki/File:Trevi_Fountain_-_Roma.jpg",
+      "source": "commons"
+    },
+    "108": {
+      "url": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/39/Villa_Borghese_-_entrata_2669.JPG/330px-Villa_Borghese_-_entrata_2669.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "credit": "Wikimedia Commons · user:Lalupa · Public domain",
+      "link": "https://commons.wikimedia.org/wiki/File:Villa_Borghese_-_entrata_2669.JPG",
+      "source": "commons"
+    }
+  };
   let items = [
     stop(1, '09:00', 'הקולוסיאום', 'כרטיס משולב עם הפורום — כניסה ב-9:00 לפני החום', 'תרבות', 41.8902, 12.4922),
     stop(1, '12:30', 'הפורום הרומי והפלטין', 'שעתיים של הליכה בין העמודים. כובע ומים', 'תרבות', 41.8925, 12.4853),
@@ -237,6 +291,11 @@
           trip, items, isOwner: true, canEdit: true, isAdmin: false,
           hotels: [], budget: null, expenses, participants: [{ id: 1, name: user.name, is_owner: true }],
         });
+      }
+      if (rest === '/photos') {
+        const stops = {};
+        for (const it of items) if (STOP_PHOTOS[it.id]) stops[it.id] = STOP_PHOTOS[it.id];
+        return json(200, { stops });
       }
       if (rest === '/votes') return json(200, []);
       if (rest === '/expenses' && method === 'POST') {

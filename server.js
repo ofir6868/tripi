@@ -82,6 +82,7 @@ app.use(require('./routes/day-recs'));
 app.use(require('./routes/hotels'));
 app.use(require('./routes/places'));
 app.use(require('./routes/hours'));
+app.use(require('./routes/photos'));
 app.use(require('./routes/push'));
 app.use(require('./routes/analytics'));
 app.use(require('./routes/health'));

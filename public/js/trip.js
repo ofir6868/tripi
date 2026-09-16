@@ -358,6 +358,7 @@
       // a stop that changed day, hour or place is no longer described by the
       // closed-door verdict we hold for it
       TripHours.invalidate();
+      TripPhotos.invalidate();
       renderItinerary();
       updateAmbient();
       return item;
@@ -370,6 +371,7 @@
       tripItems.push(item);
       sortItems();
       TripHours.invalidate();
+      TripPhotos.invalidate();
       renderItinerary();
       updateAmbient();
       return item;
@@ -641,6 +643,7 @@
       // the closed-door marks, drawn over the cards once they exist — never blocking
       // the render, and a no-op when nothing is known (public/js/trip-hours.js)
       TripHours.apply(container, state.trip.share_code);
+      TripPhotos.apply(container, state.trip.share_code); // same kind of pass: trip-photos.js
 
       container.querySelectorAll('.item-card.tappable').forEach((card) => {
         const open = (e) => {
@@ -1340,6 +1343,9 @@
       replaceItems: (list) => {
         tripItems = list;
         sortItems();
+        // new stops, new ids: the closed-door marks and the photos are asked for again
+        TripHours.invalidate();
+        TripPhotos.invalidate();
         renderItinerary();
         updateAmbient();
         // the AI changed the trip: every free day's picks are made again around it

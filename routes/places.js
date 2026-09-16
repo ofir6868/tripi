@@ -19,7 +19,7 @@
 // A spent budget answers exactly like a missing key — 503, and the picker moves to
 // Photon — so the degradation path was already written and already tested.
 const express = require('express');
-const { monthlyMeter, cacheGet, cacheSet, once } = require('../lib/api-budget');
+const { meter, cacheGet, cacheSet, once } = require('../lib/api-budget');
 const { rateLimiter } = require('../lib/rate-limit');
 
 const router = express.Router();
@@ -27,11 +27,10 @@ const KEY = () => process.env.GOOGLE_PLACES_API_KEY || '';
 
 // Ceilings we choose, not allowances Google publishes: each is set below the free tier
 // of its SKU so the default configuration cannot bill, and each is overridable for a
-// deployment that has a budget and wants the better picker. Autocomplete and the
-// location-only Details lookup are the two cheapest tiers; the expensive one in this
-// codebase is the photo fetch (lib/place-photos.js, 1,000/month).
-const acBudget = monthlyMeter('places_autocomplete', 4000, 'PLACES_AUTOCOMPLETE_MONTHLY_LIMIT');
-const detailBudget = monthlyMeter('places_details', 5000, 'PLACES_DETAILS_MONTHLY_LIMIT');
+// deployment that has a budget and wants the better picker. The numbers, and what each
+// call bills as, live in lib/google-skus.js.
+const acBudget = meter('places_autocomplete');
+const detailBudget = meter('places_details');
 
 // Only misses are counted, which is the share-code rule one resource over: legitimate
 // typing repeats prefixes and lands on the cache, while walking the key space cannot.
@@ -74,21 +73,21 @@ router.get('/api/places/autocomplete', async (req, res) => {
       const again = await cacheGet('places_ac', key);
       if (again.hit) return again.value;
       lookupLimit.hit(req.ip);
-      if (!(await acBudget.claim())) return null; // budget spent → the picker uses Photon
 
       // languageCode he: the traveler types Hebrew and reads Hebrew — this picker is
       // exactly the surface Google beats Photon on. Verification never sees these
       // (a picked place arrives with coordinates and skips the AI-place checks).
       const body = { input: q, languageCode: 'he' };
       if (biased) body.locationBias = { circle: { center: { latitude: lat, longitude: lon }, radius: 50000 } };
-      const r = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+      const r = await acBudget.fetch('https://places.googleapis.com/v1/places:autocomplete', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'X-Goog-Api-Key': KEY() },
         body: JSON.stringify(body),
       });
+      if (!r) return null; // budget spent or paced → the picker uses Photon
       if (!r.ok) {
         console.error('places autocomplete', r.status, (await r.text().catch(() => '')).slice(0, 200));
-        return null; // never cached: we paid, but a 500 is not an answer about this query
+        return null; // never cached, and not billed: a 500 is not an answer about this query
       }
       const data = await r.json();
       const rows = (data.suggestions || []).map((s) => s.placePrediction).filter(Boolean).slice(0, 6)
@@ -126,11 +125,10 @@ router.get('/api/places/details', async (req, res) => {
       const again = await cacheGet('places_detail', id);
       if (again.hit) return again.value;
       lookupLimit.hit(req.ip);
-      if (!(await detailBudget.claim())) return null;
-
-      const r = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(id)}`, {
+      const r = await detailBudget.fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(id)}`, {
         headers: { 'X-Goog-Api-Key': KEY(), 'X-Goog-FieldMask': 'location' },
       });
+      if (!r) return null; // budget spent or paced → the picker keeps Photon's coordinates
       if (!r.ok) {
         console.error('places details', r.status, (await r.text().catch(() => '')).slice(0, 200));
         return null;

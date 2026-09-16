@@ -101,7 +101,7 @@ const TripCalendar = (() => {
     return `
       <div class="stop-card ${cls}${travel ? ' travel' : ''}" ${attrs}
         role="button" tabindex="0" title="לחיצה לפרטי התחנה">
-        <span class="sc-media" aria-hidden="true">${stopEmoji(it)}</span>
+        <span class="sc-media" aria-hidden="true" data-photo-stop="${it.id}"><i class="sc-emoji">${stopEmoji(it)}</i></span>
         <span class="sc-body">
           <span class="sc-top">
             ${it.time_label ? `<span class="sc-time">${esc(it.time_label)}</span>` : ''}
@@ -369,6 +369,7 @@ const TripCalendar = (() => {
 
     // night d is the night after day d — the day view ends where the day ends
     TripModals.mountNightCards(ctx, body);
+    TripPhotos.apply(body, ctx.trip.share_code); // photos over the tiles, never blocking the render
 
     body.querySelector('.cds-btn.active')?.scrollIntoView({ block: 'nearest', inline: 'center' });
     body.querySelectorAll('.cds-btn').forEach((b) => {
@@ -506,7 +507,17 @@ const TripCalendar = (() => {
     // in view mode every detail doubles as a shortcut into the field that holds it
     const tap = (field) => ctx.canEdit ? ` data-edit=".se-${field}"` : '';
     const body = wrap.querySelector('.sm-body');
+    // the stop's own photo (trip-photos.js), with the credit its source asks for — the
+    // tile on the card is too small to carry one, so this is where it is shown
+    const photo = TripPhotos.get(it.id);
     body.innerHTML = `
+      ${photo ? `<figure class="sm-photo">
+        <img src="${esc(photo.large || photo.url)}" data-small="${esc(photo.url)}" alt="${esc(it.title)}" decoding="async" referrerpolicy="no-referrer"
+          onerror="if (this.dataset.small && this.src !== this.dataset.small) { this.src = this.dataset.small; } else { this.closest('figure').remove(); }">
+        ${photo.credit ? `<figcaption>${photo.link
+          ? `<a href="${esc(photo.link)}" target="_blank" rel="noopener">📷 ${esc(photo.credit)}</a>`
+          : `📷 ${esc(photo.credit)}`}</figcaption>` : ''}
+      </figure>` : ''}
       <div class="sm-day"${tap('day')}>יום ${it.day_number}${date ? ` · ${date.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}` : ''}</div>
       <h2 class="sm-title"${tap('title')}>${stopEmoji(it)} ${esc(it.title)}</h2>
       <div class="sm-chips">
