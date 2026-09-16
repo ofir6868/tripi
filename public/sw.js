@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v93'; // the stop form's budget switch loses its explanation line in edit too (js/trip-calendar.js, css/trip.css) on top of v92
+const VERSION = 'v94'; // room under the add form's budget switch (css/trip.css) on top of v93
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first

@@ -1314,7 +1314,7 @@ body.cal-full-open { overflow: hidden; }
 @keyframes se-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .se-save.is-busy::before { animation-duration: 2.4s; } }
 /* the add form is four fields — they sit a little further apart than the full edit */
-.sm-form-new { row-gap: 14px; }
+.sm-form-new { row-gap: 14px; padding-bottom: 20px; } /* the budget switch is the last field — room before the sticky foot */
 /* delete rides the sticky foot as a compact icon — always on screen, and the
    cancel button sits between it and the save it must not be mistaken for */
 .sm-del {
