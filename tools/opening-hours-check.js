@@ -110,6 +110,45 @@ for (const [why, pass] of contract) {
   console.log(`${pass ? '  ✓' : '  ✗'} ${why}`);
 }
 
-const total = CASES.length + GOOGLE.length + contract.length;
-console.log(`\n${total - failures}/${total} correct`);
-process.exit(failures ? 1 : 0);
+// The link between the two halves, stubbed so it stays offline and free. It is here
+// because it broke in production and nothing caught it: Photon writes the element kind
+// as a single letter, the OSM API wants the word, and a lookup that quietly answers null
+// for "R" is indistinguishable from a place that has no hours — which is exactly how a
+// full-chain run reported an untagged Louvre in 0ms without ever making the request.
+console.log('\nPhoton → OSM: the element kind survives the handoff\n');
+let asked = null;
+global.fetch = async (url) => {
+  const u = String(url);
+  if (u.includes('photon')) return { ok: true, json: async () => ({ features: [{
+    properties: { name: 'Louvre Museum', city: 'Paris', country: 'France', countrycode: 'FR', osm_type: 'R', osm_id: 7515426 },
+    geometry: { coordinates: [2.337, 48.861] } }] }) };
+  if (u.includes('api.openstreetmap.org')) { asked = u; return { ok: true, json: async () => ({
+    elements: [{ tags: { opening_hours: 'Mo,Th,Sa,Su 09:00-18:00; We,Fr 09:00-21:45; Tu off' } }] }) }; }
+  return { ok: false, status: 404 };
+};
+
+(async () => {
+  const { verifyPlace } = require('../lib/places');
+  const { osmHours } = require('../lib/opening-hours');
+  const v = await verifyPlace('Louvre Museum, Paris, France');
+  const chain = [
+    ['Photon\'s "R" is stored as "relation"', v.best && v.best.osm_type === 'relation'],
+    ['the element id rides along', v.best && v.best.osm_id === '7515426'],
+  ];
+  const h = await osmHours(v.best && v.best.osm_type, v.best && v.best.osm_id);
+  chain.push(['the OSM request is actually made, with the long form', !!asked && asked.includes('/relation/7515426.json')]);
+  chain.push(['and the tag comes back', !!h && h.source === 'osm']);
+  chain.push(['the real Louvre tag: Tuesday is closed', verifyOpen(h, TUE, '10:00').verdict === 'closed']);
+  chain.push(['and Monday is open', verifyOpen(h, MON, '10:00').verdict === 'open']);
+  const legacy = await osmHours('r', '7515426');
+  chain.push(['a row written with the old "r" resolves to the same element', !!legacy && legacy.tag === (h && h.tag)]);
+  chain.push(['an unknown kind is still refused', (await osmHours('banana', '7515426')) === null]);
+  for (const [why, pass] of chain) {
+    if (!pass) failures++;
+    console.log(`${pass ? '  ✓' : '  ✗'} ${why}`);
+  }
+
+  const total = CASES.length + GOOGLE.length + contract.length + chain.length;
+  console.log(`\n${total - failures}/${total} correct`);
+  process.exit(failures ? 1 : 0);
+})();
