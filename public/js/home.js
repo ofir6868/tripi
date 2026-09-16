@@ -496,20 +496,17 @@
   loadSuggested();
 
   // ---- share the app ----
-  // The band at the foot of the page hands out a link to TRIP MAKER itself — the
-  // one thing on this page a visitor can give away. Signed in, that link is their
-  // own referral link (/api/me/referral): three friends who sign up through it
-  // double their daily AI allowance for good, so the reward line says that out loud
-  // instead of asking for a favour. Signed out it is the plain home page, tagged
-  // so analytics.js can tell a shared visit from a search one.
+  // Two surfaces hand out the same thing: the band at the foot of the page, and a
+  // flag pinned to the edge for anyone who never scrolls that far. They share one
+  // link, one message and one reward state — two places that could disagree about
+  // whose link they hand out is exactly one place too many.
+  //
+  // Signed in, that link is the visitor's own referral link (/api/me/referral):
+  // three friends who sign up through it double their daily AI allowance for good,
+  // so the reward line says that out loud instead of asking for a favour. Signed
+  // out it is the plain home page, tagged so analytics.js can tell a shared visit
+  // from a search one.
   (function shareApp() {
-    const wa = document.getElementById('share-app-wa');
-    const copyBtn = document.getElementById('share-app-copy');
-    const feedback = document.getElementById('share-app-feedback');
-    const reward = document.getElementById('share-app-reward');
-    if (!wa || !copyBtn) return;
-    wa.insertAdjacentHTML('afterbegin', TRIPMAKER.waIcon);
-
     let link = `${location.origin}/?utm_source=app_share`;
     let withReferral = false;
     // three beats and out: what it is, what it does, what it costs. The link rides
@@ -517,22 +514,88 @@
     // it finds, and a message whose link is only in the head of the thread is one
     // nobody taps.
     const message = () => `🧭 תכירו את TRIP MAKER — מתכנן טיולים בעברית: אומרים לאן ולכמה זמן, וה-AI בונה מסלול יום-אחר-יום. אחר כך שולחים קוד אחד וכל החבורה מתכננת ביחד.\nחינם, ולוקח דקה:\n${link}`;
-    const flash = (msg) => {
-      feedback.textContent = msg;
-      setTimeout(() => { feedback.textContent = ''; }, 2500);
-    };
-    const track = (via) => TRIPMAKER.track?.('app_share', { via, referral: withReferral });
 
-    wa.onclick = () => {
-      track('whatsapp');
-      window.open('https://wa.me/?text=' + encodeURIComponent(message()), '_blank', 'noopener');
-    };
-    copyBtn.onclick = async () => {
-      track('copy');
-      const ok = await TRIPMAKER.copy(link);
-      flash(ok ? 'הקישור הועתק! ✓' : 'הדפדפן חסם את ההעתקה — נסו את כפתור הוואטסאפ');
-    };
+    // every surface registers its pair of buttons here, so the referral link and the
+    // window where they are still waiting for it reach all of them from one place.
+    // Each brings its own way of saying "copied": the band has a line to write it
+    // on, the flag has a button that becomes a tick.
+    const wired = [];
+    function surface(name, waEl, copyEl, said) {
+      if (!waEl || !copyEl) return;
+      waEl.insertAdjacentHTML('afterbegin', TRIPMAKER.waIcon);
+      const track = (via) => TRIPMAKER.track?.('app_share', { via, surface: name, referral: withReferral });
+      waEl.addEventListener('click', () => {
+        track('whatsapp');
+        window.open('https://wa.me/?text=' + encodeURIComponent(message()), '_blank', 'noopener');
+      });
+      copyEl.addEventListener('click', async () => {
+        track('copy');
+        said(await TRIPMAKER.copy(link));
+      });
+      wired.push(waEl, copyEl);
+    }
 
+    const bandFeedback = document.getElementById('share-app-feedback');
+    surface('band', document.getElementById('share-app-wa'), document.getElementById('share-app-copy'), (ok) => {
+      if (!bandFeedback) return;
+      bandFeedback.textContent = ok ? 'הקישור הועתק! ✓' : 'הדפדפן חסם את ההעתקה — נסו את כפתור הוואטסאפ';
+      setTimeout(() => { bandFeedback.textContent = ''; }, 2500);
+    });
+
+    const flagCopy = document.getElementById('share-flag-copy');
+    const flagSaid = document.getElementById('share-flag-feedback');
+    surface('flag', document.getElementById('share-flag-wa'), flagCopy, (ok) => {
+      flagCopy.classList.add(ok ? 'is-done' : 'is-failed');
+      if (flagSaid) flagSaid.textContent = ok ? 'הקישור הועתק' : 'הדפדפן חסם את ההעתקה';
+      setTimeout(() => {
+        flagCopy.classList.remove('is-done', 'is-failed');
+        if (flagSaid) flagSaid.textContent = '';
+      }, 1800);
+    });
+    if (!wired.length) return;
+
+    // ---- the flag ----
+    const flag = document.getElementById('share-flag');
+    const tab = document.getElementById('share-flag-tab');
+    const rail = document.getElementById('share-flag-rail');
+    if (flag && tab && rail) {
+      const setOpen = (open) => {
+        flag.classList.toggle('open', open);
+        rail.hidden = !open;
+        tab.setAttribute('aria-expanded', String(open));
+      };
+      tab.addEventListener('click', () => {
+        const open = rail.hidden;
+        setOpen(open);
+        if (open) TRIPMAKER.track?.('app_share_open', { surface: 'flag' });
+      });
+      // WhatsApp takes the traveller out of the page; there is nothing left for the
+      // rail to offer when they come back to it. Copy stays open on purpose — the
+      // tick it just turned into is the answer, and closing would take it away.
+      document.getElementById('share-flag-wa')?.addEventListener('click', () => setOpen(false));
+      // click-away and Escape close it. 'click' and not 'pointerdown', for the same
+      // reason the search dropdown uses it: a touch that turns into a scroll swipe
+      // never becomes a click, so a pan that starts outside doesn't slam it shut.
+      document.addEventListener('click', (e) => {
+        if (!rail.hidden && !flag.contains(e.target)) setOpen(false);
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !rail.hidden) { setOpen(false); tab.focus(); }
+      });
+      // once the band is on screen the flag has nothing left to offer — it fades out
+      // rather than sitting beside a card that says the same thing, louder
+      const band = document.getElementById('share-app');
+      if (band) {
+        new IntersectionObserver((entries) => {
+          const seen = entries[0].isIntersecting;
+          flag.classList.toggle('band-visible', seen);
+          if (seen && !rail.hidden) setOpen(false);
+        }, { threshold: 0.2 }).observe(band);
+      }
+      flag.hidden = false;
+    }
+
+    // ---- the referral link, and what it earns ----
     // Signed out there is nothing to look up. Signed in the buttons wait for the
     // referral call: a share that left before it answered would carry the plain
     // link and silently drop the credit it was sent to earn. But the host naps,
@@ -540,9 +603,8 @@
     // finger on the button — so after three seconds they open with the plain link.
     // A share without the code beats a share that never happened.
     if (!TRIPMAKER.token) return;
-    wa.disabled = true;
-    copyBtn.disabled = true;
-    const enable = () => { wa.disabled = false; copyBtn.disabled = false; };
+    wired.forEach((b) => { b.disabled = true; });
+    const enable = () => wired.forEach((b) => { b.disabled = false; });
     const coldStart = setTimeout(enable, 3000);
     TRIPMAKER.api('/api/me/referral').then((r) => {
       if (!r || !r.link) return;
@@ -551,13 +613,16 @@
       const needed = Number(r.needed) || 3;
       const signed = r.bonus ? needed : Math.min(Number(r.referred) || 0, needed);
       const left = Math.max(1, needed - signed);
-      document.getElementById('share-app-pips').innerHTML =
-        Array.from({ length: needed }, (_, i) => `<i${i < signed ? ' class="on"' : ''}></i>`).join('');
-      document.getElementById('share-app-reward-text').textContent = r.bonus
+      const pips = Array.from({ length: needed }, (_, i) => `<i${i < signed ? ' class="on"' : ''}></i>`).join('');
+      const text = r.bonus
         ? 'מכסת ה-AI היומית שלכם כפולה 💛 — תודה שהבאתם חברים'
         : `עוד ${left === 1 ? 'חבר אחד שנרשם' : `${left} חברים שנרשמים`} — ומכסת ה-AI היומית שלכם מוכפלת לתמיד`;
-      reward.classList.toggle('is-bonus', !!r.bonus);
-      reward.hidden = false;
+      document.querySelectorAll('.share-reward').forEach((el) => {
+        el.querySelector('.share-pips').innerHTML = pips;
+        el.querySelector('.share-reward-text').textContent = text;
+        el.classList.toggle('is-bonus', !!r.bonus);
+        el.hidden = false;
+      });
     }).catch(() => { /* expired token / offline — the plain link still shares the app */ })
       .finally(() => { clearTimeout(coldStart); enable(); });
   })();
