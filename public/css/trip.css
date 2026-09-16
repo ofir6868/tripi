@@ -178,8 +178,8 @@
 }
 .sc-map:hover { color: var(--paper); border-color: rgba(143, 216, 196, .4); }
 .sc-map .ic { width: 13px; height: 13px; }
-/* a travel leg (קטגוריה: נסיעה) stays the dashed mint transit row it always was */
-.stop-card.travel { border-style: dashed; border-color: rgba(143, 216, 196, .4); background: rgba(143, 216, 196, .05); box-shadow: none; }
+/* a travel leg (קטגוריה: נסיעה) is a stop like any other card — same border — and
+   only its tile, the mode's icon on a mint ground, says it is a move */
 .stop-card.travel .sc-media { background: rgba(143, 216, 196, .1); border-color: rgba(143, 216, 196, .25); font-size: 1.4rem; }
 @media (max-width: 560px) {
   .stop-card { gap: 10px; padding: 9px 10px; }
@@ -1098,6 +1098,18 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
   transition: background .18s ease, border-color .18s ease;
 }
 .day-route:hover { background: rgba(143, 216, 196, .2); border-color: rgba(143, 216, 196, .5); }
+/* adding a stop lives in the day's own header row, as a pill beside the others — at the
+   row's far end, where the weather used to stand alone (it now follows the button) */
+.day-add-stop {
+  display: inline-flex; align-items: center; gap: 4px; margin-inline-start: auto; cursor: pointer;
+  font-family: var(--font-body); font-size: .82rem; font-weight: 800; color: var(--amber);
+  background: rgba(255, 180, 95, .1); border: 1px solid rgba(255, 180, 95, .35);
+  padding: 4px 12px 4px 10px; border-radius: 999px;
+  transition: background .18s ease, border-color .18s ease;
+}
+.day-add-stop:hover { background: rgba(255, 180, 95, .2); border-color: rgba(255, 180, 95, .6); }
+.day-add-stop .ic { width: 14px; height: 14px; stroke-width: 2.6; }
+.day-add-stop + .day-weather { margin-inline-start: 0; }
 .day-hotels { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 7px; padding-right: 2px; }
 .day-hotel { font-size: .85rem; font-weight: 300; color: var(--paper-dim); }
 

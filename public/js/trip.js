@@ -611,6 +611,7 @@
             ${dayCosts[day] && editMode ? `<span class="day-cost" title="עלות משוערת של היום (בלי לינה)">${TripModals.fmt(dayCosts[day], cur)}</span>` : ''}
             ${routeUrl ? `<a class="day-route" target="_blank" rel="noopener" href="${TRIPMAKER.esc(routeUrl)}"
               title="נפתח בגוגל מפות, בחלון חדש">${TRIPMAKER.routeIcon} מסלול בגוגל מפות ${TRIPMAKER.externalIcon}</a>` : ''}
+            ${editMode ? `<button type="button" class="day-add-stop" data-day="${day}" aria-label="הוספת תחנה ליום ${day}"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg><span>תחנה</span></button>` : ''}
             ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}${w.est ? ' · ממוצע היסטורי' : ''}">${GEO.weatherIcon(w.code)} ${w.max}°</span>` : ''}
           </div>
           ${hotelLines.length ? `<div class="day-hotels">${hotelLines.map((l) =>
@@ -622,7 +623,6 @@
               votes: voteHtml(it), del: editMode, area: multiDest(),
             })).join('')}
             ${editMode ? TripDayRecs.blockHtml(day) : (byDay.get(day).length ? '' : '<div class="empty-day">יום פנוי</div>')}
-            ${editMode ? `<button class="add-item-inline" data-day="${day}">+ הוספת תחנה ליום ${day}</button>` : ''}
           </div>
         </div>
         ${TripModals.nightCardHtml(state, day, { suggest: byDay.get(day).length > 0 })}`;
@@ -679,7 +679,7 @@
             } catch (e) { alert(e.message); b.disabled = false; }
           };
         });
-        container.querySelectorAll('.add-item-inline').forEach((b) => {
+        container.querySelectorAll('.day-add-stop').forEach((b) => {
           b.onclick = () => TripCalendar.openNewStop(calCtx, +b.dataset.day);
         });
       }

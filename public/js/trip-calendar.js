@@ -355,6 +355,7 @@ const TripCalendar = (() => {
         ${dayCost ? `<span class="day-cost" title="עלות משוערת של היום (בלי לינה)">${TripModals.fmt(dayCost, cur)}</span>` : ''}
         ${routeUrl ? `<a class="day-route" target="_blank" rel="noopener" href="${esc(routeUrl)}"
           title="נפתח בגוגל מפות, בחלון חדש">${TRIPMAKER.routeIcon} מסלול בגוגל מפות ${TRIPMAKER.externalIcon}</a>` : ''}
+        ${ctx.canEdit ? `<button type="button" class="day-add-stop cal-add-stop" aria-label="הוספת תחנה ליום ${d}"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg><span>תחנה</span></button>` : ''}
         ${w ? `<span class="day-weather" title="${GEO.weatherLabel(w.code)}${w.est ? ' · ממוצע היסטורי' : ''}">${GEO.weatherIcon(w.code)} ${w.max}°</span>` : ''}
       </div>
       ${hotelLines.length ? `<div class="day-hotels">${hotelLines.map((l) =>
@@ -364,7 +365,6 @@ const TripCalendar = (() => {
           cls: 'cal-devt', attrs: `data-item="${it.id}"`, votes: ctx.votes?.tally(it) || '',
         })).join('')}
         ${ctx.canEdit ? TripDayRecs.blockHtml(d) : (items.length ? '' : '<div class="empty-day" style="border-radius:var(--radius-sm)">יום פנוי — זמן לאלתורים 🌴</div>')}
-        ${ctx.canEdit ? `<button type="button" class="add-item-inline cal-add-stop">+ הוספת תחנה ליום ${d}</button>` : ''}
       </div>
       ${TripModals.nightCardHtml(ctx.state, d, { suggest: items.length > 0 })}`;
 
