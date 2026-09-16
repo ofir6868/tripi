@@ -508,17 +508,10 @@ const TripCalendar = (() => {
     // in view mode every detail doubles as a shortcut into the field that holds it
     const tap = (field) => ctx.canEdit ? ` data-edit=".se-${field}"` : '';
     const body = wrap.querySelector('.sm-body');
-    // the stop's own photo (trip-photos.js), with the credit its source asks for — the
-    // tile on the card is too small to carry one, so this is where it is shown
+    // the stop's own photo (trip-photos.js) leads the photo strip below — one row of
+    // photos, not a header and a strip — and carries its credit into the lightbox
     const photo = TripPhotos.get(it.id);
     body.innerHTML = `
-      ${photo ? `<figure class="sm-photo">
-        <img src="${esc(photo.large || photo.url)}" data-small="${esc(photo.url)}" alt="${esc(it.title)}" decoding="async" referrerpolicy="no-referrer"
-          onerror="if (this.dataset.small && this.src !== this.dataset.small) { this.src = this.dataset.small; } else { this.closest('figure').remove(); }">
-        ${photo.credit ? `<figcaption>${photo.link
-          ? `<a href="${esc(photo.link)}" target="_blank" rel="noopener">📷 ${esc(photo.credit)}</a>`
-          : `📷 ${esc(photo.credit)}`}</figcaption>` : ''}
-      </figure>` : ''}
       <div class="sm-day"${tap('day')}>יום ${it.day_number}${date ? ` · ${date.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}` : ''}</div>
       <h2 class="sm-title"${tap('title')}>${stopEmoji(it)} ${esc(it.title)}</h2>
       <div class="sm-chips">
@@ -532,13 +525,17 @@ const TripCalendar = (() => {
       ${it.place_query ? `<div class="item-more-place"${tap('place')}><span class="imp-pin">📍</span><span class="imp-text">${esc(it.place_query)}</span></div>` : ''}
       ${hoursLineHtml(it)}
       ${hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPMAKER.mapsEmbedUrlExact(it)}"></iframe>` : ''}
-      ${it.place_query ? '<div class="stop-gallery"></div>' : ''}
+      ${it.place_query || photo ? '<div class="stop-gallery"></div>' : ''}
       ${hasMap ? `<a class="btn btn-ghost sm-maps" target="_blank" rel="noopener"
         href="${esc(TRIPMAKER.mapsSearchUrl(it.place_query || `${it.lat},${it.lon}`, it.google_place_id))}">פתיחה בגוגל מפות ›</a>` : ''}
       ${ctx.canEdit ? `<button type="button" class="btn btn-amber sm-edit">${icPencil}<span>עריכת התחנה</span></button>` : ''}`;
 
     const gal = body.querySelector('.stop-gallery');
-    if (gal) GEO.renderGallery(gal, it.place_query);
+    if (gal) {
+      GEO.renderGallery(gal, it.place_query, {
+        lead: photo ? { thumb: photo.url, full: photo.large || photo.url, credit: photo.credit, link: photo.link } : null,
+      });
+    }
 
     // a vote repaints the sheet in place and the calendar behind it (tallies)
     body.querySelectorAll('.vote-btn').forEach((b) => {

@@ -872,6 +872,12 @@ button.dest-chip.dc-add .ic { width: 15px; height: 15px; }
   max-width: 92vw; max-height: 88vh; border-radius: 14px;
   box-shadow: 0 30px 80px -20px rgba(0, 0, 0, .8);
 }
+/* the credit a photo's source asks for — under the photo, when it has one */
+.lightbox { flex-direction: column; gap: 10px; }
+.lightbox img { max-height: 82vh; }
+.lightbox-cap { margin: 0; max-width: 92vw; text-align: center; font-size: .8rem; font-weight: 300; color: var(--paper-dim); }
+.lightbox-cap a { color: inherit; text-decoration: none; }
+.lightbox-cap a:hover { text-decoration: underline; color: var(--paper); }
 
 /* ---------- skeleton loading ---------- */
 /* the placeholders sit inside the real containers (chip, day block, stop card,

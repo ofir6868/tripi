@@ -194,10 +194,18 @@ const TRIPMAKER = {
     items[idx].classList.add('active');
     items[idx].scrollIntoView({ block: 'nearest' });
   },
-  openLightbox(url) {
+  // caption: the photo's credit, when its source asks for one (a stop's verified photo)
+  openLightbox(url, { caption = '', link = '' } = {}) {
     const box = document.createElement('div');
     box.className = 'lightbox';
-    box.innerHTML = `<img src="${String(url).replace(/"/g, '')}" alt="">`;
+    const cap = caption
+      ? `<p class="lightbox-cap">${link && /^https:\/\//.test(link)
+        ? `<a href="${TRIPMAKER.esc(link)}" target="_blank" rel="noopener">📷 ${TRIPMAKER.esc(caption)}</a>`
+        : `📷 ${TRIPMAKER.esc(caption)}`}</p>`
+      : '';
+    box.innerHTML = `<img src="${String(url).replace(/"/g, '')}" alt="">${cap}`;
+    // the credit link opens its page; anywhere else closes the photo
+    box.querySelector('.lightbox-cap a')?.addEventListener('click', (e) => e.stopPropagation());
     box.onclick = () => box.remove();
     document.addEventListener('keydown', function esc(e) {
       if (e.key === 'Escape') { box.remove(); document.removeEventListener('keydown', esc); }

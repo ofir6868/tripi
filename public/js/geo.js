@@ -311,19 +311,32 @@ const GEO = {
     } catch { return []; }
   },
 
-  // fill a container with a horizontal photo strip; removes it when nothing found
-  async renderGallery(container, query) {
-    container.innerHTML = '<span class="gal-ph skl"></span>'.repeat(4);
-    const photos = await this.placePhotos(query);
-    if (!photos.length) { container.remove(); return; }
-    // each photo keeps shimmering in its own slot and fades in once decoded — no empty boxes, no reflow
-    container.innerHTML = photos.map((p) =>
-      `<span class="gal-ph skl"><img src="${p.thumb}" data-full="${p.full}" loading="lazy" alt=""></span>`).join('');
-    container.querySelectorAll('img').forEach((img) => {
+  // fill a container with a horizontal photo strip; removes it when nothing found.
+  // `lead` is the stop's own verified photo (trip-photos.js) — { thumb, full, credit,
+  // link } — and takes the first slot, ahead of the search results, with its credit
+  // shown when it is opened. It is the one photo in the strip we know is of this place.
+  async renderGallery(container, query, { lead = null } = {}) {
+    const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const slot = (p, attrs = '') => `<span class="gal-ph skl"${attrs}><img src="${esc(p.thumb)}" data-full="${esc(p.full)}" loading="lazy" alt=""></span>`;
+    const leadHtml = lead ? slot(lead, ` data-credit="${esc(lead.credit)}" data-link="${esc(lead.link)}" title="${esc(lead.credit)}"`) : '';
+    container.innerHTML = leadHtml + '<span class="gal-ph skl"></span>'.repeat(lead ? 3 : 4);
+    const wire = () => container.querySelectorAll('img:not([data-wired])').forEach((img) => {
+      img.dataset.wired = '1';
       const reveal = () => { img.classList.add('loaded'); img.parentElement.classList.remove('skl'); };
       if (img.complete && img.naturalWidth) reveal(); else img.onload = reveal;
       img.onerror = () => img.parentElement.remove();
-      img.onclick = (e) => { e.stopPropagation(); TRIPMAKER.openLightbox(img.dataset.full); };
+      img.onclick = (e) => {
+        e.stopPropagation();
+        const s = img.parentElement.dataset;
+        TRIPMAKER.openLightbox(img.dataset.full, { caption: s.credit || '', link: s.link || '' });
+      };
     });
+    wire(); // the lead is on screen while the search runs
+    const photos = query ? await this.placePhotos(query) : [];
+    if (!photos.length && !lead) { container.remove(); return; }
+    // each photo keeps shimmering in its own slot and fades in once decoded — no empty boxes, no reflow
+    container.querySelectorAll('.gal-ph:not([data-credit])').forEach((el) => el.remove());
+    container.insertAdjacentHTML('beforeend', photos.map((p) => slot(p)).join(''));
+    wire();
   },
 };
