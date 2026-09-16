@@ -32,7 +32,7 @@ router.get('/api/trips/code/:code/photos', async (req, res) => {
     if (!trip) { codeMissLimit.hit(req.ip); return res.status(404).json({ error: 'הטיול לא נמצא' }); }
 
     const { rows: items } = await pool.query(
-      `SELECT id, osm_type, osm_id, google_place_id
+      `SELECT id, osm_type, osm_id, google_place_id, place_query
        FROM trip_items
        WHERE trip_id = $1 AND category IS DISTINCT FROM 'נסיעה'
          AND (osm_id IS NOT NULL OR google_place_id IS NOT NULL)
@@ -47,7 +47,7 @@ router.get('/api/trips/code/:code/photos', async (req, res) => {
     const stops = {};
     for (let i = 0; i < items.length; i += CONCURRENCY) {
       await Promise.all(items.slice(i, i + CONCURRENCY).map(async (it) => {
-        const p = await stopPhoto({ osmType: it.osm_type, osmId: it.osm_id, googlePlaceId: it.google_place_id }).catch(() => null);
+        const p = await stopPhoto({ osmType: it.osm_type, osmId: it.osm_id, googlePlaceId: it.google_place_id, placeQuery: it.place_query }).catch(() => null);
         if (p && p.url) stops[it.id] = { url: p.url, large: p.large || p.url, credit: p.credit || null, link: p.link || null, source: p.source };
       }));
     }
