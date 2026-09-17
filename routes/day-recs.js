@@ -49,6 +49,7 @@ const { tripWithEditAuth, cleanPlanState, areasCoverTrip, tripPrefsBlock } = req
 const { dailyQuota, exhausted } = require('../lib/quota');
 const ai = require('./ai');
 const { placeHours, openWindows } = require('../lib/opening-hours');
+const { stopPhoto } = require('../lib/stop-photos');
 
 const router = express.Router();
 
@@ -503,6 +504,72 @@ async function snapshot(tripId) {
   return { days, running, ready, waiting };
 }
 
+// =====================================================================
+//  THE PHOTO BACKFILL — rows written before a card could get a real photo
+// =====================================================================
+//
+// Until this pipeline changed, a recommendation card's photo came from placePhoto, whose
+// free half searched Wikipedia by name — and had been broken since it was written (its
+// arguments were passed in the wrong order, so every call threw). The result: almost
+// every stored card carries no photo at all, and the page draws the destination's stock
+// picture instead, the same one on every card of the trip.
+//
+// The cards themselves are fine. Each one carries the OSM element the verifier matched,
+// which is all lib/stop-photos.js needs. So the rows are repaired in place rather than
+// regenerated: no model call, and nothing bought — `spend: false` keeps it to the free
+// road (OSM → Wikidata → Commons) plus Google answers already in the cache. A card that
+// still comes back without a photo is simply left as it is.
+//
+// It runs on the read path, bounded three ways: never while a pass is writing the same
+// rows, at most PHOTO_FILL_MAX cards per request, and a deadline — so a thirty-day trip
+// converges over a couple of page loads instead of holding one request open. Each write
+// is a compare-and-set on the row's own updated_at, so a pass that lands mid-fill wins.
+const PHOTO_FILL_MAX = 12;
+const PHOTO_FILL_MS = 2500;
+const photoFilled = new Set(); // trips with nothing left to fill, for this process
+
+// worth a lookup: a ready card with no photo that still knows which place it is
+const wantsPhoto = (c) => !!c && !(Array.isArray(c.photos) && c.photos.length) && !!(c.osm_id || c.google_place_id);
+
+async function fillCardPhotos(tripId) {
+  if (photoFilled.has(tripId) || inflight.has(tripId)) return;
+  const rows = await readRows(tripId);
+  const targets = [];
+  for (const [day, r] of rows) {
+    if (r.status !== 'ready' || !Array.isArray(r.cards)) continue;
+    for (const card of r.cards) if (wantsPhoto(card)) targets.push({ day, card });
+  }
+  if (!targets.length) { photoFilled.add(tripId); return; }
+
+  const touched = new Set();
+  const work = Promise.all(targets.slice(0, PHOTO_FILL_MAX).map(async ({ day, card }) => {
+    const p = await stopPhoto({
+      osmType: card.osm_type, osmId: card.osm_id, googlePlaceId: card.google_place_id,
+      placeQuery: card.place_query, spend: false,
+    }).catch(() => null);
+    if (!p || !p.url) return;
+    // the card is wide, so it takes the same width the cards are written with
+    card.photos = [p.large || p.url];
+    card.photo_credit = p.credit || null;
+    touched.add(day);
+  }));
+  // whatever landed inside the deadline is written; the rest is the next request's, and
+  // by then every one of these lookups is a cache hit
+  await Promise.race([work, new Promise((done) => { setTimeout(done, PHOTO_FILL_MS); })]);
+  // nothing came back: what is left here is places no free source has a picture of, and
+  // asking again on every reload would only re-read the cache. Progress means try again
+  // next request — there may be more past the cap.
+  if (!touched.size) photoFilled.add(tripId);
+  for (const day of [...touched]) {
+    const row = rows.get(day);
+    await pool.query(
+      `UPDATE trip_day_recs SET cards = $3, updated_at = now()
+       WHERE trip_id = $1 AND day_number = $2 AND status = 'ready' AND updated_at = $4`,
+      [tripId, day, JSON.stringify(row.cards), row.updated_at]
+    ).catch(() => { /* a pass rewrote the row — its cards are newer than ours anyway */ });
+  }
+}
+
 async function markPending(tripId, days) {
   const token = randomUUID();
   await pool.query(
@@ -671,6 +738,9 @@ router.get('/api/trips/code/:code/day-recs', authOptional, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT id FROM trips WHERE share_code = $1', [req.params.code]);
     if (!rows[0]) return res.status(404).json({ error: 'לא נמצא טיול עם הקוד הזה' });
+    // cards stored before this pipeline existed get their photo here, free, before the
+    // snapshot is shaped — so the answer this request carries is already the repaired one
+    await fillCardPhotos(rows[0].id).catch((err) => console.error('day-recs: photo backfill failed', err.message));
     res.json(await snapshot(rows[0].id));
   } catch (err) {
     console.error(err);
@@ -715,6 +785,9 @@ module.exports = router;
 module.exports.regenerate = regenerate;
 module.exports.freeDays = freeDays;
 module.exports.snapshot = snapshot;
+// the repair of cards stored before this pipeline existed — exported so it can be driven
+// without a database or a network behind it
+module.exports.fillCardPhotos = fillCardPhotos;
 // the shape of a pass, without a database or a model behind it: what the areas are,
 // how the days are batched into calls, and what a day's picks depend on.
 // tools/day-recs-plan-check.js runs them over a shelf of trips
