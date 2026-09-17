@@ -26,7 +26,8 @@ const express = require('express');
 const { randomUUID } = require('crypto');
 const { pool } = require('../lib/db');
 const { authRequired } = require('../lib/auth');
-const { tripWithEditAuth, cleanPlanState, areasCoverTrip, PLAN_MODES, PLAN_STAGES } = require('../lib/trips');
+const { tripWithEditAuth, cleanPlanState, areasCoverTrip, tripPrefsBlock, PLAN_MODES, PLAN_STAGES } = require('../lib/trips');
+const flights = require('../lib/flights');
 const { dailyQuota, exhausted } = require('../lib/quota');
 const ai = require('./ai');
 const COUNTRIES = require('../public/js/countries.js');
@@ -186,7 +187,7 @@ const OP_SCHEMA = {
 const TURN_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['text', 'stage', 'build_now', 'approve_pending', 'trip_ready', 'suggestions', 'facts', 'pending_questions', 'areas', 'cards', 'ops'],
+  required: ['text', 'stage', 'build_now', 'approve_pending', 'trip_ready', 'suggestions', 'facts', 'pending_questions', 'areas', 'flights', 'cards', 'ops'],
   properties: {
     text: { type: 'string' },
     stage: { type: 'string', enum: PLAN_STAGES },
@@ -229,6 +230,26 @@ const TURN_SCHEMA = {
       },
     },
     ops: { type: 'array', items: OP_SCHEMA },
+    // the flights card's opening values, and the ONLY thing the model is asked about
+    // flights: which airports, on which day, through where. Never hours — it does not
+    // know them, and a departure it made up is a flight somebody misses. Codes are
+    // checked against public/js/airports.js; one that isn't there drops the whole plan
+    // back to the one this server worked out from the trip itself.
+    flights: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['kind', 'day', 'from', 'to', 'via'],
+        properties: {
+          kind: { type: 'string', enum: ['out', 'inner', 'return'] },
+          day: { type: 'integer' },
+          from: { type: 'string' },
+          to: { type: 'string' },
+          via: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
   },
 };
 
@@ -291,7 +312,7 @@ ${stepwise
 - areas: לקבוע יחד את האזורים וחלוקת הימים. ${splitAreas
     ? `הציעו חלוקה קונקרטית (אזור, ימים, ערים) והחזירו אותה מיד ב-areas (רצף ימים מלא מ-1 עד ${trip.days}, בלי חורים) — המטיילים רואים אותה על לוח שנה ויכולים לצבוע ימים ולשנות; בקשו אישור. כשהוסכם (או כשהמטיילים אישרו חלוקה מהלוח) — עברו ל-flights. אזור = חבל ארץ נפרד שלנים בו (לא עיר ליום): כשכל הטיול נשאר באזור אחד — אל תחלקו, החזירו areas ריק ועברו ישר ל-flights.`
     : `בטיול הזה יש אזור אחד (${areaNames[0] || trip.destination}) — אין מה לחלק ואין מה לשאול: החזירו areas ריק ועברו ישר ל-flights. את הערים והמקומות מתכננים בשלב days, יום אחרי יום.`}
-- flights: הבינו את הטיסות: מאיפה טסים, לאן נוחתים, שעות ומיד קונקשן אם יש, וטיסת החזרה. אל תמציאו שעות טיסה: מה שהמטיילים לא יודעים נשאר בלי time_label ועם הערה "עדכנו את השעה". צרו תחנות נסיעה (category "נסיעה") ליום 1 (המראה, קונקשן אם יש, נחיתה) וליום ${trip.days} (טיסת החזרה), ואז עברו ל-days.
+- flights: **אל תשאלו על טיסות בשיחה ואל תיצרו תחנות טיסה ב-ops.** המטיילים מקבלים כרטיס טיסות ממולא מראש ומתקנים בו מה שצריך — שדות תעופה, יום, שעות (לא חובה) ועצירות ביניים. מה שמוטל עליכם: להחזיר ב-flights את ההצעה שלכם לשדות התעופה — קודי IATA אמיתיים בלבד, kind מתוך out (הלוך, יום 1), inner (טיסה פנימית בין אזורים, ביום שבו האזור מתחלף) ו-return (חזור, יום ${trip.days}), ו-via רק כשקונקשן הוא באמת הדרך המקובלת. בלי שעות — אתם לא יודעים אותן, והכרטיס מבקש אותן מהמטיילים. ב-text: משפט אחד שאומר שמילאתם הצעה ושאפשר לשנות הכול בכרטיס. כשהמטיילים מאשרים את הכרטיס — הטיסות נכנסות למסלול לבד והשלב עובר ל-days.
 - days: אזור אחרי אזור, יום אחרי יום: הציעו 1-2 עוגנים ליום — מקומות אמיתיים ומוכרים שמתאימים למטיילים — ובקשו אישור או שינוי. אל תמלאו ימים בתחנות רבות או ספציפיות מדי; את השאר משלימים אוטומטית בסוף. ביום שבו מתחלף אזור — תחנת נסיעה אחת שמתארת את המעבר.
 - done: כל הימים נדונו. הציעו להשלים את שאר התחנות אוטומטית (יש למטיילים כפתור לזה), או להמשיך לחקור.
 בכל שלב אפשר לחקור: כשהמטיילים שואלים "מה יש ב…", "מה כדאי", "איפה אוכלים" — ענו ב-text והראו 2-3 cards של מקומות אמיתיים (עם תמונות בצד שלנו). cards הן להצגה בלבד — הן לא תחנות; תחנה נכנסת רק דרך ops.
@@ -305,6 +326,7 @@ trip_ready: true רק כשהטיול נראה מגובש — האזורים וה
 facts: הרשימה המלאה והמעודכנת של מה שכבר הוסכם או נודע (העדפות, תשובות, החלטות, טיסות) — עד 20 שורות קצרות. שמרו את הקיימות והוסיפו חדשות; זו הזיכרון שלכם.
 suggestions: 0-3 תשובות קצרות (עד 5 מילים) שסביר שהמטיילים ירצו לענות עכשיו — לא שאלות שלכם.
 areas: [] כשאין שינוי בחלוקה; אחרת החלוקה המלאה. day_from/day_to בין 1 ל-${trip.days}.
+flights: [] בכל שלב שאינו flights, וגם ב-flights ברגע שהכרטיס כבר מולא — ממלאים אותו פעם אחת, והתיקונים של המטיילים בכרטיס גוברים על כל הצעה שלכם.
 
 חוקי ops (כמו בעורך המסלולים): add חייב title קצר בעברית, note טיפ פרקטי קצר בעברית, time_label בפורמט HH:MM (או null כשלא ידוע), day_number בין 1 ל-${trip.days}; place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan") ורק למקום אמיתי וספציפי — לתחנה כללית או לטיסה החזירו null; cost הערכה לאדם בש"ח (מספר שלם) או null; category מתוך: ${ai.AI_CATEGORIES.join(', ')}${multiArea ? `; area מתוך: ${areaNames.join(', ')}` : `; area תמיד "${areaNames[0] || trip.destination}"`}. update/delete חייבים id של תחנה קיימת מהמסלול למטה, וב-update null בכל שדה שלא משתנה. אל תיגעו בתחנות שהמטיילים לא ביקשו לשנות. כל מקום ב-ops או ב-cards חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו.`;
 
@@ -319,7 +341,7 @@ areas: [] כשאין שינוי בחלוקה; אחרת החלוקה המלאה. 
 
   const user =
 `הטיול: "${trip.title}" — ${ai.destDescFull(dests) || trip.destination}, ${trip.days} ימים${dates}.
-${state.interests.length ? `תחומי עניין מהאשף: ${state.interests.join(', ')}.\n` : ''}${state.notes ? `הערות מהאשף: "${state.notes}"\n` : ''}שלב נוכחי: ${state.stage}.
+${tripPrefsBlock(state, { facts: false })}שלב נוכחי: ${state.stage}.
 מה שכבר הוסכם (facts):
 ${facts}
 חלוקת האזורים: ${areasLine}
@@ -358,6 +380,16 @@ function cleanAreas(raw, days) {
   return blocks;
 }
 
+// The flights card's opening values, filled in ONCE — the turn that first reaches the
+// flights stage. The model's airports when it named real ones, the trip's own geography
+// otherwise (lib/flights.js), and after that nobody overwrites them: from here on the
+// card is the travellers', and a later turn that happens to mention flights must not
+// wipe an hour they typed.
+function seedFlights(trip, state, modelLegs = null) {
+  if (state.stage !== 'flights' || state.flights) return;
+  state.flights = { legs: modelLegs || flights.defaultLegs(trip, state), confirmed: false, items: [] };
+}
+
 async function planTurn({ trip, items, state, mode, history, message, pendingProposal, ph }) {
   const stepwise = multiCountry(trip.dests);
   const { system, user } = turnPrompt({ trip, items, state, mode, history, pendingProposal, stepwise });
@@ -391,6 +423,9 @@ async function planTurn({ trip, items, state, mode, history, message, pendingPro
     facts: (raw.facts || []).slice(0, 24).map((s) => String(s).slice(0, 160).trim()).filter(Boolean),
     pendingQuestions: (raw.pending_questions || []).map((s) => String(s).slice(0, 200).trim()).filter(Boolean),
     areas: cleanAreas(raw.areas, trip.days),
+    // null when the model named an airport that is not in the index — the defaults this
+    // server worked out from the trip stand instead (lib/flights.js)
+    flights: flights.legsFromModel(raw.flights, trip.days),
     cards,
     ops: verified.ops || [],
   };
@@ -414,6 +449,7 @@ async function recordTurn(client, trip, state, items, turn, waiting) {
   }
   if (turn.buildNow) { state.build = 'once'; state.stage = 'choose'; }
   else if (state.stage !== 'clarify' && state.stage !== 'choose') state.build = 'steps';
+  seedFlights(trip, state, turn.flights);
 
   const byId = new Map(items.map((it) => [it.id, it]));
   const payload = {
@@ -473,6 +509,12 @@ router.get('/api/trips/code/:code/plan', authRequired, async (req, res) => {
       messages = [await openingMessage(client, trip, req.user.id)];
       await client.query('COMMIT');
     }
+    // a chat reopened at the flights stage — a reload, another co-planner's phone — must
+    // find the card filled, even when the turn that moved it here predates this code
+    if (trip.plan_state.stage === 'flights' && !trip.plan_state.flights) {
+      seedFlights(trip, trip.plan_state);
+      await saveState(pool, trip.id, trip.plan_state).catch(() => { /* the next turn seeds it again */ });
+    }
     res.json({ state: trip.plan_state, messages });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -513,6 +555,96 @@ router.patch('/api/trips/code/:code/plan', authRequired, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// The flights card, confirmed. This is the whole flights stage now: no model call
+// decides anything here, because nothing here is a judgement — the travellers named two
+// airports, a day and, if they knew them, two hours, and those become stops exactly as
+// written (lib/flights.js). Re-confirming replaces the stops the card wrote last time
+// rather than laying a second set of flights beside them.
+//
+// The AI still hears it, the way it hears an approved proposal on the card in /decide:
+// the confirmation is written as the travellers' turn and answered like one, so the
+// conversation moves on to the days by itself instead of stalling on a card that just
+// got a tick. A spent quota costs the answer, never the flights — those are already in.
+router.post('/api/trips/code/:code/plan/flights', authRequired, async (req, res) => {
+  let client = null;
+  try {
+    client = await pool.connect();
+    const trip = await draftWithAuth(req, res);
+    if (!trip) return;
+    const state = trip.plan_state;
+    const skip = !!(req.body || {}).skip;
+    const cleaned = skip ? null : flights.cleanFlights({ legs: (req.body || {}).legs }, trip.days);
+    const legs = cleaned ? cleaned.legs : [];
+    if (!skip && !legs.length) return res.status(400).json({ error: 'צריך לפחות טיסה אחת — או לדלג על השלב' });
+    // the flights stage is the one this confirmation ends; reopened later (a traveller
+    // who finally has their hours) it changes the stops and leaves the conversation alone
+    const advancing = state.stage === 'flights';
+
+    await client.query('BEGIN');
+    // the stops the previous confirmation wrote, and only those: a flight somebody added
+    // by hand in the itinerary is theirs, not this card's, and stays
+    const previous = (state.flights && state.flights.items) || [];
+    if (previous.length) {
+      await client.query('DELETE FROM trip_items WHERE trip_id = $1 AND id = ANY($2::int[])', [trip.id, previous]);
+    }
+    const written = [];
+    for (const row of flights.flightItems(legs, trip, state)) {
+      const { rows } = await client.query(
+        `INSERT INTO trip_items (trip_id, day_number, time_label, title, note, category, area, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7, COALESCE((SELECT MAX(sort_order)+1 FROM trip_items WHERE trip_id=$1), 0))
+         RETURNING id`,
+        [trip.id, row.day_number, row.time_label, row.title, row.note, row.category, row.area]
+      );
+      written.push(rows[0].id);
+    }
+    state.flights = { legs, confirmed: true, items: written };
+    if (advancing) state.stage = 'days';
+    // the planning memory carries the flights in words too: the model reads facts on
+    // every turn, and "when do we land on day 1" is a question the days stage asks
+    const kept = state.facts.filter((f) => !/^(הלוך|חזור|טיסה פנימית) ·/.test(f));
+    state.facts = [...kept, ...legs.map((l) => flights.legLine(l))].slice(-24);
+    const said = (skip
+      ? 'אין לנו עדיין פרטי טיסות — נמשיך לתכנן את הימים'
+      : `✓ ${advancing ? 'אישרנו' : 'עדכנו'} את הטיסות: ${flights.legsSummary(legs)}`).slice(0, AI_PLAN_MAX_MESSAGE);
+    await addMessage(client, trip.id, req.user.id, 'user', said);
+    await saveState(client, trip.id, state);
+    await client.query('COMMIT');
+
+    const items = await loadItems(pool, trip.id);
+    // reopened from the days stage, the answer is not a judgement — it is a receipt, and
+    // a model turn for it would cost a message from the day's allowance to say so
+    if (!advancing) {
+      await client.query('BEGIN');
+      const row = await addMessage(client, trip.id, null, 'ai',
+        legs.length ? `עדכנתי את הטיסות במסלול: ${flights.legsSummary(legs)}` : 'הסרתי את תחנות הטיסה מהמסלול.');
+      await client.query('COMMIT');
+      return res.json({ items, state, said, follow: row });
+    }
+    const quota = await planMeter.check(req);
+    if (!quota || !process.env.OPENAI_API_KEY) return res.json({ items, state, said, quota: quota ? undefined : 'plan' });
+    const thread = await loadThread(trip.id);
+    const history = thread.slice(-PLAN_HISTORY).map((m) => ({ role: m.role, text: historyLine(m) }));
+    const turn = await planTurn({
+      trip, items, state, mode: state.mode, history,
+      message: said + (skip
+        ? '\n(אין פרטי טיסות. אל תשאלו עליהן שוב — המשיכו לשלב days: האזור הראשון, יום 1.)'
+        : '\n(הטיסות כבר נכתבו למסלול — אל תציעו אותן שוב ואל תשאלו עליהן. המשיכו לשלב days: האזור הראשון, יום 1.)'),
+      pendingProposal: null,
+      ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
+    });
+    if (!turn) return res.json({ items, state, said });
+    quota.spend();
+    const answer = await recordTurn(client, trip, state, items, turn, null);
+    res.json({ items: answer.fresh || items, state, said, follow: answer.row, remaining: quota.remaining });
+  } catch (err) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error(err);
+    res.status(client ? 500 : 503).json({ error: client ? 'שגיאת שרת' : 'מסד הנתונים לא זמין כרגע — נסו שוב בעוד רגע' });
+  } finally {
+    if (client) client.release();
   }
 });
 

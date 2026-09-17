@@ -253,6 +253,147 @@ const TripPlan = (() => {
     return blocks;
   }
 
+  // =================================================================
+  //  THE FLIGHTS CARD — the stage that used to be five questions
+  // =================================================================
+  //
+  // Settling the flights was the one part of the conversation that was never a
+  // conversation: where do you fly from, when do you land, is there a connection, and the
+  // same again for the way back — five turns, five model calls, and every answer a
+  // sentence the model had to turn back into a stop. None of it is free text. It is two
+  // airports, a day, two hours nobody always knows, and sometimes a stopover.
+  //
+  // So it is a card: filled in advance (the model's airports, or the ones the server
+  // worked out from the trip — lib/flights.js), every field editable, hours optional, and
+  // one button that writes the flights into the itinerary. The airport picker answers off
+  // the index in memory (public/js/airports.js), so it is instant and keyless.
+  //
+  // The card's element is kept across repaints rather than re-rendered into the thread:
+  // an hour someone is halfway through typing must survive the AI's next message.
+
+  const FLIGHT_KIND = { out: 'טיסת הלוך', inner: 'טיסה פנימית', return: 'טיסת חזור' };
+  const FL_X = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+
+  // what the field shows for an airport: the index's own words for a code we know, and
+  // the traveller's own words for one we don't
+  const airportText = (a) => {
+    if (!a) return '';
+    const k = AIRPORTS.byCode(a.code);
+    return k ? `${k.city}${k.name ? ` · ${k.name}` : ''} (${k.code})` : (a.name || '');
+  };
+
+  // a typed field → the airport it names, or the words themselves. Never a fuzzy best
+  // guess: a half-typed field is not an airport until somebody picks one.
+  function resolveAirport(typed, cur) {
+    const q = String(typed || '').trim();
+    if (!q) return { code: '', name: '' };
+    if (cur && cur.code && airportText(cur) === q) return { code: cur.code, name: cur.name };
+    const hit = AIRPORTS.exact(q);
+    return hit ? { code: hit.code, name: hit.city } : { code: '', name: q.slice(0, 60) };
+  }
+
+  // one closer for every airport dropdown this file opens — a listener per field would
+  // pile up with every rebuild of the card
+  document.addEventListener('click', (e) => {
+    document.querySelectorAll('.pc-flights .autocomplete-list.open').forEach((list) => {
+      if (!list.parentNode.contains(e.target)) list.classList.remove('open');
+    });
+  });
+
+  // The airport picker. The index is in memory, so it answers on the keystroke itself —
+  // no debounce, no network, and no free-text row: a name it doesn't know is simply kept
+  // as typed (resolveAirport), which is what somebody flying from a field we never heard
+  // of actually means.
+  function attachAirportPicker(input, onPick) {
+    const wrap = document.createElement('div');
+    wrap.className = 'autocomplete-wrap';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    const list = document.createElement('div');
+    list.className = 'autocomplete-list glass';
+    wrap.appendChild(list);
+    let hits = [];
+    const close = () => list.classList.remove('open');
+    const open = () => {
+      hits = AIRPORTS.search(input.value.trim(), 6);
+      if (!hits.length) { close(); return; }
+      list.innerHTML = hits.map((a, i) => `
+        <button type="button" class="autocomplete-item" data-i="${i}">
+          <span class="ac-icon">✈️</span>
+          <span class="ac-name">${esc(a.city)}${a.name ? ` · ${esc(a.name)}` : ''}</span>
+          <span class="ac-meta">${esc(a.country)} · ${esc(a.code)}</span>
+        </button>`).join('');
+      list.classList.add('open');
+      list.querySelectorAll('.autocomplete-item').forEach((b) => {
+        b.onclick = () => {
+          const a = hits[+b.dataset.i];
+          input.value = airportText({ code: a.code });
+          close();
+          onPick({ code: a.code, name: a.city });
+        };
+      });
+    };
+    input.addEventListener('input', open);
+    input.addEventListener('focus', () => { if (input.value.trim().length >= 2) open(); });
+    input.addEventListener('keydown', (e) => {
+      const isOpen = list.classList.contains('open');
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && isOpen) {
+        e.preventDefault();
+        TRIPMAKER.acMove(list, e.key === 'ArrowDown' ? 1 : -1);
+      } else if (e.key === 'Enter' && isOpen) {
+        const act = list.querySelector('.autocomplete-item.active') || list.querySelector('.autocomplete-item');
+        if (act) { e.preventDefault(); act.click(); }
+      } else if (e.key === 'Escape') close();
+    });
+  }
+
+  function flightDayOptions(ctx, day) {
+    let out = '';
+    for (let n = 1; n <= ctx.trip.days; n++) {
+      const d = ctx.dayDate ? ctx.dayDate(n) : null;
+      const date = d ? ` · ${d.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })}` : '';
+      out += `<option value="${n}"${n === day ? ' selected' : ''}>יום ${n}${date}</option>`;
+    }
+    return out;
+  }
+
+  const flTime = (label, cls, val, i, k) =>
+    `<label class="fl-time"><span>${label}</span><input type="time" class="${cls}" data-i="${i}"${k != null ? ` data-k="${k}"` : ''} value="${esc(val || '')}" autocomplete="off"></label>`;
+
+  // the id is the leg and the side it belongs to, so every field on the card carries a
+  // label a tap or a screen reader can reach it by
+  const flAir = (label, side, a, i, k) => {
+    const id = `fl-${i}-${side}${k != null ? `-${k}` : ''}`;
+    return `
+    <div class="fl-air-field">
+      <label for="${id}">${label}</label>
+      <input type="text" id="${id}" class="fl-air" data-i="${i}"${k != null ? ` data-k="${k}"` : ''} data-side="${side}"
+        value="${esc(airportText(a))}" placeholder="עיר, שדה תעופה או קוד…" maxlength="60" autocomplete="off">
+    </div>`;
+  };
+
+  function flightLegHtml(ctx, leg, i) {
+    const stops = leg.stops.map((s, k) => `
+      <div class="fl-stop">
+        ${flAir('עצירת ביניים', 'stop', s, i, k)}
+        ${flTime('נחיתה', 'fl-t-sarrive', s.arrive, i, k)}
+        ${flTime('המראה', 'fl-t-sdepart', s.depart, i, k)}
+        <button type="button" class="fl-x" data-act="stop-del" data-i="${i}" data-k="${k}" aria-label="הסרת עצירת הביניים">${FL_X}</button>
+      </div>`).join('');
+    return `
+      <div class="fl-leg">
+        <div class="fl-leg-head">
+          <span class="fl-kind">${esc(FLIGHT_KIND[leg.kind] || 'טיסה')}</span>
+          <select class="fl-day" data-i="${i}" aria-label="יום הטיסה">${flightDayOptions(ctx, leg.day)}</select>
+          <button type="button" class="fl-x fl-leg-x" data-act="leg-del" data-i="${i}" aria-label="הסרת הטיסה">${FL_X}</button>
+        </div>
+        <div class="fl-row fl-airports">${flAir('ממריאים מ', 'from', leg.from, i)}${flAir('נוחתים ב', 'to', leg.to, i)}</div>
+        <div class="fl-row fl-times">${flTime('המראה', 'fl-t-depart', leg.depart, i)}${flTime('נחיתה', 'fl-t-arrive', leg.arrive, i)}</div>
+        ${stops}
+        ${leg.stops.length < 2 ? `<button type="button" class="fl-add" data-act="stop-add" data-i="${i}">+ עצירת ביניים</button>` : ''}
+      </div>`;
+  }
+
   // מצב אוטומטי / ידני of the planning chat lives in the trip's plan state on the
   // server — it follows the traveller between devices, and the trip page can turn it on
   // from outside ("עבור לסוכן החכם") before this chat ever paints.
@@ -333,11 +474,16 @@ const TripPlan = (() => {
       // message just asked, and they get painted as the choice, wide and loud, instead
       // of two quiet chips that scroll away with the rest
       const choosing = state.stage === 'choose' && sugg.length > 1;
+      // flight hours arrive weeks after the flights do — the card comes back on a chip,
+      // instead of the traveller having to describe the change in words
+      const reopenFlights = !busy && loaded && !flightsOpen && state.flights && state.flights.confirmed && state.stage !== 'flights';
       chips.className = choosing ? 'chat-chips chips-choice' : 'chat-chips';
       chips.innerHTML = sugg.map((q) => `<button type="button" class="chat-chip${choosing ? ' chip-choice' : ''}">${esc(q)}</button>`).join('') +
-        (fill ? `<button type="button" class="chat-chip chip-build" id="plan-fill">${esc(FILL_CHIP)}</button>` : '');
-      chips.querySelectorAll('.chat-chip:not(.chip-build)').forEach((b) => { b.onclick = () => send(b.textContent); });
+        (fill ? `<button type="button" class="chat-chip chip-build" id="plan-fill">${esc(FILL_CHIP)}</button>` : '') +
+        (reopenFlights ? '<button type="button" class="chat-chip chip-flights" id="plan-flights-edit">✈️ עדכון הטיסות</button>' : '');
+      chips.querySelectorAll('.chat-chip:not(.chip-build):not(.chip-flights)').forEach((b) => { b.onclick = () => send(b.textContent); });
       chips.querySelector('#plan-fill')?.addEventListener('click', () => build(true));
+      chips.querySelector('#plan-flights-edit')?.addEventListener('click', () => { flightsOpen = true; paint(); });
       chips.hidden = !chips.children.length;
     }
 
@@ -359,11 +505,194 @@ const TripPlan = (() => {
       paintArea = palette[0].area;
     }
 
+    // the flights card's own state. `flightCard` is a live element, not markup: a repaint
+    // re-appends it, so an hour half-typed into it survives the AI's next message.
+    let flightLegs = null;
+    let flightCard = null;
+    let flightsFrom = null;
+    let flightsBusy = false;
+    let flightsOpen = false; // reopened from the chip, after the flights were settled
+
+    function syncFlights() {
+      const f = state.flights;
+      const show = loaded && f && ((state.stage === 'flights' && !f.confirmed) || flightsOpen);
+      if (!show) { flightLegs = null; flightCard = null; flightsFrom = null; return; }
+      const key = JSON.stringify(f.legs) + (flightsOpen ? '|open' : '');
+      if (flightsFrom === key && flightCard) return; // what is typed in the card stays
+      flightsFrom = key;
+      flightLegs = JSON.parse(JSON.stringify(f.legs || []));
+      flightCard = document.createElement('div');
+      flightCard.className = 'plan-card pc-flights';
+      renderFlightCard();
+    }
+
+    function renderFlightCard() {
+      if (!flightCard) return;
+      const legs = flightLegs || [];
+      flightCard.innerHTML = `
+        <div class="pc-head">✈️ הטיסות</div>
+        <p class="pc-text-p">${flightsOpen
+          ? 'מה שתשנו כאן יחליף את תחנות הטיסה שבמסלול.'
+          : 'מילאתי הצעה לפי היעדים שלכם — תקנו מה שצריך. שעות הן לא חובה, ואפשר להוסיף עצירות ביניים.'}</p>
+        <div class="fl-legs">${legs.map((l, i) => flightLegHtml(ctx, l, i)).join('')
+          || '<p class="pc-note">אין כאן טיסות — אפשר להוסיף אחת, או לדלג.</p>'}</div>
+        <button type="button" class="fl-add fl-add-leg" data-act="leg-add">+ טיסה נוספת</button>
+        <div class="pc-foot">
+          <button type="button" class="btn btn-amber fl-save"${flightsBusy ? ' disabled' : ''}>${ICON.check} ${flightsOpen ? 'עדכון הטיסות' : 'שומרים את הטיסות'}</button>
+          <button type="button" class="btn btn-ghost fl-skip"${flightsBusy ? ' disabled' : ''}>${flightsOpen ? 'ביטול' : 'אין לנו טיסות עדיין'}</button>
+        </div>`;
+      // the picker is attached per field, and a rebuild makes new fields — so it is
+      // attached here rather than once, and the pick writes straight into the model
+      flightCard.querySelectorAll('.fl-air').forEach((input) => {
+        attachAirportPicker(input, (picked) => {
+          const leg = flightLegs[+input.dataset.i];
+          if (!leg) return;
+          if (input.dataset.side === 'stop') Object.assign(leg.stops[+input.dataset.k] || {}, picked);
+          else leg[input.dataset.side] = picked;
+        });
+      });
+    }
+
+    // The card is the truth about what is typed in it; flightLegs is the truth about its
+    // structure. Read before anything rebuilds the markup, and before saving.
+    function readFlightCard() {
+      if (!flightCard || !flightLegs) return;
+      const legOf = (el) => flightLegs[+el.dataset.i];
+      flightCard.querySelectorAll('.fl-day').forEach((sel) => { if (legOf(sel)) legOf(sel).day = +sel.value; });
+      const times = [
+        ['.fl-t-depart', (leg, el) => { leg.depart = el.value; }],
+        ['.fl-t-arrive', (leg, el) => { leg.arrive = el.value; }],
+        ['.fl-t-sarrive', (leg, el) => { if (leg.stops[+el.dataset.k]) leg.stops[+el.dataset.k].arrive = el.value; }],
+        ['.fl-t-sdepart', (leg, el) => { if (leg.stops[+el.dataset.k]) leg.stops[+el.dataset.k].depart = el.value; }],
+      ];
+      for (const [sel, apply] of times) {
+        flightCard.querySelectorAll(sel).forEach((el) => { const leg = legOf(el); if (leg) apply(leg, el); });
+      }
+      flightCard.querySelectorAll('.fl-air').forEach((input) => {
+        const leg = legOf(input);
+        if (!leg) return;
+        if (input.dataset.side === 'stop') {
+          const stop = leg.stops[+input.dataset.k];
+          if (stop) Object.assign(stop, resolveAirport(input.value, stop));
+        } else {
+          leg[input.dataset.side] = resolveAirport(input.value, leg[input.dataset.side]);
+        }
+      });
+    }
+
+    // add / remove a leg or a stopover: read what is on screen, change the shape, redraw
+    function editFlights(fn) {
+      readFlightCard();
+      fn();
+      renderFlightCard();
+    }
+
+    function addLeg() {
+      // a new leg starts where the trip currently is — the last flight that was not the
+      // way home, since chaining off the return leg would start it back at TLV. One end
+      // pre-filled, so only the other has to be typed.
+      const prior = [...flightLegs].reverse().find((l) => l.kind !== 'return');
+      const last = flightLegs[flightLegs.length - 1];
+      flightLegs.push({
+        kind: 'inner',
+        day: Math.min((prior ? prior.day : (last ? last.day : 0)) + 1, ctx.trip.days),
+        from: prior ? { ...prior.to } : { code: '', name: '' },
+        to: { code: '', name: '' },
+        depart: '', arrive: '', stops: [],
+      });
+    }
+
+    async function saveFlights() {
+      if (flightsBusy || busy || !flightLegs) return;
+      readFlightCard();
+      const legs = flightLegs;
+      const named = (a) => !!(a && (a.code || a.name));
+      if (!legs.length || legs.some((l) => !named(l.from) || !named(l.to))) {
+        TripPages.toast('לכל טיסה צריך שדה תעופה בשני הקצוות');
+        return;
+      }
+      flightsBusy = true;
+      busy = true;
+      renderFlightCard();
+      paint();
+      try {
+        const r = await api(ctx, '/flights', { method: 'POST', body: JSON.stringify({ legs }) });
+        state = r.state;
+        ctx.trip.plan_state = state;
+        if (r.items) ctx.replaceItems(r.items);
+        if (r.said) msgs.push({ role: 'user', text: r.said, payload: {} });
+        if (r.follow) msgs.push(shape(r.follow));
+        flightsOpen = false;
+        flightLegs = null;
+        flightCard = null;
+        flightsFrom = null;
+        flightsBusy = false;
+        busy = false;
+        paint();
+        if (r.quota) { outOfQuota(r.quota); return; }
+        TripPages.toast('הטיסות נכנסו למסלול ✓', 'ok');
+        TRIPMAKER.track?.('plan_flights', { code: ctx.trip.share_code, legs: legs.length });
+      } catch (err) {
+        flightsBusy = false;
+        busy = false;
+        renderFlightCard();
+        paint();
+        TripPages.toast((err && err.message) || 'לא הצלחתי לשמור את הטיסות');
+      }
+    }
+
+    // "אין לנו טיסות עדיין" — the stage moves on and nothing is written. Reopened from
+    // the chip, the same button is a plain ביטול and touches nothing at all.
+    async function skipFlights() {
+      if (flightsBusy || busy) return;
+      if (flightsOpen) {
+        flightsOpen = false;
+        flightLegs = null;
+        flightCard = null;
+        flightsFrom = null;
+        paint();
+        return;
+      }
+      flightsBusy = true;
+      busy = true;
+      renderFlightCard();
+      paint();
+      try {
+        const r = await api(ctx, '/flights', { method: 'POST', body: JSON.stringify({ skip: true }) });
+        state = r.state;
+        ctx.trip.plan_state = state;
+        if (r.items) ctx.replaceItems(r.items);
+        if (r.said) msgs.push({ role: 'user', text: r.said, payload: {} });
+        if (r.follow) msgs.push(shape(r.follow));
+        flightLegs = null;
+        flightCard = null;
+        flightsFrom = null;
+        flightsBusy = false;
+        busy = false;
+        paint();
+        if (r.quota) outOfQuota(r.quota);
+      } catch (err) {
+        flightsBusy = false;
+        busy = false;
+        renderFlightCard();
+        paint();
+        TripPages.toast((err && err.message) || 'לא הצלחתי — נסו שוב');
+      }
+    }
+
     function paint() {
       const la = latestApplied();
       syncCalendar();
+      syncFlights();
       thread.innerHTML = msgs.map((m, i) => msgHtml(m, i, la, ctx)).join('') +
         (dayAreas ? areaCalendarHtml(ctx, dayAreas, palette, paintArea) : '');
+      // re-appended, never re-rendered: the element holds what is typed in it. Its two
+      // buttons are the one thing a repaint does touch — they follow `busy`, so the card
+      // never offers a save while the chat is mid-turn.
+      if (flightCard) {
+        thread.appendChild(flightCard);
+        flightCard.querySelectorAll('.fl-save, .fl-skip').forEach((b) => { b.disabled = busy || flightsBusy; });
+      }
       // while a card shows its own "מכניסים למסלול…" the thinking bubble would be saying
       // the same thing twice — it waits until the card has flipped
       if (busy && !deciding) thread.insertAdjacentHTML('beforeend', `
@@ -596,6 +925,18 @@ const TripPlan = (() => {
       const pal = e.target.closest('.rp-area');
       if (pal) { paintArea = pal.dataset.a; paint(); return; }
       if (e.target.closest('.pa-confirm')) { confirmAreas(); return; }
+      const fl = e.target.closest('.fl-x, .fl-add, .fl-save, .fl-skip');
+      if (fl) {
+        if (fl.classList.contains('fl-save')) { saveFlights(); return; }
+        if (fl.classList.contains('fl-skip')) { skipFlights(); return; }
+        const i = +fl.dataset.i;
+        const k = +fl.dataset.k;
+        if (fl.dataset.act === 'leg-add') editFlights(addLeg);
+        else if (fl.dataset.act === 'leg-del') editFlights(() => flightLegs.splice(i, 1));
+        else if (fl.dataset.act === 'stop-add') editFlights(() => flightLegs[i].stops.push({ code: '', name: '', arrive: '', depart: '' }));
+        else if (fl.dataset.act === 'stop-del') editFlights(() => flightLegs[i].stops.splice(k, 1));
+        return;
+      }
       const media = e.target.closest('.rec-media');
       if (media) {
         const el = media.closest('.rec-card');

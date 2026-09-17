@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v94'; // room under the add form's budget switch (css/trip.css) on top of v93
+const VERSION = 'v95'; // the flights card and its airport index on top of v94
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first
@@ -15,7 +15,7 @@ const STATIC = [
   '/js/trip-pages.js', '/js/trip-recs.js', '/js/trip-dayrecs.js', '/js/trip-hours.js', '/js/trip-photos.js', '/js/trip-docs.js', '/js/doc-classify.js', '/js/doc-text.js',
   '/js/trip-modals.js', '/js/trip-arrange.js', '/js/trip-calendar.js', '/js/trip-map.js',
   '/js/plan.js', '/js/admin.js', '/js/admin-google.js', '/js/my.js',
-  '/js/countries.js', '/js/destinations.js', '/js/popular.js', '/js/datepicker.js', '/js/push.js', '/js/webmcp.js', '/js/webmcp-tools.js',
+  '/js/countries.js', '/js/airports.js', '/js/destinations.js', '/js/popular.js', '/js/datepicker.js', '/js/push.js', '/js/webmcp.js', '/js/webmcp-tools.js',
   '/js/analytics.js',
   '/vendor/leaflet/leaflet.js', '/vendor/leaflet/leaflet.css',
   // the two Hebrew faces, so an offline shell is set in its own typefaces rather

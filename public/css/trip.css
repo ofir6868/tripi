@@ -74,22 +74,6 @@
   color: var(--mint); font-family: var(--font-body); font-weight: 700; font-size: .85rem; cursor: pointer;
 }
 
-/* ---- AI edit box ---- */
-.ai-edit-card {
-  margin-top: 16px; padding: 20px 22px;
-  border: 1px solid rgba(255, 180, 95, .35);
-  background: linear-gradient(135deg, rgba(255, 180, 95, .08), var(--glass));
-}
-.ai-edit-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.ai-edit-title { font-weight: 800; font-size: 1.05rem; color: var(--amber); }
-.ai-edit-sub { margin: 6px 0 12px; font-size: .92rem; color: var(--paper-dim); font-weight: 300; }
-/* the card's one control: the handover to the agent's chat. On a phone it takes the
-   full width — it is the only thing to press here */
-.ai-edit-cta { justify-content: center; }
-@media (max-width: 560px) {
-  .ai-edit-cta { width: 100%; }
-}
-
 
 .day-block { margin-top: 26px; }
 
@@ -1729,6 +1713,8 @@ body.page-open { overflow: hidden; }
 .dr-block { margin: 2px 0 10px; }
 .dr-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .dr-title { font-weight: 700; font-size: .9rem; color: var(--amber); }
+/* what the picks were chosen around — the interest chips, named where they are acted on */
+.dr-prefs { display: block; margin: -2px 0 8px; font-size: .78rem; color: var(--paper-dim); }
 .dr-refresh {
   margin-inline-start: auto; display: inline-flex; align-items: center; gap: 6px;
   padding: 6px 11px; border-radius: 999px; cursor: pointer;
@@ -1898,6 +1884,64 @@ body.page-open { overflow: hidden; }
 .pc-areas .region-cal { margin-top: 4px; }
 .pc-areas .region-palette { margin-top: 10px; }
 .pc-areas .pc-foot { margin-top: 12px; }
+
+/* the flights card: what used to be five questions and five model calls, as one short
+   form. Two airports, a day, two optional hours and a stopover row that appears on ask. */
+.plan-card.pc-flights { width: min(640px, 100%); }
+.pc-flights .pc-text-p { margin-bottom: 12px; }
+.fl-legs { display: flex; flex-direction: column; gap: 12px; }
+.fl-leg { border: 1px solid var(--glass-border); border-radius: 14px; padding: 10px 12px 12px; background: var(--glass-strong); }
+.fl-leg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.fl-kind { font-weight: 800; font-size: .88rem; color: var(--amber); white-space: nowrap; }
+.fl-row, .fl-stop { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px; }
+.fl-stop { padding-inline-start: 10px; border-inline-start: 2px solid rgba(255, 180, 95, .35); }
+.fl-air-field { flex: 1 1 0; min-width: 0; }
+.fl-air-field > label, .fl-time > span { display: block; font-size: .76rem; font-weight: 700; color: var(--paper-dim); margin-bottom: 4px; }
+.fl-air-field .autocomplete-wrap { width: 100%; }
+/* 16px on every field here: anything smaller and iOS zooms the page on focus, which
+   inside a chat sheet leaves the traveller scrolled somewhere they did not ask to be */
+.pc-flights input, .pc-flights select {
+  width: 100%; padding: 10px 12px; border-radius: 10px; font: inherit; font-size: 1rem;
+  border: 1px solid var(--glass-border); background: rgba(6, 13, 11, .55); color: var(--paper);
+}
+.pc-flights select { cursor: pointer; }
+.pc-flights input:focus, .pc-flights select:focus { outline: none; border-color: var(--amber); }
+/* the day sits at the far end of the head, the ✕ past it — in RTL that is the left.
+   Scoped like the rule above it, or that rule's `width: 100%` outranks this one. */
+.pc-flights .fl-day {
+  flex: none; width: auto; min-width: 104px; margin-inline-start: auto;
+  padding: 7px 8px; font-size: .82rem;
+}
+/* the two hours share a row of their own under the two airports: a name and a clock in
+   one line leaves the name nowhere to go on a phone, and the hours are the short field */
+.fl-times .fl-time { flex: 0 0 108px; }
+.fl-stop .fl-time { flex: 0 0 96px; }
+.fl-time input { text-align: center; padding-inline: 6px; }
+.fl-x {
+  flex: none; width: 34px; height: 40px; display: grid; place-items: center; cursor: pointer;
+  background: none; border: 0; border-radius: 10px; color: var(--paper-dim);
+}
+.fl-x:hover { background: rgba(255, 255, 255, .07); color: var(--paper); }
+.fl-leg-x { height: 28px; }
+.fl-add {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 2px; cursor: pointer;
+  background: none; border: 1px dashed rgba(255, 180, 95, .45); border-radius: 999px;
+  color: var(--amber); font: inherit; font-size: .82rem; font-weight: 700; padding: 6px 13px;
+}
+.fl-add:hover { background: rgba(255, 180, 95, .1); }
+.fl-add-leg { margin-top: 12px; }
+.pc-flights .pc-foot { margin-top: 14px; flex-wrap: wrap; }
+/* the chip that brings the card back — flight hours arrive weeks after the flights do */
+.chat-chip.chip-flights { border-color: rgba(127, 184, 255, .5); background: rgba(127, 184, 255, .1); color: #7fb8ff; }
+@media (max-width: 480px) {
+  /* a phone gets one airport per line, and the two hours keep sharing theirs */
+  .fl-airports { flex-wrap: wrap; }
+  .fl-airports .fl-air-field { flex-basis: 100%; }
+  .fl-times .fl-time { flex: 1 1 0; }
+  .fl-stop { flex-wrap: wrap; }
+  .fl-stop .fl-air-field { flex-basis: 100%; }
+  .fl-stop .fl-time { flex: 1 1 0; }
+}
 
 /* "N left today" under the composer — quiet, amber once it gets low */
 

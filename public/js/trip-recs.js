@@ -56,7 +56,16 @@ const TripRecs = (() => {
   //  ASK — the server answers; a place without a photo gets the destination's
   // =================================================================
 
-  const WELCOME = (d) => `היי! אני מכיר את ${esc(d)} די טוב 😊 שאלו אותי על מקומות, אוכל, טבע, ערב בחוץ או תכנון של יום שלם — וכל המלצה שתאהבו נכנסת לטיול בלחיצה על ➕.`;
+  // The opening line names the preferences the trip carries, when it has any. Not
+  // decoration: those chips now steer the prompt behind every answer here
+  // (lib/trips.js tripPrefsBlock), and a traveller who ticked "חיי לילה" in the wizard
+  // had no way to tell whether anyone had read it.
+  const interestsOf = (ctx) => ((ctx.trip.plan_state && ctx.trip.plan_state.interests) || []).slice(0, 4);
+  const WELCOME = (d, interests = []) => `היי! אני מכיר את ${esc(d)} די טוב 😊 ` +
+    (interests.length
+      ? `אני זוכר שאתם אחרי ${esc(interests.join(', '))} — אתאים לזה את ההמלצות. `
+      : '') +
+    'שאלו אותי על מקומות, אוכל, טבע, ערב בחוץ או תכנון של יום שלם — וכל המלצה שתאהבו נכנסת לטיול בלחיצה על ➕.';
 
   const QUICK = (d) => [
     `מה חובה לראות ב${d}?`, 'איפה אוכלים טוב?', 'תכננו לי יום שלם', 'טבע ונופים באזור', 'מה עושים בערב?', 'טיפים למקומיים',
@@ -269,7 +278,7 @@ const TripRecs = (() => {
 
     function paint() {
       const la = latestApplied();
-      thread.innerHTML = msgHtml({ role: 'ai', html: WELCOME(mainDest) }, -1)
+      thread.innerHTML = msgHtml({ role: 'ai', html: WELCOME(mainDest, interestsOf(ctx)) }, -1)
         + (locked ? unlockCardHtml(ctx) : '')
         + msgs.map((m, i) => msgHtml(m, i, la)).join('');
       if (busy) thread.insertAdjacentHTML('beforeend', `

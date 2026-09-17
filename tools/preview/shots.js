@@ -87,11 +87,26 @@ const login = { token: 'demo', user: { id: 1, name: 'רגב כהן', email: 'dem
   await page.waitForSelector('#plan-thread .chat-bubble:not(.chat-typing)', { timeout: 15000 });
   await page.waitForTimeout(2200);
   await shot(page, 'p8-plan-open');
-  for (const reply of ['שניהם', 'שלב אחרי שלב', 'מתאים, נמשיך', 'נחיתה בטוקיו, חזרה מאוסקה']) {
+  for (const reply of ['שניהם', 'שלב אחרי שלב', 'מתאים, נמשיך']) {
     await page.fill('#plan-input', reply);
     await page.press('#plan-input', 'Enter');
     await page.waitForFunction(() => !document.querySelector('#plan-thread .chat-typing'));
   }
+  // the flights stage is a filled-in card now, not a round of questions: an hour, a
+  // stopover, and one tap that writes the flights into the itinerary
+  await page.waitForSelector('.pc-flights', { timeout: 6000 });
+  await page.waitForTimeout(400);
+  await shot(page, 'p9a-plan-flights');
+  await page.locator('.pc-flights .fl-t-depart').first().fill('08:30');
+  await page.locator('.pc-flights [data-act="stop-add"]').first().click();
+  await page.waitForSelector('.pc-flights .fl-stop');
+  await page.waitForTimeout(300);
+  await shot(page, 'p9b-plan-flights-stopover');
+  await page.click('.pc-flights .fl-save');
+  await page.waitForFunction(() => !document.querySelector('.pc-flights'), null, { timeout: 8000 });
+  await page.fill('#plan-input', 'מתאים');
+  await page.press('#plan-input', 'Enter');
+  await page.waitForFunction(() => !document.querySelector('#plan-thread .chat-typing'));
   await page.waitForSelector('.plan-card.pc-pending', { timeout: 6000 });
   await shot(page, 'p9-plan-proposal');
   await page.click('.pc-accept');

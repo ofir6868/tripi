@@ -277,8 +277,20 @@ const TripDayRecs = (() => {
           <button type="button" class="dr-refresh" data-day="${day}" ${busy ? 'disabled' : ''}
             title="להחליף להמלצות אחרות ליום הזה">${ICON.refresh}<span>המלצות אחרות</span></button>
         </div>
+        ${prefsLine()}
         <div class="dr-list">${body}</div>
       </div>`;
+  }
+
+  // What these picks were chosen around, said out loud. The interest chips from the
+  // wizard reach the picks' prompt now (lib/trips.js tripPrefsBlock, routes/day-recs.js);
+  // before that they reached the build and nothing else, so a trip made for nightlife
+  // went on filling its free days with museums and there was nothing on screen to say
+  // whether the chips had ever been read. Naming them here is the other half of that fix.
+  function prefsLine() {
+    const list = ((ctx && ctx.trip.plan_state && ctx.trip.plan_state.interests) || []).slice(0, 4);
+    if (!list.length) return '';
+    return `<span class="dr-prefs" title="ההעדפות שסימנתם בתכנון — ההמלצות נבחרות סביבן">🎯 לפי ההעדפות שלכם: ${list.map(esc).join(' · ')}</span>`;
   }
 
   // a long trip fills day after day, from its first — so a day still waiting says how

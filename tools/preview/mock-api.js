@@ -16,6 +16,10 @@
     cover_image: U('photo-1552832230-c0197dd311b5'),
     destinations: [{ name: 'רומא', country: 'איטליה', cc: 'it', lat: 41.893, lon: 12.483 }],
     is_public: true, is_draft: false, likes: 12, invite_token: 'demo-invite-token', created_at: '2026-08-01T10:00:00Z',
+    // the wizard's interest chips ride on the trip: המלצות opens by naming them, the
+    // free-day picks say what they were chosen around, and both prompts are built on
+    // them (lib/trips.js tripPrefsBlock)
+    plan_state: { mode: 'manual', stage: 'done', interests: ['אוכל ומסעדות', 'היסטוריה ותרבות'], notes: 'שני ילדים, קצב רגוע', facts: [], pending: [], areas: [] },
   };
   let nextId = 100;
   let expenseId = 1;
@@ -137,21 +141,21 @@
         { suggestions: ['מתאים, נמשיך', 'רק טוקיו'] });
     }
     if (st.stage === 'areas') {
+      // the flights stage is a card, not a round of questions: the turn that reaches it
+      // fills the card in and says so (routes/plan.js seeds plan_state.flights the same way)
       st.stage = 'flights';
-      return planMsg('ai', 'מצוין, החלוקה נשמרה. עכשיו הטיסות: מאיפה ממריאים ולאן נוחתים — ואם יש קונקשן, איפה? אם השעות עוד לא ידועות, נשאיר אותן ריקות ותעדכנו אחר כך.',
-        { suggestions: ['נחיתה בטוקיו, חזרה מאוסקה', 'עוד לא הזמנו'] });
+      st.flights = {
+        legs: [
+          { kind: 'out', day: 1, from: { code: 'TLV', name: 'תל אביב' }, to: { code: 'NRT', name: 'טוקיו' }, depart: '', arrive: '', stops: [] },
+          { kind: 'return', day: 10, from: { code: 'KIX', name: 'אוסקה' }, to: { code: 'TLV', name: 'תל אביב' }, depart: '', arrive: '', stops: [] },
+        ],
+        confirmed: false,
+        items: [],
+      };
+      return planMsg('ai', 'מצוין, החלוקה נשמרה. מילאתי לכם הצעה לטיסות — נחיתה בנריטה וחזרה מקנסאי. תקנו בכרטיס מה שצריך, ושעות אפשר להשאיר ריקות.', {});
     }
     if (st.stage === 'flights') {
-      st.stage = 'days';
-      const ops = [
-        { action: 'add', id: null, day_number: 1, time_label: null, title: 'טיסה מתל אביב לטוקיו', note: 'עדכנו את השעה כשהכרטיס אצלכם', place_query: null, category: 'נסיעה', area: 'טוקיו', cost: null },
-        { action: 'add', id: null, day_number: 1, time_label: null, title: 'נחיתה בנריטה ונסיעה למלון', note: 'רכבת Narita Express לתחנת טוקיו, כשעה', place_query: null, category: 'נסיעה', area: 'טוקיו', cost: 140 },
-        { action: 'add', id: null, day_number: 10, time_label: null, title: 'טיסת חזרה מאוסקה', note: 'קנסאי — להגיע 3 שעות לפני', place_query: null, category: 'נסיעה', area: 'קיוטו', cost: null },
-      ];
-      const m = planMsg('ai', 'רשמתי. אני מציע להכניס למסלול את ההמראה, הנחיתה בנריטה עם הרכבת לעיר, ואת טיסת החזרה מקנסאי ביום האחרון. מאשרים?',
-        { suggestions: ['מאשרים', 'תוסיף גם קונקשן'], ops, changes: ops.map((o) => ({ kind: 'add', title: o.title, when: `יום ${o.day_number}`, note: o.note })) });
-      if (st.mode === 'auto') applyOps(m); else m.payload.decision = 'pending';
-      return m;
+      return planMsg('ai', 'הטיסות מחכות לכם בכרטיס למטה — אפשר לתקן שם הכול ולאשר, ואז נמשיך לימים.', {});
     }
     if (/מה יש|מה כדאי|אוכל|לאכול/.test(text)) {
       return planMsg('ai', 'בטוקיו הייתי פותח עם שני מקומות שמסבירים את העיר, ואחד לאוכל:', {
@@ -242,6 +246,34 @@
           ? planMsg('ai', 'מעולה, הטיסות במסלול. עכשיו הימים: נתחיל מטוקיו — ליום 2 אני חושב על סנסוג׳י ואסאקוסה בבוקר ושיבויה בערב. מתאים, או שתעדיפו התחלה רגועה יותר?', { suggestions: ['מתאים', 'משהו רגוע יותר'] })
           : planMsg('ai', 'אין בעיה. רוצים שנשאיר את הטיסות בחוץ בינתיים ונעבור לימים, או להזין אותן אחרת?', { suggestions: ['נעבור לימים', 'טיסה רק ביום 1'] });
         return json(200, { message: m, items: draftItems, said, follow, state: draft.plan_state, remaining: 40 });
+      }
+      // the flights card, confirmed: stops written straight from the legs, no model turn
+      if (rest === '/flights') {
+        const st = draft.plan_state;
+        const legs = body.skip ? [] : (body.legs || []);
+        draftItems = draftItems.filter((it) => !(st.flights.items || []).includes(it.id));
+        const label = (a) => (a && (a.name || a.code)) || '';
+        const written = [];
+        for (const l of legs) {
+          const points = [l.from, ...(l.stops || []), l.to];
+          for (let i = 0; i < points.length - 1; i++) {
+            const it = { id: nextId++, trip_id: 2, day_number: l.day, time_label: (i === 0 ? l.depart : points[i].depart) || null,
+              title: `טיסה מ${label(points[i])} ל${label(points[i + 1])}`,
+              note: i > 0 ? `קונקשן ב${label(points[i])}` : 'עדכנו את השעות כשיהיו לכם',
+              place_query: null, category: 'נסיעה', area: l.day > 5 ? 'קיוטו' : 'טוקיו', lat: null, lon: null, cost: null, google_place_id: null, sort_order: nextId };
+            draftItems.push(it);
+            written.push(it.id);
+          }
+        }
+        st.flights = { legs, confirmed: true, items: written };
+        const advancing = st.stage === 'flights';
+        if (advancing) st.stage = 'days';
+        const said = body.skip ? 'אין לנו עדיין פרטי טיסות — נמשיך לתכנן את הימים' : `✓ אישרנו את הטיסות (${legs.length})`;
+        planMsg('user', said);
+        const follow = advancing
+          ? planMsg('ai', 'מעולה, הטיסות במסלול. עכשיו הימים: נתחיל מטוקיו — ליום 2 אני חושב על סנסוג׳י ואסאקוסה בבוקר ושיבויה בערב. מתאים, או שתעדיפו התחלה רגועה יותר?', { suggestions: ['מתאים', 'משהו רגוע יותר'] })
+          : planMsg('ai', 'עדכנתי את הטיסות במסלול.', {});
+        return json(200, { items: draftItems, state: st, said, follow, remaining: 40 });
       }
       if (rest === '/build') {
         const fill = !!body.fill;

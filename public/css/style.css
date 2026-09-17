@@ -971,7 +971,7 @@ button.dest-chip.dc-add .ic { width: 15px; height: 15px; }
   body::after, .atmosphere, .site-header, .site-footer, .action-bar, .ticket .divider ~ button,
   #wa-share, #copy-code, #copy-link, .copy-feedback, .join-banner, .wx-dest, #publish-row,
   .map-card, .add-item-inline, .day-add-stop, .item-del, .inline-item-form,
-  .modal-backdrop, .budget-page, .hero-bg, .hero-veil, .ai-edit-card,
+  .modal-backdrop, .budget-page, .hero-bg, .hero-veil, .ai-ask-bar,
   .view-toggle, .cal-toolbar, .cal-day-strip, .cal-hint, .trip-desc-toggle,
   /* the draft card is an invitation to press "שמירת הטיול" — it has no business
      on paper, where nothing can be pressed */

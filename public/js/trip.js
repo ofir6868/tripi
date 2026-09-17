@@ -1134,18 +1134,12 @@
       banner.querySelector('.jb-cta').onclick = () => requireSignup('register');
     }
 
-    // ---- שינוי חכם: the handover to the smart agent ----
-    // The free-text box that used to sit here spoke to the model once and forgot the
-    // traveller the moment it answered: no thread, no follow-up, and an undo this card
-    // had to keep by itself. The agent's chat is the same AI with the conversation kept
-    // around it — and its change cards carry their own ביטול — so the card stopped
-    // answering and started pointing. It opens the chat in automatic mode, because
-    // "say what to change and it changes" is exactly what the box promised.
-    const aiCard = document.getElementById('ai-edit-card');
-    const aiAgentBtn = document.getElementById('ai-agent-btn');
-    // the card lives below the itinerary now, so it no longer needs the compact
-    // hero it used to force when it sat above the fold
-    if (canEditHeaders) aiCard.style.display = '';
+    // ---- the handover to the smart agent ----
+    // There used to be a card under the itinerary whose whole job was to say "the agent
+    // is over there" — a paragraph, a button, and a second thing to scroll past on the
+    // way down the trip. The ask bar below does the same handover from where the thumb
+    // already is, and the dock's tab is one tap away, so the card was two ways of saying
+    // the same thing and is gone. This is the handover itself, which both of them use.
     // a draft talks to the agent in תכנון; once the trip is saved that tab is המלצות —
     // same AI, same change cards, so the button follows whichever one this trip has
     // (the condition is the one the pages are registered under, further down)
@@ -1166,17 +1160,6 @@
       TripPages.open(page);
       if (message) (page === 'plan' ? TripPlan : TripRecs).say(message);
     }
-    aiAgentBtn.onclick = async () => {
-      if (aiAgentBtn.disabled) return;
-      const label = aiAgentBtn.textContent;
-      aiAgentBtn.disabled = true;
-      aiAgentBtn.textContent = 'רגע… ⏳';
-      try { await openAgent(null, 'card'); } finally {
-        aiAgentBtn.disabled = false;
-        aiAgentBtn.textContent = label;
-      }
-    };
-
     // ---- the ask bar: on a phone, the agent is one line away at the bottom of the
     // trip, above the dock. Its placeholder types out the things people come here to
     // say — an edit, a recommendation — one after another, so it reads as an invitation

@@ -45,7 +45,7 @@ const express = require('express');
 const { randomUUID, createHash } = require('crypto');
 const { pool } = require('../lib/db');
 const { authRequired, authOptional } = require('../lib/auth');
-const { tripWithEditAuth, cleanPlanState, areasCoverTrip } = require('../lib/trips');
+const { tripWithEditAuth, cleanPlanState, areasCoverTrip, tripPrefsBlock } = require('../lib/trips');
 const { dailyQuota, exhausted } = require('../lib/quota');
 const ai = require('./ai');
 const { placeHours, openWindows } = require('../lib/opening-hours');
@@ -353,7 +353,7 @@ function systemPrompt(trip, blocks) {
 
 הטיול: "${trip.title}", ${trip.days} ימים${dates}. יעדים: ${destText(trip)}.
 מבנה הטיול: ${route}
-
+${tripPrefsBlock(trip.plan_state)}
 המשימה: לכל יום פנוי ברשימה שבהודעה — בדיוק ${CARDS_PER_DAY} כרטיסים, שממלאים את היום יפה מהבוקר עד הערב: בוקר, צהריים וערב, לפי הסדר, עם שעת התחלה לכל אחד. המקומות באזור של אותו יום ובמרחק סביר מהתחנות של הימים הסמוכים. ימים פנויים רצופים באותו אזור מקבלים תוכניות שונות זו מזו, לא אותה תוכנית כמה פעמים.
 
 כרטיסים (cards):

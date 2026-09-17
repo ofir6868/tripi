@@ -4,9 +4,9 @@ const { randomUUID } = require('crypto');
 const { pool } = require('../lib/db');
 const { authRequired, authOptional, isAdmin } = require('../lib/auth');
 const { rateLimiter } = require('../lib/rate-limit');
-const { tripWithEditAuth, cleanDestinations, isParticipant } = require('../lib/trips');
+const { tripWithEditAuth, cleanDestinations, isParticipant, tripPrefsBlock } = require('../lib/trips');
 const { verifyPlaces } = require('../lib/places');
-const { placePhoto } = require('../lib/place-photos');
+const { stopPhoto } = require('../lib/stop-photos');
 const { fitItinerary } = require('../lib/hours-fit');
 // the Hebrew country name → ISO code table the client uses for flags, read here to tell
 // whether a stop landed in a country the traveller actually picked. It lives under
@@ -2111,7 +2111,7 @@ const RECS_SCHEMA = {
   required: ['text', 'cards'],
 };
 
-function recsSystemPrompt({ trip, dests, items, edit = false }) {
+function recsSystemPrompt({ trip, dests, items, edit = false, prefs = null }) {
   const destText = dests.length
     ? dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ')
     : [trip.destination, trip.country].filter(Boolean).join(', ');
@@ -2141,7 +2141,7 @@ function recsSystemPrompt({ trip, dests, items, edit = false }) {
 הטיול: "${trip.title}", ${trip.days} ימים${dates}. יעדים: ${destText}.
 המסלול הנוכחי:
 ${itinerary}
-
+${tripPrefsBlock(prefs)}
 כרטיסים (cards):
 - כרטיס הוא מקום אמיתי אחד שאפשר להגיע אליו: אתר, מסעדה, שוק, פארק, שכונה, מוזיאון, חוף. לא רעיון כללי ולא "סיור" בלי מקום.
 - כשהשאלה מבקשת מקומות, מה לעשות, איפה לאכול או תכנון של יום — 3 עד 4 כרטיסים, ובתכנון יום גם שעת התחלה לכל אחד. כשהיא שאלת מידע או טיפים — 0 כרטיסים, והתשובה כולה ב-text.
@@ -2216,11 +2216,11 @@ function recsUserPrompt(history, message) {
 // change request with ops (verified like the editor's, returned as a proposal, never
 // written here). Both modes run on the strong model now: the cards name places, and
 // the two tiers answered in different registers within one thread.
-async function tripRecs({ trip, items, message, history, edit = false, ph }) {
+async function tripRecs({ trip, items, message, history, edit = false, prefs = null, ph }) {
   const dests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
   const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
   const raw = await aiJson({
-    system: recsSystemPrompt({ trip, dests, items, edit }),
+    system: recsSystemPrompt({ trip, dests, items, edit, prefs }),
     user: recsUserPrompt(history, message),
     schemaName: edit ? 'trip_recs_edit' : 'trip_recs',
     schema: edit ? RECS_EDIT_SCHEMA : RECS_SCHEMA,
@@ -2408,12 +2408,24 @@ async function verifyRecCards(rawCards, { dests, areaNames }) {
   for (const c of foreign) console.warn(`recs: dropped foreign place "${c.place_query}"`);
   const survivors = kept.filter((c) => !foreign.has(c));
 
-  // photos for the survivors only: a real Google photo when the place verified with an id,
-  // Wikipedia otherwise — placePhoto decides, and a failure just leaves the card imageless
-  // (the client falls back to the destination's own picture)
+  // Photos for the survivors, through the identity each card just earned — the very same
+  // stopPhoto the itinerary's own cards use (lib/stop-photos.js): the OSM element the
+  // verifier matched, via Wikidata to Commons, and Google only where the card carries a
+  // verified place_id and no element. It used to be placePhoto, whose fallback searched
+  // Wikipedia by NAME, which is how a Hiroshima food market ended up illustrated with the
+  // atomic bombing — the exact failure stop-photos.js was written to close. One pipeline
+  // now, so a place cannot be pictured one way on a card and another way as a stop; a
+  // card we can't vouch for keeps no photo, and the client falls back to the destination's.
   await Promise.all(survivors.map(async (c) => {
-    const p = await placePhoto(c.place_query, { placeId: c.google_place_id }).catch(() => null);
-    if (p) { c.photos = [p.url]; c.photo_credit = p.credit; }
+    const p = await stopPhoto({
+      osmType: c.osm_type, osmId: c.osm_id, googlePlaceId: c.google_place_id, placeQuery: c.place_query,
+    }).catch(() => null);
+    if (p && p.url) {
+      // the sheet-sized copy: a rec card is wide, and Commons serves the 320px thumb the
+      // stop tile asks for — `large` is the same file at a width a card can show
+      c.photos = [p.large || p.url];
+      c.photo_credit = p.credit || null;
+    }
   }));
 
   return { cards: survivors, dropped: cards.length - survivors.length };
@@ -2433,14 +2445,19 @@ router.post('/api/trips/code/:code/recs', authRequired, async (req, res) => {
       .filter((h) => h.text);
 
     const { rows } = await pool.query(
-      'SELECT id, owner_id, title, destination, country, days, start_date, destinations FROM trips WHERE share_code = $1',
+      'SELECT id, owner_id, title, destination, country, days, start_date, destinations, plan_state FROM trips WHERE share_code = $1',
       [req.params.code]
     );
     const trip = rows[0];
     if (!trip) return res.status(404).json({ error: 'לא נמצא טיול עם הקוד הזה' });
+    const mayEdit = req.user.id === trip.owner_id
+      || await isParticipant(trip.id, req.user.id) || await isAdmin(req);
     // אוטומטי: the chat may propose changes — only for someone who could make them by hand
-    const edit = b.mode === 'auto' && (req.user.id === trip.owner_id
-      || await isParticipant(trip.id, req.user.id) || await isAdmin(req));
+    const edit = b.mode === 'auto' && mayEdit;
+    // the travellers' own preferences steer what gets recommended — and, like everywhere
+    // else, the planning memory is the editors': a visitor holding the share code asks
+    // about the same trip, but not with what its owners told the AI about themselves
+    const prefs = mayEdit ? trip.plan_state : null;
 
     // 30 questions a day per user; admins are counted but never capped, as everywhere here
     const quota = await recsMeter.check(req);
@@ -2450,7 +2467,7 @@ router.post('/api/trips/code/:code/recs', authRequired, async (req, res) => {
       'SELECT id, day_number, time_label, title, category, area, place_query FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
     );
     const result = await tripRecs({
-      trip, items, message, history, edit,
+      trip, items, message, history, edit, prefs,
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
     if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });
