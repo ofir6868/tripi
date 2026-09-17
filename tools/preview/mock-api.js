@@ -264,11 +264,33 @@
     if (p === '/api/analytics/config') return json(200, {});
     if (p.startsWith('/api/push/')) return json(200, { key: null });
     if (p === '/api/trips/suggested' || p === '/api/my-trips' || p.startsWith('/api/hotels')) return json(200, []);
+    // אהבתי, from the hero chip
+    const lm = p.match(/^\/api\/trips\/(\d+)\/like$/);
+    if (lm) {
+      trip.likes = Math.max(0, trip.likes + (body && body.undo ? -1 : 1));
+      return json(200, { likes: trip.likes });
+    }
     const m = p.match(/^\/api\/trips\/code\/(\d+)(\/.*)?$/);
     if (m) {
       // any code opens the one demo trip — a host may put the page on any path —
-      // except 000001, the draft
+      // except 000001, the draft, and 900001, the same trip seen by a gallery visitor
+      // who may read it but not touch it (that is the only way to preview the copy card
+      // in המלצות, and the page swapping itself over to the copy in place)
       const rest = m[2] || '';
+      if (m[1] === '900001') {
+        if (!rest) {
+          return json(200, {
+            trip: { ...trip, share_code: '900001', invite_token: null },
+            items, isOwner: false, canEdit: false, isAdmin: false,
+            hotels: [], budget: null, expenses: [], participants: [],
+          });
+        }
+        // the copy lands in the visitor's account as the editable demo trip
+        if (rest === '/clone' && method === 'POST') return json(200, trip);
+        if (rest === '/votes' || rest === '/day-recs') return json(200, rest === '/votes' ? [] : { days: {}, running: false });
+        if (rest === '/photos') return json(200, { stops: {} });
+        return json(200, {});
+      }
       if (m[1] === '000001') {
         if (!rest) {
           return json(200, {
@@ -413,6 +435,7 @@
         if (method === 'DELETE') { items = items.filter((x) => x !== it); return json(200, { ok: true }); }
         return json(200, it);
       }
+      if (rest === '/clone' && method === 'POST') return json(200, trip);
       if (rest === '/dates') { Object.assign(trip, body); return json(200, trip); }
       if (rest === '/locate') return json(200, { located: [] });
       return json(200, {});

@@ -1458,7 +1458,6 @@ a:focus-visible, button:focus-visible, [role="button"]:focus-visible, [tabindex]
 .more-row.warn .mr-ic { color: var(--amber); }
 .more-row.over .mr-ic { color: var(--danger); }
 .mr-ic .ic { width: 20px; height: 20px; }
-.more-row.liked .mr-ic .ic { fill: currentColor; }
 .docs-privacy .ic { width: 18px; height: 18px; color: var(--mint); margin-top: 2px; }
 .docs-folder.on { border-color: rgba(255, 180, 95, .5); background: rgba(255, 180, 95, .14); color: var(--amber); }
 .dt-tags .auto { color: var(--amber); }

@@ -76,11 +76,29 @@ const TripDayRecs = (() => {
     return prefetched;
   }
 
+  // the tab coming back into view is the cheapest moment to catch up on a pass that
+  // landed while nobody was looking — a named handler so a second init() (the page can
+  // be handed another trip without a reload) rebinds the same one instead of a second
+  const onVisible = () => { if (!document.hidden) watch(true); };
+
   function init(c) {
+    // every day below belongs to the trip that was here a moment ago, and none of it
+    // is true of the one arriving now
+    if (ctx && ctx.trip.share_code !== c.trip.share_code) {
+      byDay = {};
+      sticky.clear();
+      loadingDays.clear();
+      loaded = false;
+      running = false;
+      asking = false;
+      counts = { ready: 0, waiting: 0 };
+      clearTimeout(pollTimer); pollTimer = null; polls = 0; watchUntil = 0;
+      clearTimeout(syncTimer); syncTimer = null;
+    }
     ctx = c;
     sig = signature(ctx.state.items);
     document.addEventListener('click', onClick);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) watch(true); });
+    document.addEventListener('visibilitychange', onVisible);
     if (ctx.canEdit) load();
     else prefetched = null;
   }

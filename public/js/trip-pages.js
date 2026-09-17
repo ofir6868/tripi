@@ -16,7 +16,21 @@ const TripPages = (() => {
     back: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
   };
 
-  function register(name, def) { pages[name] = { ...def, el: null }; }
+  // A page can be registered again with a fresh definition: the trip page can swap
+  // itself over to another trip without a navigation (a gallery visitor copying the
+  // trip they are reading), and every page's context goes with it. The element stays —
+  // dropping it would blank the screen under whoever is standing on that page — and
+  // `dirty` tells the next show() to paint it from the new definition rather than
+  // trust what the old one left behind.
+  function register(name, def) {
+    const prev = pages[name];
+    pages[name] = { ...def, el: prev ? prev.el : null, dirty: !!(prev && prev.el) };
+    if (prev && prev.el) {
+      prev.el.querySelector('.tp-title').innerHTML = def.title;
+      const sub = prev.el.querySelector('.tp-sub');
+      if (sub) sub.innerHTML = def.sub || '';
+    }
+  }
 
   function ensure(name) {
     const p = pages[name];
@@ -56,13 +70,14 @@ const TripPages = (() => {
     if (!pages[name]) return;
     for (const n in pages) if (pages[n].el && n !== name) pages[n].el.hidden = true;
     const el = ensure(name);
-    const fresh = current !== name;
+    const fresh = current !== name || pages[name].dirty;
     if (current && current !== name) pages[current].onClose?.();
     el.hidden = false;
     current = name;
     document.body.classList.add('page-open');
     setActive(name);
     if (fresh) {
+      pages[name].dirty = false;
       pages[name].render({
         page: el,
         body: el.querySelector('.tp-body'),
@@ -262,7 +277,6 @@ const TripPages = (() => {
       desc: 'מי חייב למי — לפי התקציב המשותף בלבד' },
     { id: 'wa-share', title: 'שיתוף בוואטסאפ', desc: 'שולחים את המסלול לחברים' },
     { id: 'copy-link', title: 'העתקת קישור', desc: 'קישור למסלול, להדבקה בכל מקום' },
-    { id: 'like-btn', title: 'אהבתי', desc: () => `${document.getElementById('like-count')?.textContent || 0} אהבו את הטיול` },
     { id: 'ics-btn', title: 'ייצוא ליומן', desc: 'קובץ ICS — גוגל קלנדר, אאוטלוק או יומן אפל' },
     { id: 'print-btn', title: 'PDF / הדפסה', desc: 'המסלול המלא כמסמך' },
     { id: 'clone-btn', title: 'שכפול הטיול', desc: 'עותק אישי שאפשר לערוך בחופשיות' },

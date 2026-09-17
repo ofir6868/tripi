@@ -1,8 +1,24 @@
 // Trip page: loads a trip by its 6-digit share code from the URL (/trip/123456).
 (() => {
-  const code = location.pathname.split('/').pop();
+  // not a const: the page can be handed a different trip without a navigation — a
+  // gallery visitor copying the trip they are reading stays on this document, and
+  // loadTripInPlace() builds it again around the copy's code.
+  let code = location.pathname.split('/').pop();
+
+  // The address bar is the one thing a back gesture keeps, so once the page has
+  // swapped trips it can name a trip that is no longer on screen. The URL wins:
+  // stepping out of the copy's entry is a request for the trip that entry named,
+  // and the browser goes and gets it for real.
+  window.addEventListener('popstate', () => {
+    const inUrl = decodeURIComponent(location.pathname.split('/').pop() || '');
+    if (inUrl && inUrl !== code) location.reload();
+  });
 
   const heDate = (d) => d ? new Date(d).toLocaleDateString('he-IL', { day: 'numeric', month: 'long' }) : null;
+
+  // the hero's "אהבתי" chip — outline while it is someone else's count, filled once
+  // this browser has added to it
+  const HEART_ICON = '<svg class="ic ic-heart" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.51 4.04 3 5.5l7 7Z"/></svg>';
 
   // the description clamps to 3 lines (2 on a phone) so the itinerary is visible
   // without scrolling on first paint; the toggle only appears if text actually overflows
@@ -85,6 +101,7 @@
 
   let editMode = false;
   let canEditHeaders = null; // truthy = edit calls allowed (auth rides on the JWT)
+  let printHooks = null;     // the window-level print pair of whichever trip is open
 
   // a placeholder that types: each phrase is typed out, held, deleted and replaced by
   // the next — a cursor riding the text — for as long as `active()` says the field is
@@ -180,6 +197,42 @@
     }, Math.max(0, 2000 - (Date.now() - loaderT0)));
   }
 
+  // One context object for the life of the page. The dock's pages (המלצות, מסמכים)
+  // close over it, and a trip swapped in underneath them refills it rather than
+  // replacing it — so a chat already on screen keeps talking to the trip that is now
+  // open, instead of to the one it was painted for.
+  const pageCtx = {};
+
+  // ---- the same page, a different trip ----
+  // Copying a gallery trip used to mean a navigation: the browser threw this page away
+  // and built it again on the copy's URL, compass loader and all. Everything load()
+  // draws is either rewritten wholesale on a second pass or removed here first, so the
+  // page can simply be built again for another code while the traveller keeps looking
+  // at the screen they were standing on.
+  async function loadTripInPlace(newCode) {
+    code = newCode;
+    inviteToken = savedInvites[newCode] || null;
+    // The copy takes over the entry the visitor is standing on — and the one under it,
+    // because closing an open page is a back gesture: left as it was, "מסלול" would
+    // have walked them out of the trip they just copied and back into the one they
+    // copied it from. Everything older is untouched, so a real back still leaves.
+    const page = TripPages.current();
+    const url = '/trip/' + newCode;
+    history.replaceState(null, '', url);
+    if (page) history.pushState({ tripmakerPage: page }, '', url + '#' + page);
+    // the handful of things load() appends rather than rewrites — left in place they
+    // would be drawn twice, and the second pass would wire only the newer one
+    for (const sel of ['#ai-ask-bar', '.trip-endcap', '.join-banner', '.push-ask',
+      '#dates-modal', '#participants-modal']) document.querySelector(sel)?.remove();
+    TripHours.invalidate();
+    TripPhotos.invalidate();
+    await load();
+    // load() fills pageCtx only once the trip is really here; anything else means the
+    // copy exists but this page never got it, and the caller must say so rather than
+    // unlock a screen that is showing the wrong trip
+    if (pageCtx.trip?.share_code !== newCode) throw new Error('הטיול נוצר, אבל לא הצלחנו לפתוח אותו — רעננו את הדף');
+  }
+
   async function load() {
     // an invite link + a logged-in user = redeem first, so the page arrives unlocked
     if (TRIPMAKER.user && inviteToken) await redeemInvite();
@@ -225,6 +278,12 @@
     // applyDraftState() keeps this chip hidden until then
     meta.push(`<span class="chip copyable" id="code-chip" dir="ltr" title="לחיצה מעתיקה את קוד הטיול"
       data-copy="${trip.share_code}" style="letter-spacing:.2em;color:var(--amber)">#${trip.share_code}</span>`);
+    // "אהבתי" is a fact about the trip before it is an action — how many people liked
+    // it, right next to how many days it is. As a toolbar button it was folded into
+    // "עוד" on a phone, which is where a gallery visitor's first impulse went to die.
+    // syncPublicUI() below reveals it, because likes follow the publish toggle live.
+    meta.push(`<button type="button" class="chip chip-like" id="like-chip" style="display:none"
+      title="אהבתי את הטיול" aria-pressed="false">${HEART_ICON}<span id="like-count">0</span></button>`);
     document.getElementById('trip-meta').innerHTML = meta.join('');
 
     document.getElementById('trip-layout').style.display = '';
@@ -1165,6 +1224,13 @@
     // account. Money (budget, stop costs, hotel prices) only comes along if they
     // already had participant access — a gallery visitor gets the route, not the numbers.
     const cloneBtn = document.getElementById('clone-btn');
+    // the copy itself, one call — every control that offers it goes through here, so
+    // "how often does a shared trip actually get taken" is one number and not three
+    async function cloneTrip(via) {
+      const copy = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/clone`, { method: 'POST' });
+      TRIPMAKER.track?.('trip_cloned', { from: trip.share_code, code: copy.share_code, via });
+      return copy;
+    }
     // `from` is whichever control was pressed — the action-bar button or the end-cap
     // CTA — so the wait shows up where the finger actually landed
     async function doClone(from) {
@@ -1176,7 +1242,7 @@
       busy.disabled = true;
       label.textContent = 'משכפלים…';
       try {
-        const copy = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/clone`, { method: 'POST' });
+        const copy = await cloneTrip(busy === cloneBtn ? 'toolbar' : 'endcap');
         location.href = '/trip/' + copy.share_code;
       } catch (e) {
         alert(e.message);
@@ -1191,9 +1257,9 @@
       doClone();
     };
 
-    // ---- like button ----
+    // ---- אהבתי ----
     const likedTrips = JSON.parse(localStorage.getItem('tripmaker_likes') || '{}');
-    const likeBtn = document.getElementById('like-btn');
+    const likeChip = document.getElementById('like-chip');
     const likeCount = document.getElementById('like-count');
     likeCount.textContent = trip.likes || 0;
 
@@ -1201,7 +1267,7 @@
     // not: it's the only thing a plain viewer can *do* here, and hiding it on
     // unpublished trips (nearly all of them) left every shared link a dead end.
     function syncPublicUI() {
-      likeBtn.style.display = trip.is_public ? '' : 'none';
+      likeChip.style.display = trip.is_public ? '' : 'none';
       cloneBtn.style.display = '';
     }
     // participants already own the trip — for them this is "make me a variant";
@@ -1254,9 +1320,15 @@
       publishToggle.disabled = false;
     };
 
-    if (likedTrips[trip.id]) likeBtn.classList.add('liked');
+    const syncLiked = () => {
+      const on = !!likedTrips[trip.id];
+      likeChip.classList.toggle('liked', on);
+      likeChip.setAttribute('aria-pressed', on ? 'true' : 'false');
+      likeChip.title = on ? 'ביטול האהבתי' : 'אהבתי את הטיול';
+    };
+    syncLiked();
     let likeBusy = false; // rapid double-tap must not double-count
-    likeBtn.onclick = async () => {
+    likeChip.onclick = async () => {
       if (likeBusy) return;
       likeBusy = true;
       const undo = !!likedTrips[trip.id];
@@ -1265,7 +1337,7 @@
         likeCount.textContent = r.likes;
         if (undo) delete likedTrips[trip.id]; else likedTrips[trip.id] = 1;
         localStorage.setItem('tripmaker_likes', JSON.stringify(likedTrips));
-        likeBtn.classList.toggle('liked', !!likedTrips[trip.id]);
+        syncLiked();
       } catch { /* ignore */ } finally { likeBusy = false; }
     };
 
@@ -1334,7 +1406,7 @@
     // ---- the dock's pages: המלצות (AI chat, mocked for now) and מסמכים (on-device) ----
     // One context for both: the trip, its live items, edit rights, and the same addItem
     // the stop sheet uses — so a recommendation lands in the itinerary like any other stop
-    const pageCtx = {
+    Object.assign(pageCtx, {
       trip, state, canEdit, inviteToken, requireSignup, addItem, dayDate,
       dests: tripDests.length ? tripDests.map((d) => d.name) : [trip.destination].filter(Boolean),
       defaultArea: (day) => (multiDest() ? defaultAreaForDay(day) : (tripDests[0]?.name || trip.destination || null)),
@@ -1359,7 +1431,17 @@
         pageCtx.dests = tripDests.map((d) => d.name);
         renderItinerary();
       },
-    };
+      // המלצות is the one place where copying the trip is not the end of the visit but
+      // the start of it: the visitor asked the AI something and the answer was "this
+      // itinerary isn't yours to change yet". Sending them to another URL there would
+      // throw away the conversation mid-sentence, so the page takes the copy on in
+      // place — same screen, same chat, an itinerary they may now edit.
+      cloneInPlace: async () => {
+        const copy = await cloneTrip('recs_unlock');
+        await loadTripInPlace(copy.share_code);
+        return copy;
+      },
+    });
     TripPages.register('recs', {
       title: '✨ המלצות <span class="tp-beta">בטא</span>',
       sub: 'דברו עם ה-AI על האזור והמקומות, וקבלו מידע, תמונות והמלצות לתחנות ומסלולים בטיול שלכם',
@@ -1397,19 +1479,29 @@
 
     // ---- print / WhatsApp ----
     // the PDF is always the full list, whatever view is on screen — swap the
-    // calendar out before the print snapshot and put it back after
+    // calendar out before the print snapshot and put it back after. These two hang off
+    // the window rather than the page, so a second pass over another trip has to take
+    // its predecessor's pair down: left up, they would print the trip that was here before.
     let printSwapped = false;
-    window.addEventListener('beforeprint', () => {
-      if (viewMode !== 'calendar') return;
-      printSwapped = true;
-      TripCalendar.exitFull();
-      renderListView();
-    });
-    window.addEventListener('afterprint', () => {
-      if (!printSwapped) return;
-      printSwapped = false;
-      renderItinerary();
-    });
+    if (printHooks) {
+      window.removeEventListener('beforeprint', printHooks.before);
+      window.removeEventListener('afterprint', printHooks.after);
+    }
+    printHooks = {
+      before: () => {
+        if (viewMode !== 'calendar') return;
+        printSwapped = true;
+        TripCalendar.exitFull();
+        renderListView();
+      },
+      after: () => {
+        if (!printSwapped) return;
+        printSwapped = false;
+        renderItinerary();
+      },
+    };
+    window.addEventListener('beforeprint', printHooks.before);
+    window.addEventListener('afterprint', printHooks.after);
     document.getElementById('print-btn').onclick = () => window.print();
 
     // calendar export (.ics) — needs real dates to anchor the events; visible to

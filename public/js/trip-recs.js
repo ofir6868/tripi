@@ -48,6 +48,8 @@ const TripRecs = (() => {
     plus: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>',
     map: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>',
     send: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4Z"/></svg>',
+    copy: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+    check: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
   };
 
   // =================================================================
@@ -146,6 +148,38 @@ const TripRecs = (() => {
       </article>`;
   }
 
+  // The card that stands between a gallery visitor and this chat. The recommendations
+  // are only worth anything if they have somewhere to go, and on someone else's trip
+  // they don't — so instead of letting the visitor ask three questions and then meet a
+  // toast telling them they may not keep any of the answers, the way in is the first
+  // thing under the AI's opening line. The opening line still comes first, signed in or
+  // not: it is what makes anyone want the trip in the first place.
+  function unlockCardHtml(ctx) {
+    const draft = !!ctx.trip.is_draft;   // still being planned — there is nothing to copy yet
+    const join = !!ctx.inviteToken;      // invited to co-plan: joining beats copying
+    const head = join ? 'הוזמנתם לתכנן את הטיול הזה' : draft ? 'הטיול עוד בתכנון' : 'הטיול הזה עדיין לא שלכם';
+    const text = draft
+      ? 'מי שבונה אותו עוד לא סיים, ולכן אי אפשר להעתיק אותו לעצמכם כרגע. כשהטיול יהיה מוכן — השיחה כאן נפתחת.'
+      : join
+        ? 'רגע של הרשמה ואתם משתתפים מלאים: אפשר לשאול כאן כל דבר, וכל המלצה נכנסת למסלול בלחיצה.'
+        : 'אפשר לקרוא אותו כמה שרוצים — אבל כדי לשאול כאן ולהכניס המלצות למסלול צריך עותק משלכם. לחיצה אחת, והשיחה ממשיכה מכאן בדיוק, באותו מסך.';
+    const foot = draft ? '' : join
+      ? '<div class="pc-foot"><button type="button" class="btn btn-amber pc-unlock-join">הרשמה והצטרפות</button></div>'
+      : `<div class="pc-foot"><button type="button" class="btn btn-amber pc-unlock-cta">${ICON.copy} העתקת הטיול אליי</button></div>`;
+    return `
+      <div class="chat-msg ai" id="recs-unlock">
+        <span class="chat-avatar" aria-hidden="true">🧳</span>
+        <div class="chat-col">
+          <div class="plan-card pc-unlock">
+            <div class="pc-head">${esc(head)}</div>
+            <p class="pc-text-p">${esc(text)}</p>
+            ${foot}
+            ${draft || join ? '' : '<div class="pc-note">חינם · נשמר ב"הטיולים שלי" · התחנות, המלונות והתאריכים עוברים איתו</div>'}
+          </div>
+        </div>
+      </div>`;
+  }
+
   function msgHtml(m, i, latestApplied) {
     if (m.role === 'user') return `<div class="chat-msg user"><div class="chat-bubble">${esc(m.text)}</div></div>`;
     if (m.quota) return TripPlan.quotaMsgHtml(m, TripPlan.referral(), '✨'); // the day's allowance is spent — the gentle card
@@ -178,19 +212,42 @@ const TripRecs = (() => {
     // X" comes back as a proposal card — for someone who may edit the trip. Remembered
     // per trip in this browser, like the thread.
     let mode = ctx.canEdit ? savedMode(ctx.trip) : 'manual';
+    // a visitor reading someone else's trip: the composer is shut and the way to open
+    // it is the card at the top of the thread. It stays on screen the whole time rather
+    // than being hidden, so the moment the copy lands there is nothing to go looking for
+    let locked = !ctx.canEdit;
 
     body.innerHTML = '<div class="chat-thread" id="chat-thread"></div>';
-    foot.innerHTML = `
-      <div class="chat-chips" id="chat-chips">${QUICK(mainDest).map((q) =>
-        `<button type="button" class="chat-chip">${esc(q)}</button>`).join('')}</div>
-      <form class="chat-form" id="chat-form">
-        ${ctx.canEdit ? '<button type="button" class="plan-mode" id="recs-mode" aria-live="polite"></button>' : ''}
-        <input type="text" id="chat-input" maxlength="300" placeholder="שאלו על ${esc(mainDest)}…" autocomplete="off" enterkeyhint="send">
-        <button type="submit" class="chat-send" aria-label="שליחה">${ICON.send}</button>
-      </form>`;
     const thread = body.querySelector('#chat-thread');
-    const input = foot.querySelector('#chat-input');
-    const modeBtn = foot.querySelector('#recs-mode');
+    let input = null;
+    let modeBtn = null;
+
+    function paintFoot() {
+      foot.innerHTML = locked ? `
+        <form class="chat-form chat-locked" id="chat-form">
+          <input type="text" id="chat-input" placeholder="העתיקו את הטיול כדי לשוחח עם ה-AI" disabled>
+          <button type="submit" class="chat-send" aria-label="שליחה" disabled>${ICON.send}</button>
+        </form>` : `
+        <div class="chat-chips" id="chat-chips">${QUICK(mainDest).map((q) =>
+          `<button type="button" class="chat-chip">${esc(q)}</button>`).join('')}</div>
+        <form class="chat-form" id="chat-form">
+          ${ctx.canEdit ? '<button type="button" class="plan-mode" id="recs-mode" aria-live="polite"></button>' : ''}
+          <input type="text" id="chat-input" maxlength="300" placeholder="שאלו על ${esc(mainDest)}…" autocomplete="off" enterkeyhint="send">
+          <button type="submit" class="chat-send" aria-label="שליחה">${ICON.send}</button>
+        </form>`;
+      input = foot.querySelector('#chat-input');
+      modeBtn = foot.querySelector('#recs-mode');
+      foot.querySelector('#chat-form').onsubmit = (e) => { e.preventDefault(); send(input.value); };
+      foot.querySelectorAll('.chat-chip').forEach((b) => { b.onclick = () => send(b.textContent); });
+      if (modeBtn) {
+        modeBtn.onclick = () => {
+          mode = setMode(ctx.trip, mode === 'auto' ? 'manual' : 'auto');
+          paintMode();
+          TRIPMAKER.track?.('recs_mode', { code: ctx.trip.share_code, mode });
+        };
+      }
+      paintMode();
+    }
 
     let painted = 0;
     const scroller = TripPlan.arrival(body, thread);
@@ -212,7 +269,9 @@ const TripRecs = (() => {
 
     function paint() {
       const la = latestApplied();
-      thread.innerHTML = msgHtml({ role: 'ai', html: WELCOME(mainDest) }, -1) + msgs.map((m, i) => msgHtml(m, i, la)).join('');
+      thread.innerHTML = msgHtml({ role: 'ai', html: WELCOME(mainDest) }, -1)
+        + (locked ? unlockCardHtml(ctx) : '')
+        + msgs.map((m, i) => msgHtml(m, i, la)).join('');
       if (busy) thread.insertAdjacentHTML('beforeend', `
         <div class="chat-msg ai chat-in chat-wait"><span class="chat-avatar" aria-hidden="true">✨</span>
           <div class="chat-bubble chat-typing" aria-label="חושב…"><i></i><i></i><i></i></div></div>`);
@@ -261,9 +320,59 @@ const TripRecs = (() => {
       paint();
     }
 
+    // The copy, taken without leaving this screen: the wait happens inside the card,
+    // the ✓ lands in it, and only then does it go and the composer open. Nothing here is
+    // allowed to look like a new page — the whole point is that the conversation the
+    // visitor started is the conversation they keep.
+    let unlocking = false;
+    async function unlockFlow(btn) {
+      if (unlocking) return; // one copy per visitor, however many times the card is tapped
+      unlocking = true;
+      const card = btn.closest('.pc-unlock');
+      const msg = card.closest('.chat-msg');
+      const cardFoot = card.querySelector('.pc-foot');
+      const back = cardFoot.innerHTML;
+      cardFoot.className = 'pc-foot pc-busy';
+      cardFoot.innerHTML = '<span class="chat-typing" aria-hidden="true"><i></i><i></i><i></i></span>מעתיקים את הטיול אליכם…';
+      try {
+        await ctx.cloneInPlace();
+      } catch (err) {
+        unlocking = false;
+        cardFoot.className = 'pc-foot';
+        cardFoot.innerHTML = back;
+        TripPages.toast((err && err.message) || 'ההעתקה נכשלה — נסו שוב');
+        return;
+      }
+      card.classList.add('pc-done');
+      cardFoot.className = 'pc-foot pc-ok';
+      cardFoot.innerHTML = `${ICON.check} הטיול שלכם — אפשר להמשיך`;
+      TRIPMAKER.track?.('recs_unlocked', { code: ctx.trip.share_code });
+      setTimeout(() => {
+        msg.classList.add('chat-gone');
+        setTimeout(() => {
+          locked = false;
+          // the copy is theirs to change, so the chat opens the way the trip page's own
+          // handover opens it: ask for a change and it comes back as a proposal
+          mode = setMode(ctx.trip, 'auto');
+          paint();
+          paintFoot();
+          input.focus();
+        }, 320);
+      }, 950);
+    }
+
     // one delegated handler for everything inside the thread
     thread.addEventListener('click', (e) => {
       if (TripPlan.handleCardClick(e, ctx)) return;
+      const unlockBtn = e.target.closest('.pc-unlock-cta');
+      if (unlockBtn) {
+        // the copy needs an account to land in — register first, and it runs on from
+        // there without the visitor having to find this card again
+        if (!TRIPMAKER.user) { openAuthModal(() => unlockFlow(unlockBtn), 'register', 'recs_unlock'); return; }
+        unlockFlow(unlockBtn);
+        return;
+      }
+      if (e.target.closest('.pc-unlock-join')) { ctx.requireSignup(); return; }
       const accept = e.target.closest('.pc-accept');
       if (accept) { decide(+accept.dataset.id, 'accept', accept); return; }
       const reject = e.target.closest('.pc-reject');
@@ -295,7 +404,7 @@ const TripRecs = (() => {
 
     async function send(text) {
       const q = text.trim();
-      if (!q || busy) return;
+      if (!q || busy || locked) return;
       // the server meters questions per user, so a question needs a user
       if (!TRIPMAKER.user) {
         msgs.push({ role: 'user', text: q });
@@ -330,16 +439,7 @@ const TripRecs = (() => {
       TRIPMAKER.track?.('recs_ask', { code: ctx.trip.share_code });
     }
 
-    foot.querySelector('#chat-form').onsubmit = (e) => { e.preventDefault(); send(input.value); };
-    foot.querySelectorAll('.chat-chip').forEach((b) => { b.onclick = () => send(b.textContent); });
-    if (modeBtn) {
-      modeBtn.onclick = () => {
-        mode = setMode(ctx.trip, mode === 'auto' ? 'manual' : 'auto');
-        paintMode();
-        TRIPMAKER.track?.('recs_mode', { code: ctx.trip.share_code, mode });
-      };
-    }
-
+    paintFoot();
     paint();
     flush = () => {
       if (!queued) return;

@@ -40,6 +40,13 @@
    fact first and a control second */
 .chip-edit { cursor: pointer; transition: border-color .15s ease; }
 .chip-edit:hover { border-color: rgba(255, 180, 95, .45); }
+/* אהבתי, up with the day count: how many people liked this trip is a fact about it
+   first, and the way to add to that second — an outline heart until this browser has */
+.chip-like { transition: color .15s ease, border-color .15s ease; }
+.chip-like .ic-heart { width: 16px; height: 16px; }
+.chip-like:hover { border-color: rgba(255, 136, 150, .5); }
+.chip-like.liked { color: #ff8896; border-color: rgba(255, 136, 150, .5); }
+.chip-like.liked .ic-heart { fill: currentColor; }
 
 /* the description leads this column, and it's bare text now rather than a card —
    the card-sized gap it used to need would read as a hole under the hero */
@@ -485,8 +492,7 @@
   cursor: pointer; white-space: nowrap;
   transition: background .15s ease, color .15s ease;
 }
-.action-btn.liked { color: #ff8896; }
-.action-btn.liked .ic-heart { fill: currentColor; }@media (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: reduce) {
 #draft-finish-btn { animation: none; box-shadow: 0 0 0 3px rgba(255, 180, 95, .35); }
 }
 @media (hover: hover) {
@@ -1871,6 +1877,22 @@ body.page-open { overflow: hidden; }
 .qc-progress i { display: block; height: 100%; width: var(--w, 0%); border-radius: 3px; background: linear-gradient(90deg, var(--amber), var(--amber-deep)); transition: width .4s ease; }
 .qc-count { display: block; margin-top: 6px; font-size: .8rem; color: var(--paper-dim); }
 .pc-text-p { margin: 0; font-size: .9rem; line-height: 1.5; color: var(--paper-dim); }
+/* המלצות on a trip that isn't yours: the card that opens the chat, and the ✓ it
+   leaves behind on its way out */
+.plan-card.pc-unlock { border-color: rgba(255, 180, 95, .45); background: rgba(255, 180, 95, .07); }
+.pc-unlock .pc-head { color: var(--amber); }
+.pc-unlock .pc-foot { margin-top: 12px; flex-wrap: wrap; }
+.plan-card.pc-done { border-color: rgba(143, 216, 196, .5); background: rgba(143, 216, 196, .08); }
+.pc-done .pc-head { color: var(--mint); }
+.pc-foot.pc-ok { align-items: center; gap: 8px; color: var(--mint); font-weight: 800; font-size: .9rem; }
+.pc-foot.pc-ok .ic { width: 20px; height: 20px; }
+/* the card leaves whole — avatar and all — so the thread closes over it */
+.chat-msg.chat-gone { opacity: 0; transform: translateY(-6px); transition: opacity .3s ease, transform .3s ease; }
+/* the shut composer stays on screen while the card is up: the way in is obvious the
+   moment the copy lands, because it is already where the finger expects it */
+.chat-form.chat-locked input, .chat-form.chat-locked .chat-send { opacity: .45; cursor: not-allowed; }
+.chat-form.chat-locked input { background: var(--glass); }
+
 /* the area calendar inside the chat: the wizard's paint grid, one card wide */
 .plan-card.pc-areas { width: min(640px, 100%); }
 .pc-areas .region-cal { margin-top: 4px; }
@@ -1963,7 +1985,6 @@ body.page-open { overflow: hidden; }
   width: 40px; height: 40px; flex: none; border-radius: 12px; display: grid; place-items: center;
   background: rgba(255, 180, 95, .12); color: var(--amber);
 }
-.more-row.liked .mr-ic { color: #ff8896; }
 .mr-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .mr-text b { font-size: .95rem; }
 .mr-text small { color: var(--paper-dim); font-size: .78rem; line-height: 1.35; }
