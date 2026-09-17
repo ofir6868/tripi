@@ -4,6 +4,7 @@
 const express = require('express');
 const { pool } = require('../lib/db');
 const { authRequired } = require('../lib/auth');
+const { isLocalUrl } = require('../lib/canonical-origin');
 const push = require('../lib/push');
 
 const router = express.Router();
@@ -21,6 +22,19 @@ router.post('/api/push/subscribe', authRequired, async (req, res) => {
     const auth = String((sub.keys && sub.keys.auth) || '');
     if (!/^https:\/\//.test(endpoint) || !p256dh || !auth) {
       return res.status(400).json({ error: 'מנוי ההתראות לא תקין' });
+    }
+    // A real endpoint is a mailbox one of the push services minted — fcm.googleapis.com,
+    // updates.push.services.mozilla.com, web.push.apple.com. An endpoint on localhost (or a
+    // LAN address, or a .local name) came from a local build pointed at the shared database,
+    // and it is worse than useless: no server out here can resolve that host, and the send
+    // fails with a network error rather than the 404/410 that prunes a dead row
+    // (lib/push.js), so it stays in the table and is dialled again on every single fan-out.
+    // It is dropped instead of refused — push from localhost is a development convenience,
+    // and a 400 in the face of a developer testing the switch teaches nothing. The log line
+    // is what keeps the drop from being invisible.
+    if (isLocalUrl(endpoint)) {
+      console.log(`push: not storing a local-host subscription (${endpoint.slice(0, 80)})`);
+      return res.json({ ok: true, stored: false });
     }
     // the endpoint is the identity here: the same browser re-subscribing (or a
     // second account on a shared phone) must move the row, not duplicate it
@@ -54,6 +68,13 @@ router.post('/api/push/resubscribe', async (req, res) => {
     const auth = String((sub.keys && sub.keys.auth) || '');
     if (!/^https:\/\//.test(old) || !/^https:\/\//.test(endpoint) || !p256dh || !auth) {
       return res.status(400).json({ error: 'בקשה לא תקינה' });
+    }
+    // same rule as /subscribe: a rotation that lands on a local host writes nothing. The
+    // row it would have replaced stays put and is pruned the usual way once the push
+    // service answers 410 for it.
+    if (isLocalUrl(endpoint)) {
+      console.log(`push: not storing a local-host resubscribe (${endpoint.slice(0, 80)})`);
+      return res.json({ ok: true, stored: false });
     }
     await pool.query(
       `UPDATE push_subscriptions SET endpoint = $1, p256dh = $2, auth = $3, created_at = now()

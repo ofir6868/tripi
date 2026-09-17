@@ -1,7 +1,8 @@
-// Migrations 2–26, in order. Idempotent — safe to run on every boot, and the server
+// Migrations 2–27, in order. Idempotent — safe to run on every boot, and the server
 // does (lib/db-bootstrap.js), so a replaced database catches up by itself.
 // Usage: DATABASE_URL=postgres://... node db/migrate.js
 require('../lib/env');
+const { isLocalUrl } = require('../lib/canonical-origin');
 
 // coordinates for the seeded suggested trips (share_code → [{name, country, lat, lon}])
 const SEED_DESTS = {
@@ -324,6 +325,24 @@ async function migrate(pool, log = console.log) {
       last_error_at TIMESTAMPTZ,
       PRIMARY KEY (meter, day)
     )`);
+
+  log('Migration 27: a push subscription that points at a developer machine is not a mailbox...');
+  // localhost, a LAN address, a .local name — these reach push_subscriptions when a local
+  // build is pointed at the shared database, which is what the README tells a new developer
+  // to do (there is no local Postgres). Nothing outside that machine can deliver to them,
+  // and the send fails with a network error rather than the 404/410 that prunes a dead row
+  // (lib/push.js), so they never leave on their own and are dialled again on every fan-out.
+  // routes/push.js refuses new ones; this sweeps what is already there. It stays in the
+  // migration list rather than running once because this database is replaced monthly and
+  // rebuilt from an escrow dump (lib/db-restore.js) that may predate the rule — and the
+  // free instance boots often enough that "every boot" is close to continuous.
+  const { rows: subs } = await pool.query('SELECT id, endpoint FROM push_subscriptions');
+  const localSubs = subs.filter((s) => isLocalUrl(s.endpoint));
+  if (localSubs.length) {
+    await pool.query('DELETE FROM push_subscriptions WHERE id = ANY($1)', [localSubs.map((s) => s.id)]);
+    log(`  + dropped ${localSubs.length} push subscription(s) pointing at a local host: ${
+      localSubs.map((s) => s.endpoint.slice(0, 60)).join(', ')}`);
+  }
 
   log('Done.');
 }
