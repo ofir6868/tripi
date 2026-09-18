@@ -99,6 +99,30 @@ const SETTLED_STAGES = ['days', 'done'];
 const basicsSettled = (state) => SETTLED_STAGES.includes(state.stage) && !!(state.facts.length || state.areas.length);
 const BASICS_TEXT = 'קבענו את הבסיס! עכשיו מתחילים באמת — זה הזמן לצפות במסלול, לצפות בהמלצות ולקבוע תחנות. תמיד אפשר לחזור לכאן.';
 const SUGGEST_CHAT_ON = "אני רוצה להמשיך בצ'אט";
+// The turn the milestone lands on must not end on a question. What comes right under
+// it hands the traveller the route and the choice of leaving the chat — and a question
+// asked one bubble above that is a question walked away from, by the one who asked it.
+// The model is told (the flights confirmation, the turn this lands on in practice, asks
+// for a closing line instead of the next step), and the rule is enforced here too,
+// because "don't ask" is exactly the kind of instruction a model honours about half the
+// time (PLAYBOOK §3): trailing question sentences are dropped, and a turn that was
+// nothing BUT a question is replaced by the line that closes the stage.
+const CLOSING_TEXT = 'זהו — הבסיס של הטיול סגור.';
+const ENDS_IN_QUESTION = /\?[^\p{L}\p{N}]*$/u;
+const WORDLESS = /^[^\p{L}\p{N}]*$/u;
+function withoutTrailingQuestion(text) {
+  const parts = String(text || '').trim().split(/(?<=[.!?…])\s+/);
+  let end = parts.length;
+  while (end > 0) {
+    // an emoji of its own lands in a part of its own — it goes with the sentence it
+    // belongs to, so a question's smiley is dropped with it and a statement's is kept
+    let last = end;
+    while (last > 0 && WORDLESS.test(parts[last - 1])) last--;
+    if (last === 0 || !ENDS_IN_QUESTION.test(parts[last - 1])) break;
+    end = last - 1;
+  }
+  return parts.slice(0, end).join(' ').trim() || CLOSING_TEXT;
+}
 
 const dayRange = (d, days) => Math.min(Math.max(parseInt(d, 10) || 1, 1), days);
 
@@ -507,12 +531,14 @@ async function recordTurn(client, trip, state, items, turn, waiting) {
       payload.decision = 'pending';
     }
   }
-  const row = await addMessage(client, trip.id, null, 'ai', turn.text, payload);
-  // the basics just landed: a second message from the AI marks it, and the dock arrives
-  // under it. A stored row, not a flourish the client invents — it has to still be there
-  // after a reload, and its chip is a real suggestion for the next turn.
+  // the basics just landed: this turn closes the stage instead of opening the next one,
+  // a second message from the AI marks it, and the dock arrives under that. Stored rows,
+  // not a flourish the client invents — they have to still be there after a reload, and
+  // the milestone's chip is a real suggestion for the next turn.
+  const landing = !state.basics && basicsSettled(state);
+  const row = await addMessage(client, trip.id, null, 'ai', landing ? withoutTrailingQuestion(turn.text) : turn.text, payload);
   let milestone = null;
-  if (!state.basics && basicsSettled(state)) {
+  if (landing) {
     state.basics = true;
     milestone = await addMessage(client, trip.id, null, 'ai', BASICS_TEXT, { unlocked: true, suggestions: [SUGGEST_CHAT_ON] });
   }
@@ -654,11 +680,19 @@ router.post('/api/trips/code/:code/plan/flights', authRequired, async (req, res)
     if (!quota || !process.env.OPENAI_API_KEY) return res.json({ items, state, said, quota: quota ? undefined : 'plan' });
     const thread = await loadThread(trip.id);
     const history = thread.slice(-PLAN_HISTORY).map((m) => ({ role: m.role, text: historyLine(m) }));
+    // this confirmation is where the basics usually land, and that turn is a full stop:
+    // it says what is settled and ends there, because the traveller is about to be handed
+    // the route itself and the choice of going to look at it
+    const closing = advancing && !state.basics && basicsSettled(state);
+    const flightsNote = skip
+      ? '\n(אין פרטי טיסות. אל תשאלו עליהן שוב.)'
+      : '\n(הטיסות כבר נכתבו למסלול — אל תציעו אותן שוב ואל תשאלו עליהן.)';
+    const nextNote = closing
+      ? ' (stage=days. התור הזה סוגר את שלב הבסיס: משפט או שניים שמסכמים מה כבר קבוע — האזורים, התאריכים והטיסות — ונקודה בסוף. בלי שאלה, בלי הצעת תחנות ובלי ops: מיד אחרי ההודעה הזו המטיילים בוחרים בעצמם אם לעבור למסלול או להמשיך כאן.)'
+      : ' (המשיכו לשלב days: האזור הראשון, יום 1.)';
     const turn = await planTurn({
       trip, items, state, mode: state.mode, history,
-      message: said + (skip
-        ? '\n(אין פרטי טיסות. אל תשאלו עליהן שוב — המשיכו לשלב days: האזור הראשון, יום 1.)'
-        : '\n(הטיסות כבר נכתבו למסלול — אל תציעו אותן שוב ואל תשאלו עליהן. המשיכו לשלב days: האזור הראשון, יום 1.)'),
+      message: said + flightsNote + nextNote,
       pendingProposal: null,
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });

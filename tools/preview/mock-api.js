@@ -281,8 +281,10 @@
         if (advancing) st.stage = 'days';
         const said = body.skip ? 'אין לנו עדיין פרטי טיסות — נמשיך לתכנן את הימים' : `✓ אישרנו את הטיסות (${legs.length})`;
         planMsg('user', said);
+        // the turn the milestone lands on closes the stage instead of asking the next
+        // question — routes/plan.js asks the model for exactly that, and trims it if not
         const follow = advancing
-          ? planMsg('ai', 'מעולה, הטיסות במסלול. עכשיו הימים: נתחיל מטוקיו — ליום 2 אני חושב על סנסוג׳י ואסאקוסה בבוקר ושיבויה בערב. מתאים, או שתעדיפו התחלה רגועה יותר?', { suggestions: ['מתאים', 'משהו רגוע יותר'] })
+          ? planMsg('ai', 'מעולה, הטיסות במסלול. האזורים, התאריכים והטיסות סגורים — זה הבסיס של הטיול.', {})
           : planMsg('ai', 'עדכנתי את הטיסות במסלול.', {});
         return json(200, { items: draftItems, state: st, said, follow, milestone: planMilestone(), remaining: 40 });
       }
