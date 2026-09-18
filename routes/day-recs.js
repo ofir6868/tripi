@@ -783,6 +783,10 @@ router.post('/api/trips/code/:code/day-recs/refresh', authRequired, async (req, 
 module.exports = router;
 // exported for tests: the same pass the route runs
 module.exports.regenerate = regenerate;
+// what a pass is "the same pass" by — routes/plan.js starts one the moment the
+// planning chat settles the basics, and the page's own request has to join it
+// rather than supersede it a second later
+module.exports.planSignature = planSignature;
 module.exports.freeDays = freeDays;
 module.exports.snapshot = snapshot;
 // the repair of cards stored before this pipeline existed — exported so it can be driven

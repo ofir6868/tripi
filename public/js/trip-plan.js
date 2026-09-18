@@ -728,6 +728,10 @@ const TripPlan = (() => {
       painted = scroller.settle(msgs, painted, loaded);
       if (dockOwed) {
         dockOwed = false;
+        // the picks for the free days are due now, with everything the conversation just
+        // settled behind them — the server started the pass as it wrote the milestone, and
+        // this is the page joining it, so the itinerary one tap away is already filling
+        TripDayRecs.start();
         // the message lands first, the tabs arrive under it a beat later, and only then
         // does the thread settle on the panel: a normal turn scrolls to the START of the
         // new answer, and here the end of it — the two ways on — is the whole point

@@ -30,6 +30,7 @@ const { tripWithEditAuth, cleanPlanState, areasCoverTrip, tripPrefsBlock, PLAN_M
 const flights = require('../lib/flights');
 const { dailyQuota, exhausted } = require('../lib/quota');
 const ai = require('./ai');
+const dayRecs = require('./day-recs');
 const COUNTRIES = require('../public/js/countries.js');
 
 const router = express.Router();
@@ -114,6 +115,25 @@ const RECEIPT = { receipt: true };
 // a turn where the model takes the conversation to the days by itself; trailing question
 // sentences are dropped from its text, and a turn that was nothing BUT a question is
 // replaced by the line that closes the stage.
+// The basics are in, so the free days' picks start here — not on a page the traveller
+// has not opened yet. The pass reads the split and the flights that were just settled
+// (routes/day-recs.js) and writes each day the moment it lands, so the itinerary they
+// open seconds later is already filling in instead of starting from three skeletons a
+// day when they get there. Fire and forget, and signed with the same signature the
+// page's own request carries, so that request joins this pass instead of superseding
+// it. A pass that fails leaves the day asking again from the page, as it does today.
+function startDayRecs(trip, items, userId) {
+  if (!process.env.OPENAI_API_KEY) return;
+  try {
+    dayRecs.regenerate(trip, {
+      scope: 'auto',
+      sig: dayRecs.planSignature(trip, items),
+      ph: { distinctId: 'user_' + userId, traceId: randomUUID() },
+    });
+  } catch (err) {
+    console.error('day-recs kickoff failed', err.message);
+  }
+}
 const CLOSING_TEXT = 'זהו — הבסיס של הטיול סגור.';
 const ENDS_IN_QUESTION = /\?[^\p{L}\p{N}]*$/u;
 const WORDLESS = /^[^\p{L}\p{N}]*$/u;
@@ -695,6 +715,7 @@ router.post('/api/trips/code/:code/plan/flights', authRequired, async (req, res)
       const row = await addMessage(client, trip.id, null, 'ai', BASICS_TEXT, { unlocked: true, suggestions: [SUGGEST_CHAT_ON] });
       await saveState(client, trip.id, state);
       await client.query('COMMIT');
+      startDayRecs(trip, items, req.user.id);
       return res.json({ items, state, said, milestone: row });
     }
     const quota = await planMeter.check(req);
@@ -762,6 +783,7 @@ router.post('/api/trips/code/:code/plan', authRequired, async (req, res) => {
     quota.spend();
 
     const { row, fresh, approvedId, milestone } = await recordTurn(client, trip, state, items, turn, waiting);
+    if (milestone) startDayRecs(trip, fresh || items, req.user.id);
 
     res.json({
       message: row,
@@ -862,6 +884,7 @@ router.post('/api/trips/code/:code/plan/decide', authRequired, async (req, res) 
     if (!turn) return res.json({ message: upd[0], items, said });
     quota.spend();
     const answer = await recordTurn(client, trip, state, items, turn, null);
+    if (answer.milestone) startDayRecs(trip, answer.fresh || items, req.user.id);
     res.json({ message: upd[0], items: answer.fresh || items, said, follow: answer.row, milestone: answer.milestone, state, approved_message_id: answer.approvedId, remaining: quota.remaining });
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});

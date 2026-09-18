@@ -52,6 +52,14 @@ const TripDayRecs = (() => {
   let watchUntil = 0;
   let syncTimer = null;
   let prefetched = null; // the first read, started while the page was still loading
+  // The picks wait while the planning chat is still settling the basics of a brand new
+  // trip. A pass that runs before the areas and the flights are agreed is a pass for a
+  // different trip: every day's context changes the moment they land, and those picks
+  // are thrown away and made again — model calls spent on answers nobody ever saw. While
+  // they wait a free day shows nothing at all, rather than a skeleton that is not true;
+  // the chat is over the page anyway. `start` is the basics landing, or the traveller
+  // leaving the chat before they do.
+  let held = false;
 
   const base = () => `/api/trips/code/${ctx.trip.share_code}/day-recs`;
   const dayItems = (d) => ctx.state.items.filter((it) => it.day_number === d);
@@ -96,6 +104,7 @@ const TripDayRecs = (() => {
       clearTimeout(syncTimer); syncTimer = null;
     }
     ctx = c;
+    held = !!c.hold;
     sig = signature(ctx.state.items);
     document.addEventListener('click', onClick);
     document.addEventListener('visibilitychange', onVisible);
@@ -109,6 +118,17 @@ const TripDayRecs = (() => {
     apply(r);
     loaded = true;
     repaint();
+    if (!held) ask();
+  }
+
+  // the basics are settled (the planning chat says so), or the traveller left the chat
+  // without settling them: either way the picks are due. The server has usually started
+  // the pass already — routes/plan.js fires it the moment it writes the milestone — so
+  // this joins it and paints what has landed.
+  function start() {
+    if (!held) return;
+    held = false;
+    ctx?.rerender?.(); // the days drew no block at all while they waited
     ask();
   }
 
@@ -159,7 +179,7 @@ const TripDayRecs = (() => {
   // surroundings are unchanged and remakes the rest — on a long trip that is the
   // difference between a couple of model calls and thirty.
   function sync({ force = false } = {}) {
-    if (!ctx || !ctx.canEdit || !loaded) return;
+    if (!ctx || !ctx.canEdit || !loaded || held) return;
     const s = signature(ctx.state.items);
     if (!force && s === sig) return;
     sig = s;
@@ -243,7 +263,7 @@ const TripDayRecs = (() => {
   // =================================================================
 
   function blockHtml(day) {
-    if (!ctx || !ctx.canEdit) return '';
+    if (!ctx || !ctx.canEdit || held) return '';
     const hasStops = dayItems(day).length > 0;
     if (hasStops && !sticky.has(day)) return '';
     const r = byDay[day];
@@ -376,5 +396,5 @@ const TripDayRecs = (() => {
     }
   }
 
-  return { init, prefetch, blockHtml, sync, reloadAll, refreshDay, prepare, hasFreeDays };
+  return { init, prefetch, blockHtml, sync, reloadAll, refreshDay, prepare, hasFreeDays, start };
 })();

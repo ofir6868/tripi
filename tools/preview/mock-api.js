@@ -34,6 +34,15 @@
     { title: 'הפנתאון', blurb: 'הכיפה השלמה ביותר מהעת העתיקה, חינם, ולהגיע מוקדם לפני הקבוצות.', category: 'תרבות', duration: 'שעה', cost: 'חינם', time: '13:30', area: 'רומא', place_query: 'Pantheon, Rome, Italy', lat: 41.8986, lon: 12.4769, photos: [] },
     { title: 'ג׳אניקולו בשקיעה', blurb: 'הגבעה מעל טרסטוורה — הנוף הכי טוב על הגגות של רומא, בלי כרטיס ובלי תור.', category: 'נוף', duration: 'שעה', cost: 'חינם', time: '18:30', area: 'רומא', place_query: 'Gianicolo, Rome, Italy', lat: 41.8917, lon: 12.4614, photos: [] },
   ];
+  // the draft's free days, once its pass has been asked for: three picks a day, the way
+  // routes/day-recs.js writes them — nothing at all before that, which is what the page
+  // sees while the planning chat is still settling the basics
+  const DRAFT_RECS = [
+    { title: 'שוק צוקיג׳י החיצוני', blurb: 'ארוחת בוקר של סושי, טמאגו וטה מאצ׳ה בין הדוכנים. סגור בימי רביעי.', category: 'אוכל', duration: 'שעה-שעתיים', cost: '₪₪', time: '09:00', area: 'טוקיו', place_query: 'Tsukiji Outer Market, Tokyo, Japan', lat: 35.6654, lon: 139.7707, photos: [] },
+    { title: 'גני מייג׳י ג׳ינגו', blurb: 'יער בלב העיר ומקדש שינטו שקט — הפסקה מהעומס של הרג׳וקו הסמוכה.', category: 'טבע', duration: 'שעתיים', cost: 'חינם', time: '13:00', area: 'טוקיו', place_query: 'Meiji Jingu, Shibuya, Tokyo, Japan', lat: 35.6764, lon: 139.6993, photos: [] },
+    { title: 'גולדן גאיי בערב', blurb: 'סמטאות של ברים זעירים בשינג׳וקו — שישה מושבים לכל אחד, וכל אחד שונה.', category: 'חיי לילה', duration: 'ערב', cost: '₪₪', time: '20:00', area: 'טוקיו', place_query: 'Golden Gai, Shinjuku, Tokyo, Japan', lat: 35.6938, lon: 139.7044, photos: [] },
+  ];
+  let draftRecsAsked = false; // the pass the planning chat starts when the basics land
   let expenses = [];
   const stop = (day, time, title, note, cat, lat, lon) => ({
     id: nextId++, trip_id: 1, day_number: day, time_label: time, title, note, place_query: `${title} Rome`,
@@ -348,6 +357,19 @@
         }
         if (rest === '/publish') { draft.is_draft = false; return json(200, draft); }
         if (rest === '/votes') return json(200, []);
+        // the free days' picks: empty until something asks for them (the real pass is
+        // started by routes/plan.js the moment the basics are settled), then ready
+        if (rest === '/day-recs' || rest === '/day-recs/refresh') {
+          if (rest === '/day-recs/refresh') draftRecsAsked = true;
+          const days = {};
+          if (draftRecsAsked) {
+            for (let d = 1; d <= draft.days; d++) {
+              if (draftItems.some((it) => it.day_number === d)) continue;
+              days[d] = { status: 'ready', cards: DRAFT_RECS.map((c) => ({ ...c })), updated_at: new Date().toISOString() };
+            }
+          }
+          return json(200, { days, running: false, ready: Object.keys(days).length, waiting: 0, remaining: 39 });
+        }
         if (rest === '/items' && method === 'POST') {
           const it = { id: nextId++, trip_id: 2, day_number: +body.day_number || 1, time_label: body.time_label || null, title: String(body.title || ''), note: body.note || null,
             place_query: body.place_query || null, category: body.category || null, area: body.area || null, lat: body.lat ?? null, lon: body.lon ?? null, cost: body.cost != null && body.cost !== '' ? +body.cost : null, google_place_id: null, sort_order: nextId };

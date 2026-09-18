@@ -763,8 +763,12 @@
     // a free day shows the AI's picks for it (trip-dayrecs.js) — wired before the first
     // paint so the blocks render as skeletons and fill in as the server answers
     TripDayRecs.init({
-      trip, state, canEdit: editMode, addItem,
+      trip, state, canEdit: editMode, addItem, rerender: renderItinerary,
       defaultArea: (day) => (multiDest() ? defaultAreaForDay(day) : (tripDests[0]?.name || trip.destination || null)),
+      // a brand new trip opening on its planning chat has nothing to recommend around
+      // yet: the picks wait there for the basics and start the moment they land, with
+      // the areas and the flights the conversation just settled (trip-plan.js)
+      hold: trip.is_draft && editMode && !(trip.plan_state || {}).basics && location.hash === '#plan',
     });
     renderItinerary();
 
@@ -1436,6 +1440,9 @@
         title: '🧭 תכנון <span class="tp-beta">בטא</span>',
         sub: 'ה-AI בונה איתכם את הטיול — שואל מה שחשוב, מציע, ומכניס תחנות למסלול. במקביל אפשר לערוך הכול ידנית בדף הטיול',
         render: (slots) => TripPlan.render(slots, pageCtx),
+        // leaving the chat with the basics still open: the free days stop waiting for a
+        // conversation the traveller is no longer having
+        onClose: () => TripDayRecs.start(),
       });
     }
     if (privileged) {
