@@ -190,7 +190,12 @@ const TripPlan = (() => {
   }
 
   function msgHtml(m, i, latestApplied, ctx) {
-    if (m.role === 'user') return `<div class="chat-msg user"><div class="chat-bubble">${esc(m.text)}</div></div>`;
+    // a receipt — the line a tap on a card writes so the model hears the decision — is
+    // for the model only: on screen the card itself already shows what happened, and an
+    // "✓ אישרנו" bubble under it is the app telling the traveller what they just did
+    if (m.role === 'user') return m.payload && m.payload.receipt
+      ? ''
+      : `<div class="chat-msg user"><div class="chat-bubble">${esc(m.text)}</div></div>`;
     if (m.quota) return quotaMsgHtml(m, referralInfo);
     const cards = m.cards || [];
     const p = m.payload || {};
@@ -638,7 +643,7 @@ const TripPlan = (() => {
         state = r.state;
         ctx.trip.plan_state = state;
         if (r.items) ctx.replaceItems(r.items);
-        if (r.said) msgs.push({ role: 'user', text: r.said, payload: {} });
+        if (r.said) msgs.push({ role: 'user', text: r.said, payload: { receipt: true } });
         if (r.follow) msgs.push(shape(r.follow));
         milestone(r.milestone);
         flightsOpen = false;
@@ -681,7 +686,7 @@ const TripPlan = (() => {
         state = r.state;
         ctx.trip.plan_state = state;
         if (r.items) ctx.replaceItems(r.items);
-        if (r.said) msgs.push({ role: 'user', text: r.said, payload: {} });
+        if (r.said) msgs.push({ role: 'user', text: r.said, payload: { receipt: true } });
         if (r.follow) msgs.push(shape(r.follow));
         milestone(r.milestone);
         flightLegs = null;
@@ -754,7 +759,7 @@ const TripPlan = (() => {
         ctx.trip.plan_state = state;
       } catch (err) { TripPages.toast(err.message || 'לא הצלחתי לשמור את החלוקה'); return; }
       dayAreas = null;
-      send('מאשרים את החלוקה: ' + blocks.map((b) => `${b.area} ימים ${b.from}–${b.to}`).join(', '));
+      send('מאשרים את החלוקה: ' + blocks.map((b) => `${b.area} ימים ${b.from}–${b.to}`).join(', '), { receipt: true });
     }
 
     const shape = (row) => ({ ...row, cards: (row.payload?.cards || []).map((c) => TripRecs.fromServerCard(c, ctx)) });
@@ -783,15 +788,15 @@ const TripPlan = (() => {
     //  TURNS
     // =================================================================
 
-    async function send(text) {
+    async function send(text, { receipt = false } = {}) {
       const q = text.trim();
       if (!q || busy || !loaded) return;
-      msgs.push({ role: 'user', text: q, payload: {} });
+      msgs.push({ role: 'user', text: q, payload: receipt ? { receipt: true } : {} });
       busy = true;
       input.value = '';
       paint();
       try {
-        const r = await api(ctx, '', { method: 'POST', body: JSON.stringify({ message: q, mode: state.mode }) });
+        const r = await api(ctx, '', { method: 'POST', body: JSON.stringify({ message: q, mode: state.mode, receipt }) });
         state = r.state;
         ctx.trip.plan_state = state;
         if (r.approved_message_id) {
@@ -829,7 +834,7 @@ const TripPlan = (() => {
         deciding = false;
         const i = msgs.findIndex((m) => m.id === id);
         if (i !== -1) msgs[i] = shape(r.message);
-        if (r.said) msgs.push({ role: 'user', text: r.said, payload: {} });
+        if (r.said) msgs.push({ role: 'user', text: r.said, payload: { receipt: true } });
         if (r.state) { state = r.state; ctx.trip.plan_state = state; }
         if (r.approved_message_id) {
           const m = msgs.find((x) => x.id === r.approved_message_id);

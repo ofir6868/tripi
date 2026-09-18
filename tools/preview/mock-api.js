@@ -231,7 +231,7 @@
       if (!rest && method === 'POST') {
         // "מכסה" in a message plays the spent day; "מוכן" plays the AI judging the trip settled
         if (/מכסה/.test(String(body.message || ''))) return json(429, { error: 'ניצלתם את הודעות התכנון להיום', quota: 'plan' });
-        planMsg('user', String(body.message || ''));
+        planMsg('user', String(body.message || ''), body.receipt ? { receipt: true } : {});
         if (/מוכן/.test(String(body.message || ''))) {
           const m = planMsg('ai', 'לדעתי הטיול כבר עומד על הרגליים: האזורים והטיסות סגורים ולכל יום יש עוגן. רוצים שנעבור על יום 4, או להשלים את השאר אוטומטית?', { suggestions: ['נעבור על יום 4'], invite: true });
           return json(200, { message: m, state: draft.plan_state, items: null, remaining: 40 });
@@ -252,7 +252,7 @@
         // the decision is a turn: the AI answers it with the next step
         const titles = (m.payload.changes || []).map((c) => c.title).join(', ');
         const said = body.decision === 'accept' ? `✓ אישרתי את השינויים: ${titles}` : `לא עכשיו — בלי ${titles}`;
-        planMsg('user', said);
+        planMsg('user', said, { receipt: true });
         const follow = body.decision === 'accept'
           ? planMsg('ai', 'מעולה, הטיסות במסלול. עכשיו הימים: נתחיל מטוקיו — ליום 2 אני חושב על סנסוג׳י ואסאקוסה בבוקר ושיבויה בערב. מתאים, או שתעדיפו התחלה רגועה יותר?', { suggestions: ['מתאים', 'משהו רגוע יותר'] })
           : planMsg('ai', 'אין בעיה. רוצים שנשאיר את הטיסות בחוץ בינתיים ונעבור לימים, או להזין אותן אחרת?', { suggestions: ['נעבור לימים', 'טיסה רק ביום 1'] });
@@ -280,13 +280,15 @@
         const advancing = st.stage === 'flights';
         if (advancing) st.stage = 'days';
         const said = body.skip ? 'אין לנו עדיין פרטי טיסות — נמשיך לתכנן את הימים' : `✓ אישרנו את הטיסות (${legs.length})`;
-        planMsg('user', said);
-        // the turn the milestone lands on closes the stage instead of asking the next
-        // question — routes/plan.js asks the model for exactly that, and trims it if not
+        planMsg('user', said, { receipt: true });
+        // where the basics land there is no model turn at all: the milestone is the whole
+        // answer, and the days start on the next turn (routes/plan.js does the same)
+        const milestone = planMilestone();
+        if (milestone) return json(200, { items: draftItems, state: st, said, milestone });
         const follow = advancing
-          ? planMsg('ai', 'מעולה, הטיסות במסלול. האזורים, התאריכים והטיסות סגורים — זה הבסיס של הטיול.', {})
+          ? planMsg('ai', 'מעולה, הטיסות במסלול. נתחיל מהימים: ליום 2 אני חושב על סנסוג׳י ואסאקוסה בבוקר. מתאים?', { suggestions: ['מתאים', 'משהו רגוע יותר'] })
           : planMsg('ai', 'עדכנתי את הטיסות במסלול.', {});
-        return json(200, { items: draftItems, state: st, said, follow, milestone: planMilestone(), remaining: 40 });
+        return json(200, { items: draftItems, state: st, said, follow, remaining: 40 });
       }
       if (rest === '/build') {
         const fill = !!body.fill;

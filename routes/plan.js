@@ -99,14 +99,21 @@ const SETTLED_STAGES = ['days', 'done'];
 const basicsSettled = (state) => SETTLED_STAGES.includes(state.stage) && !!(state.facts.length || state.areas.length);
 const BASICS_TEXT = 'קבענו את הבסיס! עכשיו מתחילים באמת — זה הזמן לצפות במסלול, לצפות בהמלצות ולקבוע תחנות. תמיד אפשר לחזור לכאן.';
 const SUGGEST_CHAT_ON = "אני רוצה להמשיך בצ'אט";
-// The turn the milestone lands on must not end on a question. What comes right under
-// it hands the traveller the route and the choice of leaving the chat — and a question
+// A tap on a card is written as the travellers' turn so the model hears it — it answers
+// the decision, and the conversation moves on instead of stalling on a card that just
+// got a tick. On screen, though, that line is a receipt for a button they watched
+// themselves press, one bubble under the card that already shows the outcome. So it is
+// marked as one and the chat doesn't paint it; the model reads it like any other turn.
+const RECEIPT = { receipt: true };
+
+// The turn the milestone lands on must not end on a question. What comes right under it
+// hands the traveller the route and the choice of leaving the chat — and a question
 // asked one bubble above that is a question walked away from, by the one who asked it.
-// The model is told (the flights confirmation, the turn this lands on in practice, asks
-// for a closing line instead of the next step), and the rule is enforced here too,
-// because "don't ask" is exactly the kind of instruction a model honours about half the
-// time (PLAYBOOK §3): trailing question sentences are dropped, and a turn that was
-// nothing BUT a question is replaced by the line that closes the stage.
+// Where the milestone lands in practice — the flights card's confirmation — there is no
+// model turn at all any more: the milestone IS the answer. This is for the other way in,
+// a turn where the model takes the conversation to the days by itself; trailing question
+// sentences are dropped from its text, and a turn that was nothing BUT a question is
+// replaced by the line that closes the stage.
 const CLOSING_TEXT = 'זהו — הבסיס של הטיול סגור.';
 const ENDS_IN_QUESTION = /\?[^\p{L}\p{N}]*$/u;
 const WORDLESS = /^[^\p{L}\p{N}]*$/u;
@@ -662,7 +669,7 @@ router.post('/api/trips/code/:code/plan/flights', authRequired, async (req, res)
     const said = (skip
       ? 'אין לנו עדיין פרטי טיסות — נמשיך לתכנן את הימים'
       : `✓ ${advancing ? 'אישרנו' : 'עדכנו'} את הטיסות: ${flights.legsSummary(legs)}`).slice(0, AI_PLAN_MAX_MESSAGE);
-    await addMessage(client, trip.id, req.user.id, 'user', said);
+    await addMessage(client, trip.id, req.user.id, 'user', said, RECEIPT);
     await saveState(client, trip.id, state);
     await client.query('COMMIT');
 
@@ -676,23 +683,29 @@ router.post('/api/trips/code/:code/plan/flights', authRequired, async (req, res)
       await client.query('COMMIT');
       return res.json({ items, state, said, follow: row });
     }
+    // This confirmation is where the basics land, and there the milestone is the whole
+    // answer: one message that says the basics are settled and hands over the route.
+    // Asking the model for a line to sit above it bought nothing — it cost a message from
+    // the day's allowance to say what the milestone says better, and left the traveller
+    // reading two bubbles where one was the point. The days start on the next turn, which
+    // is what the chip under the message is for.
+    if (!state.basics && basicsSettled(state)) {
+      await client.query('BEGIN');
+      state.basics = true;
+      const row = await addMessage(client, trip.id, null, 'ai', BASICS_TEXT, { unlocked: true, suggestions: [SUGGEST_CHAT_ON] });
+      await saveState(client, trip.id, state);
+      await client.query('COMMIT');
+      return res.json({ items, state, said, milestone: row });
+    }
     const quota = await planMeter.check(req);
     if (!quota || !process.env.OPENAI_API_KEY) return res.json({ items, state, said, quota: quota ? undefined : 'plan' });
     const thread = await loadThread(trip.id);
     const history = thread.slice(-PLAN_HISTORY).map((m) => ({ role: m.role, text: historyLine(m) }));
-    // this confirmation is where the basics usually land, and that turn is a full stop:
-    // it says what is settled and ends there, because the traveller is about to be handed
-    // the route itself and the choice of going to look at it
-    const closing = advancing && !state.basics && basicsSettled(state);
-    const flightsNote = skip
-      ? '\n(אין פרטי טיסות. אל תשאלו עליהן שוב.)'
-      : '\n(הטיסות כבר נכתבו למסלול — אל תציעו אותן שוב ואל תשאלו עליהן.)';
-    const nextNote = closing
-      ? ' (stage=days. התור הזה סוגר את שלב הבסיס: משפט או שניים שמסכמים מה כבר קבוע — האזורים, התאריכים והטיסות — ונקודה בסוף. בלי שאלה, בלי הצעת תחנות ובלי ops: מיד אחרי ההודעה הזו המטיילים בוחרים בעצמם אם לעבור למסלול או להמשיך כאן.)'
-      : ' (המשיכו לשלב days: האזור הראשון, יום 1.)';
     const turn = await planTurn({
       trip, items, state, mode: state.mode, history,
-      message: said + flightsNote + nextNote,
+      message: said + (skip
+        ? '\n(אין פרטי טיסות. אל תשאלו עליהן שוב — המשיכו לשלב days: האזור הראשון, יום 1.)'
+        : '\n(הטיסות כבר נכתבו למסלול — אל תציעו אותן שוב ואל תשאלו עליהן. המשיכו לשלב days: האזור הראשון, יום 1.)'),
       pendingProposal: null,
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
@@ -736,7 +749,9 @@ router.post('/api/trips/code/:code/plan', authRequired, async (req, res) => {
 
     // the traveller's turn is stored first: a model failure still leaves what they said
     await client.query('BEGIN');
-    await addMessage(client, trip.id, req.user.id, 'user', message.slice(0, AI_PLAN_MAX_MESSAGE));
+    // a confirmation the client sent for the traveller (the area calendar's) is a receipt
+    // like the card ones: the model hears it, the chat doesn't paint it
+    await addMessage(client, trip.id, req.user.id, 'user', message.slice(0, AI_PLAN_MAX_MESSAGE), b.receipt ? RECEIPT : {});
     await client.query('COMMIT');
 
     const turn = await planTurn({
@@ -830,7 +845,7 @@ router.post('/api/trips/code/:code/plan/decide', authRequired, async (req, res) 
       : `לא עכשיו — בלי ${titles || 'ההצעה הזו'}`;
     const quota = await planMeter.check(req);
     await client.query('BEGIN');
-    await addMessage(client, trip.id, req.user.id, 'user', said);
+    await addMessage(client, trip.id, req.user.id, 'user', said, RECEIPT);
     await client.query('COMMIT');
     if (!quota) return res.json({ message: upd[0], items, quota: 'plan' });
     const state = trip.plan_state;
