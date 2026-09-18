@@ -94,6 +94,10 @@ const TripPages = (() => {
     current = null;
     document.body.classList.remove('page-open');
     setActive(null);
+    // the chat that veiled the dock is gone: whether it settled the basics or the
+    // traveller just left, the dock is on screen from here on
+    if (!dockShown) revealDock();
+    else if (sparkOwed) { sparkOwed = false; sparkle(dockEl()); }
   }
 
   // the budget page (trip-modals.js) is a sibling of ours with its own hash and
@@ -152,6 +156,60 @@ const TripPages = (() => {
       };
     });
     document.getElementById('more-btn')?.addEventListener('click', openMore);
+  }
+
+  // ---- the dock's arrival ----
+  //
+  // A trip created with the AI opens on the planning chat (the wizard sends it straight
+  // to #plan) with the dock veiled: at that moment the itinerary is empty and there is
+  // nothing to recommend, so a tab bar is five ways out of a conversation that hasn't
+  // started. The dock arrives when the chat settles the basics — a spark runs the bar's
+  // length, left to right, and leaves the tabs behind it — and once it has arrived it
+  // never hides again, on any page.
+  //
+  // The spark is only worth playing where it can be seen: on a phone the dock floats
+  // OVER an open page, on desktop the page covers the toolbar entirely. So a reveal that
+  // lands behind a page keeps the spark owed, and spends it when the page closes.
+
+  let dockShown = true;
+  let sparkOwed = false;
+  const dockEl = () => document.getElementById('action-bar');
+  const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function veilDock() {
+    const el = dockEl();
+    if (!el || !dockShown) return;
+    dockShown = false;
+    el.classList.add('dock-veiled');
+    el.setAttribute('aria-hidden', 'true');
+    document.body.classList.add('dock-veiled');
+  }
+
+  function sparkle(el) {
+    if (!el) return;
+    const s = document.createElement('span');
+    s.className = 'dock-spark';
+    s.setAttribute('aria-hidden', 'true');
+    s.innerHTML = '<i class="ds-core"></i><i class="ds-tw"></i><i class="ds-tw"></i><i class="ds-tw"></i>';
+    // the run is the bar's own width, handed to a transform — the spark crosses the
+    // dock without the dock (or the page under it) being laid out again
+    s.style.setProperty('--run', el.offsetWidth + 'px');
+    el.classList.add('dock-arriving');
+    el.appendChild(s);
+    setTimeout(() => { el.classList.remove('dock-arriving'); s.remove(); }, 1400);
+  }
+
+  function revealDock({ spark = false } = {}) {
+    const el = dockEl();
+    if (!el || dockShown) return;
+    dockShown = true;
+    el.classList.remove('dock-veiled');
+    el.removeAttribute('aria-hidden');
+    document.body.classList.remove('dock-veiled');
+    if (!spark || reduced()) return;
+    // phones only: elsewhere the open page is on top of the dock, so the spark waits
+    if (current && !matchMedia('(max-width: 640px)').matches) { sparkOwed = true; return; }
+    sparkle(el);
   }
 
   // a small count on a tab's icon (documents saved, …); 0 removes it
@@ -330,5 +388,8 @@ const TripPages = (() => {
     show(name);
   }
 
-  return { register, open, close, dismiss, replace, activate: setActive, current: () => current, openFromHash, initDock, badge, toast, sheet, closeSheet };
+  return {
+    register, open, close, dismiss, replace, activate: setActive, current: () => current,
+    openFromHash, initDock, badge, toast, sheet, closeSheet, veilDock, revealDock,
+  };
 })();

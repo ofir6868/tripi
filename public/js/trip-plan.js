@@ -16,6 +16,8 @@ const TripPlan = (() => {
     undo: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>',
     auto: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 8-12h-6z"/></svg>',
     hand: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0v1"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-5.9-2.4L3 15.2a2 2 0 0 1 3-2.6L8 15"/></svg>',
+    // the מסלול tab's own glyph: the button points at a tab the traveller is about to meet
+    route: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h6a3.5 3.5 0 0 0 0-7h-4a3.5 3.5 0 0 1 0-7h6"/></svg>',
   };
   const KIND = { add: { em: '➕', label: 'הוספה' }, update: { em: '✏️', label: 'שינוי' }, delete: { em: '🗑️', label: 'הסרה' } };
   const FILL_CHIP = '✨ להשלים את שאר הימים אוטומטית';
@@ -82,6 +84,13 @@ const TripPlan = (() => {
         </div>
       </div>`;
   }
+
+  // The milestone's panel: the basics are settled, the dock has just arrived, and there
+  // are exactly two ways on — the trip's own page (this button) or another turn here
+  // (a chip under the composer, a suggestion like any other). One button and nothing
+  // else: the message above it already said the whole thing.
+  const unlockedHtml = () =>
+    `<div class="plan-card pc-unlocked"><button type="button" class="btn btn-amber pu-go">${ICON.route} עבור לדף המסלול</button></div>`;
 
   // the referral numbers, fetched once per page and refreshed when a card needs them
   let referralInfo = null;
@@ -192,6 +201,7 @@ const TripPlan = (() => {
           <div class="chat-bubble">${esc(m.text || '')}</div>
           ${cards.length ? `<div class="rec-strip">${cards.map((c, j) => TripRecs.cardHtml(c, i, j)).join('')}</div>` : ''}
           ${changeCardHtml(m, latestApplied)}
+          ${p.unlocked ? unlockedHtml() : ''}
           ${p.built ? `<div class="plan-card pc-applied"><div class="pc-head">${p.built.fill ? 'הימים הושלמו' : 'הטיול נבנה'} — ${p.built.count} תחנות</div></div>` : ''}
           ${p.invite ? inviteHtml(ctx.trip) : ''}
         </div>
@@ -444,6 +454,14 @@ const TripPlan = (() => {
     // when it fits), and only the newly arrived messages animate in
     let painted = 0;
     let deciding = false;
+    // the dock owes an entrance: the milestone message goes up first, and the tabs
+    // arrive under it a beat later, so the two read as one sentence
+    let dockOwed = false;
+    function milestone(row) {
+      if (!row) return;
+      msgs.push(shape(row));
+      dockOwed = true;
+    }
     const scroller = TripPlan.arrival(body, thread);
 
     const latestApplied = () => {
@@ -622,6 +640,7 @@ const TripPlan = (() => {
         if (r.items) ctx.replaceItems(r.items);
         if (r.said) msgs.push({ role: 'user', text: r.said, payload: {} });
         if (r.follow) msgs.push(shape(r.follow));
+        milestone(r.milestone);
         flightsOpen = false;
         flightLegs = null;
         flightCard = null;
@@ -664,6 +683,7 @@ const TripPlan = (() => {
         if (r.items) ctx.replaceItems(r.items);
         if (r.said) msgs.push({ role: 'user', text: r.said, payload: {} });
         if (r.follow) msgs.push(shape(r.follow));
+        milestone(r.milestone);
         flightLegs = null;
         flightCard = null;
         flightsFrom = null;
@@ -701,6 +721,16 @@ const TripPlan = (() => {
       paintChips();
       paintMode();
       painted = scroller.settle(msgs, painted, loaded);
+      if (dockOwed) {
+        dockOwed = false;
+        // the message lands first, the tabs arrive under it a beat later, and only then
+        // does the thread settle on the panel: a normal turn scrolls to the START of the
+        // new answer, and here the end of it — the two ways on — is the whole point
+        setTimeout(() => {
+          TripPages.revealDock({ spark: true });
+          setTimeout(() => body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' }), 700);
+        }, 500);
+      }
     }
 
     // the day's allowance is spent: the gentle card, with the referral numbers filled
@@ -769,6 +799,7 @@ const TripPlan = (() => {
           if (m) m.payload = { ...m.payload, decision: 'applied', undo: true };
         }
         msgs.push(shape(r.message));
+        milestone(r.milestone);
         if (r.items) ctx.replaceItems(r.items);
         await promoteAreas();
         TRIPMAKER.track?.('plan_turn', { code: ctx.trip.share_code, stage: state.stage, mode: state.mode });
@@ -805,6 +836,7 @@ const TripPlan = (() => {
           if (m) m.payload = { ...m.payload, decision: 'applied', undo: true };
         }
         if (r.follow) msgs.push(shape(r.follow));
+        milestone(r.milestone);
         if (r.items) ctx.replaceItems(r.items);
         busy = false;
         if (r.quota) { outOfQuota(r.quota); return; }
@@ -920,6 +952,9 @@ const TripPlan = (() => {
 
     thread.addEventListener('click', (e) => {
       if (handleCardClick(e, ctx)) return;
+      // "עבור לדף המסלול" — the chat closes the way its own back button closes it, so
+      // the history entry it holds goes with it
+      if (e.target.closest('.pu-go')) { TripPages.close(); return; }
       const day = e.target.closest('.rc-day');
       if (day && dayAreas) { dayAreas[+day.dataset.d] = paintArea; paint(); return; }
       const pal = e.target.closest('.rp-area');

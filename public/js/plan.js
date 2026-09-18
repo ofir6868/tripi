@@ -1,7 +1,8 @@
 // AI-first plan wizard: destinations → dates → style → the trip is CREATED on the
-// spot — an empty draft on the server, opened on its own page (/trip/CODE), on the
-// itinerary. The planning chat (#plan), where the AI builds it with the traveller, is
-// the dock's תכנון tab there; the style answers ride along as its opening memory.
+// spot — an empty draft on the server, opened on its own page (/trip/CODE) and straight
+// into the planning chat (#plan), where the AI builds it with the traveller; the style
+// answers ride along as its opening memory. The trip page's dock waits behind a veil
+// there until the chat settles the basics, and then arrives with a spark.
 // Publishing ("שמירת הטיול") happens over there too.
 (() => {
   const DEFAULT_COVER = 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1200&q=80';
@@ -380,9 +381,9 @@
 
   // the AI path: the trip is created empty, with the style answers kept for the planning
   // chat, where the AI asks what it needs, then builds — step by step or all at once, as
-  // the traveller picks there. Nothing is generated here anymore. The trip opens on its
-  // itinerary, not inside the chat: the traveller lands on the trip they just made, and
-  // the chat is one tab (תכנון) away.
+  // the traveller picks there. Nothing is generated here anymore. The trip opens INSIDE
+  // that chat: a trip a minute old has nothing on its itinerary yet, and the conversation
+  // that fills it is what the button promised. The trip page is behind it, one tap away.
   const aiBtn = document.getElementById('ai-full');
   const aiLabel = aiBtn.textContent;
   aiBtn.onclick = () => {
@@ -448,8 +449,8 @@
     };
   }
 
-  // POST the draft and move to the trip page, on its itinerary. A failed save keeps
-  // the payload for a retry that costs nothing.
+  // POST the draft and move to the trip page — into the planning chat on the AI path.
+  // A failed save keeps the payload for a retry that costs nothing.
   let savingTrip = false;
   async function saveDraftTrip(payload, { plan_state = null, path = '' } = {}) {
     if (savingTrip) return;
@@ -466,7 +467,9 @@
         days: payload.days || null, dates_picked: !!tripStart,
       });
       clearDraft();
-      location.href = '/trip/' + trip.share_code;
+      // the AI path lands in the conversation; the manual path asked for the opposite —
+      // an empty trip to fill by hand — and gets the trip page itself
+      location.href = '/trip/' + trip.share_code + (path === 'ai' ? '#plan' : '');
     } catch (e) {
       savingTrip = false;
       aiStatus.className = 'ai-status error';

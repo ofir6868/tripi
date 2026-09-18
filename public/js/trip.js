@@ -1455,6 +1455,14 @@
     });
     TripPages.openFromHash();
 
+    // A trip that was just created lands straight in the planning chat (the wizard sends
+    // it to #plan), and until that conversation settles the basics there is nothing here
+    // to tab to: the itinerary is empty and there is nothing yet to recommend. So the
+    // dock waits behind a veil, and the chat reveals it — with a spark running its
+    // length — on the turn that settles them. routes/plan.js decides that moment
+    // (plan_state.basics), trip-pages.js paints it, and it only ever happens once.
+    if (TripPages.current() === 'plan' && !(trip.plan_state || {}).basics) TripPages.veilDock();
+
     // a /trip/CODE#budget link (or a reload mid-budget) lands straight on the budget page
     if ((location.hash === '#budget' || location.hash === '#budget-settings') && canEdit) {
       TripModals.openBudget(modalCtx);

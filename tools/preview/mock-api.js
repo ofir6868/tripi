@@ -173,6 +173,17 @@
     if (st.mode === 'auto') applyOps(m); else m.payload.decision = 'pending';
     return m;
   }
+  // the same moment routes/plan.js marks: the opening round is behind us AND something
+  // was written down, so the trip page's dock arrives under a message of its own
+  function planMilestone() {
+    const st = draft.plan_state;
+    if (st.basics || !['days', 'done'].includes(st.stage)) return null;
+    if (!st.facts.length && !st.areas.length) return null;
+    st.basics = true;
+    return planMsg('ai', 'קבענו את הבסיס! עכשיו מתחילים באמת — זה הזמן לצפות במסלול, לצפות בהמלצות ולקבוע תחנות. תמיד אפשר לחזור לכאן.',
+      { unlocked: true, suggestions: ["אני רוצה להמשיך בצ'אט"] });
+  }
+
   function applyOps(m) {
     const undo = { added: [], updated: [], deleted: [] };
     for (const op of m.payload.ops || []) {
@@ -227,7 +238,7 @@
         }
         if (body.mode) draft.plan_state.mode = body.mode;
         const m = planTurn(String(body.message || ''));
-        return json(200, { message: m, state: draft.plan_state, items: m.payload.decision === 'applied' ? draftItems : null, remaining: 50 });
+        return json(200, { message: m, milestone: planMilestone(), state: draft.plan_state, items: m.payload.decision === 'applied' ? draftItems : null, remaining: 50 });
       }
       if (rest === '/decide') {
         const m = planMsgs.find((x) => x.id === +body.message_id);
@@ -245,7 +256,7 @@
         const follow = body.decision === 'accept'
           ? planMsg('ai', 'מעולה, הטיסות במסלול. עכשיו הימים: נתחיל מטוקיו — ליום 2 אני חושב על סנסוג׳י ואסאקוסה בבוקר ושיבויה בערב. מתאים, או שתעדיפו התחלה רגועה יותר?', { suggestions: ['מתאים', 'משהו רגוע יותר'] })
           : planMsg('ai', 'אין בעיה. רוצים שנשאיר את הטיסות בחוץ בינתיים ונעבור לימים, או להזין אותן אחרת?', { suggestions: ['נעבור לימים', 'טיסה רק ביום 1'] });
-        return json(200, { message: m, items: draftItems, said, follow, state: draft.plan_state, remaining: 40 });
+        return json(200, { message: m, items: draftItems, said, follow, milestone: planMilestone(), state: draft.plan_state, remaining: 40 });
       }
       // the flights card, confirmed: stops written straight from the legs, no model turn
       if (rest === '/flights') {
@@ -273,7 +284,7 @@
         const follow = advancing
           ? planMsg('ai', 'מעולה, הטיסות במסלול. עכשיו הימים: נתחיל מטוקיו — ליום 2 אני חושב על סנסוג׳י ואסאקוסה בבוקר ושיבויה בערב. מתאים, או שתעדיפו התחלה רגועה יותר?', { suggestions: ['מתאים', 'משהו רגוע יותר'] })
           : planMsg('ai', 'עדכנתי את הטיסות במסלול.', {});
-        return json(200, { items: draftItems, state: st, said, follow, remaining: 40 });
+        return json(200, { items: draftItems, state: st, said, follow, milestone: planMilestone(), remaining: 40 });
       }
       if (rest === '/build') {
         const fill = !!body.fill;
@@ -285,6 +296,7 @@
           if (!draftItems.some((it) => it.day_number === d && it.time_label === '13:00')) add(d, '13:00', `צהריים ב${area}`, 'אוכל', area);
         }
         draft.plan_state.stage = 'done';
+        draft.plan_state.basics = true;
         draft.description = draft.description || 'עשרה ימים ביפן בקצב רגוע: טוקיו וניקו, ואז קיוטו עם נארה ואוסקה — מקדשים, שווקים ואוכל.';
         const m = planMsg('ai', fill ? 'השלמתי את שאר הימים.' : 'בניתי את הטיול — 20 תחנות על פני 10 ימים.', { built: { count: 20, fill } });
         return json(200, { items: draftItems, plan: draft.plan_state.areas.length ? draft.plan_state.areas : [{ area: 'טוקיו', from: 1, to: 5, cities: ['טוקיו'] }, { area: 'קיוטו', from: 6, to: 10, cities: ['קיוטו'] }], message: m, state: draft.plan_state, trip: { description: draft.description, emoji: draft.emoji, cover_image: draft.cover_image } });

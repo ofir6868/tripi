@@ -81,6 +81,25 @@ function multiCountry(dests) {
   return ccs.size >= 2;
 }
 
+// The moment the conversation stops being an opening round and becomes a trip. Until it
+// lands, the trip page is a chat and nothing else — the itinerary is empty and there is
+// nothing to recommend — so the page's dock waits behind a veil and arrives here, with a
+// spark running its length (trip-pages.js). The AI says so itself, in a message of its
+// own, and names the two ways on: the trip's own page, or another turn here.
+// "The basics" are behind us once the conversation reaches the days: what kind of trip
+// this is (clarify), how it gets built (choose), where the days go (areas) and how the
+// trip is flown (flights) have all been answered. Not one stage earlier, and not because
+// of how much was answered but because of what is ON SCREEN: areas and flights each have
+// a card of their own in the chat, and a "we're done with the basics" underneath a card
+// still waiting to be filled in contradicts it. By the days stage the itinerary also has
+// something real in it — the flights are written as stops — so "go look at the route" is
+// true when it is said. And not by stage alone: something must actually have been
+// written down, since a trip can reach a stage with the model having settled nothing.
+const SETTLED_STAGES = ['days', 'done'];
+const basicsSettled = (state) => SETTLED_STAGES.includes(state.stage) && !!(state.facts.length || state.areas.length);
+const BASICS_TEXT = 'קבענו את הבסיס! עכשיו מתחילים באמת — זה הזמן לצפות במסלול, לצפות בהמלצות ולקבוע תחנות. תמיד אפשר לחזור לכאן.';
+const SUGGEST_CHAT_ON = "אני רוצה להמשיך בצ'אט";
+
 const dayRange = (d, days) => Math.min(Math.max(parseInt(d, 10) || 1, 1), days);
 
 // ---------- the thread ----------
@@ -489,9 +508,17 @@ async function recordTurn(client, trip, state, items, turn, waiting) {
     }
   }
   const row = await addMessage(client, trip.id, null, 'ai', turn.text, payload);
+  // the basics just landed: a second message from the AI marks it, and the dock arrives
+  // under it. A stored row, not a flourish the client invents — it has to still be there
+  // after a reload, and its chip is a real suggestion for the next turn.
+  let milestone = null;
+  if (!state.basics && basicsSettled(state)) {
+    state.basics = true;
+    milestone = await addMessage(client, trip.id, null, 'ai', BASICS_TEXT, { unlocked: true, suggestions: [SUGGEST_CHAT_ON] });
+  }
   await saveState(client, trip.id, state);
   await client.query('COMMIT');
-  return { row, fresh, approvedId };
+  return { row, fresh, approvedId, milestone };
 }
 
 // ---------- routes ----------
@@ -638,7 +665,7 @@ router.post('/api/trips/code/:code/plan/flights', authRequired, async (req, res)
     if (!turn) return res.json({ items, state, said });
     quota.spend();
     const answer = await recordTurn(client, trip, state, items, turn, null);
-    res.json({ items: answer.fresh || items, state, said, follow: answer.row, remaining: quota.remaining });
+    res.json({ items: answer.fresh || items, state, said, follow: answer.row, milestone: answer.milestone, remaining: quota.remaining });
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error(err);
@@ -685,10 +712,11 @@ router.post('/api/trips/code/:code/plan', authRequired, async (req, res) => {
     if (!turn) return res.status(502).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });
     quota.spend();
 
-    const { row, fresh, approvedId } = await recordTurn(client, trip, state, items, turn, waiting);
+    const { row, fresh, approvedId, milestone } = await recordTurn(client, trip, state, items, turn, waiting);
 
     res.json({
       message: row,
+      milestone,
       state,
       items: fresh,
       approved_message_id: approvedId,
@@ -785,7 +813,7 @@ router.post('/api/trips/code/:code/plan/decide', authRequired, async (req, res) 
     if (!turn) return res.json({ message: upd[0], items, said });
     quota.spend();
     const answer = await recordTurn(client, trip, state, items, turn, null);
-    res.json({ message: upd[0], items: answer.fresh || items, said, follow: answer.row, state, approved_message_id: answer.approvedId, remaining: quota.remaining });
+    res.json({ message: upd[0], items: answer.fresh || items, said, follow: answer.row, milestone: answer.milestone, state, approved_message_id: answer.approvedId, remaining: quota.remaining });
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error(err);
@@ -864,6 +892,8 @@ router.post('/api/trips/code/:code/plan/build', authRequired, async (req, res) =
       );
     }
     state.stage = 'done';
+    // a built trip is long past "the basics": it leaves for its own page, dock and all
+    state.basics = true;
     state.build = fill ? state.build : 'once';
     state.areas = built.plan.map((b) => ({ area: b.area, from: b.from, to: b.to, cities: b.cities }));
     const n = built.items.length;

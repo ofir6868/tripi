@@ -463,6 +463,8 @@
 /* ---------- trip actions, edit mode, owner box ---------- */
 
 .action-bar {
+  /* --dock-r is the bar's own corner radius, borrowed by the arrival's wipe */
+  --dock-r: 14px;
   /* top: clears the fixed site-header (14px inset + ~62px height + breathing room) */
   position: sticky; top: 86px; z-index: 90;
   width: min(1120px, calc(100% - 40px)); margin: 30px auto 0;
@@ -487,6 +489,77 @@
 /* the icon sits in its own pill so the active tab can light it up (the dock on phones) */
 .action-btn .ab-ic { position: relative; display: inline-flex; align-items: center; justify-content: center; transition: background .2s ease, color .2s ease, transform .15s ease; }
 .action-btn.is-active { color: var(--mint); background: rgba(143, 216, 196, .1); }
+
+/* ---------- the dock's arrival ----------
+   The dock waits behind a veil while the planning chat settles the basics of a brand
+   new trip (trip-pages.js), and then arrives: the glass lifts into place, a spark runs
+   the bar's full width, and the tabs are uncovered behind it. Left to right, physically
+   — in RTL too: this is where the eye is being led, not where a sentence starts.
+   The wipe rides on the tab ROW, never on the bar: a clip-path clips its own children,
+   and a spark cut off at the very edge it is revealing is no spark at all — so the
+   spark sits on the bar, outside the clip. Transforms, opacity and a clip-path only:
+   nothing here lays the trip out again behind the bar. */
+.action-bar.dock-veiled { opacity: 0; visibility: hidden; pointer-events: none; }
+.action-bar.dock-arriving { animation: dock-rise .5s cubic-bezier(.22, .9, .3, 1) both; }
+.action-bar.dock-arriving .action-row { animation: dock-wipe .9s cubic-bezier(.3, .8, .35, 1) both; }
+@keyframes dock-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  45% { opacity: 1; }
+  to { opacity: 1; transform: none; }
+}
+@keyframes dock-wipe {
+  from { clip-path: inset(0 100% 0 0 round var(--dock-r)); }
+  to { clip-path: inset(0 round var(--dock-r)); }
+}
+/* the spark itself: a white-hot core with the trail it leaves behind it, a beam the
+   height of the bar at the uncovering edge, and a few embers that flicker out */
+.dock-spark {
+  position: absolute; left: 0; top: 50%; width: 0; height: 0; z-index: 2; pointer-events: none;
+  animation: dock-spark-run .9s cubic-bezier(.3, .8, .35, 1) both;
+}
+@keyframes dock-spark-run {
+  0% { transform: translate3d(0, -50%, 0); opacity: 0; }
+  8% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { transform: translate3d(var(--run, 320px), -50%, 0); opacity: 0; }
+}
+.dock-spark i { position: absolute; display: block; }
+.ds-core {
+  left: -8px; top: -8px; width: 16px; height: 16px; border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 28%, rgba(255, 214, 140, .95) 52%, rgba(255, 180, 95, 0) 74%);
+  box-shadow: 0 0 20px 7px rgba(255, 180, 95, .55), 0 0 44px 16px rgba(255, 180, 95, .22);
+}
+/* the trail — physical right/left, so it stays BEHIND the spark in RTL as well */
+.dock-spark::before {
+  content: ''; position: absolute; right: 0; top: -2px; width: 140px; height: 4px; border-radius: 2px;
+  background: linear-gradient(to left, rgba(255, 224, 170, .9), rgba(255, 180, 95, 0));
+  filter: blur(1.5px);
+}
+/* the uncovering edge, drawn as light */
+.dock-spark::after {
+  content: ''; position: absolute; left: -3px; top: -30px; width: 6px; height: 60px; border-radius: 3px;
+  background: linear-gradient(180deg, rgba(255, 224, 170, 0), rgba(255, 234, 195, .9) 45%, rgba(255, 224, 170, 0));
+  filter: blur(2px);
+}
+.ds-tw {
+  width: 6px; height: 6px; border-radius: 50%; background: #ffeac9; opacity: 0;
+  box-shadow: 0 0 10px 2px rgba(255, 214, 140, .7);
+  animation: ds-twinkle .8s ease-out both;
+}
+.dock-spark .ds-tw:nth-of-type(2) { left: -30px; top: -18px; animation-delay: .2s; }
+.dock-spark .ds-tw:nth-of-type(3) { left: -52px; top: 12px; animation-delay: .38s; }
+.dock-spark .ds-tw:nth-of-type(4) { left: -76px; top: -7px; animation-delay: .56s; }
+@keyframes ds-twinkle {
+  0% { opacity: 0; transform: scale(.2); }
+  35% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(.3) translateY(-12px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .action-bar.dock-arriving,
+  .action-bar.dock-arriving .action-row,
+  .dock-spark, .ds-tw { animation: none; }
+}
+
 /* the itinerary tab and "עוד" only mean something on a phone, where the pages stack over the trip */
 .action-btn.phone-only { display: none; }
 /* on desktop the two pages sit apart from the actions — a hairline says so */
@@ -719,7 +792,7 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
        side the notch is on, and landscape is the only case where either is set */
     inset-inline: calc(10px + max(env(safe-area-inset-left), env(safe-area-inset-right)));
     width: auto; margin: 0;
-    padding: 5px; border-radius: 24px; z-index: 120;
+    padding: 5px; border-radius: 24px; --dock-r: 24px; z-index: 120;
     border: 1px solid var(--glass-border);
     /* a white film for the glass, over just enough ink to keep labels legible */
     background:
@@ -762,6 +835,11 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
   .action-bar.has-finish #budget-btn { display: none; }
   /* the dock floats, so the page has to end above it — not behind it */
   body:has(.action-bar) { padding-bottom: calc(var(--dock-h) + 34px + env(safe-area-inset-bottom)); }
+  /* …and while the dock is still veiled there is nothing to end above: the chat runs
+     down to its own composer, and the room comes back as the dock arrives into it */
+  .trip-page { transition: padding-bottom .5s cubic-bezier(.22, .9, .3, 1); }
+  body.dock-veiled .trip-page { padding-bottom: 6px; }
+  @media (prefers-reduced-motion: reduce) { .trip-page { transition: none; } }
   /* and the invite banner stacks on top of the dock instead of landing on it */
   body:has(.action-bar) .join-banner { bottom: calc(var(--dock-h) + 20px + env(safe-area-inset-bottom)); }
   body:has(.action-bar):has(.join-banner) { padding-bottom: calc(var(--dock-h) + 120px + env(safe-area-inset-bottom)); }
@@ -1855,6 +1933,12 @@ body.page-open { overflow: hidden; }
 /* the tap landed: the buttons are gone, the card says what it is doing */
 .pc-foot.pc-busy { align-items: center; gap: 10px; color: var(--amber); font-weight: 700; font-size: .88rem; }
 .pc-foot.pc-busy .chat-typing { min-height: 0; }
+
+/* the milestone's panel: one way on, kept small — the message above it is the moment,
+   and the other way on is a chip under the composer */
+.plan-card.pc-unlocked { width: auto; padding: 8px; border-color: rgba(255, 180, 95, .35); }
+.pc-unlocked .btn { padding: 9px 16px; font-size: .9rem; }
+.pc-unlocked .btn .ic { width: 16px; height: 16px; }
 
 /* the quota card: a spent day, said gently, with the referral progress */
 .plan-card.pc-quota, .plan-card.pc-invite { border-color: rgba(255, 180, 95, .35); }
