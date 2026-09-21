@@ -89,11 +89,25 @@ async function renderEnv(key) {
 }
 
 async function vercelEnv(token) {
-  // decrypt=true so "is this slot empty?" can be answered. The values stay in this process.
-  const url = `https://api.vercel.com/v9/projects/${VERCEL_PROJECT}/env?decrypt=true&teamId=${VERCEL_TEAM}`;
+  const url = `https://api.vercel.com/v9/projects/${VERCEL_PROJECT}/env?teamId=${VERCEL_TEAM}`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error(`Vercel API answered ${res.status} listing env vars`);
   return (await res.json()).envs || [];
+}
+
+// "Is this slot empty?" has to be asked one key at a time, and the reason is a trap worth
+// naming: the *list* endpoint ignores decrypt=true for encrypted variables and hands back
+// the ciphertext envelope instead — around a kilobyte of base64 that is perfectly truthy.
+// A script that asks `if (value)` against the list therefore reads every encrypted slot as
+// "already set" and silently skips the secrets it exists to move, which is precisely what
+// this one did on its first run: it filled the three plain variables, reported thirteen
+// encrypted ones as already present, and left Google sign-in and web push dead. Only the
+// per-variable endpoint decrypts. It costs one request per key and buys a true answer.
+async function vercelValue(token, id) {
+  const url = `https://api.vercel.com/v9/projects/${VERCEL_PROJECT}/env/${id}?teamId=${VERCEL_TEAM}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error(`Vercel API answered ${res.status} reading a variable`);
+  return (await res.json()).value || '';
 }
 
 async function setVercel(token, id, value) {
@@ -117,9 +131,10 @@ async function main() {
   const filled = [], kept = [], missing = [], refused = [], failed = [];
 
   for (const slot of onVercel.slice().sort((a, b) => a.key.localeCompare(b.key))) {
-    const { key, id, value } = slot;
+    const { key, id } = slot;
     if (NEVER_COPY[key]) { refused.push(`${key} — ${NEVER_COPY[key]}`); continue; }
-    if (value) { kept.push(key); continue; }              // already set here, never clobbered
+    const current = await vercelValue(vercelToken, id);   // the list's value cannot be trusted
+    if (current) { kept.push(key); continue; }            // already set here, never clobbered
     const incoming = fromRender.get(key);
     if (!incoming) { missing.push(key); continue; }        // Render did not have one either
     if (DRY_RUN) { filled.push(key); continue; }
