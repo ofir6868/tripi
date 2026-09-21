@@ -19,7 +19,7 @@
 
 ## סטאק
 
-- Node.js + Express, PostgreSQL (Render)
+- Node.js + Express על Vercel (פונקציה אחת, `api/index.js`), PostgreSQL (Render)
 - Frontend: HTML/CSS/JS ללא פריימוורק, RTL מלא, עיצוב זכוכית
 - APIs חינמיים ללא מפתח: Open-Meteo (חיזוי מזג אוויר + Geocoding לאוטוקומפליט יעדים בעברית), OSM Overpass (מלונות באזור, עם קאש בצד השרת), Google Maps Embed
 
@@ -80,7 +80,8 @@ npm start          # http://localhost:3000
 | `RESTORE_FROM_ESCROW` | `1` = לכפות שחזור מה-escrow **גם על טיולי הדגמה שכבר קיימים** (התאוששות חד-פעמית). מוחק ומשחזר; מסירים אחרי הריצה. בלי זה השחזור רץ רק על מסד ריק/דגמה |
 | `RESTORE_SOURCE_URL` | אופציונלי — כתובת קובץ ה-escrow. ברירת מחדל: ה-raw של `ofir6868/tripi` בענף `db-rotation-backups` |
 | `JWT_SECRET` | סוד לחתימת טוקנים |
-| `PORT` | פורט (ברירת מחדל 3000) |
+| `PORT` | פורט (ברירת מחדל 3000). רלוונטי רק כשמריצים את `server.js` ישירות — על Vercel אין פורט להאזין עליו |
+| `CRON_SECRET` | הטוקן שהמתזמן של Vercel חותם איתו את `/api/cron/tick` — התזכורות, גיבוי ה-escrow וטאטוא המטמון, שעל מארח תמיד-דלוק רצים כטיימרים בתוך התהליך. בלעדיו הנתיב מסרב לכולם, וזו התשובה הנכונה לנתיב שאחרת היה נותן לזר לשרוף לנו את מכסת ה-push |
 | `CANONICAL_ORIGIN` | אופציונלי — המקור היחיד שמותר להיכנס לאינדקס. ברירת מחדל `https://tripmaker.co.il` (מתוך `SITE` ב-`lib/seo.js`). כל בקשת GET לדף שמגיעה למארח או לסכימה אחרים מקבלת 301 לכאן |
 | `GOOGLE_PLACES_API_KEY` | מפתח Google Places (New) — אוטוקומפליט של יעדים, וגם תמונות המקומות בכרטיסי ההמלצות. בלעדיו התמונות נופלות חזרה לוויקיפדיה |
 | `AI_MODEL_PLAN` | אופציונלי — המודל של צ'אט התכנון. ברירת מחדל: `AI_MODEL_STRONG`, כי התורות שלו מכניסות מקומות אמיתיים ישר למסלול |
@@ -93,7 +94,7 @@ npm start          # http://localhost:3000
 | `GOOGLE_MONITORING_KEY` | אופציונלי — JSON של service account עם התפקיד Monitoring Viewer בפרויקט של מפתח ה-Places (גולמי או ב-base64). כשמוגדר, `/admin/google` משווה את המונה שלנו למה שגוגל עצמו ספר. `GOOGLE_MONITORING_PROJECT` דורס את הפרויקט שהמפתח מציין |
 | `GOOGLE_CLIENT_ID` | OAuth 2.0 Client ID מ-Google Cloud |
 | `GOOGLE_CLIENT_SECRET` | OAuth 2.0 Client Secret מ-Google Cloud |
-| `GOOGLE_REDIRECT_URI` | אופציונלי — ברירת מחדל `{origin}/api/auth/google/callback` (בפרודקשן: `https://tripi-caw3.onrender.com/api/auth/google/callback`) |
+| `GOOGLE_REDIRECT_URI` | אופציונלי — ברירת מחדל `{origin}/api/auth/google/callback` (בפרודקשן: `https://tripmaker.co.il/api/auth/google/callback`) |
 | `HOTEL_CONTENT_PROVIDER` | ספק תוכן המלונות: `osm` (ברירת מחדל, ללא מפתח) או `liteapi` |
 | `LITEAPI_KEY` | מפתח LiteAPI — בלעדיו המערכת נופלת חזרה ל-`osm` ולא נשברת |
 | `HOTEL_GUEST_NATIONALITY` | לאום האורח לתמחור (ברירת מחדל `IL`) |
@@ -102,8 +103,8 @@ npm start          # http://localhost:3000
 
 ב-Google Cloud → OAuth client (Web application):
 
-- **Authorized JavaScript origins:** `https://tripi-caw3.onrender.com` (ו־`http://localhost:3000` לפיתוח)
-- **Authorized redirect URIs:** `https://tripi-caw3.onrender.com/api/auth/google/callback` (ו־`http://localhost:3000/api/auth/google/callback`)
+- **Authorized JavaScript origins:** `https://tripmaker.co.il` (ו־`http://localhost:3000` לפיתוח)
+- **Authorized redirect URIs:** `https://tripmaker.co.il/api/auth/google/callback` (ו־`http://localhost:3000/api/auth/google/callback`)
 
 אחרי הגדרת המשתנים, הריצו `node db/migrate.js` פעם אחת (עמודת `google_sub` + סיסמה אופציונלית).
 
