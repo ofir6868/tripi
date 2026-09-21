@@ -38,6 +38,12 @@ const NEVER_COPY = {
   CRON_SECRET: 'generated for this host, not Render\'s to supply',
   // Deliberately set here, and Render's copy may still name the onrender host.
   CANONICAL_ORIGIN: 'set for this host',
+  // The same trap as DATABASE_URL, one layer up. Render's copy names the onrender host
+  // (see the README's env table), and an OAuth callback pointing at a host we no longer
+  // answer on fails token exchange — the redirect_uri sent to Google has to match the one
+  // the flow started from. Left empty, routes/auth.js derives it from the request, which
+  // is right on every host including this one. Empty is not a gap here; it is the answer.
+  GOOGLE_REDIRECT_URI: 'Render\'s copy names the old host; derived per request when unset',
   // The platform supplies these, and a stale copy is worse than none.
   PORT: 'the platform decides', NODE_ENV: 'the platform decides',
   RENDER: 'names the old host', RENDER_GIT_COMMIT: 'names the old host',
