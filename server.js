@@ -6,17 +6,18 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Render terminates TLS at its proxy — without this, req.ip (which the rate
+// The host terminates TLS at its own proxy — without this, req.ip (which the rate
 // limiters key on) would be the proxy's address, one shared bucket for everyone.
 //
-// The 1 is a hop count: Express believes exactly one proxy, Render's. tripmaker.co.il
+// The 1 is a hop count: Express believes exactly one proxy, the platform's (Vercel's
+// edge today, Render's before it — both hand us the connecting address). tripmaker.co.il
 // sits behind Cloudflare's proxy (orange cloud), which adds a second hop, so on that
 // path req.ip here is a Cloudflare edge — every visitor sharing one bucket, and the
 // login brute-force and share-code enumeration limits silently off. clientIp, right
 // below, is what makes the orange cloud safe: when the hop that reached us is a genuine
 // Cloudflare address it swaps in CF-Connecting-IP, and from any other peer (the
-// onrender.com host stays directly reachable, and that header is trivial to forge there)
-// it leaves req.ip alone. Do not raise the hop count instead: a trusted second hop is
+// platform's own .vercel.app host stays directly reachable, and that header is trivial to
+// forge there) it leaves req.ip alone. Do not raise the hop count instead: a trusted second hop is
 // exactly what lets a direct caller pick their own address with a forged header.
 app.set('trust proxy', 1);
 app.use(require('./lib/client-ip').clientIp);
@@ -87,31 +88,56 @@ app.use(require('./routes/push'));
 app.use(require('./routes/analytics'));
 app.use(require('./routes/health'));
 app.use(require('./routes/seo'));
+app.use(require('./routes/cron'));
 app.use(require('./routes/pages'));
-
-// trip reminder pushes (countdowns + morning briefs) — in-process, no-op without VAPID keys
-require('./lib/reminders').start();
-// in-app monthly escrow backup — no-op unless DB_BACKUP_KEY + ESCROW_GITHUB_TOKEN are set
-require('./lib/rotation-backup').start();
-// Cloudflare's published edge ranges, refreshed daily — see lib/client-ip.js
-require('./lib/client-ip').start();
-// drop paid-API answers older than the 30 days Google's terms allow us to keep them
-require('./lib/api-budget').sweep();
-// the opening-hours probe and audit, run from the host that actually has to reach the
-// sources — a free web service has no shell to run tools/ from. No-op unless BOOT_PROBE
-// is set; see lib/boot-probe.js.
-require('./lib/boot-probe').start();
-// one-off: fill osm_type/osm_id on stops verified before migration 25 existed. No-op
-// unless BACKFILL_OSM is set; Photon only, and reversible in one UPDATE.
-require('./lib/osm-backfill').start();
 
 // Boot order after a database rotation (tools/db-rotation-runbook.md): first re-discover
 // the live instance (DATABASE_URL may still name the deleted one), then bring the schema
-// up and self-restore from the escrow if the instance is fresh, and only then listen.
+// up. Nothing here is allowed to reject: a database that is down must not stop the app
+// from answering — /api/health reports the truth and db-bootstrap keeps retrying.
 const { ensureDatabase } = require('./lib/db');
-ensureDatabase()
+const boot = ensureDatabase()
   .catch((err) => console.error(`db: could not resolve an instance at boot (${err.message}) — bootstrap will keep retrying`))
   .then(() => require('./lib/db-bootstrap').ensureSchema())
-  .then(() => {
+  .catch((err) => console.error(`db-bootstrap: could not bring the schema up (${err.message})`));
+
+// The jobs that need a clock. Every one of them is a timer in this process, which is a
+// bargain that only holds on a host that keeps the process alive between requests.
+function startBackgroundJobs() {
+  // trip reminder pushes (countdowns + morning briefs) — in-process, no-op without VAPID keys
+  require('./lib/reminders').start();
+  // in-app monthly escrow backup — no-op unless DB_BACKUP_KEY + ESCROW_GITHUB_TOKEN are set
+  require('./lib/rotation-backup').start();
+  // Cloudflare's published edge ranges, refreshed daily — see lib/client-ip.js
+  require('./lib/client-ip').start();
+  // drop paid-API answers older than the 30 days Google's terms allow us to keep them
+  require('./lib/api-budget').sweep();
+  // the opening-hours probe and audit, run from the host that actually has to reach the
+  // sources — a free web service has no shell to run tools/ from. No-op unless BOOT_PROBE
+  // is set; see lib/boot-probe.js.
+  require('./lib/boot-probe').start();
+  // one-off: fill osm_type/osm_id on stops verified before migration 25 existed. No-op
+  // unless BACKFILL_OSM is set; Photon only, and reversible in one UPDATE.
+  require('./lib/osm-backfill').start();
+}
+
+// Two hosts, two shapes, one app.
+//
+// Run directly — `node server.js`, locally or on any always-on host — and this is a
+// server: it starts the timers above and listens on a port. Required as a module it is
+// just the app, which is how Vercel takes it (api/index.js is the one function every
+// request is routed into). A function instance is frozen between requests and there may
+// be several of them, so a setInterval there would fire late, never, or twice over in
+// parallel; on that host the schedule arrives from outside instead, as the daily call to
+// /api/cron/tick in vercel.json. The Cloudflare range refresh is the one job with no
+// replacement there, and needs none: lib/client-ip.js ships the published list baked in
+// and only loses the freshest edge ranges, which costs coarser rate-limit buckets for
+// those edges and never a hole.
+if (require.main === module) {
+  startBackgroundJobs();
+  boot.then(() => {
     app.listen(PORT, () => console.log(`TRIP MAKER running on http://localhost:${PORT}`));
   });
+}
+
+module.exports = { app, boot };
