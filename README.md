@@ -69,6 +69,7 @@ npm install
 # DATABASE_URL=postgresql://...
 node db/setup.js   # פעם אחת: סכימה + טיולים מומלצים
 npm start          # http://localhost:3000
+npm test           # כל הבדיקות שלא צריכות רשת, מפתח או DB: תחביר של כל קובץ + ארבעת סקריפטי ה-check
 ```
 
 ## משתני סביבה

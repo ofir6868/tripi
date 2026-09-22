@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "test": "node tools/check.js",
     "setup-db": "node db/setup.js",
     "fetch-hero": "node tools/fetch-hero.js"
   },
