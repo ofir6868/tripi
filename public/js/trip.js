@@ -594,52 +594,8 @@
       });
     }
 
-    // ---- travel legs: real driving times between consecutive stops (OSRM) ----
-    // injected into the rendered list once routing resolves, so the itinerary never
-    // waits on the network; GEO caches per chain, so re-renders land instantly
-    const carIcon = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>';
-    const fmtDrive = (min) => (min < 60 ? `${min} דק׳` : `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')} שע׳`);
-    async function annotateTravel(byDay) {
-      for (const [day, stops] of byDay) {
-        // consecutive runs of stops with coordinates — a coordless stop breaks the chain
-        const runs = [];
-        let run = [];
-        for (const it of stops) {
-          if (it.lat != null && it.lon != null) run.push(it);
-          else { if (run.length > 1) runs.push(run); run = []; }
-        }
-        if (run.length > 1) runs.push(run);
-        if (!runs.length) continue;
-        let totalMin = 0;
-        await Promise.all(runs.map(async (r) => {
-          const legs = await GEO.routeLegs(r).catch(() => null);
-          if (!legs) return;
-          legs.forEach((leg, i) => {
-            totalMin += leg.minutes;
-            if (leg.minutes < 3) return; // a hop across the street isn't worth a row
-            const card = container.querySelector(`.item-card[data-item-id="${r[i].id}"]`);
-            // the list may have re-rendered since this fetch began — the fresh pass
-            // annotates the new cards; the sibling check stops a double insert
-            if (!card || card.nextElementSibling?.classList.contains('travel-leg')) return;
-            const el = document.createElement('div');
-            el.className = 'travel-leg';
-            el.innerHTML = `${carIcon} ${fmtDrive(leg.minutes)} · ${leg.km} ק״מ`;
-            card.insertAdjacentElement('afterend', el);
-          });
-        }));
-        // three hours behind the wheel is where a day out becomes a road day
-        if (totalMin >= 180) {
-          const title = container.querySelector(`.day-block[data-day="${day}"] .day-title`);
-          if (title && !title.querySelector('.day-load')) {
-            const chip = document.createElement('span');
-            chip.className = 'day-load';
-            chip.title = 'יום עמוס בנסיעות — אולי שווה לפצל אותו';
-            chip.innerHTML = `${carIcon} ${fmtDrive(totalMin)} נסיעה`;
-            title.appendChild(chip);
-          }
-        }
-      }
-    }
+    // ---- travel legs and the stops they put out of reach: public/js/trip-travel.js ----
+    const travelCtx = () => ({ items: tripItems, canEdit: editMode, saveItem });
 
     function renderListView() {
       // every day is drawn, for everyone: an editor's free day carries the AI's picks
@@ -744,7 +700,7 @@
         });
       }
       applyListCollapse();
-      annotateTravel(byDay);
+      TripTravel.apply(container, travelCtx());
       // long-press a card → jiggle & live drag; each day's timeline is a preview
       // surface, the day header still takes a plain drop (→ end of that day)
       TripArrange.attach(container, {

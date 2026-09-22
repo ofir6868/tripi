@@ -8,6 +8,7 @@ const { tripWithEditAuth, cleanDestinations, isParticipant, tripPrefsBlock } = r
 const { verifyPlaces } = require('../lib/places');
 const { stopPhoto } = require('../lib/stop-photos');
 const { fitItinerary } = require('../lib/hours-fit');
+const travelFit = require('../lib/travel-fit');
 // the Hebrew country name → ISO code table the client uses for flags, read here to tell
 // whether a stop landed in a country the traveller actually picked. It lives under
 // public/ because the browser and the service worker load it too — one table, so a
@@ -1301,6 +1302,27 @@ async function buildItinerary({ dests, area = null, from, to, interestList, free
   const items = results.flat()
     .sort((a, b) => a.day_number - b.day_number || String(a.time_label || '').localeCompare(String(b.time_label || '')))
     .slice(0, 200);
+
+  // The places are verified; now the road is. The model writes an hour for each stop with
+  // no idea how far the previous one is, so a stop that cannot be reached by its hour
+  // moves to the first hour it can be — forward, inside its day, never past the next
+  // stop (public/js/travel-rules.js, the same rule the page marks by). Before the hours
+  // pass on purpose: a stop pushed later by the road may land on a closed door, and the
+  // hours pass below is the one that knows where the door opens.
+  try {
+    const road = await travelFit.fitItinerary(items);
+    if (road.moved.length) {
+      console.log(`travel: moved ${road.moved.length} stop(s) to an hour they can be reached at — ` +
+        road.moved.map((m) => `${m.title} ${m.from}→${m.to} (${m.travel} min after ${m.after})`).join(' | '));
+    }
+    if (road.tight.length) {
+      console.log(`travel: ${road.tight.length} stop(s) out of reach and not moved — ` +
+        road.tight.map((t) => `${t.title} ${t.time} (${t.reason}, ${t.travel} min after ${t.after})`).join(' | '));
+    }
+  } catch (err) {
+    // a build must never fail over a road — the page still marks what it finds
+    console.error(`travel: fit failed (${err.message}) — itinerary kept as built`);
+  }
 
   // The places are verified; now the hours are. The model writes a plausible-looking
   // clock time with no idea when the door opens, and the first production audit found

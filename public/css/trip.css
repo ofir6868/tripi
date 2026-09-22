@@ -2681,6 +2681,23 @@ body.budget-open { overflow: hidden; }
 .item-shut.maybe { color: rgba(255, 180, 95, .82); border-style: dashed; }
 @media print { .item-shut { color: #8a5a10; background: none; } }
 
+/* The out-of-reach mark (public/js/trip-travel.js): the stop's hour comes before anyone
+   can be there. Red, unlike the amber door — hours go stale, roads do not. For an editor
+   the chip is a button and reads as the fix ("להזיז ל־12:15"). */
+.item-tight {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px;
+  font: inherit; font-size: .78rem; font-weight: 600; white-space: nowrap; line-height: inherit;
+  color: var(--danger);
+  background: rgba(255, 122, 110, .12);
+  border: 1px solid rgba(255, 122, 110, .38);
+  cursor: help;
+}
+.item-tight.fixable { cursor: pointer; }
+.item-tight.fixable:hover { background: rgba(255, 122, 110, .24); }
+.item-tight:disabled { opacity: .5; cursor: progress; }
+@media print { .item-tight { color: #8a1a10; background: none; } }
+
 /* The hours on the stop sheet. Neutral when the place is open — it is a fact, not a
    warning — and amber only when this stop lands outside them. */
 .item-hours {

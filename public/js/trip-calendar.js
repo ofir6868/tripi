@@ -378,6 +378,8 @@ const TripCalendar = (() => {
     });
     // the closed-door marks, over the day's stops (public/js/trip-hours.js)
     TripHours.apply(body, ctx.state.trip.share_code);
+    // the road between them, and the stops it puts out of reach (public/js/trip-travel.js)
+    TripTravel.apply(body, { items: ctx.state.items, canEdit: ctx.canEdit, saveItem: ctx.saveItem });
 
     body.querySelectorAll('.cal-devt').forEach((b) => {
       b.onclick = (e) => { if (!e.target.closest('a')) openStop(ctx, +b.dataset.item); };
