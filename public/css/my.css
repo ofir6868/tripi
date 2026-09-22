@@ -55,3 +55,12 @@
 .my-sec { font-family: var(--font-display); font-size: 1.25rem; margin: 26px 0 14px; }
 .my-sec:first-child { margin-top: 0; }
 .my-sec-hint { color: var(--paper-dim); font-weight: 300; padding: 6px 2px 18px; }
+
+/* A guest's trips exist on a token in this browser and nowhere else (lib/guest.js).
+   Said once, above the trips it is about, with the one action that changes it. */
+.guest-note {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+  padding: 14px 18px; margin-bottom: 18px; border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 180, 95, .35);
+}
+.guest-note span { font-weight: 600; line-height: 1.5; }

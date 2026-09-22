@@ -66,7 +66,7 @@
     inputSchema: { type: 'object', properties: {} },
     execute: async () => ok({
       signed_in: !!TRIPMAKER.token,
-      user: TRIPMAKER.user ? { name: TRIPMAKER.user.name, email: TRIPMAKER.user.email, is_admin: !!TRIPMAKER.user.is_admin } : null,
+      user: TRIPMAKER.user ? { name: TRIPMAKER.user.name, email: TRIPMAKER.user.email, is_admin: !!TRIPMAKER.user.is_admin, is_guest: !!TRIPMAKER.user.is_guest } : null,
       url: location.href,
       // the trip page registers extra tools; this is how an agent knows to expect them
       open_trip_code: /^\/trip\/(\d{6})$/.test(location.pathname) ? location.pathname.split('/').pop() : null,

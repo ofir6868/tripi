@@ -38,6 +38,23 @@ const TRIPMAKER = {
     localStorage.setItem('tripmaker_user', JSON.stringify(user));
     this.claimReferral();
   },
+  // A guest is a user with no account behind it (lib/guest.js): a row and a token, minted
+  // the first time this browser creates a trip, so the wizard, the planning chat and the
+  // itinerary all work before anyone signs up. `user` is set for a guest — every
+  // "who owns this" check keeps working — and `account()` is what the two doors that
+  // need a person (saving/sharing a trip, joining someone else's) ask instead.
+  isGuest() { return !!(this.user && this.user.is_guest); },
+  account() { return !!(this.user && !this.user.is_guest); },
+  // someone to own the trip about to be created: the signed-in user, the guest this
+  // browser already is, or a guest minted right now. Rejects only when even that
+  // fails, and the caller falls back to the sign-up it used to open.
+  async ensureIdentity() {
+    if (this.user) return this.user;
+    const data = await this.api('/api/auth/guest', { method: 'POST' });
+    this.saveAuth(data.token, data.user);
+    renderHeader();
+    return this.user;
+  },
   // a friend's ?ref= link, kept from whichever page it landed on and handed to the
   // server on the first sign-in after it. The server accepts it only for a brand-new
   // account, so calling this after a plain login is harmless — and the code is dropped
@@ -55,7 +72,8 @@ const TRIPMAKER = {
     if (!this.token) return false;
     try {
       const me = await this.api('/api/me');
-      const changed = !this.user || this.user.is_admin !== me.is_admin || this.user.name !== me.name;
+      const changed = !this.user || this.user.is_admin !== me.is_admin || this.user.name !== me.name
+        || !!this.user.is_guest !== !!me.is_guest;
       this.user = me;
       localStorage.setItem('tripmaker_user', JSON.stringify(me));
       return changed;
@@ -80,6 +98,7 @@ const TRIPMAKER = {
       const err = new Error(data.error || `השרת לא ענה כראוי (שגיאה ${res.status})`);
       err.status = res.status;
       err.quota = data.quota || null; // an AI meter saying "not today" — the chats show a gentler card for it
+      err.guest = !!data.guest;       // a door only an account can pass — the page opens the sign-up, not an error
       throw err;
     }
     return data;
@@ -253,7 +272,15 @@ function renderHeader() {
   const a11yItem = a11yInMenu
     ? `<button type="button" class="nav-menu-item" id="nav-a11y">${NAV_ICON.a11y}<span>נגישות</span></button>`
     : '';
-  if (TRIPMAKER.user) {
+  if (TRIPMAKER.isGuest()) {
+    // a guest has trips but no account: the trips are reachable, and the way to keep
+    // them is one row down. No "יציאה" — leaving a guest is losing the trips
+    menuItems.push(
+      `<a class="nav-menu-item" href="/my">${NAV_ICON.map}<span>הטיולים שלי</span></a>`,
+      `<button type="button" class="nav-menu-item" id="nav-login">${NAV_ICON.login}<span>הרשמה / התחברות</span></button>`,
+      a11yItem,
+    );
+  } else if (TRIPMAKER.user) {
     if (TRIPMAKER.user.is_admin) {
       menuItems.push(`<a class="nav-menu-item nav-menu-admin" href="/admin">${NAV_ICON.gear}<span>ניהול</span></a>`);
     }
@@ -269,7 +296,7 @@ function renderHeader() {
       a11yItem,
     );
   }
-  const userName = TRIPMAKER.user
+  const userName = TRIPMAKER.account()
     ? ''
     : `<span class="logo-he">מתכנן הטיולים שלך</span>`;
   el.innerHTML = `
@@ -361,7 +388,7 @@ function renderHeader() {
   panel.querySelector('#nav-logout')?.addEventListener('click', () => TRIPMAKER.logout());
   panel.querySelector('#nav-login')?.addEventListener('click', () => {
     setOpen(false);
-    openAuthModal(null, 'login', 'navbar');
+    openAuthModal(null, TRIPMAKER.isGuest() ? 'register' : 'login', 'navbar');
   });
   panel.querySelector('#nav-settings')?.addEventListener('click', () => {
     setOpen(false);
@@ -440,7 +467,11 @@ function renderAuthModal() {
     authMode = mode;
     wrap.querySelector('#auth-name-field').style.display = mode === 'register' ? '' : 'none';
     wrap.querySelector('#auth-title').textContent = mode === 'register' ? 'נעים להכיר!' : 'ברוכים השבים';
-    wrap.querySelector('#auth-sub').textContent = mode === 'register' ? 'חשבון חינם — 20 שניות ואתם בפנים' : 'מתחברים וממשיכים לתכנן';
+    // a guest is told what the account is for: whatever they planned stays theirs,
+    // on the same row (sign-up) or moved into the account they already have (login)
+    wrap.querySelector('#auth-sub').textContent = TRIPMAKER.isGuest()
+      ? (mode === 'register' ? 'חשבון חינם — והטיול שתכננתם נשאר שלכם, בכל מכשיר' : 'מתחברים — והטיול שתכננתם כאן עובר לחשבון שלכם')
+      : (mode === 'register' ? 'חשבון חינם — 20 שניות ואתם בפנים' : 'מתחברים וממשיכים לתכנן');
     wrap.querySelector('#auth-submit').textContent = mode === 'register' ? 'יוצרים חשבון' : 'התחברות';
     wrap.querySelector('#auth-switch').innerHTML = mode === 'register'
       ? 'כבר יש חשבון? <a id="auth-toggle">התחברות</a>'
@@ -474,7 +505,10 @@ function renderAuthModal() {
       // navigation lets pagehide record it as one
       authWallOutcome('signup_wall_google', {});
       const next = location.pathname + location.search;
-      location.href = '/api/auth/google?next=' + encodeURIComponent(next);
+      // a guest's token rides the query string: this is a navigation, not a fetch, and
+      // the callback folds the guest into whoever Google says this is (routes/auth.js)
+      const guest = TRIPMAKER.isGuest() && TRIPMAKER.token ? '&guest=' + encodeURIComponent(TRIPMAKER.token) : '';
+      location.href = '/api/auth/google?next=' + encodeURIComponent(next) + guest;
     });
   }).catch(() => {});
 
@@ -535,7 +569,7 @@ function authWallOutcome(name, extra) {
 function openAuthModal(onSuccess, mode = 'login', reason = 'unspecified') {
   authOnSuccess = onSuccess || null;
   authWall = { reason, mode, at: Date.now() };
-  TRIPMAKER.track('signup_wall_shown', { reason, mode });
+  TRIPMAKER.track('signup_wall_shown', { reason, mode, guest: TRIPMAKER.isGuest() });
   window.setAuthMode?.(mode);
   document.getElementById('auth-modal').classList.add('open');
 }

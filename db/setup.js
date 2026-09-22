@@ -6,13 +6,18 @@
 require('../lib/env');
 
 const SCHEMA = `
+-- email is nullable: a guest (is_guest) is a row with no email and no password, minted
+-- for a visitor who starts planning before opening an account (lib/guest.js). Signing up
+-- fills the same row in; logging in to an existing account folds the guest's trips into
+-- it. Migration 28 relaxes the column on databases that predate guests.
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
-  email TEXT UNIQUE NOT NULL,
+  email TEXT UNIQUE,
   password_hash TEXT,
   google_sub TEXT UNIQUE,
   is_admin BOOLEAN NOT NULL DEFAULT false,
+  is_guest BOOLEAN NOT NULL DEFAULT false,
   referral_code TEXT UNIQUE,
   referred_by INT REFERENCES users(id) ON DELETE SET NULL,
   referral_bonus BOOLEAN NOT NULL DEFAULT false,

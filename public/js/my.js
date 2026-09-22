@@ -38,6 +38,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       </a>`;
   try {
     const trips = await TRIPMAKER.api('/api/my-trips');
+    // a guest's trips live on a token in this browser and nowhere else — the one
+    // place this is said out loud, above the trips it is about
+    if (TRIPMAKER.isGuest() && trips.length) {
+      const note = document.createElement('div');
+      note.className = 'guest-note glass';
+      note.innerHTML = `<span>🧳 הטיולים האלה שמורים בדפדפן הזה בלבד. חשבון חינם שומר אותם לכל מכשיר — ולא מאבד כלום.</span>
+        <button type="button" class="btn btn-amber" id="guest-signup">הרשמה</button>`;
+      wrap.before(note);
+      note.querySelector('#guest-signup').onclick = () => openAuthModal(() => location.reload(), 'register', 'my_trips_guest');
+    }
     if (!trips.length) { grid.innerHTML = ''; document.getElementById('empty').style.display = ''; return; }
     // three sections, in this order: trips friends shared with me (joined as a
     // participant), my own drafts, then the trips I own. A section with nothing

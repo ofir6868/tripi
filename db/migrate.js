@@ -1,4 +1,4 @@
-// Migrations 2–27, in order. Idempotent — safe to run on every boot, and the server
+// Migrations 2–28, in order. Idempotent — safe to run on every boot, and the server
 // does (lib/db-bootstrap.js), so a replaced database catches up by itself.
 // Usage: DATABASE_URL=postgres://... node db/migrate.js
 require('../lib/env');
@@ -343,6 +343,15 @@ async function migrate(pool, log = console.log) {
     log(`  + dropped ${localSubs.length} push subscription(s) pointing at a local host: ${
       localSubs.map((s) => s.endpoint.slice(0, 60)).join(', ')}`);
   }
+
+  log('Migration 28: a visitor can plan before opening an account...');
+  // The sign-up wall used to stand at "create a trip": in the month before this, thirteen
+  // people finished the wizard, eight met the wall, one got past it. A guest is now a
+  // users row with no email and no password (lib/guest.js); the account comes when the
+  // trip is saved and shared, and the guest's trips come with it. The column has to
+  // allow NULL for that — UNIQUE still holds for every real address.
+  await pool.query(`ALTER TABLE users ALTER COLUMN email DROP NOT NULL`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN NOT NULL DEFAULT false`);
 
   log('Done.');
 }

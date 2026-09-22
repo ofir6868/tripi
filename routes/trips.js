@@ -308,9 +308,21 @@ router.get('/api/trips/code/:code/calendar.ics', authOptional, async (req, res) 
 
 // ---- collaborative editing (trip participants) ----
 
+// The two doors a guest cannot pass (lib/guest.js): becoming a co-planner on someone
+// else's trip, and revealing a trip's share code. Both put a person in front of other
+// people, and "אורח" is nobody they can recognise. The answer carries `guest: true` so
+// the page opens the sign-up — which keeps everything the guest planned — rather than
+// showing an error.
+function accountRequired(req, res) {
+  if (!req.user || !req.user.guest) return true;
+  res.status(401).json({ error: 'כדי להמשיך צריך חשבון — ההרשמה שומרת את כל מה שתכננתם', guest: true });
+  return false;
+}
+
 // redeem an invite link: a logged-in user with the current token becomes a participant
 router.post('/api/trips/code/:code/join', authRequired, async (req, res) => {
   try {
+    if (!accountRequired(req, res)) return;
     const { rows } = await pool.query(
       'SELECT id, owner_id, invite_token FROM trips WHERE share_code = $1', [req.params.code]
     );
@@ -373,6 +385,7 @@ router.post('/api/trips/code/:code/publish', authOptional, async (req, res) => {
   try {
     const trip = await tripWithEditAuth(req, res);
     if (!trip) return;
+    if (!accountRequired(req, res)) return;
     const { rows } = await pool.query(
       `UPDATE trips SET is_draft = false WHERE id = $1 RETURNING ${tripFields}`, [trip.id]
     );
@@ -994,6 +1007,10 @@ router.post('/api/trips', authRequired, async (req, res) => {
     res.json(trip);
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
+    // a token whose user no longer exists — a guest row folded into an account from
+    // another tab (lib/guest.js) is the one way this happens on purpose. The JWT still
+    // verifies, so it is caught here, where the row is first needed
+    if (err.code === '23503') return res.status(401).json({ error: 'ההתחברות התחלפה — רעננו את הדף והמשיכו' });
     console.error(err);
     res.status(client ? 500 : 503).json({ error: client ? 'שגיאת שרת' : 'מסד הנתונים לא זמין כרגע — נסו שוב בעוד רגע' });
   } finally {

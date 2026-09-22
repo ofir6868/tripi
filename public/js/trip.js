@@ -172,7 +172,8 @@
 
   // one shot per token: joined or rejected, it's no longer pending
   async function redeemInvite() {
-    if (!inviteToken || !TRIPMAKER.user) return false;
+    // a guest cannot join (lib/guest.js) — and must not burn the invite trying
+    if (!inviteToken || !TRIPMAKER.account()) return false;
     try {
       await TRIPMAKER.api('/api/trips/code/' + encodeURIComponent(code) + '/join', {
         method: 'POST', body: JSON.stringify({ token: inviteToken }),
@@ -235,7 +236,7 @@
 
   async function load() {
     // an invite link + a logged-in user = redeem first, so the page arrives unlocked
-    if (TRIPMAKER.user && inviteToken) await redeemInvite();
+    if (TRIPMAKER.account() && inviteToken) await redeemInvite();
     let data;
     try {
       data = await TRIPMAKER.api('/api/trips/code/' + encodeURIComponent(code));
@@ -1128,7 +1129,7 @@
 
     // bottom banner for invite holders who aren't signed in yet: they can look
     // around freely, and one quick signup makes them a participant
-    if (inviteToken && !canEdit && !TRIPMAKER.user) {
+    if (inviteToken && !canEdit && !TRIPMAKER.account()) {
       const banner = document.createElement('div');
       banner.className = 'join-banner glass';
       banner.innerHTML = `
@@ -1612,6 +1613,10 @@
     let publishing = false;
     async function publishTrip() {
       if (publishing) return;
+      // the wall, where it now stands: the trip becomes real to other people here, and
+      // a guest is asked for the account that keeps it (the server refuses too — the
+      // `guest` flag on its 401 is the same door, seen from a stale page)
+      if (TRIPMAKER.isGuest()) { openAuthModal(publishTrip, 'register', 'publish_trip'); return; }
       publishing = true;
       try {
         const updated = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/publish`, {
@@ -1630,6 +1635,7 @@
         applyDraftState();
         openCelebration();
       } catch (e) {
+        if (e.guest) { publishing = false; openAuthModal(publishTrip, 'register', 'publish_trip'); return; }
         alert('⚠️ ' + e.message);
       }
       publishing = false;

@@ -400,11 +400,18 @@
       aiBtn.textContent = aiLabel;
     };
     TRIPMAKER.track?.('trip_create_attempt', {
-      path: 'ai', signed_in: !!TRIPMAKER.user, destinations: destinations.length,
+      path: 'ai', signed_in: TRIPMAKER.account(), guest: TRIPMAKER.isGuest(), destinations: destinations.length,
     });
-    if (!TRIPMAKER.user) openAuthModal(go, 'register', 'create_trip_ai');
-    else go();
+    withIdentity(go, 'create_trip_ai');
   };
+
+  // No wall here any more. A visitor without an account becomes a guest (lib/guest.js)
+  // and the trip is theirs to plan; the account is asked for when the trip is saved
+  // and shared. The wall comes back only if even a guest cannot be minted — the
+  // server refusing, the network gone — because a trip has to belong to someone.
+  function withIdentity(go, reason) {
+    TRIPMAKER.ensureIdentity().then(go, () => openAuthModal(go, 'register', reason));
+  }
 
   // A one-country trip is built as areas — the ones the traveller ticked, or the ones
   // the AI broke the country into — and those areas ARE the trip: promoting them to
@@ -497,10 +504,9 @@
       goManualBtn.textContent = goManualLabel;
     };
     TRIPMAKER.track?.('trip_create_attempt', {
-      path: 'manual', signed_in: !!TRIPMAKER.user, destinations: destinations.length,
+      path: 'manual', signed_in: TRIPMAKER.account(), guest: TRIPMAKER.isGuest(), destinations: destinations.length,
     });
-    if (!TRIPMAKER.user) openAuthModal(go, 'register', 'create_trip_manual');
-    else go();
+    withIdentity(go, 'create_trip_manual');
   };
 
   // ---- saved draft: OFFER to continue (never auto-restore, never auto-nag) ----

@@ -3,9 +3,10 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { pool } = require('../lib/db');
-const { JWT_SECRET, authRequired } = require('../lib/auth');
+const { JWT_SECRET, authRequired, authOptional } = require('../lib/auth');
 const { rateLimiter } = require('../lib/rate-limit');
 const analytics = require('../lib/posthog');
+const { createGuest, claimGuest, mergeGuestInto } = require('../lib/guest');
 
 const router = express.Router();
 
@@ -26,6 +27,13 @@ const googleLimit = rateLimiter({
   windowMs: 15 * 60 * 1000, max: 30,
   error: 'יותר מדי נסיונות התחברות עם Google — נסו שוב בעוד רבע שעה',
 });
+// a guest is minted once per browser, the first time it creates a trip (lib/guest.js).
+// Every guest is a fresh set of AI quotas, so minting is the thing to pace — the same
+// shape and the same allowance as registering, which it replaces at that moment.
+const guestLimit = rateLimiter({
+  windowMs: 15 * 60 * 1000, max: 10,
+  error: 'יותר מדי טיולים חדשים מהכתובת הזו — נסו שוב בעוד רבע שעה',
+});
 
 const GOOGLE_CLIENT_ID = () => process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = () => process.env.GOOGLE_CLIENT_SECRET || '';
@@ -43,12 +51,17 @@ function googleRedirectUri(req) {
 }
 
 function signUserToken(user) {
-  return jwt.sign(
-    { id: user.id, name: user.name, is_admin: !!user.is_admin },
-    JWT_SECRET,
-    { expiresIn: '30d' },
-  );
+  const claims = { id: user.id, name: user.name, is_admin: !!user.is_admin };
+  if (user.is_guest) claims.guest = true; // routes read it to keep the two account-only doors shut
+  return jwt.sign(claims, JWT_SECRET, { expiresIn: '30d' });
 }
+
+// the guest a request arrives as, if it does — the id the sign-up or login below folds
+// into the account. A token that says guest but names a row that was already claimed
+// (two tabs, two sign-ups) is treated as no guest at all by the helpers themselves.
+const guestOf = (req) => (req.user && req.user.guest ? req.user.id : null);
+
+const publicUser = (u) => ({ id: u.id, name: u.name, email: u.email, is_admin: !!u.is_admin });
 
 function safeReturnPath(raw) {
   if (!raw || typeof raw !== 'string') return '/';
@@ -57,20 +70,40 @@ function safeReturnPath(raw) {
   return raw.slice(0, 300);
 }
 
-router.post('/api/auth/register', registerLimit.middleware, async (req, res) => {
+// A guest account for a visitor who wants to plan before signing up (lib/guest.js).
+// Minted only when the wizard is about to create a trip — the client asks for it at
+// that moment and never before, so a visitor who only browses leaves no row behind.
+router.post('/api/auth/guest', guestLimit.middleware, async (req, res) => {
+  try {
+    const user = await createGuest(pool);
+    analytics.capture('guest_started', 'user_' + user.id, {});
+    res.json({ token: signUserToken(user), user: { ...publicUser(user), is_guest: true } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+router.post('/api/auth/register', registerLimit.middleware, authOptional, async (req, res) => {
   try {
     const { name, email, password } = req.body || {};
     if (!name || !email || !password) return res.status(400).json({ error: 'נא למלא את כל השדות' });
     if (password.length < 6) return res.status(400).json({ error: 'הסיסמה חייבת להכיל לפחות 6 תווים' });
     const hash = await bcrypt.hash(password, 10);
-    const { rows } = await pool.query(
-      'INSERT INTO users (name, email, password_hash) VALUES ($1, lower($2), $3) RETURNING id, name, email, is_admin',
-      [name.trim(), email.trim(), hash]
-    );
-    const user = rows[0];
+    // a guest signing up keeps their id: the row they planned on becomes the account
+    let user = guestOf(req)
+      ? await claimGuest(pool, guestOf(req), { name: name.trim(), email: email.trim(), passwordHash: hash })
+      : null;
+    if (!user) {
+      const { rows } = await pool.query(
+        'INSERT INTO users (name, email, password_hash) VALUES ($1, lower($2), $3) RETURNING id, name, email, is_admin',
+        [name.trim(), email.trim(), hash]
+      );
+      user = rows[0];
+    }
     // acquisition: the moment of signup, captured server-side so it can't be lost
     // to an adblocker; joins the person's first_source (set by the client) by id
-    analytics.capture('signed_up', 'user_' + user.id, { method: 'email' });
+    analytics.capture('signed_up', 'user_' + user.id, { method: 'email', from_guest: !!guestOf(req) });
     const token = signUserToken(user);
     res.json({ token, user });
   } catch (err) {
@@ -80,7 +113,7 @@ router.post('/api/auth/register', registerLimit.middleware, async (req, res) => 
   }
 });
 
-router.post('/api/auth/login', async (req, res) => {
+router.post('/api/auth/login', authOptional, async (req, res) => {
   try {
     if (loginLimit.blocked(req.ip)) {
       return res.status(429).json({ error: 'יותר מדי נסיונות התחברות כושלים — נסו שוב בעוד רבע שעה' });
@@ -94,8 +127,10 @@ router.post('/api/auth/login', async (req, res) => {
       loginLimit.hit(req.ip); // brute-force signal: only wrong credentials count
       return res.status(401).json({ error: 'אימייל או סיסמה שגויים' });
     }
+    // the trips planned as a guest in this browser come along into the account
+    if (guestOf(req)) await mergeGuestInto(pool, guestOf(req), user.id);
     const token = signUserToken(user);
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email, is_admin: !!user.is_admin } });
+    res.json({ token, user: publicUser(user) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
@@ -108,7 +143,7 @@ router.post('/api/auth/login', async (req, res) => {
 router.get('/api/me', authRequired, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, name, email, is_admin, (password_hash IS NOT NULL) AS has_password FROM users WHERE id = $1',
+      'SELECT id, name, email, is_admin, is_guest, (password_hash IS NOT NULL) AS has_password FROM users WHERE id = $1',
       [req.user.id]
     );
     if (!rows[0]) return res.status(401).json({ error: 'המשתמש לא נמצא' });
@@ -259,8 +294,16 @@ router.get('/api/auth/google', googleLimit.middleware, (req, res) => {
   if (!googleConfigured()) {
     return res.status(503).json({ error: 'התחברות עם Google לא מוגדרת כרגע' });
   }
+  // a guest arrives here by navigation, not by fetch, so the guest token rides the
+  // query string instead of the Authorization header; only its id is kept, inside the
+  // signed state, so the callback can fold the guest into whoever Google says this is
+  let guest = null;
+  try {
+    const g = req.query.guest ? jwt.verify(String(req.query.guest), JWT_SECRET) : null;
+    if (g && g.guest) guest = g.id;
+  } catch { /* an expired or forged guest token is simply no guest */ }
   const state = jwt.sign(
-    { n: crypto.randomBytes(16).toString('hex'), r: safeReturnPath(req.query.next) },
+    { n: crypto.randomBytes(16).toString('hex'), r: safeReturnPath(req.query.next), g: guest },
     JWT_SECRET,
     { expiresIn: '10m' },
   );
@@ -287,9 +330,11 @@ router.get('/api/auth/google/callback', async (req, res) => {
     if (!code || !state) return fail('תשובה לא תקינה מ-Google');
 
     let returnPath = '/';
+    let guest = null;
     try {
       const st = jwt.verify(String(state), JWT_SECRET);
       returnPath = safeReturnPath(st.r);
+      guest = Number.isInteger(st.g) ? st.g : null;
     } catch {
       return fail('פג תוקף הבקשה — נסו שוב');
     }
@@ -347,17 +392,23 @@ router.get('/api/auth/google/callback', async (req, res) => {
         );
         user = rows[0];
       } else {
-        const { rows } = await pool.query(
-          `INSERT INTO users (name, email, google_sub, password_hash)
-           VALUES ($1, $2, $3, NULL)
-           RETURNING id, name, email, is_admin`,
-          [name, email, sub]
-        );
-        user = rows[0];
+        // a NEW account — and for a guest, the row they planned on is the account
+        user = guest ? await claimGuest(pool, guest, { name, email, googleSub: sub }) : null;
+        if (!user) {
+          const { rows } = await pool.query(
+            `INSERT INTO users (name, email, google_sub, password_hash)
+             VALUES ($1, $2, $3, NULL)
+             RETURNING id, name, email, is_admin`,
+            [name, email, sub]
+          );
+          user = rows[0];
+        }
         // only this branch is a NEW account — the two above are returning users
-        analytics.capture('signed_up', 'user_' + user.id, { method: 'google' });
+        analytics.capture('signed_up', 'user_' + user.id, { method: 'google', from_guest: !!guest });
       }
     }
+    // a returning user who planned as a guest first: the guest's trips follow them in
+    if (guest && guest !== user.id) await mergeGuestInto(pool, guest, user.id);
 
     const token = signUserToken(user);
     // fragment keeps the JWT out of server/proxy access logs for the landing page

@@ -27,8 +27,25 @@ node -e "console.log(require('jsonwebtoken').sign({id:999999,name:'verify'},'tri
 ```
 
 Then POST with `fetch` from a scratchpad script — Hebrew payloads survive a JSON
-file far better than shell quoting. A fake user id is fine: the AI quota is an
-in-memory map, and `isAdmin` just misses in the DB.
+file far better than shell quoting. A fake user id works for the AI routes (the quota
+row in `ai_usage` is keyed by it and `isAdmin` just misses), but creating a trip needs
+a real `users` row — the cheapest is `POST /api/auth/guest`, which mints one with no
+email and returns its token (lib/guest.js).
+
+## Local database
+
+`postgresql-16` is installed in the web container. A throwaway instance, with
+`db-bootstrap` creating the schema and seed on the server's first boot:
+
+```bash
+su postgres -c "mkdir -p /var/lib/postgresql/tm && /usr/lib/postgresql/16/bin/initdb -D /var/lib/postgresql/tm/data -A trust -U postgres"
+su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D /var/lib/postgresql/tm/data -o '-p 5499 -k /tmp' -l /var/lib/postgresql/tm/log start"
+su postgres -c "psql -p 5499 -h /tmp -c 'CREATE DATABASE tripmaker_test'"
+DATABASE_URL=postgresql://postgres@localhost:5499/tripmaker_test PORT=3055 node server.js
+```
+
+In-memory rate limiters (guest minting, registration) live in the process — restart
+the server between test runs that spend them.
 
 ## Models
 
