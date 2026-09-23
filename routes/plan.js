@@ -578,13 +578,17 @@ async function recordTurn(client, trip, state, items, turn, waiting) {
 
 // the thread + the planning memory; the opening message is minted on the first load
 router.get('/api/trips/code/:code/plan', authRequired, async (req, res) => {
-  const client = await pool.connect().catch(() => null);
-  if (!client) return res.status(503).json({ error: 'מסד הנתונים לא זמין כרגע — נסו שוב בעוד רגע' });
+  // the client is checked out only for the one transaction that needs it, AFTER the
+  // pool-based reads: on a serverless instance (lib/db.js) a client held across those
+  // reads is a connection the reads then wait for — this route is where that froze
+  // production on 2026-09-23
+  let client = null;
   try {
     const trip = await draftWithAuth(req, res);
     if (!trip) return;
     let messages = await loadThread(trip.id);
     if (!messages.length) {
+      client = await pool.connect();
       await client.query('BEGIN');
       messages = [await openingMessage(client, trip, req.user.id)];
       await client.query('COMMIT');
@@ -597,11 +601,11 @@ router.get('/api/trips/code/:code/plan', authRequired, async (req, res) => {
     }
     res.json({ state: trip.plan_state, messages });
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error(err);
-    res.status(500).json({ error: 'שגיאת שרת' });
+    res.status(client ? 500 : 503).json({ error: client ? 'שגיאת שרת' : 'מסד הנתונים לא זמין כרגע — נסו שוב בעוד רגע' });
   } finally {
-    client.release();
+    if (client) client.release();
   }
 });
 
