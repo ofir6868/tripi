@@ -345,13 +345,9 @@ async function generateList(trip, ph, { force = false } = {}) {
       const title = str(it.title, 120);
       if (!title || seen.has(title)) continue;
       seen.add(title);
-      // the rule the model is given above, kept in code too: a booking or a printout is
-      // made once for the trip, whatever scope it came back with — on 2026-10-25 a
-      // rebuild marked all 39 items personal and the משותף tab stood empty
       const tags = cleanTags(it.tags).filter((t) => t !== 'later');
-      const scope = tags.includes('book') || tags.includes('print') ? 'shared' : cleanScope(it.scope);
       cleaned.push({
-        section: emoji ? `${emoji} ${name}` : name, title, note: strOrNull(it.note, 300), scope,
+        section: emoji ? `${emoji} ${name}` : name, title, note: strOrNull(it.note, 300), scope: cleanScope(it.scope),
         tags, due_days: cleanDue(it.due_days),
         priority: cleanPriority(it.priority), search: strOrNull(it.search, 160), sort: sort++,
       });
@@ -362,6 +358,14 @@ async function generateList(trip, ph, { force = false } = {}) {
   if (!cleaned.length) {
     await pool.query(`UPDATE trip_checklists SET status = 'failed' WHERE trip_id = $1`, [trip.id]);
     return 'failed';
+  }
+  // The model's own scope stands — a printout can be per person, a booking can be each
+  // traveller's own. The one case code steps in: on 2026-10-25 a rebuild came back with
+  // all 39 items personal and the משותף tab stood empty. When the model has all but
+  // forgotten the tab exists, the bookings — made once for the trip far more often than
+  // not — move over, and only those.
+  if (cleaned.filter((c) => c.scope === 'shared').length < 3) {
+    for (const c of cleaned) if (c.tags.includes('book')) c.scope = 'shared';
   }
   // the write is one transaction: a reload mid-way never sees half a list
   const client = await pool.connect();
