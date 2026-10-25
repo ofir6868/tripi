@@ -44,6 +44,49 @@
   ];
   let draftRecsAsked = false; // the pass the planning chat starts when the basics land
   let expenses = [];
+  // the demo trip's hotels and budget frame — what the chats' hotel / budget / date
+  // actions write into (lib/plan-actions.js on the real server)
+  let hotels = [];
+  let budget = null;
+  let hotelId = 500;
+  const sideState = () => ({ hotels, budget, trip: { start_date: trip.start_date, end_date: trip.end_date } });
+  // the same canned reading of an attached file both chats answer with: a booking
+  // confirmation becomes a hotel, a ticket fills the first flight's hour
+  function fileUnderstanding(files, days) {
+    const name = files[0] && files[0].name || 'הקובץ';
+    const ticket = /ticket|boarding|flight|טיסה|LY/i.test(name);
+    if (ticket) {
+      return {
+        text: `ראיתי שהעליתם כרטיס טיסה — אל על LY 385, המראה ב-06:10 ונחיתה ב-10:40 ✈️ עדכנתי את שעת הטיסה במסלול ואת תאריך היציאה. יש גם כרטיס חזור?`,
+        actions: [{ kind: 'dates_set', start_date: '2026-11-03' }],
+        changes: [{ kind: 'dates', title: 'תאריך היציאה: 3 בנובמבר 2026' }],
+      };
+    }
+    return {
+      text: `ראיתי שהעליתם אישור הזמנה ממלון Hotel Artemide, לילות 1–3, 540 € — איזה יופי! הוספתי אותו לרשימת המלונות עם המחיר. רוצים שאסמן אותו גם בתקציב?`,
+      actions: [{ kind: 'hotel_add', name: 'Hotel Artemide', night_start: 1, night_end: Math.min(3, Math.max(days - 1, 1)), status: 'booked', stars: 4, price_total: 540, link: null, note: 'הזמנה #BK-20931' }],
+      changes: [{ kind: 'hotel', title: 'Hotel Artemide', when: 'לילות 1–3', note: 'הוזמן · 540' }],
+    };
+  }
+  function applyActions(acts) {
+    const undo = [];
+    for (const a of acts || []) {
+      if (a.kind === 'hotel_add') { const h = { id: hotelId++, ...a, lat: null, lon: null }; delete h.kind; hotels.push(h); undo.unshift({ kind: 'hotel_delete', id: h.id }); }
+      else if (a.kind === 'hotel_delete') { const h = hotels.find((x) => x.id === a.id); if (h) { hotels = hotels.filter((x) => x !== h); undo.unshift({ kind: 'hotel_restore', row: h }); } }
+      else if (a.kind === 'budget_set') { undo.unshift(budget ? { kind: 'budget_restore', row: budget } : { kind: 'budget_clear' }); budget = { total: a.total, currency: a.currency || 'ILS', travelers: a.travelers || 2 }; }
+      else if (a.kind === 'dates_set') { undo.unshift({ kind: 'dates_restore', start_date: trip.start_date }); trip.start_date = a.start_date; }
+    }
+    return undo;
+  }
+  function undoActions(undo) {
+    for (const u of undo || []) {
+      if (u.kind === 'hotel_delete') hotels = hotels.filter((x) => x.id !== u.id);
+      else if (u.kind === 'hotel_restore') hotels.push(u.row);
+      else if (u.kind === 'budget_restore') budget = u.row;
+      else if (u.kind === 'budget_clear') budget = null;
+      else if (u.kind === 'dates_restore') trip.start_date = u.start_date;
+    }
+  }
   const stop = (day, time, title, note, cat, lat, lon) => ({
     id: nextId++, trip_id: 1, day_number: day, time_label: time, title, note, place_query: `${title} Rome`,
     category: cat, area: 'רומא', lat, lon, cost: null, google_place_id: null, sort_order: nextId,
@@ -177,9 +220,11 @@
       });
     }
     const ops = [{ action: 'add', id: null, day_number: 2, time_label: '09:00', title: 'מקדש סנסוג׳י ואסאקוסה', note: 'להגיע לפני 9:00, לפני הקבוצות', place_query: 'Sensoji Temple, Asakusa, Tokyo, Japan', category: 'תרבות', area: 'טוקיו', cost: null, lat: 35.7148, lon: 139.7967 }];
-    const m = planMsg('ai', st.mode === 'auto' ? 'הוספתי את סנסוג׳י לבוקר של יום 2. ליום 3 — שוק צוקיג׳י בבוקר וטיול ערב בשיבויה?' : 'אני מציע לפתוח את יום 2 בסנסוג׳י ואסאקוסה. מאשרים? ואחרי זה נדבר על יום 3.',
+    // an explicit ask ("תוסיף") is committed on the spot; the AI's own anchor is proposed
+    const asked = /תוסיף|תכניס/.test(text);
+    const m = planMsg('ai', asked ? 'הוספתי את סנסוג׳י לבוקר של יום 2. ליום 3 — שוק צוקיג׳י בבוקר וטיול ערב בשיבויה?' : 'אני מציע לפתוח את יום 2 בסנסוג׳י ואסאקוסה. מאשרים? ואחרי זה נדבר על יום 3.',
       { suggestions: ['מאשרים', 'משהו אחר ליום 2'], ops, changes: [{ kind: 'add', title: ops[0].title, when: 'יום 2 · 09:00', note: ops[0].note }] });
-    if (st.mode === 'auto') applyOps(m); else m.payload.decision = 'pending';
+    if (asked) applyOps(m); else m.payload.decision = 'pending';
     return m;
   }
   // the same moment routes/plan.js marks: the opening round is behind us AND something
@@ -230,22 +275,31 @@
           planMsg('ai', 'היי! מתכננים יחד את הטיול ליפן — 10 ימים. שאלה קטנה קודם: באיזה אזור להתמקד בעשרת הימים?',
             { suggestions: ['טוקיו והסביבה (טוקיו, ניקו)', 'קנסאי (קיוטו, אוסקה, נארה)', 'שניהם'] });
         }
-        return json(200, { state: draft.plan_state, messages: planMsgs });
+        return json(200, { state: draft.plan_state, messages: planMsgs, files_remaining: 3 });
       }
       if (!rest && method === 'PATCH') {
-        if (body.mode) draft.plan_state.mode = body.mode;
         if (body.areas) draft.plan_state.areas = body.areas;
         return json(200, { state: draft.plan_state });
       }
       if (!rest && method === 'POST') {
         // "מכסה" in a message plays the spent day; "מוכן" plays the AI judging the trip settled
         if (/מכסה/.test(String(body.message || ''))) return json(429, { error: 'ניצלתם את הודעות התכנון להיום', quota: 'plan' });
+        // a document handed over with the +: the AI says what it read, then acts on it
+        // (committed on the spot — a fact the travellers handed over, not an idea)
+        const files = Array.isArray(body.attachments) ? body.attachments : [];
+        if (files.length) {
+          const text = String(body.message || '').trim() || (files.length === 1 ? `צירפתי קובץ: ${files[0].name}` : `צירפתי ${files.length} קבצים`);
+          const sent = planMsg('user', text, { files: files.map((f) => ({ name: f.name, kind: f.kind, read: f.text ? 'text' : f.image ? 'image' : 'none' })) });
+          const u = fileUnderstanding(files, draft.days);
+          const undoActs = applyActions(u.actions);
+          const m = planMsg('ai', u.text, { suggestions: ['כן, תסמן בתקציב', 'אין כרטיס חזור עדיין'], actions: u.actions, changes: u.changes, decision: 'applied', undo: null, undoActions: undoActs, applied: { added: 0, updated: 0, removed: 0, actions: u.actions.length } });
+          return json(200, { message: m, sent, state: draft.plan_state, items: null, side: { hotels, budget, trip: { start_date: draft.start_date, end_date: draft.end_date } }, remaining: 48, files_remaining: 3 - files.length });
+        }
         planMsg('user', String(body.message || ''), body.receipt ? { receipt: true } : {});
         if (/מוכן/.test(String(body.message || ''))) {
           const m = planMsg('ai', 'לדעתי הטיול כבר עומד על הרגליים: האזורים והטיסות סגורים ולכל יום יש עוגן. רוצים שנעבור על יום 4, או להשלים את השאר אוטומטית?', { suggestions: ['נעבור על יום 4'], invite: true });
           return json(200, { message: m, state: draft.plan_state, items: null, remaining: 40 });
         }
-        if (body.mode) draft.plan_state.mode = body.mode;
         const m = planTurn(String(body.message || ''));
         return json(200, { message: m, milestone: planMilestone(), state: draft.plan_state, items: m.payload.decision === 'applied' ? draftItems : null, remaining: 50 });
       }
@@ -253,9 +307,10 @@
         const m = planMsgs.find((x) => x.id === +body.message_id);
         if (!m) return json(404, { error: 'לא נמצא' });
         if (body.decision === 'undo') {
-          draftItems = draftItems.filter((x) => !(m.payload.undo.added || []).includes(x.id));
-          m.payload.decision = 'undone'; m.payload.undo = null;
-          return json(200, { message: m, items: draftItems });
+          draftItems = draftItems.filter((x) => !((m.payload.undo && m.payload.undo.added) || []).includes(x.id));
+          if (m.payload.undoActions) undoActions(m.payload.undoActions);
+          m.payload.decision = 'undone'; m.payload.undo = null; m.payload.undoActions = null;
+          return json(200, { message: m, items: draftItems, side: { hotels, budget, trip: { start_date: draft.start_date, end_date: draft.end_date } } });
         }
         if (body.decision === 'accept') applyOps(m); else m.payload.decision = 'rejected';
         // the decision is a turn: the AI answers it with the next step
@@ -381,7 +436,7 @@
       if (!rest) {
         return json(200, {
           trip, items, isOwner: true, canEdit: true, isAdmin: false,
-          hotels: [], budget: null, expenses, participants: [{ id: 1, name: user.name, is_owner: true }],
+          hotels, budget, expenses, participants: [{ id: 1, name: user.name, is_owner: true }],
         });
       }
       // the model's category for a hand-added stop — a keyword guess here, and null
@@ -426,8 +481,15 @@
       if (rest === '/recs' && method === 'POST') {
         const q = String(body.message || '');
         if (/מכסה/.test(q)) return json(429, { error: 'ניצלתם את שאלות ההמלצות להיום', quota: 'recs' });
-        // אוטומטי + an explicit change request → a proposal, no cards
-        if (body.mode === 'auto' && /תוסיף|תכניס|תמחק|תוריד|תזיז/.test(q)) {
+        // a document handed over with the +: the AI says what it read and proposes
+        const files = Array.isArray(body.attachments) ? body.attachments : [];
+        if (files.length) {
+          const u = fileUnderstanding(files, trip.days);
+          return json(200, { text: u.text.replace('הוספתי אותו', 'אני מציע להוסיף אותו').replace('עדכנתי', 'אני מציע לעדכן'), cards: [], ops: [], actions: u.actions, changes: u.changes,
+            files: files.map((f) => ({ name: f.name, kind: f.kind, read: f.text ? 'text' : f.image ? 'image' : 'none' })), remaining: 27 });
+        }
+        // an explicit change request → a proposal, no cards
+        if (/תוסיף|תכניס|תמחק|תוריד|תזיז/.test(q)) {
           const last = items[items.length - 1];
           const ops = /תמחק|תוריד/.test(q)
             ? [{ action: 'delete', id: last.id, day_number: null, time_label: null, title: null, note: null, place_query: null, category: null, area: null, cost: null }]
@@ -478,13 +540,15 @@
             if (it) { undo.deleted.push(it); items = items.filter((x) => x !== it); removed++; }
           }
         }
-        return json(200, { applied: { added, updated: 0, removed }, undo: added + removed ? undo : null, items });
+        const undoActs = applyActions(body.actions);
+        return json(200, { applied: { added, updated: 0, removed, actions: (body.actions || []).length }, undo: added + removed ? undo : null, undo_actions: undoActs.length ? undoActs : null, items, side: sideState() });
       }
       if (rest === '/recs/undo' && method === 'POST') {
         const u = body.undo || {};
         items = items.filter((x) => !(u.added || []).includes(x.id));
         for (const it of u.deleted || []) items.push({ ...it, id: nextId++ });
-        return json(200, { undone: true, items });
+        undoActions(body.undo_actions);
+        return json(200, { undone: true, items, side: sideState() });
       }
       if (rest === '/items' && method === 'POST') {
         if (!body.title) return json(400, { error: 'חסרה כותרת לתחנה' });

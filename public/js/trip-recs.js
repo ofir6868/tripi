@@ -1,7 +1,9 @@
 // המלצות — a chat with the AI about the area, answered with recommendation cards that
-// drop straight into the itinerary. In אוטומטי mode (editors only) an explicit "add /
-// remove / move X" comes back as a proposal card instead — the planning chat's card,
-// written on approval through /recs/apply, reversible through /recs/undo.
+// drop straight into the itinerary. For an editor, an explicit "add / remove / move X",
+// "we booked the Hilton" or a ticket handed over with the + comes back as a proposal
+// card instead — the planning chat's card, stops and hotels/budget/dates alike, written
+// on approval through /recs/apply, reversible through /recs/undo. The model tells a
+// question from a request by the words; there is no switch to set.
 //
 // ask() is one call to POST /api/trips/code/:code/recs: the server runs the model,
 // verifies every place it names (an unverified one never reaches this file) and finds
@@ -40,10 +42,6 @@ const TripRecs = (() => {
   const AREA_COLORS = ['#ffb45f', '#8fd8c4', '#c9a7ff', '#7fb8ff', '#ff9db1', '#ffd166'];
   const DOW = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
 
-  const MODE_ICON = {
-    auto: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 8-12h-6z"/></svg>',
-    hand: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0v1"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-5.9-2.4L3 15.2a2 2 0 0 1 3-2.6L8 15"/></svg>',
-  };
   const ICON = {
     plus: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>',
     map: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>',
@@ -76,17 +74,18 @@ const TripRecs = (() => {
     return id ? IMG(id) : (ctx.trip.cover_image || IMG(GENERIC[0]));
   }
 
-  // `mode`: אוטומטי lets the model answer an explicit change request with a proposal
-  // (ops), shown as the same card the planning chat uses and written only on approval
-  async function ask(question, ctx, history, mode = 'manual') {
+  // an editor's explicit change request comes back as a proposal — stops (ops) and
+  // hotels / budget / dates (actions) on the same card the planning chat uses, written
+  // only on approval. `files`: documents read on the device (TripPlan.attachments).
+  async function ask(question, ctx, history, files = []) {
     const r = await TRIPMAKER.api(`/api/trips/code/${ctx.trip.share_code}/recs`, {
       method: 'POST',
-      body: JSON.stringify({ message: question, history, mode }),
+      body: JSON.stringify({ message: question, history, attachments: files }),
     });
     const cards = (r.cards || []).map((c) => fromServerCard(c, ctx));
-    const out = { kind: cards.length ? 'places' : 'text', text: r.text, cards, remaining: r.remaining, payload: {} };
-    if (Array.isArray(r.ops) && r.ops.length) {
-      out.payload = { ops: r.ops, changes: r.changes || [], decision: 'pending', undo: null };
+    const out = { kind: cards.length ? 'places' : 'text', text: r.text, cards, remaining: r.remaining, files: r.files, payload: {} };
+    if ((Array.isArray(r.ops) && r.ops.length) || (Array.isArray(r.actions) && r.actions.length)) {
+      out.payload = { ops: r.ops || [], actions: r.actions || [], changes: r.changes || [], decision: 'pending', undo: null, undoActions: null };
     }
     return out;
   }
@@ -101,18 +100,6 @@ const TripRecs = (() => {
   }
   function saveThread(ctx, msgs) {
     try { localStorage.setItem(threadKey(ctx), JSON.stringify(msgs.slice(-40))); } catch { /* full or private — the chat still works */ }
-  }
-
-  // ידני / אוטומטי is remembered per trip in this browser too, next to the thread —
-  // one place that knows where it lives, because the trip page writes it from outside:
-  // "עבור לסוכן החכם" turns automatic on before this chat ever paints
-  const modeKey = (trip) => `tripmaker_recs_mode_${trip.share_code}`;
-  const savedMode = (trip) => {
-    try { return localStorage.getItem(modeKey(trip)) === 'auto' ? 'auto' : 'manual'; } catch { return 'manual'; }
-  };
-  function setMode(trip, mode) {
-    try { localStorage.setItem(modeKey(trip), mode); } catch { /* per-visit then */ }
-    return mode;
   }
 
   // a message handed over from outside the chat — the trip page's bottom ask bar
@@ -190,7 +177,7 @@ const TripRecs = (() => {
   }
 
   function msgHtml(m, i, latestApplied) {
-    if (m.role === 'user') return `<div class="chat-msg user"><div class="chat-bubble">${esc(m.text)}</div></div>`;
+    if (m.role === 'user') return `<div class="chat-msg user"><div class="chat-bubble">${esc(m.text)}</div>${TripPlan.sentFilesHtml(m.files)}</div>`;
     if (m.quota) return TripPlan.quotaMsgHtml(m, TripPlan.referral(), '✨'); // the day's allowance is spent — the gentle card
     const cards = m.cards || [];
     return `
@@ -221,10 +208,6 @@ const TripRecs = (() => {
     // a question typed while the last one is being answered waits on screen and goes out
     // when the answer lands (the same rule as the planning chat — a send is never dead)
     let nextQ = null;
-    // ידני: exactly the chat as it always was. אוטומטי: an explicit "add / remove / move
-    // X" comes back as a proposal card — for someone who may edit the trip. Remembered
-    // per trip in this browser, like the thread.
-    let mode = ctx.canEdit ? savedMode(ctx.trip) : 'manual';
     // a visitor reading someone else's trip: the composer is shut and the way to open
     // it is the card at the top of the thread. It stays on screen the whole time rather
     // than being hidden, so the moment the copy lands there is nothing to go looking for
@@ -233,7 +216,7 @@ const TripRecs = (() => {
     body.innerHTML = '<div class="chat-thread" id="chat-thread"></div>';
     const thread = body.querySelector('#chat-thread');
     let input = null;
-    let modeBtn = null;
+    let attach = null; // the + beside the composer (editors only)
 
     function paintFoot() {
       foot.innerHTML = locked ? `
@@ -244,27 +227,20 @@ const TripRecs = (() => {
         <div class="chat-chips" id="chat-chips">${QUICK(mainDest).map((q) =>
           `<button type="button" class="chat-chip">${esc(q)}</button>`).join('')}</div>
         <form class="chat-form" id="chat-form">
-          ${ctx.canEdit ? '<button type="button" class="plan-mode" id="recs-mode" aria-live="polite"></button>' : ''}
-          <input type="text" id="chat-input" maxlength="300" placeholder="שאלו על ${esc(mainDest)}…" autocomplete="off" enterkeyhint="send">
+          <input type="text" id="chat-input" maxlength="300" placeholder="${ctx.canEdit ? 'שאלו, או בקשו שינוי בטיול…' : `שאלו על ${esc(mainDest)}…`}" autocomplete="off" enterkeyhint="send">
           <button type="submit" class="chat-send" aria-label="שליחה">${ICON.send}</button>
         </form>`;
       input = foot.querySelector('#chat-input');
-      modeBtn = foot.querySelector('#recs-mode');
       foot.querySelector('#chat-form').onsubmit = (e) => { e.preventDefault(); send(input.value); };
       foot.querySelectorAll('.chat-chip').forEach((b) => { b.onclick = () => send(b.textContent); });
-      if (modeBtn) {
-        modeBtn.onclick = () => {
-          mode = setMode(ctx.trip, mode === 'auto' ? 'manual' : 'auto');
-          paintMode();
-          // said out loud, once per flip: the toggle was being tapped back and forth by
-          // people trying to work out what it changes
-          TripPages.toast(mode === 'auto'
-            ? 'מצב אוטומטי: בקשה לשנות את המסלול תחזור כהצעה לאישור'
-            : 'מצב ידני: אני רק ממליץ — מוסיפים לטיול בלחיצה על ➕');
-          TRIPMAKER.track?.('recs_mode', { code: ctx.trip.share_code, mode });
-        };
-      }
-      paintMode();
+      // a ticket or a booking handed to the chat — read on the device, sent as text —
+      // for someone whose trip it can land on
+      attach = ctx.canEdit ? TripPlan.attachments(foot.querySelector('#chat-form'), {
+        onChange: () => {
+          input.placeholder = attach.count() ? 'מה לעשות עם זה? (אפשר גם לשלוח ככה)' : 'שאלו, או בקשו שינוי בטיול…';
+          if (!attach.reading() && nextQ) { const q = nextQ; nextQ = null; send(q); }
+        },
+      }) : null;
     }
 
     let painted = 0;
@@ -273,17 +249,6 @@ const TripRecs = (() => {
       for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].payload && msgs[i].payload.decision === 'applied') return msgs[i].id;
       return null;
     };
-
-    function paintMode() {
-      if (!modeBtn) return;
-      const auto = mode === 'auto';
-      modeBtn.className = `plan-mode ${auto ? 'auto' : 'manual'}`;
-      modeBtn.innerHTML = `${auto ? MODE_ICON.auto : MODE_ICON.hand}<span>${auto ? 'אוטומטי' : 'ידני'}</span>`;
-      modeBtn.title = auto
-        ? 'מצב אוטומטי: כשמבקשים במפורש לשנות את המסלול, ה-AI מציע את השינוי לאישור. לחיצה עוברת למצב ידני'
-        : 'מצב ידני: ה-AI רק ממליץ — כל המלצה נכנסת לטיול בלחיצה על ➕. לחיצה עוברת למצב אוטומטי';
-      input.placeholder = auto ? 'שאלו, או בקשו שינוי במסלול…' : `שאלו על ${mainDest}…`;
-    }
 
     function paint() {
       const la = latestApplied();
@@ -300,7 +265,6 @@ const TripRecs = (() => {
         <div class="chat-msg user chat-in chat-pending"><div class="chat-bubble">${esc(nextQ)}</div>
           <small class="chat-pending-note">יישלח ברגע שאסיים לענות</small></div>`);
       foot.querySelector('.chat-send')?.classList.toggle('is-busy', busy);
-      paintMode();
       painted = scroller.settle(msgs, painted, true);
     }
 
@@ -317,21 +281,26 @@ const TripRecs = (() => {
       if (decision !== 'undo') { m.payload.decision = 'deciding'; m.payload.deciding = decision; paint(); }
       try {
         if (decision === 'accept') {
-          const r = await TRIPMAKER.api(`${base}/apply`, { method: 'POST', body: JSON.stringify({ ops: m.payload.ops }) });
-          const changed = r.applied && (r.applied.added + r.applied.updated + r.applied.removed) > 0;
+          const r = await TRIPMAKER.api(`${base}/apply`, { method: 'POST', body: JSON.stringify({ ops: m.payload.ops || [], actions: m.payload.actions || [] }) });
+          const a = r.applied || {};
+          const changed = (a.added + a.updated + a.removed + (a.actions || 0)) > 0;
           m.payload.decision = changed ? 'applied' : 'rejected';
           m.payload.undo = changed ? r.undo : null;
+          m.payload.undoActions = changed ? r.undo_actions : null;
           if (r.items) ctx.replaceItems(r.items);
+          if (r.side) ctx.applySide?.(r.side);
           msgs.push({ id: nextId++, role: 'user', text: `✓ אישרתי את השינויים${titles ? ': ' + titles : ''}` });
-          TripPages.toast('המסלול עודכן ✓', 'ok');
+          TripPages.toast('הטיול עודכן ✓', 'ok');
         } else if (decision === 'reject') {
           m.payload.decision = 'rejected';
           msgs.push({ id: nextId++, role: 'user', text: `לא עכשיו — בלי ${titles || 'ההצעה הזו'}` });
         } else {
-          const r = await TRIPMAKER.api(`${base}/undo`, { method: 'POST', body: JSON.stringify({ undo: m.payload.undo }) });
+          const r = await TRIPMAKER.api(`${base}/undo`, { method: 'POST', body: JSON.stringify({ undo: m.payload.undo, undo_actions: m.payload.undoActions }) });
           m.payload.decision = 'undone';
           m.payload.undo = null;
+          m.payload.undoActions = null;
           if (r.items) ctx.replaceItems(r.items);
+          if (r.side) ctx.applySide?.(r.side);
           TripPages.toast('השינוי בוטל');
         }
         TRIPMAKER.track?.('recs_decide', { code: ctx.trip.share_code, decision });
@@ -376,9 +345,7 @@ const TripRecs = (() => {
         msg.classList.add('chat-gone');
         setTimeout(() => {
           locked = false;
-          // the copy is theirs to change, so the chat opens the way the trip page's own
-          // handover opens it: ask for a change and it comes back as a proposal
-          mode = setMode(ctx.trip, 'auto');
+          // the copy is theirs to change: ask for a change and it comes back as a proposal
           paint();
           paintFoot();
           input.focus();
@@ -428,14 +395,25 @@ const TripRecs = (() => {
     }
 
     async function send(text) {
-      const q = text.trim();
-      if (!q || locked) return;
+      let q = text.trim();
+      if (locked) return;
+      const files = attach ? attach.list() : [];
+      if (!q && !files.length) {
+        if (attach && attach.reading()) TripPages.toast('רגע — עוד קוראים את הקובץ במכשיר');
+        return;
+      }
+      if (attach && attach.reading()) {
+        TripPages.toast('רגע — עוד קוראים את הקובץ, ואז אשלח');
+        nextQ = nextQ || q || ' ';
+        return;
+      }
       if (busy) {
-        nextQ = nextQ ? `${nextQ}\n${q}` : q;
+        nextQ = nextQ ? `${nextQ}\n${q}` : (q || ' ');
         input.value = '';
         paint();
         return;
       }
+      if (!q) q = files.length === 1 ? `צירפתי קובץ: ${files[0].name}` : `צירפתי ${files.length} קבצים`;
       // the server meters questions per user, so a question needs a user
       if (!TRIPMAKER.user) {
         msgs.push({ role: 'user', text: q });
@@ -446,13 +424,17 @@ const TripRecs = (() => {
       }
       // what the model sees of the conversation: the last turns, text only
       const history = msgs.filter((m) => m.text).slice(-8).map((m) => ({ role: m.role, text: m.text }));
-      msgs.push({ id: nextId++, role: 'user', text: q });
+      const mine = { id: nextId++, role: 'user', text: q, files: files.length ? files.map((f) => ({ name: f.name, kind: f.kind })) : undefined };
+      msgs.push(mine);
       turn++;
       busy = true;
       input.value = '';
       paint();
       try {
-        const reply = await ask(q, ctx, history, mode);
+        const reply = await ask(text.trim(), ctx, history, files);
+        if (attach) attach.clear();
+        if (reply.files) mine.files = reply.files; // how each one was read, for the bubble
+        delete reply.files;
         msgs.push({ id: nextId++, role: 'ai', ...reply });
       } catch (err) {
         if (err && err.quota) {
@@ -622,5 +604,5 @@ const TripRecs = (() => {
   }
 
   // the planning chat (trip-plan.js) shows the same cards and adds them the same way
-  return { render, ask, cardHtml, fromServerCard, cyclePhotoOf, addRecs, setMode, say, ICON };
+  return { render, ask, cardHtml, fromServerCard, cyclePhotoOf, addRecs, say, ICON };
 })();

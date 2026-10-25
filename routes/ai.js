@@ -16,6 +16,8 @@ const travelFit = require('../lib/travel-fit');
 const COUNTRIES = require('../public/js/countries.js');
 const posthog = require('../lib/posthog');
 const { dailyQuota, exhausted } = require('../lib/quota');
+const actions = require('../lib/plan-actions');
+const attachments = require('../lib/attachments');
 
 const router = express.Router();
 
@@ -71,11 +73,21 @@ const isConnectionError = (err) => err && err.name !== 'AbortError'
 // Returns the parsed object, or null on any failure (HTTP error, timeout, bad
 // JSON) — unless `required`, which rethrows so the route can distinguish an
 // aborted call (timeout message) from the rest.
-async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_MODEL_WEAK, timeoutMs = 30000, required = false, ph = null }) {
+// `images`: reduced copies of documents the travellers attached (lib/attachments.js),
+// sent beside the text at `detail: low` — a fixed, small token cost per image.
+async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_MODEL_WEAK, timeoutMs = 30000, required = false, ph = null, images = [] }) {
   const messages = [
     { role: 'system', content: system },
-    { role: 'user', content: user },
+    images.length
+      ? { role: 'user', content: [{ type: 'text', text: user }, ...images.map((url) => ({ type: 'image_url', image_url: { url, detail: 'low' } }))] }
+      : { role: 'user', content: user },
   ];
+  // the analytics event carries the words, never the picture: a data URL would make
+  // one event the size of a photo
+  const loggedMessages = images.length
+    ? [messages[0], { role: 'user', content: `${user}
+[+${images.length} image(s)]` }]
+    : messages;
   // PostHog LLM analytics: one $ai_generation per OpenAI call, full input/output
   // included — cost is computed on their side from model + token counts, and
   // ph.traceId groups the calls of a single build/edit into one trace. A retried call
@@ -88,7 +100,7 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
       $ai_provider: 'openai',
       $ai_model: model,
       $ai_base_url: 'https://api.openai.com/v1',
-      $ai_input: messages,
+      $ai_input: loggedMessages,
       $ai_latency: (Date.now() - started) / 1000,
       ...extra,
     });
@@ -2152,7 +2164,7 @@ const RECS_SCHEMA = {
   required: ['text', 'cards'],
 };
 
-function recsSystemPrompt({ trip, dests, items, edit = false, prefs = null }) {
+function recsSystemPrompt({ trip, dests, items, edit = false, prefs = null, side = null }) {
   const destText = dests.length
     ? dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ')
     : [trip.destination, trip.country].filter(Boolean).join(', ');
@@ -2175,7 +2187,10 @@ function recsSystemPrompt({ trip, dests, items, edit = false, prefs = null }) {
 - ops חוזר לא ריק אך ורק כשהבקשה היא במפורש לשנות את המסלול: "תוסיף את זה ליום 3", "תוריד את המוזיאון", "תזיז את השוק לבוקר", "תחליף את הארוחה במשהו אחר", "תכניס לי יום שלם ב…". כל שאלה אחרת — מה יש, מה כדאי, איפה אוכלים, טיפים, "תכננו לי יום" בלי בקשה להכניס — היא המלצה: ops ריק, ו-cards כרגיל.
 - כשמציעים שינוי: text מנוסח כהצעה ("אני מציע להוסיף… מאשרים?") ובלי cards כפולים של אותם מקומות.
 - add: title קצר בעברית, note טיפ פרקטי קצר, time_label בפורמט HH:MM או null, day_number בין 1 ל-${trip.days}, place_query באנגלית עם עיר ומדינה רק למקום אמיתי (אחרת null), cost הערכה לאדם בש"ח או null, category מתוך: ${AI_CATEGORIES.join(', ')}, area מתוך: ${areaNames.map((a) => `"${a}"`).join(', ')}.
-- update/delete: id של תחנה קיימת מהמסלול למעלה; ב-update null בכל שדה שלא משתנה. לא נוגעים בתחנות שלא התבקשו.` : '';
+- update/delete: id של תחנה קיימת מהמסלול למעלה; ב-update null בכל שדה שלא משתנה. לא נוגעים בתחנות שלא התבקשו.
+${actions.PROMPT_RULES(trip.days)}
+${attachments.PROMPT_RULES}
+${actions.contextLines(side && side.hotels, side && side.budget)}` : '';
   return `אתם המדריך המקומי של TRIP MAKER — מומחה לטיולים שמכיר את ${destText} לעומק, ועונים למטייל ישראלי שמתכנן את הטיול הזה.
 עונים בעברית, בגוף רבים ("אתם"), בחום ובענייניות. השדה text — עד 80 מילים.
 
@@ -2224,6 +2239,8 @@ const RECS_EDIT_SCHEMA = {
   },
   required: [...RECS_SCHEMA.required, 'ops'],
 };
+RECS_EDIT_SCHEMA.properties.actions = { type: 'array', items: actions.ACTION_SCHEMA };
+RECS_EDIT_SCHEMA.required = [...RECS_EDIT_SCHEMA.required, 'actions'];
 
 // a proposed change as one line for the card (the planner's describeOp, same shape)
 function describeRecOp(op, byId) {
@@ -2246,27 +2263,30 @@ function describeRecOp(op, byId) {
   return { kind: 'update', title: cur ? cur.title : `#${op.id}`, when: cur ? when(op, cur) : '', changes };
 }
 
-function recsUserPrompt(history, message) {
+function recsUserPrompt(history, message, files = []) {
   const turns = history.slice(-AI_RECS_HISTORY)
     .map((h) => `${h.role === 'user' ? 'מטייל' : 'מדריך'}: ${h.text}`).join('\n');
-  return (turns ? `השיחה עד כה:\n${turns}\n\n` : '') + `השאלה עכשיו:\n${message}`;
+  return (turns ? `השיחה עד כה:\n${turns}\n\n` : '') + `השאלה עכשיו:\n${message}` + attachments.promptBlock(files);
 }
 
 // the whole turn, model to verified cards — exported for tests, which stub fetch
-// `edit`: the traveller switched the chat to אוטומטי — the model may answer an explicit
-// change request with ops (verified like the editor's, returned as a proposal, never
-// written here). Both modes run on the strong model now: the cards name places, and
-// the two tiers answered in different registers within one thread.
-async function tripRecs({ trip, items, message, history, edit = false, prefs = null, ph }) {
+// `edit`: the asker may edit the trip — the model may answer an explicit change
+// request with ops and actions (verified like the editor's, returned as a proposal,
+// never written here). Everything runs on the strong model: the cards name places,
+// and the two tiers answered in different registers within one thread.
+// `side`: the trip's hotels and budget, for the actions; `files`: what the travellers
+// attached (lib/attachments.js), already cleaned.
+async function tripRecs({ trip, items, message, history, edit = false, prefs = null, side = null, files = [], ph }) {
   const dests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
   const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
   const raw = await aiJson({
-    system: recsSystemPrompt({ trip, dests, items, edit, prefs }),
-    user: recsUserPrompt(history, message),
+    system: recsSystemPrompt({ trip, dests, items, edit, prefs, side }),
+    user: recsUserPrompt(history, message, files),
     schemaName: edit ? 'trip_recs_edit' : 'trip_recs',
     schema: edit ? RECS_EDIT_SCHEMA : RECS_SCHEMA,
-    maxTokens: edit ? 2400 : 1400,
+    maxTokens: edit ? 2600 : 1400,
     model: AI_MODEL_STRONG,
+    images: attachments.images(files),
     ph,
   });
   if (!raw) return null;
@@ -2285,6 +2305,14 @@ async function tripRecs({ trip, items, message, history, edit = false, prefs = n
       out.ops = verified.ops;
       out.changes = verified.ops.map((op) => describeRecOp(op, byId));
       // a proposal that repeats its own places as cards is the same thing twice
+      out.cards = [];
+    }
+  }
+  if (edit) {
+    const acts = actions.cleanActions(raw.actions, trip, side && side.hotels);
+    if (acts.length) {
+      out.actions = acts;
+      out.changes = [...(out.changes || []), ...acts.map((a) => actions.describeAction(a, side && side.hotels, side && side.budget))];
       out.cards = [];
     }
   }
@@ -2308,16 +2336,28 @@ async function applyClientOps(req, res, mode) {
     if (mode === 'apply') {
       const ops = (Array.isArray(b.ops) ? b.ops : []).slice(0, 20)
         .filter((op) => op && ['add', 'update', 'delete'].includes(op.action));
-      if (!ops.length) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'אין שינויים לבצע' }); }
+      // the hotel / budget / date actions arrive from the client too, and are cleaned
+      // against the trip as it is now — an id that is gone is simply skipped
+      const hotels = await actions.loadHotels(client, trip.id);
+      const acts = actions.cleanActions(b.actions, trip, hotels);
+      if (!ops.length && !acts.length) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'אין שינויים לבצע' }); }
       const items = await client.query(
         'SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
       ).then((r) => r.rows);
-      const r = await applyEditOps(client, trip, items, ops);
-      const changed = r.added + r.updated + r.removed > 0;
-      result = { applied: { added: r.added, updated: r.updated, removed: r.removed }, undo: changed ? r.undoOps : null };
+      const r = ops.length ? await applyEditOps(client, trip, items, ops) : { added: 0, updated: 0, removed: 0, undoOps: null };
+      const a = acts.length ? await actions.applyActions(client, trip, acts) : { count: 0, undo: [] };
+      const changed = r.added + r.updated + r.removed + a.count > 0;
+      result = {
+        applied: { added: r.added, updated: r.updated, removed: r.removed, actions: a.count },
+        undo: changed ? r.undoOps : null,
+        undo_actions: a.count ? a.undo : null,
+      };
     } else {
       const u = b.undo && typeof b.undo === 'object' ? b.undo : null;
-      if (!u) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'אין מה לבטל' }); }
+      const ua = Array.isArray(b.undo_actions) ? b.undo_actions : null;
+      if (!u && !ua) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'אין מה לבטל' }); }
+      if (ua) await actions.undoActions(client, trip, ua);
+      if (u) {
       await undoApplied(client, trip, {
         added: (Array.isArray(u.added) ? u.added : []).map((id) => parseInt(id, 10)).filter(Number.isInteger),
         updated: (Array.isArray(u.updated) ? u.updated : []).filter((x) => x && Number.isInteger(+x.id) && x.fields && typeof x.fields === 'object')
@@ -2332,13 +2372,15 @@ async function applyClientOps(req, res, mode) {
           cost: cleanCost(it.cost), sort_order: parseInt(it.sort_order, 10) || 0,
         })),
       });
+      }
       result = { undone: true };
     }
     const fresh = await client.query(
       'SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
     );
+    const side = await actions.sideState(client, trip);
     await client.query('COMMIT');
-    res.json({ ...result, items: fresh.rows });
+    res.json({ ...result, items: fresh.rows, side });
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error(err);
@@ -2493,8 +2535,21 @@ router.post('/api/trips/code/:code/recs', authRequired, async (req, res) => {
     if (!trip) return res.status(404).json({ error: 'לא נמצא טיול עם הקוד הזה' });
     const mayEdit = req.user.id === trip.owner_id
       || await isParticipant(trip.id, req.user.id) || await isAdmin(req);
-    // אוטומטי: the chat may propose changes — only for someone who could make them by hand
-    const edit = b.mode === 'auto' && mayEdit;
+    // someone who could change the trip by hand may ask the chat to — the model
+    // decides from the words whether a turn is a question or a change request
+    const edit = mayEdit;
+    // what the travellers attached: text read on their device, or a reduced image.
+    // Only an editor's documents are read (a visitor's screenshot has nothing to
+    // land on), and each one spends a file from the day's three.
+    const files = mayEdit ? attachments.cleanAttachments(b.attachments) : [];
+    let filesQuota = null;
+    if (files.length) {
+      filesQuota = await attachments.filesMeter.check(req);
+      if (!filesQuota) return exhausted(res, 'files', 'ניצלתם את שלושת הקבצים להיום — אפשר להמשיך במילים, ומחר שוב');
+      if (!filesQuota.admin && files.length > filesQuota.limit - filesQuota.used) {
+        return exhausted(res, 'files', `נשארו ${filesQuota.limit - filesQuota.used} קבצים להיום — צרפו פחות`);
+      }
+    }
     // the travellers' own preferences steer what gets recommended — and, like everywhere
     // else, the planning memory is the editors': a visitor holding the share code asks
     // about the same trip, but not with what its owners told the AI about themselves
@@ -2507,13 +2562,15 @@ router.post('/api/trips/code/:code/recs', authRequired, async (req, res) => {
     const { rows: items } = await pool.query(
       'SELECT id, day_number, time_label, title, category, area, place_query FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
     );
+    const side = edit ? await actions.loadSide(pool, trip.id) : null;
     const result = await tripRecs({
-      trip, items, message, history, edit, prefs,
+      trip, items, message, history, edit, prefs, side, files,
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
     if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });
     quota.spend(); // the model call is the budgeted resource
-    res.json({ ...result, remaining: quota.remaining });
+    for (let i = 0; i < files.length; i++) filesQuota.spend(); // and so is every document it read
+    res.json({ ...result, files: attachments.stored(files), remaining: quota.remaining });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });

@@ -2,24 +2,33 @@
 // is saved.
 //
 // The conversation and the trip's planning memory live on the server (routes/plan.js);
-// this side paints the thread, sends turns, and shows what each turn did to the
-// itinerary as a change card. The card is the same in both modes — in manual mode it
-// waits for אישור, in automatic mode it is already done and offers ביטול — so switching
-// modes never changes what the traveller looks at, only who taps first. Every itinerary
-// change comes back as the full item list and goes through the page's own replaceItems,
-// so the trip behind the chat is always the one the AI just wrote.
+// this side paints the thread, sends turns, and shows what each turn did to the trip
+// as a change card — stops, hotels, budget, dates. The AI decides per turn whether
+// the card waits for אישור or is already done and offers ביטול; the card looks the
+// same either way. Every itinerary change comes back as the full item list and goes
+// through the page's own replaceItems, so the trip behind the chat is always the one
+// the AI just wrote; hotels, budget and dates come back the same way (applySide).
+//
+// The + beside the composer attaches a document (attachments(), below, shared with
+// המלצות): a ticket, a booking, a screenshot. It is read HERE, on the device — the
+// מסמכים page's own ladder (doc-text.js) — and the chat sends the text it found, not
+// the file. Only a photo the device could not read goes as a reduced copy.
 const TripPlan = (() => {
   const esc = (s) => TRIPMAKER.esc(s);
   const ICON = {
     send: TripRecs.ICON.send,
     check: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
     undo: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>',
-    auto: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m13 2-8 12h6l-1 8 8-12h-6z"/></svg>',
-    hand: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0v1"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-5.9-2.4L3 15.2a2 2 0 0 1 3-2.6L8 15"/></svg>',
+    plus: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>',
+    clip: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.4 11.1-8.9 8.9a5.5 5.5 0 0 1-7.8-7.8l9.2-9.2a3.7 3.7 0 0 1 5.2 5.2l-9.2 9.2a1.8 1.8 0 0 1-2.6-2.6l8.5-8.5"/></svg>',
     // the מסלול tab's own glyph: the button points at a tab the traveller is about to meet
     route: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h6a3.5 3.5 0 0 0 0-7h-4a3.5 3.5 0 0 1 0-7h6"/></svg>',
   };
-  const KIND = { add: { em: '➕', label: 'הוספה' }, update: { em: '✏️', label: 'שינוי' }, delete: { em: '🗑️', label: 'הסרה' } };
+  const KIND = {
+    add: { em: '➕', label: 'הוספה' }, update: { em: '✏️', label: 'שינוי' }, delete: { em: '🗑️', label: 'הסרה' },
+    // beyond the stops (lib/plan-actions.js): a hotel, the budget frame, the dates
+    hotel: { em: '🏨', label: 'מלון' }, hotel_delete: { em: '🏨', label: 'הסרת מלון' }, budget: { em: '💰', label: 'תקציב' }, dates: { em: '📅', label: 'תאריכים' },
+  };
   const FILL_CHIP = '✨ להשלים את שאר הימים אוטומטית';
   const QUIPS = [
     'מדפדף במדריכי טיולים…', 'בוחר את המסעדות הכי שוות…', 'מסדר את הימים בסדר הגיוני…',
@@ -111,6 +120,7 @@ const TripPlan = (() => {
 
   const QUOTA_LINES = {
     plan: 'ניצלנו להיום את מכסת הודעות התכנון שלי 🙏',
+    files: 'ניצלנו להיום את שלושת הקבצים שאני יכול לקרוא 🙏 — אפשר לכתוב לי את הפרטים במילים',
     recs: 'ניצלנו להיום את מכסת השאלות שלי 🙏',
     build: 'ניצלנו להיום את מכסת הבניות של ה-AI 🙏',
     edit: 'ניצלנו להיום את מכסת השינויים החכמים 🙏',
@@ -222,6 +232,160 @@ const TripPlan = (() => {
   }
 
   // =================================================================
+  //  DOCUMENTS HANDED TO THE CHAT — read on the device, sent as text
+  // =================================================================
+  //
+  // The + in the composer. A file is read right here with doc-text.js (a PDF's text
+  // layer, the platform's OCR, tesseract in WASM — whatever this device affords), and
+  // what goes to the server is the text, under the message. A photo the device could
+  // not read is shrunk to a small JPEG and sent instead, which the model reads at its
+  // cheapest setting. Three documents a day per user — the server counts; the button
+  // says how many are left so a fourth pick is refused here, not after the upload.
+
+  const FILE_ACCEPT = 'image/*,application/pdf,.pdf';
+  const FILE_MAX_BYTES = 25 * 1024 * 1024;
+  const FILE_IMAGE_MAX = 380 * 1024;   // the reduced copy's data URL, bytes (lib/attachments.js caps at 400k)
+  const FILE_TEXT_MAX = 4000;          // chars sent per document (the server keeps 3000)
+  const FILE_ENOUGH_LETTERS = 60;      // text this long is a read; shorter means the picture goes too
+  const letters = (t) => (String(t || '').match(/[A-Za-z֐-׿0-9]/g) || []).length;
+  const FILE_READ_LABEL = { text: 'נקרא במכשיר', image: 'נשלח כתמונה מוקטנת', none: 'לא נקרא — נשלח השם בלבד' };
+  const fileEmoji = (kind) => (kind === 'pdf' ? '📕' : '🖼️');
+
+  // the names under the travellers' bubble — what was sent, and how it was read
+  function sentFilesHtml(files) {
+    if (!Array.isArray(files) || !files.length) return '';
+    return `<div class="chat-sent-files">${files.map((f) =>
+      `<span class="csf" title="${esc(FILE_READ_LABEL[f.read] || '')}">${fileEmoji(f.kind)} ${esc(f.name)}</span>`).join('')}</div>`;
+  }
+
+  // an image, shrunk for the model: long edge ≤ 1024px as JPEG; smaller again when
+  // that is still over the cap; null when even that fails (the name goes alone)
+  function shrinkImage(file) {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      const done = (v) => { URL.revokeObjectURL(url); resolve(v); };
+      img.onload = () => {
+        try {
+          for (const [edge, q] of [[1024, .6], [800, .5], [640, .45]]) {
+            const k = Math.min(1, edge / Math.max(img.width, img.height));
+            const c = document.createElement('canvas');
+            c.width = Math.max(1, Math.round(img.width * k));
+            c.height = Math.max(1, Math.round(img.height * k));
+            c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+            const data = c.toDataURL('image/jpeg', q);
+            c.width = c.height = 0;
+            if (data.length <= FILE_IMAGE_MAX) return done(data);
+          }
+          done(null);
+        } catch { done(null); }
+      };
+      img.onerror = () => done(null);
+      img.src = url;
+    });
+  }
+
+  // mounts the + button into `form` and the chips strip above it. `remaining` is how
+  // many documents the day still allows (null: unknown or unlimited).
+  function attachments(form, { max = 3, remaining = null, onChange } = {}) {
+    const strip = document.createElement('div');
+    strip.className = 'chat-files';
+    strip.hidden = true;
+    form.before(strip);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'chat-plus';
+    btn.innerHTML = ICON.plus;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = FILE_ACCEPT;
+    input.multiple = true;
+    input.hidden = true;
+    form.prepend(btn);
+    form.append(input);
+    let items = [];
+    let n = 0;
+    let left = remaining;
+
+    function paintBtn() {
+      btn.classList.toggle('is-spent', left === 0);
+      btn.classList.toggle('has-files', items.length > 0);
+      btn.title = left === 0 ? 'ניצלתם את שלושת הקבצים להיום — מחר שוב'
+        : `צירוף כרטיס טיסה, הזמנת מלון או צילום מסך${left != null ? ` — נשארו ${left} להיום` : ' (עד 3 ביום)'}`;
+      btn.setAttribute('aria-label', btn.title);
+    }
+    function setRemaining(v) { left = v === undefined ? left : v; paintBtn(); }
+
+    function chipHtml(it) {
+      return `<span class="cf-chip is-${it.status}" data-id="${it.id}">
+        <span class="cf-ic" aria-hidden="true">${it.image ? `<img src="${it.image}" alt="">` : fileEmoji(it.kind)}</span>
+        <span class="cf-body"><span class="cf-name">${esc(it.name)}</span><small class="cf-note">${esc(it.note || '')}</small></span>
+        <button type="button" class="cf-x" aria-label="הסרת ${esc(it.name)}">✕</button></span>`;
+    }
+    function paint() {
+      strip.hidden = !items.length;
+      strip.innerHTML = items.map(chipHtml).join('');
+      strip.querySelectorAll('.cf-x').forEach((x) => {
+        x.onclick = () => { items = items.filter((it) => it.id !== +x.parentElement.dataset.id); paint(); onChange?.(); };
+      });
+      paintBtn();
+    }
+    function note(it, text) {
+      it.note = text;
+      const el = strip.querySelector(`.cf-chip[data-id="${it.id}"] .cf-note`);
+      if (el) el.textContent = text;
+    }
+
+    async function read(it) {
+      let out = { text: '', via: 'none' };
+      try {
+        if (typeof DocText !== 'undefined') out = await DocText.extract(it.file, { onStatus: (msg) => note(it, msg) });
+      } catch { /* a document we can't read is sent by name */ }
+      if (!items.includes(it)) return; // removed while reading
+      it.text = String(out.text || '').slice(0, FILE_TEXT_MAX);
+      const enough = letters(it.text) >= FILE_ENOUGH_LETTERS;
+      if (!enough && it.kind === 'image') it.image = await shrinkImage(it.file);
+      if (!items.includes(it)) return;
+      it.status = 'ready';
+      it.note = enough ? 'נקרא במכשיר ✓ — הטקסט יישלח, לא הקובץ' : it.image ? 'לא נקרא במכשיר — תישלח תמונה מוקטנת' : 'לא הצלחנו לקרוא — יישלח רק השם';
+      paint();
+      onChange?.();
+    }
+
+    function pick(files) {
+      for (const f of files) {
+        if (items.length >= max) { TripPages.toast(`עד ${max} קבצים בהודעה אחת`); break; }
+        if (left != null && items.length >= left) { TripPages.toast(left ? `נשארו ${left} קבצים להיום` : 'ניצלתם את שלושת הקבצים להיום — מחר שוב'); break; }
+        if (f.size > FILE_MAX_BYTES) { TripPages.toast(`${f.name}: גדול מדי (עד 25MB)`); continue; }
+        const kind = f.type === 'application/pdf' || /\.pdf$/i.test(f.name) ? 'pdf' : /^image\//.test(f.type) ? 'image' : null;
+        if (!kind) { TripPages.toast('אפשר לצרף תמונות וקובצי PDF'); continue; }
+        const it = { id: ++n, file: f, name: f.name, kind, status: 'reading', text: '', image: null, note: 'קוראים במכשיר…' };
+        items.push(it);
+        paint();
+        read(it);
+      }
+      onChange?.();
+    }
+
+    btn.onclick = () => {
+      if (left === 0) { TripPages.toast('ניצלתם את שלושת הקבצים להיום — אפשר לכתוב את הפרטים במילים'); return; }
+      input.click();
+    };
+    input.onchange = () => { pick([...input.files]); input.value = ''; };
+    paintBtn();
+
+    return {
+      pick, setRemaining,
+      count: () => items.length,
+      reading: () => items.some((it) => it.status === 'reading'),
+      // what goes with the next turn: name, kind, the text — the image only when the
+      // text was not enough. The chips stay until the turn has landed (clear()).
+      list: () => items.filter((it) => it.status === 'ready').map((it) => ({ name: it.name, kind: it.kind, text: it.text, image: it.text && letters(it.text) >= FILE_ENOUGH_LETTERS ? null : it.image })),
+      clear: () => { items = []; paint(); },
+    };
+  }
+
+  // =================================================================
   //  RENDER
   // =================================================================
 
@@ -230,13 +394,15 @@ const TripPlan = (() => {
     const changes = p.changes || [];
     if (!changes.length) return '';
     const done = p.decision === 'applied';
+    const side = changes.some((c) => ['hotel', 'hotel_delete', 'budget', 'dates'].includes(c.kind));
+    const where = side ? 'בטיול' : 'במסלול';
     const head = {
-      pending: 'שינויים מוצעים למסלול', deciding: 'שינויים מוצעים למסלול', applied: 'שינויים שבוצעו במסלול',
+      pending: `שינויים מוצעים ${where}`, deciding: `שינויים מוצעים ${where}`, applied: `שינויים שבוצעו ${where}`,
       rejected: 'הצעה שלא בוצעה', undone: 'שינויים שבוטלו',
     }[p.decision] || 'שינויים';
     const rows = changes.map((c) => {
       const k = KIND[c.kind] || KIND.update;
-      const detail = c.kind === 'update' && c.changes && c.changes.length ? ` — ${c.changes.join(', ')}` : '';
+      const detail = c.changes && c.changes.length ? ` — ${c.changes.join(', ')}` : (c.kind === 'hotel' && c.note ? c.note : '');
       return `<li class="pc-row pc-${c.kind}"><span class="pc-em" aria-hidden="true">${k.em}</span>
         <span class="pc-text"><b>${esc(c.title || '')}</b>${c.when ? `<small>${esc(c.when)}</small>` : ''}${detail ? `<span class="pc-detail">${esc(detail)}</span>` : ''}</span></li>`;
     }).join('');
@@ -249,7 +415,7 @@ const TripPlan = (() => {
       foot = `<div class="pc-foot">
         <button type="button" class="btn btn-amber pc-accept" data-id="${m.id}">${ICON.check} אישור</button>
         <button type="button" class="btn btn-ghost pc-reject" data-id="${m.id}">לא עכשיו</button></div>`;
-    } else if (done && latestApplied === m.id && p.undo) {
+    } else if (done && latestApplied === m.id && (p.undo || p.undoActions)) {
       foot = `<div class="pc-foot"><button type="button" class="pc-undo" data-id="${m.id}">${ICON.undo} ביטול השינוי</button></div>`;
     } else if (p.decision === 'rejected') {
       foot = '<div class="pc-note">לא בוצע</div>';
@@ -265,7 +431,7 @@ const TripPlan = (() => {
     // "✓ אישרנו" bubble under it is the app telling the traveller what they just did
     if (m.role === 'user') return m.payload && m.payload.receipt
       ? ''
-      : `<div class="chat-msg user"><div class="chat-bubble">${esc(m.text)}</div></div>`;
+      : `<div class="chat-msg user"><div class="chat-bubble">${esc(m.text)}</div>${sentFilesHtml(m.payload && m.payload.files)}</div>`;
     if (m.quota) return quotaMsgHtml(m, referralInfo);
     const cards = m.cards || [];
     const p = m.payload || {};
@@ -479,20 +645,6 @@ const TripPlan = (() => {
       </div>`;
   }
 
-  // מצב אוטומטי / ידני of the planning chat lives in the trip's plan state on the
-  // server — it follows the traveller between devices, and the trip page can turn it on
-  // from outside ("עבור לסוכן החכם") before this chat ever paints.
-  async function setMode(trip, mode) {
-    trip.plan_state = { ...(trip.plan_state || { stage: 'clarify' }), mode };
-    try {
-      const r = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/plan`, {
-        method: 'PATCH', body: JSON.stringify({ mode }),
-      });
-      trip.plan_state = r.state;
-    } catch { /* the next turn carries the mode anyway */ }
-    return trip.plan_state;
-  }
-
   // a message handed over from outside — the trip page's bottom ask bar (see
   // TripRecs.say): held until the thread has loaded, since a turn can't go out before
   // the conversation it belongs to is on screen
@@ -508,7 +660,7 @@ const TripPlan = (() => {
     page.classList.add('page-chat', 'page-plan');
     flush = null; // a chat painted earlier is gone — nothing handed over reaches it
     let msgs = [];
-    let state = ctx.trip.plan_state || { mode: 'manual', stage: 'clarify' };
+    let state = ctx.trip.plan_state || { stage: 'clarify' };
     let busy = false;
     let loaded = false;
     // a turn typed while the previous one is still being answered: it waits on screen,
@@ -528,14 +680,19 @@ const TripPlan = (() => {
     foot.innerHTML = `
       <div class="chat-chips" id="plan-chips"></div>
       <form class="chat-form plan-form" id="plan-form">
-        <button type="button" class="plan-mode" id="plan-mode" aria-live="polite"></button>
         <input type="text" id="plan-input" maxlength="400" placeholder="כתבו לי מה תרצו…" autocomplete="off" enterkeyhint="send">
         <button type="submit" class="chat-send" aria-label="שליחה">${ICON.send}</button>
       </form>`;
     const thread = body.querySelector('#plan-thread');
     const chips = foot.querySelector('#plan-chips');
     const input = foot.querySelector('#plan-input');
-    const modeBtn = foot.querySelector('#plan-mode');
+    // the + : a ticket, a booking, a screenshot — read on the device, sent as text
+    const attach = attachments(foot.querySelector('#plan-form'), {
+      onChange: () => {
+        input.placeholder = attach.count() ? 'מה לעשות עם זה? (אפשר גם לשלוח ככה)' : 'כתבו לי מה תרצו…';
+        if (!attach.reading()) drainNext(); // a send that waited for the reading goes now
+      },
+    });
     // what a new turn does to the viewport: a long answer must not be scrolled past —
     // the thread lands with the START of the newest message in view (the bottom only
     // when it fits), and only the newly arrived messages animate in
@@ -557,15 +714,6 @@ const TripPlan = (() => {
       }
       return null;
     };
-
-    function paintMode() {
-      const auto = state.mode === 'auto';
-      modeBtn.className = `plan-mode ${auto ? 'auto' : 'manual'}`;
-      modeBtn.innerHTML = `${auto ? ICON.auto : ICON.hand}<span>${auto ? 'אוטומטי' : 'ידני'}</span>`;
-      modeBtn.title = auto
-        ? 'מצב אוטומטי: ה-AI משנה את התחנות מיד, עם אפשרות ביטול. לחיצה עוברת למצב ידני'
-        : 'מצב ידני: כל שינוי מוצג לאישור לפני שהוא נכנס למסלול. לחיצה עוברת למצב אוטומטי';
-    }
 
     function paintChips() {
       const last = msgs[msgs.length - 1];
@@ -725,6 +873,7 @@ const TripPlan = (() => {
         state = r.state;
         ctx.trip.plan_state = state;
         if (r.items) ctx.replaceItems(r.items);
+        if (r.side) ctx.applySide?.(r.side);
         if (r.said) msgs.push({ role: 'user', text: r.said, payload: { receipt: true } });
         if (r.follow) msgs.push(shape(r.follow));
         milestone(r.milestone);
@@ -818,7 +967,6 @@ const TripPlan = (() => {
         thread.querySelector('.chat-pending')?.remove();
         if (nextQ) thread.insertAdjacentHTML('beforeend', pendingHtml());
         paintChips();
-        paintMode();
         return;
       }
       thread.innerHTML = msgs.map((m, i) => msgHtml(m, i, la, ctx)).join('') +
@@ -839,9 +987,8 @@ const TripPlan = (() => {
       // the turn typed ahead sits under the dots, plainly not sent yet
       if (nextQ) thread.insertAdjacentHTML('beforeend', pendingHtml());
       foot.querySelector('.chat-send').classList.toggle('is-busy', busy);
-      input.placeholder = busy ? 'אפשר כבר לכתוב — אשלח כשאסיים' : 'כתבו לי מה תרצו…';
+      input.placeholder = busy ? 'אפשר כבר לכתוב — אשלח כשאסיים' : attach.count() ? 'מה לעשות עם זה? (אפשר גם לשלוח ככה)' : 'כתבו לי מה תרצו…';
       paintChips();
-      paintMode();
       growOpening();
       painted = scroller.settle(msgs, painted, loaded);
       if (dockOwed) {
@@ -893,6 +1040,7 @@ const TripPlan = (() => {
         state = r.state;
         ctx.trip.plan_state = state;
         msgs = (r.messages || []).map(shape);
+        if (r.files_remaining !== undefined) attach.setRemaining(r.files_remaining);
         loaded = true;
       } catch (err) {
         msgs = [{ role: 'ai', text: (err && err.message) || 'לא הצלחתי לטעון את התכנון — נסו לרענן', payload: {} }];
@@ -926,23 +1074,40 @@ const TripPlan = (() => {
     // =================================================================
 
     async function send(text, { receipt = false } = {}) {
-      const q = text.trim();
-      if (!q) return;
+      let q = text.trim();
+      // the documents in the strip go with this turn — once they are read. A send while
+      // one is still being read waits for it (a second tap is not a second send).
+      const files = receipt ? [] : attach.list();
+      if (!q && !files.length) {
+        if (!receipt && attach.reading()) TripPages.toast('רגע — עוד קוראים את הקובץ במכשיר');
+        return;
+      }
+      if (!receipt && attach.reading()) {
+        TripPages.toast('רגע — עוד קוראים את הקובץ, ואז אשלח');
+        nextQ = nextQ || q || ' ';
+        return;
+      }
       // mid-turn, or before the thread is in: the message waits on screen instead of the
       // tap doing nothing. One waits at a time; a second one joins it as a new line.
       if (busy || !loaded || building) {
         if (receipt) return;
-        nextQ = nextQ ? `${nextQ}\n${q}` : q;
+        nextQ = nextQ ? `${nextQ}\n${q}` : (q || ' ');
         input.value = '';
         paint();
         return;
       }
-      msgs.push({ role: 'user', text: q, payload: receipt ? { receipt: true } : {} });
+      if (!q) q = files.length === 1 ? `צירפתי קובץ: ${files[0].name}` : `צירפתי ${files.length} קבצים`;
+      const mine = { role: 'user', text: q, payload: receipt ? { receipt: true } : (files.length ? { files: files.map((f) => ({ name: f.name, kind: f.kind })) } : {}) };
+      msgs.push(mine);
       busy = true;
       input.value = '';
       paint();
       try {
-        const r = await api(ctx, '', { method: 'POST', body: JSON.stringify({ message: q, mode: state.mode, receipt }) });
+        const r = await api(ctx, '', { method: 'POST', body: JSON.stringify({ message: text.trim(), receipt, attachments: files }) });
+        attach.clear();
+        if (r.sent) Object.assign(mine, r.sent); // the stored row says how each file was read
+        if (r.files_remaining !== undefined) attach.setRemaining(r.files_remaining);
+        if (r.side) ctx.applySide?.(r.side);
         state = r.state;
         ctx.trip.plan_state = state;
         if (r.approved_message_id) {
@@ -953,7 +1118,7 @@ const TripPlan = (() => {
         milestone(r.milestone);
         if (r.items) ctx.replaceItems(r.items);
         await promoteAreas();
-        TRIPMAKER.track?.('plan_turn', { code: ctx.trip.share_code, stage: state.stage, mode: state.mode });
+        TRIPMAKER.track?.('plan_turn', { code: ctx.trip.share_code, stage: state.stage, files: files.length });
         busy = false;
         paint();
         if (r.message.payload && r.message.payload.build === 'once') build(false);
@@ -992,9 +1157,10 @@ const TripPlan = (() => {
         if (r.follow) msgs.push(shape(r.follow));
         milestone(r.milestone);
         if (r.items) ctx.replaceItems(r.items);
+        if (r.side) ctx.applySide?.(r.side);
         busy = false;
         if (r.quota) { outOfQuota(r.quota); return; }
-        TripPages.toast(decision === 'accept' ? 'המסלול עודכן ✓' : decision === 'undo' ? 'השינוי בוטל' : 'ההצעה נדחתה', decision === 'accept' ? 'ok' : undefined);
+        TripPages.toast(decision === 'accept' ? 'הטיול עודכן ✓' : decision === 'undo' ? 'השינוי בוטל' : 'ההצעה נדחתה', decision === 'accept' ? 'ok' : undefined);
         TRIPMAKER.track?.('plan_decide', { code: ctx.trip.share_code, decision });
         await promoteAreas();
         if (r.follow && r.follow.payload && r.follow.payload.build === 'once') { paint(); build(false); return; }
@@ -1006,18 +1172,6 @@ const TripPlan = (() => {
       }
       paint();
       drainNext();
-    }
-
-    // The toggle used to flip without a word, and the data shows it tapped back and forth
-    // — people trying to find out what it does. The flip now says it, once, in one line.
-    async function switchMode(mode) {
-      state.mode = mode;
-      paintMode(); // the button flips at the tap; the write follows
-      TripPages.toast(mode === 'auto'
-        ? 'מצב אוטומטי: שינויים נכנסים למסלול מיד, ואפשר לבטל כל אחד'
-        : 'מצב ידני: כל שינוי מחכה לאישור שלכם לפני שהוא נכנס');
-      state = await setMode(ctx.trip, mode);
-      paintMode();
     }
 
     // the areas the conversation settled become the trip's destinations — with
@@ -1153,12 +1307,11 @@ const TripPlan = (() => {
       if (undo) decide(+undo.dataset.id, 'undo', undo);
     });
     foot.querySelector('#plan-form').onsubmit = (e) => { e.preventDefault(); send(input.value); };
-    modeBtn.onclick = () => switchMode(state.mode === 'auto' ? 'manual' : 'auto');
 
     paint();
     load();
   }
 
   // the quota card and its handler are shared with the recommendations chat
-  return { render, prefetch, waitNoteHtml, startWaitTicker, arrival, setMode, say, quotaMsg, quotaMsgHtml, handleCardClick, loadReferral, referral: () => referralInfo, changeCardHtml };
+  return { render, prefetch, waitNoteHtml, startWaitTicker, arrival, say, quotaMsg, quotaMsgHtml, handleCardClick, loadReferral, referral: () => referralInfo, changeCardHtml, attachments, sentFilesHtml };
 })();

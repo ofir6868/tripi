@@ -15,10 +15,16 @@
 //   so it survives a phone swap — and the ops the AI proposed are read back from the row
 //   it proposed them in, never from the client.
 //
-// Manual mode shows every change as a proposal card and writes it only on approval;
-// automatic mode writes it on the spot and shows the same card, already done, with an
-// undo. Same card, different default — which is also what keeps the model honest: it is
-// told which mode it is in and phrases its text accordingly.
+// Every change the AI makes rides one card. The model decides, per turn, whether the
+// card is a proposal (written on approval) or a fait accompli (written on the spot,
+// with an undo): a change the travellers asked for in so many words, or a fact they
+// handed over — a ticket, a booking — is done; its own initiative is proposed. There
+// used to be a manual/automatic switch beside the composer for this, and the data
+// showed it tapped back and forth by people trying to work out what it did.
+//
+// Beyond the stops, the AI changes the trip's hotels, budget and dates (lib/plan-actions.js)
+// and reads the documents the travellers attach (lib/attachments.js) — a ticket fills in
+// the flight, a confirmation becomes a hotel, and the AI says what it understood first.
 //
 // The moment the draft is published the tab becomes the recommendations chat, and
 // every route here answers 409 — a saved trip is edited on its page, not planned.
@@ -26,8 +32,10 @@ const express = require('express');
 const { randomUUID } = require('crypto');
 const { pool } = require('../lib/db');
 const { authRequired } = require('../lib/auth');
-const { tripWithEditAuth, cleanPlanState, areasCoverTrip, tripPrefsBlock, PLAN_MODES, PLAN_STAGES } = require('../lib/trips');
+const { tripWithEditAuth, cleanPlanState, areasCoverTrip, tripPrefsBlock, PLAN_STAGES } = require('../lib/trips');
 const flights = require('../lib/flights');
+const actions = require('../lib/plan-actions');
+const attachments = require('../lib/attachments');
 const { dailyQuota, exhausted } = require('../lib/quota');
 const ai = require('./ai');
 const dayRecs = require('./day-recs');
@@ -269,11 +277,13 @@ const OP_SCHEMA = {
 const TURN_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['text', 'stage', 'build_now', 'approve_pending', 'trip_ready', 'suggestions', 'facts', 'pending_questions', 'areas', 'flights', 'cards', 'ops'],
+  required: ['text', 'stage', 'build_now', 'approve_pending', 'commit', 'trip_ready', 'suggestions', 'facts', 'pending_questions', 'areas', 'flights', 'cards', 'ops', 'actions'],
   properties: {
     text: { type: 'string' },
     stage: { type: 'string', enum: PLAN_STAGES },
     build_now: { type: 'boolean' },
+    // this turn's ops/actions are done on the spot (true) or proposed for approval (false)
+    commit: { type: 'boolean' },
     approve_pending: { type: 'boolean' },
     trip_ready: { type: 'boolean' },
     suggestions: { type: 'array', items: { type: 'string' } },
@@ -312,6 +322,7 @@ const TURN_SCHEMA = {
       },
     },
     ops: { type: 'array', items: OP_SCHEMA },
+    actions: { type: 'array', items: actions.ACTION_SCHEMA },
     // the flights card's opening values, and the ONLY thing the model is asked about
     // flights: which airports, on which day, through where. Never hours — it does not
     // know them, and a departure it made up is a flight somebody misses. Codes are
@@ -365,7 +376,7 @@ function describeOp(op, byId) {
   return { kind: 'update', title: cur ? cur.title : `#${op.id}`, when: cur ? when(op, cur) : '', changes };
 }
 
-function turnPrompt({ trip, items, state, mode, history, pendingProposal, stepwise = false }) {
+function turnPrompt({ trip, items, state, side, history, pendingProposal, stepwise = false }) {
   const dests = trip.dests;
   const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
   const multiArea = areaNames.length > 1;
@@ -399,9 +410,9 @@ ${stepwise
 - done: כל הימים נדונו. הציעו להשלים את שאר התחנות אוטומטית (יש למטיילים כפתור לזה), או להמשיך לחקור.
 בכל שלב אפשר לחקור: כשהמטיילים שואלים "מה יש ב…", "מה כדאי", "איפה אוכלים" — ענו ב-text והראו 2-3 cards של מקומות אמיתיים (עם תמונות בצד שלנו). cards הן להצגה בלבד — הן לא תחנות; תחנה נכנסת רק דרך ops.
 
-מצב עבודה: ${mode === 'auto'
-    ? 'אוטומטי — ה-ops שלכם מתבצעים מיד בלי אישור. נסחו ב-text מה עשיתם ("הוספתי…", "הזזתי…") ומה השאלה הבאה.'
-    : 'ידני — ה-ops שלכם מוצגים למטיילים ככרטיס הצעה ומתבצעים רק אחרי אישור. נסחו ב-text כהצעה ("אני מציע להוסיף…") וסיימו ב"מאשרים?" או בשאלה הבאה.'}
+commit — כל תור שמחזיר ops או actions מחליט גם אם הם מתבצעים מיד או מוצעים:
+- commit=true (מתבצע מיד, עם אפשרות ביטול): כשהמטיילים ביקשו במפורש שינוי קונקרטי ("תוסיף", "תזיז ל-", "תוריד", "תעדכן את"), או כשאתם רק רושמים עובדה שהם מסרו — כרטיס שצירפו, מלון שהזמינו, תקציב שאמרו, תאריך שכתוב. נסחו ב-text מה עשיתם ("הוספתי…", "עדכנתי…") ומה השאלה הבאה.
+- commit=false (מוצג ככרטיס הצעה ומתבצע רק אחרי אישור): כשזו יוזמה שלכם — עוגנים ליום, חלופה, שינוי שלא התבקש במילים — או כשהשינוי מוחק או מחליף תחנות שהמטיילים בחרו, או נוגע ביותר מיום אחד. נסחו ב-text כהצעה ("אני מציע…") וסיימו ב"מאשרים?" או בשאלה הבאה.
 ${pendingProposal ? `יש הצעה קודמת שלכם שממתינה לאישור: ${pendingProposal}. אם המטיילים מאשרים אותה במילים ("כן", "סבבה", "מאשר") — החזירו approve_pending=true ו-ops ריק. אם הם מבקשים שינוי — החזירו ops חדש במקומה.` : 'approve_pending תמיד false.'}
 
 trip_ready: true רק כשהטיול נראה מגובש — האזורים והטיסות סגורים ולרוב הימים יש לפחות עוגן אחד (או שנבנה כולו). אז המטיילים יקבלו הצעה להזמין חברים לתכנון משותף; אל תכתבו את ההצעה הזו בעצמכם ב-text.
@@ -410,7 +421,9 @@ suggestions: 0-3 תשובות קצרות (עד 5 מילים) שסביר שהמט
 areas: [] כשאין שינוי בחלוקה; אחרת החלוקה המלאה. day_from/day_to בין 1 ל-${trip.days}.
 flights: [] בכל שלב שאינו flights, וגם ב-flights ברגע שהכרטיס כבר מולא — ממלאים אותו פעם אחת, והתיקונים של המטיילים בכרטיס גוברים על כל הצעה שלכם.
 
-חוקי ops (כמו בעורך המסלולים): add חייב title קצר בעברית, note טיפ פרקטי קצר בעברית, time_label בפורמט HH:MM (או null כשלא ידוע), day_number בין 1 ל-${trip.days}; place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan") ורק למקום אמיתי וספציפי — לתחנה כללית או לטיסה החזירו null; cost הערכה לאדם בש"ח (מספר שלם) או null; category מתוך: ${ai.AI_CATEGORIES.join(', ')}${multiArea ? `; area מתוך: ${areaNames.join(', ')}` : `; area תמיד "${areaNames[0] || trip.destination}"`}. update/delete חייבים id של תחנה קיימת מהמסלול למטה, וב-update null בכל שדה שלא משתנה. אל תיגעו בתחנות שהמטיילים לא ביקשו לשנות. כל מקום ב-ops או ב-cards חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו.`;
+חוקי ops (כמו בעורך המסלולים): add חייב title קצר בעברית, note טיפ פרקטי קצר בעברית, time_label בפורמט HH:MM (או null כשלא ידוע), day_number בין 1 ל-${trip.days}; place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan") ורק למקום אמיתי וספציפי — לתחנה כללית או לטיסה החזירו null; cost הערכה לאדם בש"ח (מספר שלם) או null; category מתוך: ${ai.AI_CATEGORIES.join(', ')}${multiArea ? `; area מתוך: ${areaNames.join(', ')}` : `; area תמיד "${areaNames[0] || trip.destination}"`}. update/delete חייבים id של תחנה קיימת מהמסלול למטה, וב-update null בכל שדה שלא משתנה. אל תיגעו בתחנות שהמטיילים לא ביקשו לשנות. כל מקום ב-ops או ב-cards חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו.
+${actions.PROMPT_RULES(trip.days)}
+${attachments.PROMPT_RULES}`;
 
   const facts = state.facts.length ? state.facts.map((f) => `- ${f}`).join('\n') : '(עדיין אין)';
   const areasLine = state.areas.length
@@ -432,6 +445,7 @@ ${pending}
 המסלול הנוכחי (כל שורה: #מזהה | יום | שעה | [קטגוריה] כותרת | מקום):
 ${itineraryLines(items, multiArea)}
 עומס (תחנות ליום): ${perDay.map((c, i) => `${i + 1}:${c}`).join(' ')}
+${actions.contextLines(side && side.hotels, side && side.budget)}
 
 השיחה האחרונה:
 ${turns}`;
@@ -472,17 +486,21 @@ function seedFlights(trip, state, modelLegs = null) {
   state.flights = { legs: modelLegs || flights.defaultLegs(trip, state), confirmed: false, items: [] };
 }
 
-async function planTurn({ trip, items, state, mode, history, message, pendingProposal, ph }) {
+// `side`: the trip's hotels and budget (lib/plan-actions.js loadSide); `files`: the
+// cleaned attachments of this turn (lib/attachments.js) — their text under the
+// message, their images beside it
+async function planTurn({ trip, items, state, side, history, message, pendingProposal, files = [], ph }) {
   const stepwise = multiCountry(trip.dests);
-  const { system, user } = turnPrompt({ trip, items, state, mode, history, pendingProposal, stepwise });
+  const { system, user } = turnPrompt({ trip, items, state, side, history, pendingProposal, stepwise });
   const raw = await ai.aiJson({
     system,
-    user: user + `\n\nההודעה החדשה של המטיילים:\n${message}`,
+    user: user + `\n\nההודעה החדשה של המטיילים:\n${message}` + attachments.promptBlock(files),
     schemaName: 'plan_turn',
     schema: TURN_SCHEMA,
-    maxTokens: 3000,
+    maxTokens: 3200,
     timeoutMs: 60000,
     model: PLAN_MODEL,
+    images: attachments.images(files),
     ph,
   });
   if (!raw) return null;
@@ -510,15 +528,19 @@ async function planTurn({ trip, items, state, mode, history, message, pendingPro
     flights: flights.legsFromModel(raw.flights, trip.days),
     cards,
     ops: verified.ops || [],
+    actions: actions.cleanActions(raw.actions, trip, side && side.hotels),
+    // a turn that writes nothing has nothing to decide; one that does, does as it said
+    commit: !!raw.commit,
   };
 }
 
 // what a turn does to the trip and its memory, inside one transaction: facts, areas
-// and pending questions folded into the state; the ops written (auto) or parked on the
-// message as a proposal (manual); a spoken "yes" applied to the proposal it answered.
-// Returns the AI's stored row, the fresh item list when anything was written, and the
-// id of the earlier proposal a spoken approval flipped.
-async function recordTurn(client, trip, state, items, turn, waiting) {
+// and pending questions folded into the state; the ops and actions written (the model
+// committed) or parked on the message as a proposal; a spoken "yes" applied to the
+// proposal it answered. Returns the AI's stored row, the fresh item list when anything
+// was written, the hotels/budget/dates when an action touched them, and the id of the
+// earlier proposal a spoken approval flipped.
+async function recordTurn(client, trip, state, items, turn, waiting, side = null) {
   // the memory: facts replace, areas replace when valid, pending questions shrink to
   // what the model says is left (never grow — it cannot invent a clarifying question)
   state.stage = turn.stage;
@@ -542,30 +564,30 @@ async function recordTurn(client, trip, state, items, turn, waiting) {
   // the trip looks settled: one invitation to bring co-planners in, offered once
   if (turn.tripReady && !state.invited && !turn.buildNow) { payload.invite = true; state.invited = true; }
   let fresh = null;
+  let freshSide = null;
   let approvedId = null;
   await client.query('BEGIN');
   if (turn.approvePending && waiting) {
     // "yes" in words: the proposal that was waiting is written, and its own card
     // flips to done — the new turn carries no changes of its own
     const cur = await loadItems(client, trip.id);
-    const r = await ai.applyEditOps(client, trip, cur, waiting.payload.ops || []);
-    const changed = r.added + r.updated + r.removed > 0;
-    await client.query(
-      `UPDATE trip_plan_messages SET payload = payload || $1 WHERE id = $2`,
-      [JSON.stringify({ decision: changed ? 'applied' : 'rejected', undo: changed ? r.undoOps : null, applied: { added: r.added, updated: r.updated, removed: r.removed } }), waiting.id]
-    );
+    const r = await writeProposal(client, trip, cur, waiting.payload);
+    await client.query(`UPDATE trip_plan_messages SET payload = payload || $1 WHERE id = $2`, [JSON.stringify(r.patch), waiting.id]);
     approvedId = waiting.id;
     fresh = await loadItems(client, trip.id);
-  } else if (turn.ops.length) {
+    if (r.sideChanged) freshSide = await actions.sideState(client, trip);
+  } else if (turn.ops.length || turn.actions.length) {
     payload.ops = turn.ops;
-    payload.changes = turn.ops.map((op) => describeOp(op, byId));
-    if (state.mode === 'auto') {
-      const r = await ai.applyEditOps(client, trip, items, turn.ops);
-      const changed = r.added + r.updated + r.removed > 0;
-      payload.decision = changed ? 'applied' : 'rejected';
-      payload.undo = changed ? r.undoOps : null;
-      payload.applied = { added: r.added, updated: r.updated, removed: r.removed };
+    payload.actions = turn.actions;
+    payload.changes = [
+      ...turn.ops.map((op) => describeOp(op, byId)),
+      ...turn.actions.map((a) => actions.describeAction(a, side && side.hotels, side && side.budget)),
+    ];
+    if (turn.commit) {
+      const r = await writeProposal(client, trip, items, payload);
+      Object.assign(payload, r.patch);
       fresh = await loadItems(client, trip.id);
+      if (r.sideChanged) freshSide = await actions.sideState(client, trip);
     } else {
       payload.decision = 'pending';
     }
@@ -583,7 +605,27 @@ async function recordTurn(client, trip, state, items, turn, waiting) {
   }
   await saveState(client, trip.id, state);
   await client.query('COMMIT');
-  return { row, fresh, approvedId, milestone };
+  return { row, fresh, side: freshSide, approvedId, milestone };
+}
+
+// a card's changes, written: the stops through the editor's op-writer, the rest
+// through lib/plan-actions.js — and the patch that marks the card done (or refused,
+// when nothing could be written), with both inverses for the undo
+async function writeProposal(client, trip, items, payload) {
+  const ops = payload.ops || [];
+  const acts = payload.actions || [];
+  const r = ops.length ? await ai.applyEditOps(client, trip, items, ops) : { added: 0, updated: 0, removed: 0, undoOps: null };
+  const a = acts.length ? await actions.applyActions(client, trip, acts) : { count: 0, undo: [] };
+  const changed = r.added + r.updated + r.removed + a.count > 0;
+  return {
+    sideChanged: a.count > 0,
+    patch: {
+      decision: changed ? 'applied' : 'rejected',
+      undo: r.added + r.updated + r.removed > 0 ? r.undoOps : null,
+      undoActions: a.count ? a.undo : null,
+      applied: { added: r.added, updated: r.updated, removed: r.removed, actions: a.count },
+    },
+  };
 }
 
 // ---------- routes ----------
@@ -611,7 +653,10 @@ router.get('/api/trips/code/:code/plan', authRequired, async (req, res) => {
       seedFlights(trip, trip.plan_state);
       await saveState(pool, trip.id, trip.plan_state).catch(() => { /* the next turn seeds it again */ });
     }
-    res.json({ state: trip.plan_state, messages });
+    // how many documents the day still allows — the + button says so before a pick
+    const fq = await attachments.filesMeter.check(req);
+    const files_remaining = fq ? (fq.admin ? null : fq.limit - fq.used) : 0;
+    res.json({ state: trip.plan_state, messages, files_remaining });
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error(err);
@@ -621,19 +666,14 @@ router.get('/api/trips/code/:code/plan', authRequired, async (req, res) => {
   }
 });
 
-// the mode switch beside the composer, and the day→area split repainted on the
-// chat's calendar card — both remembered per trip, for every co-planner
+// the day→area split repainted on the chat's calendar card — remembered per trip,
+// for every co-planner
 router.patch('/api/trips/code/:code/plan', authRequired, async (req, res) => {
   try {
     const trip = await draftWithAuth(req, res);
     if (!trip) return;
     const b = req.body || {};
     let touched = false;
-    if (b.mode !== undefined) {
-      if (!PLAN_MODES.includes(b.mode)) return res.status(400).json({ error: 'מצב לא מוכר' });
-      trip.plan_state.mode = b.mode;
-      touched = true;
-    }
     if (b.areas !== undefined) {
       const areas = cleanAreas(b.areas, trip.days);
       // the split saved here is the one that counts — the picks for the free days read
@@ -739,7 +779,7 @@ router.post('/api/trips/code/:code/plan/flights', authRequired, async (req, res)
     const thread = await loadThread(trip.id);
     const history = thread.slice(-PLAN_HISTORY).map((m) => ({ role: m.role, text: historyLine(m) }));
     const turn = await planTurn({
-      trip, items, state, mode: state.mode, history,
+      trip, items, state, side: await actions.loadSide(pool, trip.id), history,
       message: said + (skip
         ? '\n(אין פרטי טיסות. אל תשאלו עליהן שוב — המשיכו לשלב days: האזור הראשון, יום 1.)'
         : '\n(הטיסות כבר נכתבו למסלול — אל תציעו אותן שוב ואל תשאלו עליהן. המשיכו לשלב days: האזור הראשון, יום 1.)'),
@@ -749,7 +789,7 @@ router.post('/api/trips/code/:code/plan/flights', authRequired, async (req, res)
     if (!turn) return res.json({ items, state, said });
     quota.spend();
     const answer = await recordTurn(client, trip, state, items, turn, null);
-    res.json({ items: answer.fresh || items, state, said, follow: answer.row, milestone: answer.milestone, remaining: quota.remaining });
+    res.json({ items: answer.fresh || items, side: answer.side, state, said, follow: answer.row, milestone: answer.milestone, remaining: quota.remaining });
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error(err);
@@ -767,14 +807,25 @@ router.post('/api/trips/code/:code/plan', authRequired, async (req, res) => {
     const trip = await draftWithAuth(req, res);
     if (!trip) return;
     const b = req.body || {};
-    const message = String(b.message || '').trim();
+    // the documents the travellers attached (lib/attachments.js): text read on their
+    // device, or a reduced image. Each spends a file from the day's three.
+    const files = attachments.cleanAttachments(b.attachments);
+    let message = String(b.message || '').trim();
+    if (!message && files.length) message = files.length === 1 ? `צירפתי קובץ: ${files[0].name}` : `צירפתי ${files.length} קבצים`;
     if (!message) return res.status(400).json({ error: 'כתבו משהו' });
     if (message.length > AI_PLAN_MAX_MESSAGE) return res.status(400).json({ error: `ההודעה ארוכה מדי — עד ${AI_PLAN_MAX_MESSAGE} תווים` });
     const state = trip.plan_state;
-    if (PLAN_MODES.includes(b.mode)) state.mode = b.mode;
 
     const quota = await planMeter.check(req);
     if (!quota) return exhausted(res, 'plan', 'ניצלתם את הודעות התכנון להיום — אפשר להמשיך לתכנן ידנית, ואני כאן שוב מחר');
+    let filesQuota = null;
+    if (files.length) {
+      filesQuota = await attachments.filesMeter.check(req);
+      if (!filesQuota) return exhausted(res, 'files', 'ניצלתם את שלושת הקבצים להיום — אפשר להמשיך במילים, ומחר שוב');
+      if (!filesQuota.admin && files.length > filesQuota.limit - filesQuota.used) {
+        return exhausted(res, 'files', `נשארו ${filesQuota.limit - filesQuota.used} קבצים להיום — צרפו פחות`);
+      }
+    }
 
     const items = await loadItems(client, trip.id);
     const thread = await loadThread(trip.id);
@@ -787,27 +838,34 @@ router.post('/api/trips/code/:code/plan', authRequired, async (req, res) => {
     // the traveller's turn is stored first: a model failure still leaves what they said
     await client.query('BEGIN');
     // a confirmation the client sent for the traveller (the area calendar's) is a receipt
-    // like the card ones: the model hears it, the chat doesn't paint it
-    await addMessage(client, trip.id, req.user.id, 'user', message.slice(0, AI_PLAN_MAX_MESSAGE), b.receipt ? RECEIPT : {});
+    // like the card ones: the model hears it, the chat doesn't paint it. The documents
+    // ride on the row by name only — never their text or image.
+    const userRow = await addMessage(client, trip.id, req.user.id, 'user', message.slice(0, AI_PLAN_MAX_MESSAGE),
+      { ...(b.receipt ? RECEIPT : {}), ...(files.length ? { files: attachments.stored(files) } : {}) });
     await client.query('COMMIT');
 
+    const side = await actions.loadSide(pool, trip.id);
     const turn = await planTurn({
-      trip, items, state, mode: state.mode, history, message, pendingProposal,
+      trip, items, state, side, history, message, pendingProposal, files,
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
     if (!turn) return res.status(502).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });
     quota.spend();
+    for (let i = 0; i < files.length; i++) filesQuota.spend(); // every document the model read
 
-    const { row, fresh, approvedId, milestone } = await recordTurn(client, trip, state, items, turn, waiting);
+    const { row, fresh, side: freshSide, approvedId, milestone } = await recordTurn(client, trip, state, items, turn, waiting, side);
     if (milestone) startDayRecs(trip, fresh || items, req.user.id);
 
     res.json({
       message: row,
+      sent: userRow,
       milestone,
       state,
       items: fresh,
+      side: freshSide,
       approved_message_id: approvedId,
       remaining: quota.remaining,
+      files_remaining: filesQuota ? (filesQuota.admin ? null : filesQuota.limit - filesQuota.used - files.length) : undefined,
     });
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
@@ -841,7 +899,7 @@ router.post('/api/trips/code/:code/plan/decide', authRequired, async (req, res) 
     // every refusal is decided before the transaction opens — a return from inside
     // one would hand the pool back a connection with BEGIN still hanging on it
     if (decision === 'undo') {
-      if (p.decision !== 'applied' || !p.undo) return res.status(409).json({ error: 'אין כאן שינוי לבטל' });
+      if (p.decision !== 'applied' || (!p.undo && !p.undoActions)) return res.status(409).json({ error: 'אין כאן שינוי לבטל' });
       const { rows: later } = await pool.query(
         `SELECT 1 FROM trip_plan_messages WHERE trip_id = $1 AND id > $2 AND payload->>'decision' = 'applied' LIMIT 1`, [trip.id, id]
       );
@@ -849,26 +907,28 @@ router.post('/api/trips/code/:code/plan/decide', authRequired, async (req, res) 
     } else if (p.decision !== 'pending') {
       return res.status(409).json({ error: 'ההצעה הזו כבר הוכרעה' });
     }
-    const patch = {};
+    let patch = {};
+    let sideTouched = false;
     await client.query('BEGIN');
     if (decision === 'undo') {
-      await ai.undoApplied(client, trip, p.undo);
+      if (p.undo) await ai.undoApplied(client, trip, p.undo);
+      if (p.undoActions) { await actions.undoActions(client, trip, p.undoActions); sideTouched = true; }
       patch.decision = 'undone';
       patch.undo = null;
+      patch.undoActions = null;
     } else if (decision === 'reject') {
       patch.decision = 'rejected';
     } else {
       const items = await loadItems(client, trip.id);
-      const r = await ai.applyEditOps(client, trip, items, p.ops || []);
-      const changed = r.added + r.updated + r.removed > 0;
-      patch.decision = changed ? 'applied' : 'rejected';
-      patch.undo = changed ? r.undoOps : null;
-      patch.applied = { added: r.added, updated: r.updated, removed: r.removed };
+      const r = await writeProposal(client, trip, items, p);
+      patch = r.patch;
+      sideTouched = r.sideChanged;
     }
     const { rows: upd } = await client.query(
       `UPDATE trip_plan_messages SET payload = payload || $1 WHERE id = $2 RETURNING ${ROW_FIELDS}`, [JSON.stringify(patch), id]
     );
     const items = await loadItems(client, trip.id);
+    const side = sideTouched ? await actions.sideState(client, trip) : null;
     await client.query('COMMIT');
 
     // A tap on the card is an answer, and the AI has to hear it or the conversation
@@ -876,7 +936,7 @@ router.post('/api/trips/code/:code/plan/decide', authRequired, async (req, res) 
     // next. So the decision is written as their turn and answered like one: after an
     // approval the AI moves to the next step, after a refusal it offers another way.
     // An undo is not a reply. A spent quota skips the answer, and says so.
-    if (decision === 'undo') return res.json({ message: upd[0], items });
+    if (decision === 'undo') return res.json({ message: upd[0], items, side });
     const titles = (p.changes || []).map((c) => c.title).join(', ');
     const said = decision === 'accept'
       ? `✓ אישרתי את השינויים${titles ? ': ' + titles : ''}`
@@ -885,23 +945,24 @@ router.post('/api/trips/code/:code/plan/decide', authRequired, async (req, res) 
     await client.query('BEGIN');
     await addMessage(client, trip.id, req.user.id, 'user', said, RECEIPT);
     await client.query('COMMIT');
-    if (!quota) return res.json({ message: upd[0], items, quota: 'plan' });
+    if (!quota) return res.json({ message: upd[0], items, side, quota: 'plan' });
     const state = trip.plan_state;
     const thread = await loadThread(trip.id);
     const history = thread.slice(-PLAN_HISTORY).map((m) => ({ role: m.role, text: historyLine(m) }));
+    const sideNow = await actions.loadSide(pool, trip.id);
     const turn = await planTurn({
-      trip, items, state, mode: state.mode, history,
+      trip, items, state, side: sideNow, history,
       message: said + (decision === 'accept'
         ? '\n(השינויים כבר בוצעו במסלול — אל תציעו אותם שוב; המשיכו לצעד הבא של השלב הנוכחי, או לשלב הבא.)'
         : '\n(ההצעה נדחתה ולא בוצעה — הציעו חלופה אחרת, או שאלו מה היו מעדיפים.)'),
       pendingProposal: null,
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
-    if (!turn) return res.json({ message: upd[0], items, said });
+    if (!turn) return res.json({ message: upd[0], items, side, said });
     quota.spend();
-    const answer = await recordTurn(client, trip, state, items, turn, null);
+    const answer = await recordTurn(client, trip, state, items, turn, null, sideNow);
     if (answer.milestone) startDayRecs(trip, answer.fresh || items, req.user.id);
-    res.json({ message: upd[0], items: answer.fresh || items, said, follow: answer.row, milestone: answer.milestone, state, approved_message_id: answer.approvedId, remaining: quota.remaining });
+    res.json({ message: upd[0], items: answer.fresh || items, side: answer.side || side, said, follow: answer.row, milestone: answer.milestone, state, approved_message_id: answer.approvedId, remaining: quota.remaining });
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error(err);

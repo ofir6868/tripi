@@ -1422,9 +1422,6 @@ a:focus-visible, button:focus-visible, [role="button"]:focus-visible, [tabindex]
 .pc-foot .btn .ic { width: 16px; height: 16px; stroke-width: 2.5; }
 .pc-undo .ic { width: 15px; height: 15px; }
 .pc-foot .btn:disabled { opacity: .6; cursor: default; }
-.plan-mode .ic { width: 16px; height: 16px; }
-.plan-mode.auto { color: var(--mint); border-color: rgba(143, 216, 196, .45); background: rgba(143, 216, 196, .1); }
-.plan-mode.manual { color: var(--amber); border-color: rgba(255, 180, 95, .4); background: rgba(255, 180, 95, .08); }
 .tp-sheet.open { display: flex; }
 .cal-cell.wc-day .cc-dots i.travel { background: var(--mint); }
 .wc-foot .btn { width: 100%; justify-content: center; }

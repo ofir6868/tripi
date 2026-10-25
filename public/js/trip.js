@@ -1119,16 +1119,12 @@
     // same AI, same change cards, so the button follows whichever one this trip has
     // (the condition is the one the pages are registered under, further down)
     const agentPage = () => (trip.is_draft && canEdit ? 'plan' : 'recs');
-    // opens the agent's chat in automatic mode; with `message`, that message is sent
-    // as the chat's next turn the moment it can take one, so the traveller lands on a
-    // conversation already under way (`from` names which control asked)
+    // opens the agent's chat; with `message`, that message is sent as the chat's next
+    // turn the moment it can take one, so the traveller lands on a conversation already
+    // under way (`from` names which control asked). The chat reads a change request
+    // from the words themselves — there is no mode to set first.
     async function openAgent(message, from) {
       const page = agentPage();
-      // automatic mode is written where that chat keeps it — the trip's plan state on
-      // the server for תכנון, this browser for המלצות — BEFORE the page opens, since
-      // both read the mode as they paint
-      if (page === 'plan') await TripPlan.setMode(trip, 'auto');
-      else TripRecs.setMode(trip, 'auto');
       TRIPMAKER.track?.('ai_agent_open', { code: trip.share_code, page, from, with_message: !!message });
       // open first, say second: the page paints fresh on open, and only the chat that
       // is on screen may take the handover
@@ -1389,6 +1385,25 @@
         tripDests.splice(0, tripDests.length, ...list.filter((d) => d && d.name));
         pageCtx.dests = tripDests.map((d) => d.name);
         renderItinerary();
+      },
+      // the AI changed the hotels, the budget frame or the dates (lib/plan-actions.js):
+      // the server hands back all three as they are now, and the page swaps them in
+      // the way it swaps the item list — the night panels, the budget and the date
+      // chip repaint from the same state the modals edit by hand
+      applySide: (side) => {
+        if (!side) return;
+        if (Array.isArray(side.hotels)) state.hotels = side.hotels;
+        if ('budget' in side) state.budget = side.budget || null;
+        const t = side.trip || {};
+        if (t.start_date !== undefined && (t.start_date || null) !== (trip.start_date ? TRIPMAKER.isoDate(new Date(trip.start_date)) : null)) {
+          trip.start_date = t.start_date || null;
+          trip.end_date = t.end_date || null;
+          applyDates();
+        } else {
+          renderItinerary();
+        }
+        updateAmbient();
+        TripModals.syncSettleButton(state);
       },
       // המלצות is the one place where copying the trip is not the end of the visit but
       // the start of it: the visitor asked the AI something and the answer was "this
