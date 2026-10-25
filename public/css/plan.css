@@ -167,3 +167,37 @@ button.dest-chip.dc-add:hover {
 .days-preset.active { color: #2a1500; background: linear-gradient(180deg, var(--amber), var(--amber-deep)); border-color: transparent; }
 /* a held step button must not select its own glyph or open the OS menu */
 .step-btn { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
+
+/* ---------- the first screen ----------
+   For many visitors "לאן נוסעים?" is the first page of TRIP MAKER they ever see, so
+   it should read as one calm question with one box to answer it in. */
+
+/* the page already IS "טיול חדש" — the header's copy of that button was a second
+   amber call-to-action competing with the one in the panel */
+.nav-actions > a.btn-amber[href="/plan"] { display: none; }
+
+/* a form, not an article: at the shared 880px the search box ran a full screen
+   wide on a laptop, and the eye had to travel from the label to the far end */
+.wizard-shell { width: min(720px, calc(100% - 32px)); flex: 1 0 auto; }
+/* a short step leaves the footer floating mid-screen on a phone; the shell takes
+   the slack instead, so the footer sits at the bottom */
+body { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+
+/* the destination box is the answer to the page's question — larger than an
+   ordinary field, with a magnifier that says "search" before a word is read */
+.dest-search .dest-search-ic {
+  position: absolute; inset-inline-start: 16px; top: 50%; translate: 0 -50%;
+  width: 20px; height: 20px; color: var(--paper-dim); pointer-events: none;
+  transition: color .2s ease;
+}
+.dest-search:focus-within .dest-search-ic { color: var(--amber); }
+.dest-search input { font-size: 1.08rem; padding-block: 15px; padding-inline: 46px 16px; }
+
+/* "continue" before there's a destination: visibly not the next move yet */
+.btn.is-waiting { opacity: .5; box-shadow: none; }
+.btn.is-waiting:hover { transform: none; box-shadow: none; }
+
+/* the forward button is the only thing in the row — on its own it sits at the
+   row's end, and the empty spacer before it no longer steals a gap on a phone */
+.wizard-nav > span:empty { display: none; }
+.wizard-nav { justify-content: flex-end; }

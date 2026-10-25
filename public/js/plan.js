@@ -16,6 +16,7 @@
   const titleInput = document.getElementById('f-title');
   let debounceTimer = null;
   let titleWasAutofilled = false;
+  const FINE_POINTER = window.matchMedia('(pointer: fine)').matches;
 
   // a destination's country code: carried from the homepage (?cc=) or looked up
   // by the Hebrew country name — powers every flag in the wizard
@@ -51,6 +52,9 @@
 
   function renderChips() {
     chipsBox.innerHTML = destinations.map(chipHtml).join('');
+    // "continue" reads as waiting until there is somewhere to continue to; it stays
+    // clickable, so a press still explains what's missing
+    document.getElementById('to-step-2').classList.toggle('is-waiting', !destinations.length);
     bindChipRemoval(chipsBox);
     // once something is picked, the input invites the next stop instead of the first
     destInput.placeholder = destinations.length
@@ -108,7 +112,11 @@
     autoTitle();
     destInput.value = '';
     suggBox.classList.remove('open');
-    destInput.focus();
+    document.getElementById('err-1').textContent = ''; // the complaint was about this
+    // with a mouse, the box stays ready for the next stop. On a phone, keeping focus
+    // keeps the keyboard up over the chip that was just picked and the continue
+    // button — the next stop is one tap on the box away.
+    if (FINE_POINTER) destInput.focus(); else destInput.blur();
     scheduleSave(); // also covers programmatic adds (?dest= pre-fill)
   }
 
@@ -687,4 +695,10 @@
       })
       .catch(() => { destInput.value = q; });
   })();
+
+  // the first thing on this page is a question with one box to answer it in — with a
+  // mouse and nothing restored, the cursor is already there. Not on a phone: a
+  // keyboard nobody asked for would cover the page before it was read.
+  renderChips();
+  if (FINE_POINTER && curStep === 1 && !destinations.length && draftBanner.hidden) destInput.focus({ preventScroll: true });
 })();
