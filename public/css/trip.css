@@ -2220,7 +2220,84 @@ body.page-open { overflow: hidden; }
 } /* the paper plane flies the RTL way */
 .chat-send:active { transform: scale(.94); }
 
-/* ---------- תכנון: the planning chat's change cards and mode switch ---------- */
+/* ---------- תכנון: the composer floats over the thread ----------
+   The footer stops being a bar across the bottom and becomes a layer over the thread
+   (the thread keeps room under its last message). In it, the trip page's ask bar —
+   the same glass and the same beam of amber light travelling around the rim (see
+   .ai-ask-bar) — folded by default into one small pill at the same spot: the
+   conversation is what this screen is for, and a full composer under every answer
+   was weight the eye paid for on every turn. The pill opens the bar in place. */
+.page-plan .tp-foot {
+  position: absolute; bottom: 0; inset-inline: 0; z-index: 3;
+  background: transparent; border-top: 0; pointer-events: none;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.page-plan .tp-foot > * { pointer-events: auto; }
+.page-plan .chat-thread { padding-bottom: 150px; }
+.page-plan .chat-chips { padding-bottom: 8px; }
+.plan-dock {
+  width: min(760px, 100%); margin: 0 auto; padding: 0 clamp(12px, 4vw, 24px);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.plan-dock .chat-files { width: 100%; padding-inline: 0; }
+/* the glass and the beam, on the pill and on the open bar alike */
+.plan-cta, .chat-form.plan-ask {
+  --aab-a: 0deg;
+  position: relative; border-radius: 999px;
+  border: 1px solid rgba(255, 180, 95, .28);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .09), rgba(255, 255, 255, .025)),
+    linear-gradient(90deg, rgba(255, 180, 95, .08), transparent 40%),
+    rgba(11, 24, 20, .86);
+  -webkit-backdrop-filter: blur(26px) saturate(170%); backdrop-filter: blur(26px) saturate(170%);
+  box-shadow: 0 18px 40px -14px rgba(0, 0, 0, .75), 0 2px 10px -5px rgba(0, 0, 0, .5), inset 0 1px 0 var(--glass-highlight);
+}
+.plan-cta::before, .plan-cta::after, .chat-form.plan-ask::before, .chat-form.plan-ask::after {
+  content: ''; position: absolute; inset: -2px; border-radius: inherit; pointer-events: none;
+  background: conic-gradient(from var(--aab-a),
+    transparent 0deg 230deg, rgba(255, 180, 95, .18) 290deg, rgba(255, 180, 95, .8) 340deg,
+    rgba(255, 214, 140, .9) 352deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  padding: 1.5px;
+}
+.plan-cta::after, .chat-form.plan-ask::after { inset: -5px; padding: 6px; z-index: -1; opacity: .4; filter: blur(5px); }
+/* folded: one pill, a call to write */
+.plan-cta {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 18px 10px 14px; color: var(--paper); cursor: pointer;
+  font-family: var(--font-body); font-size: .92rem; font-weight: 700; white-space: nowrap;
+  animation: aab-spin 9s linear infinite, rise-in .3s ease backwards;
+  transition: transform .15s ease;
+}
+.plan-cta:hover { transform: translateY(-1px); }
+.plan-cta:active { transform: scale(.97); }
+.plan-cta[hidden] { display: none; }
+.plan-cta .aab-spark { font-size: 1.05rem; line-height: 1; filter: drop-shadow(0 0 6px rgba(255, 180, 95, .5)); }
+/* open: the bar, full width, in place of the pill */
+.chat-form.plan-ask {
+  width: 100%; margin: 0; gap: 6px;
+  padding: 5px; padding-inline-start: 6px;
+  animation: aab-spin 9s linear infinite, ask-open .28s cubic-bezier(.2, .8, .2, 1) backwards;
+}
+.chat-form.plan-ask[hidden] { display: none; }
+.chat-form.plan-ask input {
+  padding: 11px 6px; border: 0; border-radius: 0; background: transparent;
+}
+.chat-form.plan-ask input::placeholder { color: rgba(245, 239, 227, .62); opacity: 1; }
+.chat-form.plan-ask input:focus { border: 0; }
+.chat-form.plan-ask:focus-within { border-color: rgba(255, 180, 95, .55); }
+.chat-form.plan-ask:focus-within::after { opacity: .6; }
+.chat-form.plan-ask .chat-plus { width: 40px; height: 40px; border-color: transparent; background: rgba(255, 255, 255, .06); }
+.chat-form.plan-ask .chat-plus:hover, .chat-form.plan-ask .chat-plus.has-files { border-color: rgba(255, 180, 95, .45); }
+.chat-form.plan-ask .chat-send { width: 42px; height: 42px; box-shadow: 0 6px 18px -6px rgba(255, 180, 95, .9), inset 0 1px 0 rgba(255, 255, 255, .35); }
+@keyframes ask-open { from { opacity: 0; transform: translateY(10px) scale(.96); } }
+@media (prefers-reduced-motion: reduce) {
+  .plan-cta, .chat-form.plan-ask { animation: none; --aab-a: 300deg; }
+}
+
+/* ---------- תכנון: the planning chat's change cards ---------- */
 
 /* a turn's changes to the itinerary — proposed (manual) or done (auto), same card */
 .plan-card {
