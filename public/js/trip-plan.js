@@ -677,19 +677,52 @@ const TripPlan = (() => {
     body.innerHTML = `<div class="chat-thread" id="plan-thread"><div class="chat-msg ai${hello ? ' chat-in' : ''}"><span class="chat-avatar" aria-hidden="true">🧭</span>${hello
       ? `<div class="chat-col"><div class="chat-bubble">${esc(hello)} <span class="chat-typing chat-typing-inline" aria-label="כותב…"><i></i><i></i><i></i></span></div>${waitNoteHtml(openedAt, 'opening')}</div>`
       : '<div class="chat-bubble chat-typing" aria-label="טוען…"><i></i><i></i><i></i></div>'}</div></div>`;
+    // The composer floats over the thread, in the trip page's ask-bar clothes (glass, a
+    // beam of light around the rim) — folded, by default, into one small pill at the
+    // same spot, so the conversation is what the eye lands on. The pill opens the bar;
+    // a tap on the thread, Esc, or a sent turn folds it back while nothing is typed.
+    // The chips stay above either: they are the one-tap answers to the last question.
     foot.innerHTML = `
       <div class="chat-chips" id="plan-chips"></div>
-      <form class="chat-form plan-form" id="plan-form">
-        <input type="text" id="plan-input" maxlength="400" placeholder="כתבו לי מה תרצו…" autocomplete="off" enterkeyhint="send">
-        <button type="submit" class="chat-send" aria-label="שליחה">${ICON.send}</button>
-      </form>`;
+      <div class="plan-dock" id="plan-dock">
+        <button type="button" class="plan-cta" id="plan-cta" aria-expanded="false" aria-controls="plan-form"><span class="aab-spark" aria-hidden="true">✨</span><span>לכתוב ל-AI</span></button>
+        <form class="chat-form plan-form plan-ask" id="plan-form" hidden>
+          <input type="text" id="plan-input" maxlength="400" placeholder="כתבו לי מה תרצו…" autocomplete="off" enterkeyhint="send">
+          <button type="submit" class="chat-send" aria-label="שליחה">${ICON.send}</button>
+        </form>
+      </div>`;
     const thread = body.querySelector('#plan-thread');
     const chips = foot.querySelector('#plan-chips');
     const input = foot.querySelector('#plan-input');
+    const form = foot.querySelector('#plan-form');
+    const cta = foot.querySelector('#plan-cta');
+    let askOpen = false;
+    function openAsk(focus = true) {
+      if (askOpen) { if (focus) input.focus(); return; }
+      askOpen = true;
+      cta.hidden = true;
+      cta.setAttribute('aria-expanded', 'true');
+      form.hidden = false;
+      if (focus) input.focus();
+    }
+    // folds only when nothing would be lost: no text, no document waiting to go
+    function closeAsk(force = false) {
+      if (!askOpen) return;
+      if (!force && (input.value.trim() || attach.count())) return;
+      askOpen = false;
+      input.blur();
+      form.hidden = true;
+      cta.hidden = false;
+      cta.setAttribute('aria-expanded', 'false');
+    }
+    cta.onclick = () => openAsk();
+    body.addEventListener('click', (e) => { if (!e.target.closest('.chat-chip, button, a, input')) closeAsk(); });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { input.value = ''; closeAsk(); } });
     // the + : a ticket, a booking, a screenshot — read on the device, sent as text
-    const attach = attachments(foot.querySelector('#plan-form'), {
+    const attach = attachments(form, {
       onChange: () => {
         input.placeholder = attach.count() ? 'מה לעשות עם זה? (אפשר גם לשלוח ככה)' : 'כתבו לי מה תרצו…';
+        if (attach.count()) openAsk(false); // a document on its way keeps the bar open
         if (!attach.reading()) drainNext(); // a send that waited for the reading goes now
       },
     });
@@ -1094,6 +1127,7 @@ const TripPlan = (() => {
         nextQ = nextQ ? `${nextQ}\n${q}` : (q || ' ');
         input.value = '';
         paint();
+        closeAsk();
         return;
       }
       if (!q) q = files.length === 1 ? `צירפתי קובץ: ${files[0].name}` : `צירפתי ${files.length} קבצים`;
@@ -1102,6 +1136,7 @@ const TripPlan = (() => {
       busy = true;
       input.value = '';
       paint();
+      if (!receipt) closeAsk(true); // the turn is out; the thread is the thing to watch now
       try {
         const r = await api(ctx, '', { method: 'POST', body: JSON.stringify({ message: text.trim(), receipt, attachments: files }) });
         attach.clear();
