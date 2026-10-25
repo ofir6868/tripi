@@ -100,6 +100,7 @@ const TripChecklist = (() => {
     if (it.done) return { label, text: `עד ${fmtDay(due)}`, cls: 'done', diff };
     if (diff < 0) return { label, text: diff === -1 ? 'אתמול!' : `באיחור ${-diff} ימים`, cls: 'overdue', diff };
     if (diff === 0) return { label, text: 'היום', cls: 'today', diff };
+    if (diff === 1) return { label, text: 'מחר', cls: 'soon', diff };
     if (diff <= 7) return { label, text: `עוד ${diff} ימים`, cls: 'soon', diff };
     return { label, text: `עד ${fmtDay(due)}`, cls: 'later', diff };
   }

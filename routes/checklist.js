@@ -79,12 +79,24 @@ function esimUrl(trip) {
   return slug ? `https://www.airalo.com/${slug}-esim` : 'https://www.airalo.com/';
 }
 
-function datesText(trip) {
-  if (!trip.start_date) return 'תאריכים עדיין לא נקבעו';
+// whole days between today and departure — date to date, never clock to clock: on the
+// evening before a trip the clock said "0 days" and the model wrote every deadline as
+// "leaving today"
+function daysToDeparture(trip) {
+  if (!trip.start_date) return null;
   const d = new Date(trip.start_date);
-  if (Number.isNaN(d.getTime())) return '';
-  const daysTo = Math.round((d - Date.now()) / 86400000);
-  return `יוצאים ב-${d.getDate()} ב${HE_MONTHS[d.getMonth()]} ${d.getFullYear()}${daysTo >= 0 ? ` (עוד ${daysTo} ימים)` : ''}`;
+  if (Number.isNaN(d.getTime())) return null;
+  const start = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.round((start - today) / 86400000);
+}
+function datesText(trip) {
+  const daysTo = daysToDeparture(trip);
+  if (daysTo === null) return 'תאריכים עדיין לא נקבעו';
+  const d = new Date(trip.start_date);
+  const when = daysTo > 1 ? `עוד ${daysTo} ימים` : daysTo === 1 ? 'מחר' : daysTo === 0 ? 'היום' : 'הטיול כבר התחיל';
+  return `יוצאים ב-${d.getUTCDate()} ב${HE_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()} (${when})`;
 }
 
 // what the model is told about the trip — enough to be specific, never the whole table
@@ -247,7 +259,7 @@ async function generateTop(trip, ph) {
   const brief = await tripBrief(trip);
   const raw = await ai.aiJson({
     system: `אתם היועצים של TRIP MAKER להכנות לטיול. מטיילים מישראל, הכול בעברית.
-ברשימה שלהם כבר יש eSIM וביטוח נסיעות — אל תציעו אותם. בחרו את הדבר **האחד** הכי חשוב וספציפי ליעד הזה שהם חייבים לסדר לפני היציאה: אישור כניסה או ויזה אלקטרונית (Visit Japan Web, ESTA, ETA, K-ETA), חיסון או תעודה שנדרשים בכניסה, כרטיס תחבורה שכדאי לקנות מראש (Suica, JR Pass רק אם המסלול מצדיק), רישיון נהיגה בינלאומי אם שוכרים רכב, אישור הורים לקטין, מזומן במטבע שלא משיגים בארץ, כרטיס לאטרקציה שנגמר שבועות מראש — מה שהכי יקר לפספס **לטיול הזה**, לא כלל אצבע.
+ברשימה שלהם כבר יש eSIM וביטוח נסיעות — אל תציעו אותם. לינה, מלונות וטיסות לא שייכים לכאן — יש להם מסכים משלהם — גם אם עוד לא הוזמנו. בחרו את הדבר **האחד** הכי חשוב וספציפי ליעד הזה שהם חייבים לסדר לפני היציאה: אישור כניסה או ויזה אלקטרונית (Visit Japan Web, ESTA, ETA, K-ETA), חיסון או תעודה שנדרשים בכניסה, כרטיס תחבורה שכדאי לקנות מראש (Suica, JR Pass רק אם המסלול מצדיק), רישיון נהיגה בינלאומי אם שוכרים רכב, אישור הורים לקטין, מזומן במטבע שלא משיגים בארץ, כרטיס לאטרקציה שנגמר שבועות מראש — מה שהכי יקר לפספס **לטיול הזה**, לא כלל אצבע.
 כללים: title קצר (עד 8 מילים), why במשפט אחד שמסביר למה זה הכי חשוב כאן, search — מילות חיפוש שיובילו לדף הרשמי (באנגלית, כולל שם המדינה); אין להמציא כתובות אינטרנט. tags רק מהרשימה; due_days = כמה ימים לפני היציאה צריך לסיים את זה.`,
     user: brief,
     schemaName: 'checklist_top',
@@ -292,7 +304,9 @@ async function generateList(trip, ph, { force = false } = {}) {
   await pool.query(`UPDATE trip_checklists SET status = 'pending', requested_at = now() WHERE trip_id = $1`, [trip.id]);
 
   await ensureCoreItems(trip);
-  const topTask = generateTop(trip, ph).catch(() => false);
+  // the pick first, then the list: the list is told what is already on it, and a pick
+  // still in flight was not — the first Japan trip got "book your lodging" twice
+  await generateTop(trip, ph).catch(() => false);
   const brief = await tripBrief(trip);
   const { rows: existing } = await pool.query(
     `SELECT title FROM trip_checklist_items WHERE trip_id = $1 AND source <> 'ai'`, [trip.id]
@@ -303,8 +317,8 @@ async function generateList(trip, ph, { force = false } = {}) {
 לכל פריט:
 - title קצר ומעשי (עד 10 מילים), note אופציונלי — פרט שחוסך טעות (איפה, כמה, למה), עד 20 מילים, או null.
 - scope: "shared" כשמישהו אחד עושה את זה בשם כולם (לשכור רכב, להזמין שולחן, להדפיס את ההזמנות); "personal" כשכל מטייל צריך את שלו (דרכון, תרופות, מטען).
-- tags מהרשימה: buy = צריך לקנות; online = למצוא/להשוות/להזמין ברשת; book = להזמין מראש כי נגמר; print = להדפיס; pack = נכנס למזוודה; ask = שאלה שצריך לברר; urgent = חייב להיסגר השבוע. 0–3 תגיות, ובלי "later".
-- due_days: כמה ימים לפני היציאה זה צריך להיות גמור (60/30/14/7/3/1/0), או null אם לא משנה.
+- tags מהרשימה: buy = פריט פיזי שרוכשים לפני הטיול (מתאם, מטען נייד, מזומן, תרופות, ביגוד שחסר); online = פעולה שעושים ברשת (רישום, הזמנה, הורדה, השוואת מחירים); book = להזמין מראש כי נגמר; print = להדפיס; pack = נכנס למזוודה; ask = שאלה פתוחה שצריך לברר; urgent = חייב להיסגר השבוע. 0–3 תגיות, ובלי "later". תגית רק כשהיא מדויקת — "לארוז גרביים" הוא pack בלבד, לא online.
+- due_days: כמה ימים לפני היציאה זה צריך להיות גמור (60/30/14/7/3/1/0), או null אם לא משנה. כשהיציאה קרובה (ראו "עוד X ימים"), due_days לא יכול לעלות על X.
 - priority: 2 = מפספסים את זה ואין טיול; 1 = חשוב; 0 = נחמד.
 - search: מילות חיפוש לדף הרשמי (באנגלית) כשיש כזה, אחרת null. אין להמציא כתובות אינטרנט.
 כבר ברשימה ואין לחזור עליהם: ${existing.map((r) => `"${r.title}"`).join(', ')}.
@@ -317,7 +331,6 @@ async function generateList(trip, ph, { force = false } = {}) {
     timeoutMs: 55000,
     ph,
   });
-  await topTask;
   const sections = (Array.isArray(raw && raw.sections) ? raw.sections : []).slice(0, MAX_SECTIONS);
   const cleaned = [];
   const seen = new Set(existing.map((r) => r.title.trim()));
