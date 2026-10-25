@@ -217,6 +217,10 @@ const TripRecs = (() => {
     msgs.forEach((m) => { if (!m.id) m.id = nextId++; });
     let turn = msgs.filter((m) => m.role === 'user').length;
     let busy = false;
+    let busySince = 0;
+    // a question typed while the last one is being answered waits on screen and goes out
+    // when the answer lands (the same rule as the planning chat — a send is never dead)
+    let nextQ = null;
     // ידני: exactly the chat as it always was. אוטומטי: an explicit "add / remove / move
     // X" comes back as a proposal card — for someone who may edit the trip. Remembered
     // per trip in this browser, like the thread.
@@ -252,6 +256,11 @@ const TripRecs = (() => {
         modeBtn.onclick = () => {
           mode = setMode(ctx.trip, mode === 'auto' ? 'manual' : 'auto');
           paintMode();
+          // said out loud, once per flip: the toggle was being tapped back and forth by
+          // people trying to work out what it changes
+          TripPages.toast(mode === 'auto'
+            ? 'מצב אוטומטי: בקשה לשנות את המסלול תחזור כהצעה לאישור'
+            : 'מצב ידני: אני רק ממליץ — מוסיפים לטיול בלחיצה על ➕');
           TRIPMAKER.track?.('recs_mode', { code: ctx.trip.share_code, mode });
         };
       }
@@ -281,9 +290,16 @@ const TripRecs = (() => {
       thread.innerHTML = msgHtml({ role: 'ai', html: WELCOME(mainDest, interestsOf(ctx)) }, -1)
         + (locked ? unlockCardHtml(ctx) : '')
         + msgs.map((m, i) => msgHtml(m, i, la)).join('');
+      if (busy && !busySince) busySince = Date.now();
+      if (!busy) busySince = 0;
       if (busy) thread.insertAdjacentHTML('beforeend', `
         <div class="chat-msg ai chat-in chat-wait"><span class="chat-avatar" aria-hidden="true">✨</span>
-          <div class="chat-bubble chat-typing" aria-label="חושב…"><i></i><i></i><i></i></div></div>`);
+          <div class="chat-col"><div class="chat-bubble chat-typing" aria-label="חושב…"><i></i><i></i><i></i></div>
+          ${TripPlan.waitNoteHtml(busySince)}</div></div>`);
+      if (nextQ) thread.insertAdjacentHTML('beforeend', `
+        <div class="chat-msg user chat-in chat-pending"><div class="chat-bubble">${esc(nextQ)}</div>
+          <small class="chat-pending-note">יישלח ברגע שאסיים לענות</small></div>`);
+      foot.querySelector('.chat-send')?.classList.toggle('is-busy', busy);
       paintMode();
       painted = scroller.settle(msgs, painted, true);
     }
@@ -413,7 +429,13 @@ const TripRecs = (() => {
 
     async function send(text) {
       const q = text.trim();
-      if (!q || busy || locked) return;
+      if (!q || locked) return;
+      if (busy) {
+        nextQ = nextQ ? `${nextQ}\n${q}` : q;
+        input.value = '';
+        paint();
+        return;
+      }
       // the server meters questions per user, so a question needs a user
       if (!TRIPMAKER.user) {
         msgs.push({ role: 'user', text: q });
@@ -435,6 +457,7 @@ const TripRecs = (() => {
       } catch (err) {
         if (err && err.quota) {
           busy = false;
+          if (nextQ) { input.value = nextQ; nextQ = null; }
           msgs.push(TripPlan.quotaMsg(err.quota));
           paint();
           TripPlan.loadReferral().then(paint); // the referral numbers fill the card as they arrive
@@ -446,10 +469,12 @@ const TripRecs = (() => {
       saveThread(ctx, msgs);
       paint();
       TRIPMAKER.track?.('recs_ask', { code: ctx.trip.share_code });
+      if (nextQ) { const q2 = nextQ; nextQ = null; send(q2); }
     }
 
     paintFoot();
     paint();
+    TripPlan.startWaitTicker(thread);
     flush = () => {
       if (!queued) return;
       const q = queued;

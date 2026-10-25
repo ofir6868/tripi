@@ -190,15 +190,22 @@
   }
 
   // the compass loader holds until the wordmark has risen (1.2s + .8s) before
-  // fading out, so a fast response doesn't cut the brand mark off mid-reveal
+  // fading out, so a fast response doesn't cut the brand mark off mid-reveal — but only
+  // the first time in a visit, and never on the way into the planning chat. The wizard
+  // lands here (#plan) a second after the traveller tapped "start planning", and two
+  // more seconds of logo between that tap and the chat's first words read as a stall:
+  // the page answers as soon as it can, and the brand has been seen by then anyway.
   const loaderT0 = Date.now();
+  let brandSeen = false;
+  try { brandSeen = sessionStorage.getItem('tripmaker_brand_seen') === '1'; sessionStorage.setItem('tripmaker_brand_seen', '1'); } catch { /* storage off: hold, as before */ }
+  const loaderHold = location.hash === '#plan' || brandSeen ? 0 : 2000;
   function hideTripLoader() {
     const el = document.getElementById('trip-loader');
     if (!el) return;
     setTimeout(() => {
       el.classList.add('done');
       setTimeout(() => el.remove(), 500);
-    }, Math.max(0, 2000 - (Date.now() - loaderT0)));
+    }, Math.max(0, loaderHold - (Date.now() - loaderT0)));
   }
 
   // One context object for the life of the page. The dock's pages (המלצות, מסמכים)
@@ -238,6 +245,10 @@
   }
 
   async function load() {
+    // a page opened straight into the planning chat (the wizard lands here, on #plan)
+    // asks for the thread now, beside the trip — on a fresh trip that request mints the
+    // opening, which can take a model call, and it should not queue behind this one
+    if (location.hash === '#plan' && TRIPMAKER.token && !inviteToken) TripPlan.prefetch(code);
     // an invite link + a logged-in user = redeem first, so the page arrives unlocked
     if (TRIPMAKER.account() && inviteToken) await redeemInvite();
     let data;
@@ -1588,6 +1599,17 @@
       // `guest` flag on its 401 is the same door, seen from a stale page)
       if (TRIPMAKER.isGuest()) { openAuthModal(publishTrip, 'register', 'publish_trip'); return; }
       publishing = true;
+      // both save buttons say what is happening for as long as it happens: the save is a
+      // request away, and a button that looks untouched after a tap gets tapped again
+      const saveBtns = [finishBtn, document.getElementById('draft-finish-btn')];
+      saveBtns.forEach((b) => { b.disabled = true; b.classList.add('is-saving'); b.setAttribute('aria-busy', 'true'); });
+      const savingLabel = finishBtn.querySelector('.ab-label');
+      const labelWas = savingLabel.textContent;
+      savingLabel.textContent = 'שומרים…';
+      const doneSaving = () => {
+        saveBtns.forEach((b) => { b.disabled = false; b.classList.remove('is-saving'); b.removeAttribute('aria-busy'); });
+        savingLabel.textContent = labelWas;
+      };
       try {
         const updated = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/publish`, {
           method: 'POST', headers: canEditHeaders || {},
@@ -1602,11 +1624,14 @@
           minutes_since_created: trip.created_at
             ? Math.round((Date.now() - new Date(trip.created_at).getTime()) / 60000) : null,
         });
+        doneSaving();
         applyDraftState();
         openCelebration();
       } catch (e) {
+        doneSaving();
         if (e.guest) { publishing = false; openAuthModal(publishTrip, 'register', 'publish_trip'); return; }
-        alert('⚠️ ' + e.message);
+        // a toast, not a browser alert: the page stays usable and the button is right there
+        TripPages.toast((e && e.message) || 'השמירה לא הצליחה — נסו שוב');
       }
       publishing = false;
     }

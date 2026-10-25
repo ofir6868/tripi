@@ -28,6 +28,76 @@ const TripPlan = (() => {
 
   const api = (ctx, path, opts) => TRIPMAKER.api(`/api/trips/code/${ctx.trip.share_code}/plan${path}`, opts);
   const WA = (text) => window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
+
+  // =================================================================
+  //  THE FIRST SECONDS — nothing on screen may wait for the model
+  // =================================================================
+  //
+  // A fresh trip's chat used to open on three dots and stay there: the opening turn is
+  // minted on the first load, and for a multi-country or a whole-country trip that load
+  // waits for the clarifying question (a strong-model call, seconds). The traveller had
+  // just tapped "start planning" and saw nothing answer — the taps that followed were
+  // rage clicks in the data. But the opening's first sentence is fixed text the server
+  // writes word for word (routes/plan.js, openingMessage: `hello`), so it is painted the
+  // moment the chat opens, and only the question after it is waited for — inside the
+  // same bubble, which grows into the full message when it lands.
+  const listNames = (names) => (names.length > 1
+    ? `${names.slice(0, -1).join(', ')} ו${names[names.length - 1]}`
+    : names[0] || '');
+  function openingHello(trip) {
+    const names = (Array.isArray(trip.destinations) ? trip.destinations : []).filter((d) => d && d.name).map((d) => d.name);
+    const where = listNames(names) || trip.destination || '';
+    return where ? `היי! מתכננים יחד את הטיול ל${where} — ${trip.days} ימים.` : '';
+  }
+
+  // What a long wait says, by how long it has been. Three dots are enough for a second;
+  // after that, silence reads as a hang — and a hang is what gets tapped again. Every
+  // line is true at every stage (a turn reads the trip, checks places on the map, and
+  // writes), so no line promises a step that is not happening.
+  const WAIT_LINES = [
+    [5, 'חושב על זה…'],
+    [12, 'עובר על המסלול ובודק מקומות במפה…'],
+    [25, 'לוקח קצת יותר מהרגיל — עוד רגע'],
+    [60, 'עדיין עובד על זה. אפשר להציץ במסלול בינתיים — לא אאבד את ההודעה'],
+  ];
+  const waitLine = (since, lines = WAIT_LINES) => {
+    const s = (Date.now() - since) / 1000;
+    let text = '';
+    for (const [at, line] of lines) if (s >= at) text = line;
+    return text;
+  };
+
+  // the line under the dots, and the one ticker per chat that keeps it current — both
+  // chats use them, so a wait reads the same in תכנון and in המלצות
+  const OPENING_LINES = [[3, 'מכין לכם שאלה ראשונה…'], [12, 'עוד רגע…'], [30, 'לוקח יותר מהרגיל — אם זה נתקע, רעננו את הדף']];
+  const waitNoteHtml = (since, kind = '') =>
+    `<small class="chat-wait-note" data-since="${since}"${kind ? ` data-kind="${kind}"` : ''}>${esc(since ? waitLine(since, kind === 'opening' ? OPENING_LINES : WAIT_LINES) : '')}</small>`;
+  function startWaitTicker(thread) {
+    const ticker = setInterval(() => {
+      if (!thread.isConnected) { clearInterval(ticker); return; }
+      thread.querySelectorAll('.chat-wait-note').forEach((el) => {
+        const since = +el.dataset.since;
+        if (!since) return;
+        const line = waitLine(since, el.dataset.kind === 'opening' ? OPENING_LINES : WAIT_LINES);
+        if (el.textContent !== line) el.textContent = line;
+      });
+    }, 1000);
+  }
+
+  // The trip page asks for the thread as it starts, beside its own request for the trip,
+  // instead of after it: on a fresh trip that GET is the one that mints the opening, so
+  // it is worth the head start. A failed prefetch is not an answer — load() asks again.
+  let prefetched = null;
+  function prefetch(code) {
+    const promise = TRIPMAKER.api(`/api/trips/code/${encodeURIComponent(code)}/plan`);
+    promise.catch(() => {}); // unhandled until load() picks it up
+    prefetched = { code, promise, at: Date.now() };
+  }
+  function takePrefetch(code) {
+    const p = prefetched;
+    prefetched = null;
+    return p && p.code === code && Date.now() - p.at < 60000 ? p.promise : null;
+  }
   const AREA_COLORS = ['#ffb45f', '#8fd8c4', '#c9a7ff', '#7fb8ff', '#ff9db1', '#ffd166'];
 
   // =================================================================
@@ -441,8 +511,20 @@ const TripPlan = (() => {
     let state = ctx.trip.plan_state || { mode: 'manual', stage: 'clarify' };
     let busy = false;
     let loaded = false;
+    // a turn typed while the previous one is still being answered: it waits on screen,
+    // marked as waiting, and goes out the moment the answer lands — the send button is
+    // never a dead tap
+    let nextQ = null;
+    // since when the chat has been waiting, for the line under the dots
+    let busySince = 0;
 
-    body.innerHTML = '<div class="chat-thread" id="plan-thread"><div class="chat-msg ai"><span class="chat-avatar" aria-hidden="true">🧭</span><div class="chat-bubble chat-typing" aria-label="טוען…"><i></i><i></i><i></i></div></div></div>';
+    // A trip whose chat never opened gets its first sentence now (see openingHello);
+    // anything else — a thread that exists — waits for its history behind the dots.
+    const hello = !(ctx.trip.plan_state || {}).opened ? openingHello(ctx.trip) : '';
+    const openedAt = Date.now();
+    body.innerHTML = `<div class="chat-thread" id="plan-thread"><div class="chat-msg ai${hello ? ' chat-in' : ''}"><span class="chat-avatar" aria-hidden="true">🧭</span>${hello
+      ? `<div class="chat-col"><div class="chat-bubble">${esc(hello)} <span class="chat-typing chat-typing-inline" aria-label="כותב…"><i></i><i></i><i></i></span></div>${waitNoteHtml(openedAt, 'opening')}</div>`
+      : '<div class="chat-bubble chat-typing" aria-label="טוען…"><i></i><i></i><i></i></div>'}</div></div>`;
     foot.innerHTML = `
       <div class="chat-chips" id="plan-chips"></div>
       <form class="chat-form plan-form" id="plan-form">
@@ -654,6 +736,7 @@ const TripPlan = (() => {
         busy = false;
         paint();
         if (r.quota) { outOfQuota(r.quota); return; }
+        drainNext();
         TripPages.toast('הטיסות נכנסו למסלול ✓', 'ok');
         TRIPMAKER.track?.('plan_flights', { code: ctx.trip.share_code, legs: legs.length });
       } catch (err) {
@@ -696,6 +779,7 @@ const TripPlan = (() => {
         busy = false;
         paint();
         if (r.quota) outOfQuota(r.quota);
+        else drainNext();
       } catch (err) {
         flightsBusy = false;
         busy = false;
@@ -705,10 +789,38 @@ const TripPlan = (() => {
       }
     }
 
+    // the opening sentence painted before the thread arrived, kept until it does: a paint
+    // before load (the composer's own first paint) must not blank the chat back to nothing
+    const placeholder = thread.innerHTML;
+    // the opening grows once: the stored message starts with the very sentence already on
+    // screen, so that part stays put and only the rest fades in after it
+    let grown = !hello;
+    const pendingHtml = () => `
+      <div class="chat-msg user chat-in chat-pending"><div class="chat-bubble">${esc(nextQ)}</div>
+        <small class="chat-pending-note">יישלח ברגע שאסיים לענות</small></div>`;
+    function growOpening() {
+      if (grown || !loaded) return;
+      grown = true;
+      const bubble = thread.querySelector('.chat-msg.ai .chat-bubble');
+      const text = msgs[0] && msgs[0].role === 'ai' ? msgs[0].text || '' : '';
+      if (!bubble || !text.startsWith(hello)) return;
+      bubble.innerHTML = `${esc(hello)} <span class="chat-rest">${esc(text.slice(hello.length).trim())}</span>`;
+    }
+
     function paint() {
+      if (busy && !busySince) busySince = Date.now();
+      if (!busy) busySince = 0;
       const la = latestApplied();
       syncCalendar();
       syncFlights();
+      if (!loaded && !msgs.length) {
+        if (!thread.querySelector('.chat-msg.ai')) thread.innerHTML = placeholder; // never re-animate it
+        thread.querySelector('.chat-pending')?.remove();
+        if (nextQ) thread.insertAdjacentHTML('beforeend', pendingHtml());
+        paintChips();
+        paintMode();
+        return;
+      }
       thread.innerHTML = msgs.map((m, i) => msgHtml(m, i, la, ctx)).join('') +
         (dayAreas ? areaCalendarHtml(ctx, dayAreas, palette, paintArea) : '');
       // re-appended, never re-rendered: the element holds what is typed in it. Its two
@@ -722,9 +834,15 @@ const TripPlan = (() => {
       // the same thing twice — it waits until the card has flipped
       if (busy && !deciding) thread.insertAdjacentHTML('beforeend', `
         <div class="chat-msg ai chat-in chat-wait"><span class="chat-avatar" aria-hidden="true">🧭</span>
-          <div class="chat-bubble chat-typing" aria-label="חושב…"><i></i><i></i><i></i></div></div>`);
+          <div class="chat-col"><div class="chat-bubble chat-typing" aria-label="חושב…"><i></i><i></i><i></i></div>
+          ${waitNoteHtml(busySince)}</div></div>`);
+      // the turn typed ahead sits under the dots, plainly not sent yet
+      if (nextQ) thread.insertAdjacentHTML('beforeend', pendingHtml());
+      foot.querySelector('.chat-send').classList.toggle('is-busy', busy);
+      input.placeholder = busy ? 'אפשר כבר לכתוב — אשלח כשאסיים' : 'כתבו לי מה תרצו…';
       paintChips();
       paintMode();
+      growOpening();
       painted = scroller.settle(msgs, painted, loaded);
       if (dockOwed) {
         dockOwed = false;
@@ -770,13 +888,16 @@ const TripPlan = (() => {
 
     async function load() {
       try {
-        const r = await api(ctx, '');
+        const early = takePrefetch(ctx.trip.share_code);
+        const r = early ? await early.catch(() => api(ctx, '')) : await api(ctx, '');
         state = r.state;
         ctx.trip.plan_state = state;
         msgs = (r.messages || []).map(shape);
         loaded = true;
       } catch (err) {
         msgs = [{ role: 'ai', text: (err && err.message) || 'לא הצלחתי לטעון את התכנון — נסו לרענן', payload: {} }];
+        // nothing can be sent into a thread that did not load: what was typed goes back
+        if (nextQ) { input.value = nextQ; nextQ = null; }
       }
       paint();
       flush = () => {
@@ -786,7 +907,19 @@ const TripPlan = (() => {
         send(q);
       };
       flush();
+      drainNext();
     }
+
+    // the turn typed ahead goes out once the chat is free again — never while a card is
+    // still deciding, a build is running, or the thread has not loaded
+    function drainNext() {
+      if (!nextQ || busy || !loaded || building) return;
+      const q = nextQ;
+      nextQ = null;
+      send(q);
+    }
+
+    startWaitTicker(thread);
 
     // =================================================================
     //  TURNS
@@ -794,7 +927,16 @@ const TripPlan = (() => {
 
     async function send(text, { receipt = false } = {}) {
       const q = text.trim();
-      if (!q || busy || !loaded) return;
+      if (!q) return;
+      // mid-turn, or before the thread is in: the message waits on screen instead of the
+      // tap doing nothing. One waits at a time; a second one joins it as a new line.
+      if (busy || !loaded || building) {
+        if (receipt) return;
+        nextQ = nextQ ? `${nextQ}\n${q}` : q;
+        input.value = '';
+        paint();
+        return;
+      }
       msgs.push({ role: 'user', text: q, payload: receipt ? { receipt: true } : {} });
       busy = true;
       input.value = '';
@@ -815,8 +957,11 @@ const TripPlan = (() => {
         busy = false;
         paint();
         if (r.message.payload && r.message.payload.build === 'once') build(false);
+        else drainNext();
       } catch (err) {
         busy = false;
+        // what was typed ahead goes back into the box rather than out after a failure
+        if (nextQ) { input.value = nextQ; nextQ = null; }
         if (err && err.quota) { outOfQuota(err.quota); return; }
         msgs.push({ role: 'ai', text: (err && err.message) || 'משהו השתבש בדרך — נסו שוב בעוד רגע.', payload: {}, transient: true });
         paint();
@@ -860,11 +1005,17 @@ const TripPlan = (() => {
         TripPages.toast((err && err.message) || 'לא הצלחתי — נסו שוב');
       }
       paint();
+      drainNext();
     }
 
+    // The toggle used to flip without a word, and the data shows it tapped back and forth
+    // — people trying to find out what it does. The flip now says it, once, in one line.
     async function switchMode(mode) {
       state.mode = mode;
       paintMode(); // the button flips at the tap; the write follows
+      TripPages.toast(mode === 'auto'
+        ? 'מצב אוטומטי: שינויים נכנסים למסלול מיד, ואפשר לבטל כל אחד'
+        : 'מצב ידני: כל שינוי מחכה לאישור שלכם לפני שהוא נכנס');
       state = await setMode(ctx.trip, mode);
       paintMode();
     }
@@ -1009,5 +1160,5 @@ const TripPlan = (() => {
   }
 
   // the quota card and its handler are shared with the recommendations chat
-  return { render, arrival, setMode, say, quotaMsg, quotaMsgHtml, handleCardClick, loadReferral, referral: () => referralInfo, changeCardHtml };
+  return { render, prefetch, waitNoteHtml, startWaitTicker, arrival, setMode, say, quotaMsg, quotaMsgHtml, handleCardClick, loadReferral, referral: () => referralInfo, changeCardHtml };
 })();

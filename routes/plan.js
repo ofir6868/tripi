@@ -189,6 +189,9 @@ async function draftWithAuth(req, res) {
   return trip;
 }
 
+// how long the first load waits for the clarifying question before opening without it
+const OPENING_CLARIFY_MS = 12000;
+
 // ---------- the opening turn: the clarifying round, without a model turn ----------
 //
 // The wizard's questions come from the same aiClarify the one-shot build uses — the
@@ -200,11 +203,20 @@ async function openingMessage(client, trip, userId) {
   const broadSingle = trip.dests.length === 1 && (!trip.dests[0].country || trip.dests[0].country === trip.dests[0].name);
   let questions = [];
   if ((trip.dests.length >= 2 || broadSingle) && process.env.OPENAI_API_KEY) {
-    questions = await ai.aiClarify({
-      dests: trip.dests, from: 1, to: trip.days,
-      interestList: state.interests, freeText: state.notes,
-      ph: { distinctId: 'user_' + userId, traceId: randomUUID() },
-    }).catch(() => []);
+    // The traveller is watching this call: the chat has painted its first sentence and
+    // is waiting for the question after it. A model that takes longer than this is not
+    // worth the wait — the conversation opens without the question (the choose / areas
+    // openings below need no model at all) and the model meets the trip on the first turn.
+    let timer;
+    questions = await Promise.race([
+      ai.aiClarify({
+        dests: trip.dests, from: 1, to: trip.days,
+        interestList: state.interests, freeText: state.notes,
+        ph: { distinctId: 'user_' + userId, traceId: randomUUID() },
+      }).catch(() => []),
+      new Promise((resolve) => { timer = setTimeout(() => resolve([]), OPENING_CLARIFY_MS); }),
+    ]);
+    clearTimeout(timer);
   }
   // "פרו, בוליביה וארגנטינה" — three destinations strung together with a ו each
   // ("פרו ובוליביה וארגנטינה") read as a list nobody had proofread
