@@ -193,9 +193,17 @@ body { display: flex; flex-direction: column; min-height: 100vh; min-height: 100
 .dest-search:focus-within .dest-search-ic { color: var(--amber); }
 .dest-search input { font-size: 1.08rem; padding-block: 15px; padding-inline: 46px 16px; }
 
-/* "continue" before there's a destination: visibly not the next move yet */
-.btn.is-waiting { opacity: .5; box-shadow: none; }
-.btn.is-waiting:hover { transform: none; box-shadow: none; }
+/* "continue" before there's a destination: an outline of itself, not the next move
+   yet. Dimming the filled button read as a broken, muddy brown on a phone. */
+.btn.is-waiting {
+  background: transparent; color: var(--amber); box-shadow: none;
+  border: 1px solid rgba(255, 180, 95, .35);
+}
+.btn.is-waiting:hover { transform: none; box-shadow: none; background: rgba(255, 180, 95, .06); }
+
+/* "you already have a trip in planning" sits above the panel; on a phone the
+   step bar it is anchored to is hidden, and the card ended up glued to the panel */
+.wizard-shell .draft-waiting { margin: 0 0 16px; max-width: none; }
 
 /* the forward button is the only thing in the row — on its own it sits at the
    row's end, and the empty spacer before it no longer steals a gap on a phone */
