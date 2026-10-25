@@ -8,6 +8,7 @@ const {
 const { rateLimiter, codeMissLimit, CODE_MISS_ERROR } = require('../lib/rate-limit');
 const { notifyTripAsync } = require('../lib/push');
 const { verifyPlaces } = require('../lib/places');
+const draftNudge = require('../lib/draft-nudge');
 
 const router = express.Router();
 
@@ -943,6 +944,23 @@ router.get('/api/my-trips', authRequired, async (req, res) => {
       [req.user.id]
     );
     res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// the one draft worth offering back on the homepage and in the wizard (lib/draft-nudge.js):
+// the owner's most recently touched, if it is still recent enough to be a plan
+router.get('/api/my-drafts/waiting', authRequired, async (req, res) => {
+  try {
+    const d = await draftNudge.waitingDraft(req.user.id);
+    if (!d) return res.json({ draft: null });
+    const copy = draftNudge.nudgeCopy(d);
+    res.json({ draft: {
+      share_code: d.share_code, title: d.title, destination: d.destination, cover_image: d.cover_image,
+      days: d.days, filled_days: d.filled_days, last_active: d.last_active, headline: copy.title, line: copy.body,
+    } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });

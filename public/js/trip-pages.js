@@ -68,6 +68,7 @@ const TripPages = (() => {
   // paint a page (no history) — open() and popstate both land here
   function show(name) {
     if (!pages[name]) return;
+    settle();
     for (const n in pages) if (pages[n].el && n !== name) pages[n].el.hidden = true;
     const el = ensure(name);
     const fresh = current !== name || pages[name].dirty;
@@ -89,6 +90,7 @@ const TripPages = (() => {
 
   function hide() {
     if (!current) return;
+    settle();
     pages[current].el.hidden = true;
     pages[current].onClose?.();
     current = null;
@@ -104,19 +106,26 @@ const TripPages = (() => {
   // listener; it takes over the screen the same way a tab does, and leaves it the same way
   const budgetOpen = () => document.body.classList.contains('budget-open');
 
-  function open(name) {
+  // the tab on screen right now: an open page, the budget, or the itinerary ('')
+  const here = () => current || (budgetOpen() ? 'budget' : '');
+
+  // `still`: no slide — a page landed on from the address bar has no tab it came from
+  function open(name, { still = false } = {}) {
     if (!pages[name] || current === name) return;
-    const state = { tripmakerPage: name };
-    if (current || budgetOpen()) {
-      // tab to tab swaps the entry rather than stacking one — back returns to the itinerary
-      if (budgetOpen() && typeof TripModals !== 'undefined') TripModals.closeBudget();
-      history.replaceState(state, '', `#${name}`);
-    } else {
-      // a reload that kept the hash is normalized first: one clean entry per open
-      if (location.hash === `#${name}`) history.replaceState(null, '', location.pathname + location.search);
-      history.pushState(state, '', `#${name}`);
-    }
-    show(name);
+    const go = () => {
+      const state = { tripmakerPage: name };
+      if (current || budgetOpen()) {
+        // tab to tab swaps the entry rather than stacking one — back returns to the itinerary
+        if (budgetOpen() && typeof TripModals !== 'undefined') TripModals.closeBudget();
+        history.replaceState(state, '', `#${name}`);
+      } else {
+        // a reload that kept the hash is normalized first: one clean entry per open
+        if (location.hash === `#${name}`) history.replaceState(null, '', location.pathname + location.search);
+        history.pushState(state, '', `#${name}`);
+      }
+      show(name);
+    };
+    if (still) go(); else move(here(), name, go);
   }
 
   function close() {
@@ -127,17 +136,17 @@ const TripPages = (() => {
 
   window.addEventListener('popstate', () => {
     const name = location.hash.slice(1);
-    if (pages[name]) { show(name); return; }
+    if (pages[name]) { move(here(), name, () => show(name)); return; }
     // the budget page stacks on top of ours with its own hash and its own listener —
     // a page underneath stays put until the hash comes back to us or goes away entirely
     if (/^#budget/.test(location.hash)) return;
-    hide();
+    if (current) move(current, '', hide);
   });
 
   // a /trip/CODE#recs link (or a reload mid-page) lands straight on that page
   function openFromHash() {
     const name = location.hash.slice(1);
-    if (pages[name]) open(name);
+    if (pages[name]) open(name, { still: true });
   }
 
   // ---- dock ----
@@ -210,6 +219,114 @@ const TripPages = (() => {
     // phones only: elsewhere the open page is on top of the dock, so the spark waits
     if (current && !matchMedia('(max-width: 640px)').matches) { sparkOwed = true; return; }
     sparkle(el);
+  }
+
+  // ---- moving between neighbouring tabs ----
+  //
+  // On a phone the dock's tabs are places side by side — מסלול, then the chat, then
+  // מסמכים, then תקציב, further along to the left (RTL) — so going from one to the next
+  // slides, the way the row reads: the page of the tab further along travels the full
+  // width on top, and the one nearer the itinerary eases a third of the way under it,
+  // both in the same direction. Forward, toward the left tabs, the pages move right;
+  // back, they move left. The itinerary is the first place and has no page of its own,
+  // so its own parts (header, hero, the days, footer) make that layer and move together —
+  // coming back to it is the itinerary easing in, not a page vanishing off a still one.
+  // The bars that float over it (the ask bar, the invite banner) can't ride along: they
+  // sit above every page, so they'd cross the page still on its way out. They wait for
+  // it to clear and fade in.
+  //
+  // Only between tabs the dock is showing right now: a page opened from "עוד" (or one
+  // folded into it, like the budget beside a draft's save pill) has no neighbours to
+  // come from, and keeps the plain rise every page has. Desktop keeps it too — the open
+  // page covers the toolbar there, so there is no row of tabs to read the motion against.
+  //
+  // Transforms only, on the two fixed layers: nothing behind them is laid out again.
+
+  const SLIDE = { duration: 340, easing: 'cubic-bezier(.22, .9, .3, 1)', fill: 'both' };
+  const slides = new Set();
+  let moving = false;
+
+  // the itinerary's layer: whatever of it is on screen
+  const homeLayer = () => [...document.querySelectorAll('body > .site-header, body > .trip-hero, #trip-layout, body > .site-footer')]
+    .filter((el) => getComputedStyle(el).display !== 'none');
+  const homeFloats = () => [...document.querySelectorAll('#ai-ask-bar, .join-banner')]
+    .filter((el) => getComputedStyle(el).display !== 'none');
+
+  const pageEl = (name) => (name === 'budget' ? document.getElementById('budget-page') : pages[name]?.el) || null;
+
+  // the dock's places in order, as laid out at this moment — what is folded away isn't one
+  function dockOrder() {
+    return [...document.querySelectorAll('#action-row > .action-btn')]
+      .filter((b) => getComputedStyle(b).display !== 'none')
+      .map((b) => (b.id === 'budget-btn' ? 'budget' : b.dataset.page))
+      .filter((n) => n !== undefined);
+  }
+
+  // +1 toward the tabs further along, -1 back toward the itinerary, 0 for no slide
+  function direction(from, to) {
+    if (from === to || reduced() || !matchMedia('(max-width: 640px)').matches) return 0;
+    if (typeof Element.prototype.getAnimations !== 'function') return 0; // too old a browser to slide
+    const order = dockOrder();
+    const i = order.indexOf(from), j = order.indexOf(to);
+    return i < 0 || j < 0 ? 0 : Math.sign(j - i);
+  }
+
+  // a slide still running ends where it was going before anything else moves — a quick
+  // second tap starts from settled pages, never from two half-way layers
+  function settle() { for (const s of [...slides]) s.end(); }
+
+  // `apply` flips the pages exactly as it always did; the slide is laid over the result.
+  // The budget page (trip-modals.js) moves through here too, and a move made from inside
+  // another one (the budget closing as a tab opens) is part of that one.
+  function move(from, to, apply) {
+    if (moving) { apply(); return; }
+    settle();
+    const dir = direction(from, to);
+    const out = pageEl(from);
+    moving = true;
+    try { apply(); } finally { moving = false; }
+    if (dir) slide(out, pageEl(to), dir);
+  }
+
+  function slide(out, inn, dir) {
+    if (out === inn || !(out || inn)) return;
+    const top = dir > 0 ? inn : out;
+    const under = dir > 0 ? out : inn;
+    // the page that left is hidden already; it stays on screen for the slide, untouchable
+    if (out) { out.hidden = false; out.classList.add('tp-leaving'); }
+    const layers = [out, inn].filter(Boolean);
+    layers.forEach((el) => {
+      el.classList.add('tp-sliding');
+      // the plain rise is for pages that arrive from nowhere — cancelled, it stays off
+      // until the page is next hidden and shown again
+      el.getAnimations().forEach((a) => { if (a.animationName === 'tpPageIn') a.cancel(); });
+    });
+    const anims = [];
+    if (top) {
+      const z = (el) => parseInt(getComputedStyle(el).zIndex, 10) || 0;
+      if (under) top.style.zIndex = String(Math.max(z(top), z(under) + 1));
+      top.classList.add('tp-top');
+      const off = 'translateX(-100%)';
+      anims.push(top.animate(dir > 0 ? [{ transform: off }, { transform: 'none' }] : [{ transform: 'none' }, { transform: off }], SLIDE));
+    }
+    // no page under the top one is the itinerary: its parts move as one layer
+    const underEls = under ? [under] : homeLayer();
+    // in pixels, not percent: a percent is of each part's own width, and the parts would drift apart
+    const off = `translateX(${Math.round(innerWidth * 0.3)}px)`;
+    underEls.forEach((el) => anims.push(el.animate(dir > 0 ? [{ transform: 'none' }, { transform: off }] : [{ transform: off }, { transform: 'none' }], SLIDE)));
+    if (!under && dir < 0) {
+      homeFloats().forEach((el) => anims.push(el.animate([{ opacity: 0 }, { opacity: 0, offset: 0.7 }, { opacity: 1 }], SLIDE)));
+    }
+    const s = {
+      end() {
+        if (!slides.delete(s)) return;
+        anims.forEach((a) => a.cancel());
+        layers.forEach((el) => { el.classList.remove('tp-sliding', 'tp-top'); el.style.zIndex = ''; });
+        if (out) { out.classList.remove('tp-leaving'); out.hidden = true; }
+      },
+    };
+    slides.add(s);
+    anims[0].onfinish = () => s.end();
   }
 
   // a small count on a tab's icon (documents saved, …); 0 removes it
@@ -393,7 +510,7 @@ const TripPages = (() => {
   }
 
   return {
-    register, open, close, dismiss, replace, activate: setActive, current: () => current,
+    register, open, close, dismiss, replace, move, activate: setActive, current: () => current,
     openFromHash, initDock, badge, toast, sheet, closeSheet, veilDock, revealDock,
   };
 })();

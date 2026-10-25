@@ -1402,6 +1402,11 @@ a:focus-visible, button:focus-visible, [role="button"]:focus-visible, [tabindex]
   animation: tpPageIn .22s ease;
 }
 .trip-page[hidden] { display: none; }
+/* sliding between neighbouring dock tabs (trip-pages.js): the page travelling on top
+   casts its edge over the one easing under it, and the one leaving takes no taps */
+.trip-page.tp-sliding { will-change: transform; }
+.trip-page.tp-top { box-shadow: 0 0 48px rgba(0, 0, 0, .55); }
+.trip-page.tp-leaving { pointer-events: none; }
 .tp-tools .btn { padding: 8px 14px; font-size: .88rem; }
 .chat-msg.user { justify-content: flex-end; }
 .chat-msg.ai .chat-bubble { align-self: flex-start; background: var(--glass); border: 1px solid var(--glass-border); border-bottom-right-radius: 6px; }
@@ -1533,3 +1538,24 @@ a:focus-visible, button:focus-visible, [role="button"]:focus-visible, [tabindex]
 @keyframes dot-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(143, 216, 196, .5); } 50% { box-shadow: 0 0 0 6px rgba(143, 216, 196, 0); } }
 @keyframes row-cycle { 0% { opacity: 0; transform: translateY(10px); } 8% { opacity: 1; transform: none; } 82% { opacity: 1; } 94%, 100% { opacity: 0; } }
 @keyframes tpPageIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* ---------- a draft that stopped, offered back (js/draft-nudge.js) ---------- */
+.draft-waiting {
+  display: flex; align-items: center; gap: 12px; margin: 14px auto 0; max-width: 680px;
+  padding: 12px 14px; border-radius: var(--radius-sm); color: var(--paper); text-decoration: none;
+  border: 1px solid rgba(255, 180, 95, .35); animation: dwIn .32s cubic-bezier(.2, .8, .3, 1) both;
+}
+.draft-waiting:hover { border-color: rgba(255, 180, 95, .6); }
+.dw-ic { font-size: 1.3rem; flex: none; }
+.dw-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; text-align: start; }
+.dw-text b { font-size: .95rem; }
+.dw-text small { font-size: .82rem; color: var(--paper-dim); }
+.dw-go { flex: none; font-weight: 800; font-size: .88rem; color: var(--amber); white-space: nowrap; }
+.dw-x {
+  flex: none; width: 32px; height: 32px; border-radius: 50%; border: 0; cursor: pointer;
+  background: transparent; color: var(--paper-dim); font-size: .9rem;
+}
+.dw-x:hover { background: var(--glass); color: var(--paper); }
+@media (max-width: 480px) { .dw-go { display: none; } }
+@keyframes dwIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .draft-waiting { animation: none; } }

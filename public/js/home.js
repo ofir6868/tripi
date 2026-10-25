@@ -239,6 +239,10 @@
 
   promptSubmit.addEventListener('click', () => goPrompt(input.value.trim()));
 
+  // a trip started and left half-planned comes back here, under the search box —
+  // the first place anyone returning looks (public/js/draft-nudge.js)
+  DraftNudge.offer(box, { via: 'home' });
+
   const INSPIRATION_SKELETON = `
     <div class="skl-row">
       <span class="skl skl-thumb"></span>

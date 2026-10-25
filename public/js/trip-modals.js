@@ -1016,20 +1016,27 @@ const TripModals = (() => {
   // scroll lock, and the dock's תקציב tab lighting up the way any other tab does.
   // Opening also dismisses whichever dock page was showing — the budget takes its place.
   function setBudgetOpen(open) {
-    const page = document.getElementById('budget-page');
-    if (page) page.hidden = !open;
-    document.body.classList.toggle('budget-open', open);
-    if (typeof TripPages !== 'undefined') {
-      // the dock lights one tab: ours while we're open (the itinerary's goes dark), and
-      // whatever page is left — usually the itinerary — once we close
-      if (open) { TripPages.dismiss(); TripPages.activate('budget'); }
-      else TripPages.activate(TripPages.current());
-    }
-    const tab = document.getElementById('budget-btn');
-    if (tab) {
-      tab.classList.toggle('is-active', open);
-      if (open) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
-    }
+    const apply = () => {
+      const page = document.getElementById('budget-page');
+      if (page) page.hidden = !open;
+      document.body.classList.toggle('budget-open', open);
+      if (typeof TripPages !== 'undefined') {
+        // the dock lights one tab: ours while we're open (the itinerary's goes dark), and
+        // whatever page is left — usually the itinerary — once we close
+        if (open) { TripPages.dismiss(); TripPages.activate('budget'); }
+        else TripPages.activate(TripPages.current());
+      }
+      const tab = document.getElementById('budget-btn');
+      if (tab) {
+        tab.classList.toggle('is-active', open);
+        if (open) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
+      }
+    };
+    if (typeof TripPages === 'undefined') { apply(); return; }
+    // the budget is a dock tab like the others, and slides in from its neighbour the same way
+    const was = document.body.classList.contains('budget-open');
+    const page = TripPages.current() || '';
+    TripPages.move(was ? 'budget' : page, open ? 'budget' : page, apply);
   }
   // trip-pages.js calls this when a dock tab takes over the screen from the budget
   const closeBudget = () => setBudgetOpen(false);
