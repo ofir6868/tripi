@@ -3,7 +3,9 @@
   let mode = 'dest';
   const box = document.querySelector('.search-box');
   const input = document.getElementById('search-input');
-  const promptSubmit = document.getElementById('prompt-submit');
+  // a page cached from before the AI prompt button existed meets this script mid-deploy:
+  // a stand-in keeps every line below working, where a null used to kill the whole file
+  const promptSubmit = document.getElementById('prompt-submit') || document.createElement('button');
   const hint = document.getElementById('search-hint');
   const results = document.getElementById('search-results');
   const isPhrase = (q) => q.split(/\s+/).filter(Boolean).length >= 2;
