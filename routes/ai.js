@@ -27,9 +27,11 @@ const AI_MODEL_STRONG = process.env.AI_MODEL_STRONG || 'gpt-4o'; // used where t
 // of the same max_completion_tokens budget as the JSON. At their default effort a 400-token
 // call spends it all thinking and returns empty content: on 2026-10-22 switching every tier
 // to gpt-6-luna failed builds with "Unexpected end of JSON input" for a day. Set this
-// ("none"/"low") whenever a tier points at a reasoning model; leave it empty for gpt-4o,
-// which rejects the parameter.
+// ("none"/"low") whenever a tier points at a reasoning model. gpt-4o answers the parameter
+// with a 400, so it is only ever sent to models outside the gpt-4 family — a mixed setup
+// (luna weak, gpt-4o strong) stays safe.
 const AI_REASONING_EFFORT = process.env.AI_REASONING_EFFORT || '';
+const takesReasoningEffort = (model) => !!AI_REASONING_EFFORT && !/^gpt-4/.test(model);
 // from this many days on, a single broad destination is asked which regions to
 // COMBINE (multi-select) rather than which one to focus on
 const COMBINE_REGIONS_FROM_DAYS = 10;
@@ -106,7 +108,7 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
         body: JSON.stringify({
           model,
           max_completion_tokens: maxTokens,
-          ...(AI_REASONING_EFFORT && { reasoning_effort: AI_REASONING_EFFORT }),
+          ...(takesReasoningEffort(model) && { reasoning_effort: AI_REASONING_EFFORT }),
           messages,
           response_format: {
             type: 'json_schema',
