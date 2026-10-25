@@ -80,6 +80,7 @@ app.use(require('./routes/admin'));
 app.use(require('./routes/ai'));
 app.use(require('./routes/plan'));
 app.use(require('./routes/day-recs'));
+app.use(require('./routes/checklist'));
 app.use(require('./routes/hotels'));
 app.use(require('./routes/places'));
 app.use(require('./routes/hours'));

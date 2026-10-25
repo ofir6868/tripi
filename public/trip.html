@@ -105,6 +105,12 @@
         <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="m19 15 .8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/><path d="m5 2 .6 1.6 1.6.6-1.6.6L5 6.4l-.6-1.6-1.6-.6 1.6-.6z"/></svg></span>
         <span class="ab-label">המלצות</span>
       </button>
+      <!-- the checklist: a toolbar button on desktop, the first row of "עוד" on a phone
+           (secondary folds it there) — trip-checklist.js owns the page it opens -->
+      <button class="action-btn secondary tab-btn" id="checklist-btn" data-page="checklist" style="display:none" title="צ'קליסט לטיול — eSIM, ביטוח, אישורים, הזמנות מראש ואריזה">
+        <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+        <span class="ab-label">צ'קליסט</span>
+      </button>
       <button class="action-btn tab-btn" id="docs-btn" data-page="docs" style="display:none" title="מסמכי הטיול — נשמרים במכשיר הזה בלבד">
         <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg></span>
         <span class="ab-label">מסמכים</span>
@@ -155,6 +161,10 @@
       <div class="trip-desc" id="trip-desc">
         <div class="skl-desc"><span class="skl"></span><span class="skl short"></span></div>
       </div>
+      <!-- the three things that must not be missed before the flight (eSIM, insurance,
+           and the model's pick for this destination) — trip-checklist.js fills it for
+           participants; everyone else never sees the slot -->
+      <section class="cl-widget glass" id="checklist-widget" aria-label="צ'קליסט לטיול" hidden></section>
       <!-- list / calendar switch — short trips only; a long trip is calendar-only -->
       <div class="view-toggle" id="view-toggle" style="display:none"></div>
       <!-- itinerary placeholder: the real day / timeline / stop shapes, so the
@@ -346,6 +356,8 @@
   <script defer src="/js/doc-classify.js"></script>
   <script defer src="/js/doc-text.js"></script>
   <script defer src="/js/trip-docs.js"></script>
+  <script defer src="/js/checklist-tags.js"></script>
+  <script defer src="/js/trip-checklist.js"></script>
   <script defer src="/js/trip-modals.js"></script>
   <script defer src="/js/trip-arrange.js"></script>
   <script defer src="/js/trip-calendar.js"></script>

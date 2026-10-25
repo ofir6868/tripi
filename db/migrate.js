@@ -1,4 +1,4 @@
-// Migrations 2–28, in order. Idempotent — safe to run on every boot, and the server
+// Migrations 2–29, in order. Idempotent — safe to run on every boot, and the server
 // does (lib/db-bootstrap.js), so a replaced database catches up by itself.
 // Usage: DATABASE_URL=postgres://... node db/migrate.js
 require('../lib/env');
@@ -352,6 +352,59 @@ async function migrate(pool, log = console.log) {
   // allow NULL for that — UNIQUE still holds for every real address.
   await pool.query(`ALTER TABLE users ALTER COLUMN email DROP NOT NULL`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN NOT NULL DEFAULT false`);
+
+  log('Migration 29: the trip has a checklist...');
+  // One row per trip says where its generated list stands; the items are rows of their
+  // own so every participant ticks the same shared item and keeps their own tick on a
+  // personal one (trip_checklist_ticks). A personal item with an owner_id is private to
+  // its author; without one it is the AI's template, shown to everyone with their own box.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trip_checklists (
+      trip_id INT PRIMARY KEY REFERENCES trips(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'empty',
+      top_status TEXT NOT NULL DEFAULT 'empty',
+      context TEXT,
+      generated_at TIMESTAMPTZ,
+      requested_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trip_checklist_items (
+      id SERIAL PRIMARY KEY,
+      trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+      key TEXT,
+      section TEXT NOT NULL,
+      title TEXT NOT NULL,
+      note TEXT,
+      why TEXT,
+      scope TEXT NOT NULL DEFAULT 'shared',
+      owner_id INT REFERENCES users(id) ON DELETE CASCADE,
+      tags JSONB NOT NULL DEFAULT '[]',
+      priority INT NOT NULL DEFAULT 0,
+      due_days INT,
+      assignee_id INT REFERENCES users(id) ON DELETE SET NULL,
+      link TEXT,
+      search TEXT,
+      source TEXT NOT NULL DEFAULT 'user',
+      sort_order INT NOT NULL DEFAULT 0,
+      done BOOLEAN NOT NULL DEFAULT false,
+      done_by INT REFERENCES users(id) ON DELETE SET NULL,
+      done_at TIMESTAMPTZ,
+      created_by INT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_checklist_items_trip ON trip_checklist_items(trip_id)`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trip_checklist_ticks (
+      item_id INT NOT NULL REFERENCES trip_checklist_items(id) ON DELETE CASCADE,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      done_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (item_id, user_id)
+    )
+  `);
 
   log('Done.');
 }

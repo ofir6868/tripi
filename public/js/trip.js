@@ -58,6 +58,9 @@
   // them on the first paint instead of a skeleton. Only for someone who could be an
   // editor: a plain viewer's free day says "יום פנוי" and asks the server nothing.
   if (TRIPMAKER.user) TripDayRecs.prefetch(code);
+  // the checklist's headline items ride the same window: three tiles that should be on
+  // the page the moment the itinerary is, not a beat after it
+  if (TRIPMAKER.user) TripChecklist.prefetch(code);
 
   // A long trip is calendar-only, for everyone, so the list-shaped placeholder in the
   // HTML is the wrong shape for it. The server marks the day count on the container for
@@ -1301,6 +1304,7 @@
     // חלוקה: available to participants throughout the trip
     settleBtn.style.display = privileged ? '' : 'none';
     document.getElementById('docs-btn').style.display = privileged ? '' : 'none';
+    document.getElementById('checklist-btn').style.display = privileged ? '' : 'none';
     hotelsBtn.onclick = () => (canEdit ? TripModals.openHotels(modalCtx) : requireSignup());
     budgetBtn.onclick = () => (canEdit ? TripModals.openBudget(modalCtx) : requireSignup());
     settleBtn.onclick = () => (canEdit ? TripModals.openSettle(modalCtx) : requireSignup());
@@ -1401,6 +1405,16 @@
         // conversation the traveller is no longer having
         onClose: () => TripDayRecs.start(),
       });
+    }
+    if (privileged) {
+      TripPages.register('checklist', {
+        title: '✅ צ\'קליסט לטיול',
+        sub: 'מה חייבים לסדר לפני היציאה — משותף לכל המשתתפים, אישי לכל אחד, ומצב פרו עם תגיות, מועדים ואחראים',
+        render: (slots) => TripChecklist.render(slots, pageCtx),
+        onClose: () => pageCtx.onChecklistClose?.(),
+      });
+      // the widget above the itinerary: the three headline items, for anyone who can tick them
+      TripChecklist.initWidget(pageCtx);
     }
     if (privileged) {
       TripPages.register('docs', {

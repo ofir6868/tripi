@@ -327,6 +327,10 @@ const TripPages = (() => {
   // the room, and then it lives here instead.
 
   const MORE_ACTIONS = [
+    // first, always: what still has to happen before the flight (trip-checklist.js
+    // keeps the line under it current — done/total, and how many are on fire)
+    { id: 'checklist-btn', title: 'צ\'קליסט לטיול',
+      desc: () => (typeof TripChecklist !== 'undefined' ? TripChecklist.moreDesc() : 'eSIM, ביטוח, אישורים, הזמנות מראש ואריזה') },
     { id: 'budget-btn', title: 'תקציב', cls: (el) => (el.classList.contains('over') ? 'over' : el.classList.contains('warn') ? 'warn' : ''),
       desc: () => { const l = document.getElementById('budget-label')?.textContent; return l && l !== 'תקציב' ? `${l} מהתקציב כבר מתוכנן` : 'כמה זה עולה — התקרה, ההוצאות והחלוקה'; } },
     { id: 'hotels-btn', title: 'מלונות', desc: 'איפה ישנים — לילות, הזמנות ומחירים' },
