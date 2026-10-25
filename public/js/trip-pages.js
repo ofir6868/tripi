@@ -229,7 +229,11 @@ const TripPages = (() => {
   // width on top, and the one nearer the itinerary eases a third of the way under it,
   // both in the same direction. Forward, toward the left tabs, the pages move right;
   // back, they move left. The itinerary is the first place and has no page of its own,
-  // so it stays put and the page slides over it or off it.
+  // so its own parts (header, hero, the days, footer) make that layer and move together —
+  // coming back to it is the itinerary easing in, not a page vanishing off a still one.
+  // The bars that float over it (the ask bar, the invite banner) can't ride along: they
+  // sit above every page, so they'd cross the page still on its way out. They wait for
+  // it to clear and fade in.
   //
   // Only between tabs the dock is showing right now: a page opened from "עוד" (or one
   // folded into it, like the budget beside a draft's save pill) has no neighbours to
@@ -241,6 +245,12 @@ const TripPages = (() => {
   const SLIDE = { duration: 340, easing: 'cubic-bezier(.22, .9, .3, 1)', fill: 'both' };
   const slides = new Set();
   let moving = false;
+
+  // the itinerary's layer: whatever of it is on screen
+  const homeLayer = () => [...document.querySelectorAll('body > .site-header, body > .trip-hero, #trip-layout, body > .site-footer')]
+    .filter((el) => getComputedStyle(el).display !== 'none');
+  const homeFloats = () => [...document.querySelectorAll('#ai-ask-bar, .join-banner')]
+    .filter((el) => getComputedStyle(el).display !== 'none');
 
   const pageEl = (name) => (name === 'budget' ? document.getElementById('budget-page') : pages[name]?.el) || null;
 
@@ -299,9 +309,13 @@ const TripPages = (() => {
       const off = 'translateX(-100%)';
       anims.push(top.animate(dir > 0 ? [{ transform: off }, { transform: 'none' }] : [{ transform: 'none' }, { transform: off }], SLIDE));
     }
-    if (under) {
-      const off = 'translateX(30%)';
-      anims.push(under.animate(dir > 0 ? [{ transform: 'none' }, { transform: off }] : [{ transform: off }, { transform: 'none' }], SLIDE));
+    // no page under the top one is the itinerary: its parts move as one layer
+    const underEls = under ? [under] : homeLayer();
+    // in pixels, not percent: a percent is of each part's own width, and the parts would drift apart
+    const off = `translateX(${Math.round(innerWidth * 0.3)}px)`;
+    underEls.forEach((el) => anims.push(el.animate(dir > 0 ? [{ transform: 'none' }, { transform: off }] : [{ transform: off }, { transform: 'none' }], SLIDE)));
+    if (!under && dir < 0) {
+      homeFloats().forEach((el) => anims.push(el.animate([{ opacity: 0 }, { opacity: 0, offset: 0.7 }, { opacity: 1 }], SLIDE)));
     }
     const s = {
       end() {
