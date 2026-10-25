@@ -247,12 +247,14 @@ const isStale = (ts) => !ts || Date.now() - new Date(ts).getTime() > STALE_MS;
 
 // the model's one pick: the destination-specific thing a traveller from Israel must not
 // leave without. Writes the `top` core item; returns true when one now exists.
-async function generateTop(trip, ph) {
+async function generateTop(trip, ph, { force = false } = {}) {
   const meta = await ensureMeta(trip.id);
   const { rows: existing } = await pool.query(
     `SELECT id FROM trip_checklist_items WHERE trip_id = $1 AND key = 'top'`, [trip.id]
   );
-  if (existing.length && meta.top_status === 'ready') return true;
+  // "רענון מה-AI" asks for the pick again too: the trip it was made for may have grown
+  // hotels, dates and a route since
+  if (existing.length && meta.top_status === 'ready' && !force) return true;
   if (meta.top_status === 'pending' && !isStale(meta.requested_at)) return false;
   await pool.query(`UPDATE trip_checklists SET top_status = 'pending', requested_at = now() WHERE trip_id = $1`, [trip.id]);
 
@@ -306,7 +308,7 @@ async function generateList(trip, ph, { force = false } = {}) {
   await ensureCoreItems(trip);
   // the pick first, then the list: the list is told what is already on it, and a pick
   // still in flight was not — the first Japan trip got "book your lodging" twice
-  await generateTop(trip, ph).catch(() => false);
+  await generateTop(trip, ph, { force }).catch(() => false);
   const brief = await tripBrief(trip);
   const { rows: existing } = await pool.query(
     `SELECT title FROM trip_checklist_items WHERE trip_id = $1 AND source <> 'ai'`, [trip.id]
