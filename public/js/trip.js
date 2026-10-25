@@ -1765,6 +1765,7 @@
             items: () => tripItems,
             currentDest: () => currentDest,
             openStop: (id) => TripCalendar.openStop(calCtx, id),
+            dayDate,
             initialDay: liveTripDay(),
           });
         } else {

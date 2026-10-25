@@ -564,6 +564,9 @@ const TripCalendar = (() => {
     const date = ctx.dayDate(it.day_number);
     const cur = TripModals.curOf(ctx.state);
     const hasMap = !!(it.place_query || (it.lat != null && it.lon != null));
+    // a located stop gets the trip map's own tiles and pin (trip-map.js, no third
+    // party iframe); a stop known by name alone still needs Google to find it
+    const miniMap = it.lat != null && it.lon != null && typeof TripMap !== 'undefined' && TripMap.available();
     // in view mode every detail doubles as a shortcut into the field that holds it
     const tap = (field) => ctx.canEdit ? ` data-edit=".se-${field}"` : '';
     const body = wrap.querySelector('.sm-body');
@@ -583,11 +586,14 @@ const TripCalendar = (() => {
       ${it.note ? `<div class="item-note"${tap('note')}>${esc(it.note)}</div>` : ''}
       ${it.place_query ? `<div class="item-more-place"${tap('place')}><span class="imp-pin">📍</span><span class="imp-text">${esc(it.place_query)}</span></div>` : ''}
       ${hoursLineHtml(it)}
-      ${hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPMAKER.mapsEmbedUrlExact(it)}"></iframe>` : ''}
+      ${miniMap ? '<div class="item-mini-map" id="stop-mini-map" role="img" aria-label="מפת התחנה"></div>'
+        : hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPMAKER.mapsEmbedUrlExact(it)}"></iframe>` : ''}
       ${it.place_query || photo ? '<div class="stop-gallery"></div>' : ''}
       ${hasMap ? `<a class="btn btn-ghost sm-maps" target="_blank" rel="noopener"
         href="${esc(TRIPMAKER.mapsSearchUrl(it.place_query || `${it.lat},${it.lon}`, it.google_place_id))}">פתיחה בגוגל מפות ›</a>` : ''}
       ${ctx.canEdit ? `<button type="button" class="btn btn-amber sm-edit">${icPencil}<span>עריכת התחנה</span></button>` : ''}`;
+
+    if (miniMap) TripMap.mini(body.querySelector('#stop-mini-map'), it);
 
     const gal = body.querySelector('.stop-gallery');
     if (gal) {

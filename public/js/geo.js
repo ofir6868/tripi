@@ -114,19 +114,26 @@ const GEO = {
   // driving legs between consecutive points, via the public OSRM server (keyless).
   // The in-flight promise is cached per coordinate chain, so a re-render reuses the
   // same answer (and two racing renders share one request); failures aren't kept.
+  // The answer also carries the road itself — `legs.geometry`, [lat, lon] pairs for
+  // the whole chain — which the trip map draws under its pins: one request serves
+  // the travel rows and the map line, instead of each asking for its own.
   routeCache: new Map(),
   async routeLegs(points) {
+    if (!points || points.length < 2) return [];
     const chain = points.map((p) => `${(+p.lon).toFixed(5)},${(+p.lat).toFixed(5)}`).join(';');
     if (this.routeCache.has(chain)) return this.routeCache.get(chain);
     const promise = (async () => {
-      const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${chain}?overview=false`);
+      const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${chain}?overview=full&geometries=geojson`);
       if (!res.ok) throw new Error('routing unavailable');
-      const legs = (await res.json()).routes?.[0]?.legs;
-      if (!legs) throw new Error('no route');
-      return legs.map((l) => ({
+      const route = (await res.json()).routes?.[0];
+      if (!route || !route.legs) throw new Error('no route');
+      const legs = route.legs.map((l) => ({
         minutes: Math.round(l.duration / 60),
         km: l.distance >= 9500 ? Math.round(l.distance / 1000) : +(l.distance / 1000).toFixed(1),
       }));
+      const coords = route.geometry && route.geometry.coordinates;
+      legs.geometry = Array.isArray(coords) ? coords.map(([lon, lat]) => [lat, lon]) : null;
+      return legs;
     })();
     this.routeCache.set(chain, promise);
     try { return await promise; } catch (err) { this.routeCache.delete(chain); throw err; }

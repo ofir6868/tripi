@@ -184,49 +184,138 @@
   background: rgba(143, 216, 196, .12); color: var(--mint); border-color: rgba(143, 216, 196, .3);
 }
 .trip-side { position: sticky; top: 96px; display: flex; flex-direction: column; gap: 20px; }
-.map-card { overflow: hidden; padding: 0; }
-.map-toolbar {
-  display: flex; flex-direction: column; gap: 10px;
-  padding: 14px 14px 12px;
+/* ---------- the trip map (trip-map.js) ----------
+   Laid out like a map app, not like a card: the tiles fill the canvas, and
+   everything else floats on them in glass — the day strip along the top, the
+   control stack on the left, the destination chip bottom-right, the attribution
+   tucked bottom-left. Under the canvas, the day's stops as a strip of cards.
+   Overlays sit above Leaflet's own stack (its panes end at 700, its controls at
+   1000) — the canvas is a stacking context of its own so none of this leaks out. */
+.map-card { overflow: hidden; padding: 0; display: flex; flex-direction: column; }
+.map-canvas { position: relative; height: 380px; background: #0d1a17; isolation: isolate; }
+.map-card #trip-map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; background: #0d1a17; }
+.map-card #trip-map iframe { width: 100%; height: 100%; border: 0; display: block; filter: saturate(.85) contrast(1.05); }
+.leaflet-container { font-family: inherit; }
+/* the overlays exist only once Leaflet is up (.map-live) — over the iframe
+   fallback the destination chip is the one thing that still makes sense */
+.map-card:not(.map-live) .map-days,
+.map-card:not(.map-live) .map-ctl,
+.map-card:not(.map-live) .map-note,
+.map-card:not(.map-live) .map-layers { display: none; }
+/* street tiles get a gentle grade so they sit inside the dusk palette; the dark
+   canvas is pulled toward the ink green; satellite stays true-colour */
+.map-card:not(.map-photo):not(.map-dark) .leaflet-tile-pane { filter: saturate(.86) contrast(1.04); }
+.map-card.map-dark .leaflet-tile-pane { filter: sepia(.35) hue-rotate(105deg) saturate(.55) brightness(.92); }
+.map-card .leaflet-control-attribution {
+  margin: 0; padding: 2px 8px; border-radius: 0 9px 0 0;
+  background: rgba(10, 21, 18, .6) !important; color: var(--paper-dim) !important;
+  font-family: var(--font-body); font-size: 10px; line-height: 1.5; direction: ltr;
 }
+.map-card .leaflet-control-attribution a { color: var(--amber) !important; text-decoration: none; }
+
+/* the day strip: one glass rail across the top, a segmented control inside it */
 .map-days {
-  display: flex; gap: 8px; padding: 2px; overflow-x: auto;
-  scrollbar-width: none;
+  position: absolute; top: 10px; inset-inline: 10px; z-index: 1100;
+  display: flex; gap: 4px; padding: 4px; overflow-x: auto; scrollbar-width: none;
+  border-radius: 999px; border: 1px solid var(--glass-border);
+  background: rgba(10, 21, 18, .66);
+  -webkit-backdrop-filter: blur(14px) saturate(140%); backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
 }
 .map-days::-webkit-scrollbar { display: none; }
-.map-days .day-tab { flex: none; padding: 8px 16px; }
-.map-days .day-tab.no-pins { opacity: .55; }
-.map-styles {
-  display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; flex: none;
-  border-radius: 999px;
-  background: rgba(10, 21, 18, .4); border: 1px solid var(--glass-border);
+.map-days[hidden] { display: none; }
+.map-day {
+  flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 32px; padding: 3px 13px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--paper-dim); cursor: pointer;
+  font-family: var(--font-body); font-size: .82rem; font-weight: 700; line-height: 1.1;
+  transition: background-color .18s ease, color .18s ease;
 }
-.map-styles[hidden] { display: none !important; }
-.map-style-btn {
-  flex: none; padding: 7px 13px; border: 0; border-radius: 999px;
-  background-color: transparent; color: #fff;
-  font-family: var(--font-body); font-size: .82rem; font-weight: 700;
-  cursor: pointer; transition: background-color .18s ease;
+.map-day .md-sub { font-size: .62rem; font-weight: 600; opacity: .7; margin-top: 2px; }
+.map-day:hover { background: var(--glass-strong); color: var(--paper); }
+.map-day.active, .map-day.active:hover { background: var(--amber); color: #241302; }
+.map-day.active .md-sub { opacity: .85; }
+.map-day.no-pins:not(.active) { opacity: .5; }
+.map-day:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+
+/* the control stack: full screen · zoom · fit + my location · style */
+.map-ctl { position: absolute; top: 58px; left: 10px; z-index: 1100; display: flex; flex-direction: column; gap: 8px; }
+.map-days[hidden] ~ .map-ctl, .map-days[hidden] ~ .map-layers { top: 10px; }
+.map-btn {
+  width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center;
+  border: 1px solid var(--glass-border); color: var(--paper); cursor: pointer;
+  background: rgba(10, 21, 18, .72);
+  -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .28);
+  transition: background-color .15s ease, color .15s ease, transform .15s ease;
 }
-.map-style-btn:hover { color: #fff; background-color: var(--glass-strong); }
-.map-canvas {
-  margin: 0 12px; border-radius: 16px; overflow: hidden;
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04);
+.map-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.map-btn:hover { background: rgba(10, 21, 18, .92); color: #fff; }
+.map-btn:active { transform: scale(.94); }
+.map-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.map-btn.on { background: var(--mint); color: #0a1512; border-color: transparent; }
+.map-btn.busy svg { animation: map-spin 1s linear infinite; }
+.map-btn-group {
+  display: flex; flex-direction: column; border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--glass-border); box-shadow: 0 6px 18px rgba(0, 0, 0, .28);
 }
-.map-caption-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 10px 14px 12px;
+.map-btn-group .map-btn { border: 0; border-radius: 0; box-shadow: none; }
+.map-btn-group .map-btn + .map-btn { border-top: 1px solid var(--glass-border); }
+/* fingers pinch; the +/− pair is for mice */
+@media (pointer: coarse) { .map-zoom { display: none; } }
+
+/* the style picker: a 2×2 of real tiles of this trip's streets, one per style */
+.map-layers {
+  position: absolute; top: 58px; left: 54px; z-index: 1200;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 6px;
+  border-radius: 16px; border: 1px solid var(--glass-border);
+  background: rgba(10, 21, 18, .88);
+  -webkit-backdrop-filter: blur(16px) saturate(140%); backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: var(--shadow-soft);
 }
-.map-card .map-caption {
-  min-width: 0; flex: 1;
-  font-size: .88rem; color: var(--paper-dim);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.map-layers[hidden] { display: none; }
+.map-layer {
+  display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 6px 6px 7px;
+  border-radius: 12px; border: 1px solid transparent; background: transparent;
+  color: var(--paper-dim); cursor: pointer; font-family: var(--font-body); font-size: .74rem; font-weight: 700;
+  transition: background-color .15s ease, color .15s ease, border-color .15s ease;
 }
+.map-layer .ml-thumb {
+  position: relative; width: 68px; height: 48px; border-radius: 9px; overflow: hidden;
+  background: #16302a; border: 1px solid var(--glass-border);
+}
+.map-layer .ml-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.map-layer:hover { background: var(--glass-strong); color: var(--paper); }
+.map-layer.active { border-color: rgba(255, 180, 95, .55); background: rgba(255, 180, 95, .1); color: var(--paper); }
+.map-layer.active .ml-thumb { box-shadow: 0 0 0 2px var(--amber); border-color: transparent; }
+.map-layer:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+
+/* a line over the map: a day with nothing to pin, a locate error */
+.map-note {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 1100;
+  max-width: calc(100% - 110px); padding: 9px 14px; border-radius: 12px;
+  border: 1px solid var(--glass-border); background: rgba(10, 21, 18, .84);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  color: var(--paper); font-size: .84rem; font-weight: 600; line-height: 1.4; text-align: center;
+  pointer-events: none;
+}
+.map-note[hidden] { display: none; }
+
+/* the destination, bottom-right (trip.js writes it) */
+.map-caption {
+  position: absolute; right: 10px; bottom: 10px; z-index: 1100;
+  max-width: calc(100% - 130px); padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--glass-border); background: rgba(10, 21, 18, .72);
+  -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
+  color: var(--paper); font-size: .8rem; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+}
+.map-caption:empty { display: none; }
+
 /* numbered stop pins (divIcon — no image assets): a teardrop marker in the
-   brand gradient, a white ring for contrast against any basemap, and a soft
-   pulse that draws the eye without ever looping into an animation loop */
-.map-pin-wrap { background: none; border: none; }
+   brand gradient with a white ring for contrast against any basemap. The pulse
+   ring is for the selected pin only — one thing moves on the map, not six. */
+.map-pin-wrap { background: none; border: none; outline: none; }
 .map-pin {
   position: relative;
   display: flex; align-items: center; justify-content: center;
@@ -236,28 +325,137 @@
   border: 3px solid #fff;
   box-shadow: 0 3px 10px rgba(0, 0, 0, .5), 0 0 0 1px rgba(0, 0, 0, .15);
   cursor: pointer;
-  transition: transform .16s ease, box-shadow .16s ease;
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
 }
-.map-pin-wrap:hover .map-pin, .map-pin-wrap:focus-visible .map-pin {
+.map-pin-wrap:hover .map-pin, .map-pin-wrap:focus-visible .map-pin, .map-pin-wrap.is-active .map-pin {
   transform: rotate(-45deg) scale(1.14);
   box-shadow: 0 5px 16px rgba(0, 0, 0, .55), 0 0 0 1px rgba(0, 0, 0, .15);
 }
+.map-pin-wrap.is-active .map-pin {
+  border-color: var(--mint);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, .55), 0 0 0 3px rgba(143, 216, 196, .35);
+}
+.map-pin-wrap:focus-visible .map-pin { outline: 2px solid var(--mint); outline-offset: 2px; }
 .map-pin-num {
   transform: rotate(45deg);
   color: #241302; font-weight: 800; font-size: .84rem;
   font-variant-numeric: tabular-nums; line-height: 1;
 }
+.map-pin-emoji .map-pin-num { font-size: .95rem; }
 .map-pin-ring {
-  position: absolute; inset: -7px; border-radius: 50%;
-  border: 2px solid rgba(255, 180, 95, .55);
-  animation: map-pin-pulse 2.2s ease-out infinite;
+  display: none; position: absolute; inset: -7px; border-radius: 50%;
+  border: 2px solid rgba(143, 216, 196, .7);
+  animation: map-pin-pulse 1.8s ease-out infinite;
 }
-.map-pin-wrap:nth-child(even) .map-pin-ring { animation-delay: .5s; }
+.map-pin-wrap.is-active .map-pin-ring { display: block; }
+/* the traveller: a mint dot with a breathing halo (the accuracy circle is a layer) */
+.map-you-wrap { background: none; border: none; }
+.map-you {
+  position: relative; display: block; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--mint); border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .45);
+}
+.map-you::after {
+  content: ''; position: absolute; inset: -8px; border-radius: 50%;
+  border: 2px solid rgba(143, 216, 196, .6); animation: map-pin-pulse 2s ease-out infinite;
+}
+/* the pin's hover label: number · hour · name. Leaflet places a tooltip by
+   translating it from its static position, and gives it no left/top of its own —
+   on an RTL page that static position is the pane's right edge, so every label
+   landed a full width to the left of its pin. Pinning it to 0,0 is what Leaflet
+   assumes anyway (its markers get the same in leaflet.css). */
+.leaflet-container .leaflet-tooltip { left: 0; top: 0; }
+.leaflet-tooltip.map-tip {
+  display: flex; align-items: center; gap: 6px; direction: rtl;
+  padding: 5px 9px; border-radius: 10px; border: 1px solid var(--glass-border);
+  background: rgba(10, 21, 18, .92); color: var(--paper);
+  font-family: var(--font-body); font-size: .8rem; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .35);
+}
+.leaflet-tooltip-top.map-tip::before { border-top-color: rgba(10, 21, 18, .92); }
+.map-tip .mt-num {
+  display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px;
+  border-radius: 999px; background: var(--amber); color: #241302; font-size: .7rem; font-weight: 800;
+}
+.map-tip .mt-time { color: var(--mint); font-variant-numeric: tabular-nums; direction: ltr; }
 /* the walking-order line: a soft glow trace under a marching-dash top line */
 .route-line-glow { filter: blur(1.5px); }
-.route-line { animation: route-line-march 1.1s linear infinite; }@media (prefers-reduced-motion: reduce) {
-  .map-pin-ring { animation: none; opacity: 0; }
+.route-line { animation: route-line-march 1.1s linear infinite; }
+
+/* the stop strip under the canvas: number · hour · name, the road between cards.
+   A card selects its pin; a second tap opens the stop. In RTL the first stop sits
+   on the right, so the row reads in walking order. */
+.map-strip {
+  display: flex; align-items: stretch; gap: 6px; padding: 10px 12px 12px;
+  overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none;
+  border-top: 1px solid var(--glass-border);
+}
+.map-strip::-webkit-scrollbar { display: none; }
+.map-strip[hidden] { display: none; }
+.map-stop {
+  flex: none; scroll-snap-align: start; width: 170px;
+  display: flex; align-items: center; gap: 9px; padding: 7px 9px;
+  border-radius: 13px; border: 1px solid var(--glass-border); background: var(--glass);
+  color: var(--paper); text-align: start; cursor: pointer; font-family: var(--font-body);
+  transition: border-color .15s ease, background-color .15s ease;
+}
+.map-stop:hover { background: var(--glass-strong); }
+.map-stop.active { border-color: rgba(255, 180, 95, .6); background: rgba(255, 180, 95, .1); }
+.map-stop.unplaced { opacity: .6; }
+.map-stop:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+.ms-num {
+  flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  background: linear-gradient(135deg, #ffcb7d, var(--amber) 55%, var(--amber-deep));
+  color: #241302; font-weight: 800; font-size: .74rem; font-variant-numeric: tabular-nums;
+}
+.map-stop.unplaced .ms-num { background: var(--glass-strong); color: var(--paper-dim); }
+.ms-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.ms-top { display: flex; align-items: center; gap: 6px; font-size: .72rem; line-height: 1.2; }
+.ms-time { color: var(--mint); font-weight: 700; font-variant-numeric: tabular-nums; direction: ltr; }
+.ms-cat { font-size: .8rem; }
+.ms-title { font-size: .8rem; font-weight: 700; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.map-leg {
+  flex: none; align-self: center; display: flex; align-items: center; gap: 4px;
+  color: var(--paper-dim); font-size: .68rem; font-weight: 700; white-space: nowrap;
+}
+.map-leg .ml-dot { width: 14px; height: 2px; border-radius: 2px; background: rgba(255, 180, 95, .45); }
+.map-leg.known { padding: 3px 7px; border-radius: 999px; background: rgba(255, 180, 95, .08); border: 1px dashed rgba(255, 180, 95, .4); }
+.map-leg svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* full screen: the card takes the viewport, the strip rides its bottom edge.
+   Below the stop sheet (350) and above the header and the dock (≤120). The
+   sidebar is sticky, which makes it a stacking context of its own — so it has to
+   be lifted too (trip-map.js sets .has-map-full), or the header paints over the map. */
+.trip-side.has-map-full { z-index: 300; }
+.map-card.map-full {
+  position: fixed; inset: 0; z-index: 300; margin: 0;
+  border-radius: 0; border: 0; background: var(--ink);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.map-card.map-full .map-canvas { flex: 1; height: auto; min-height: 0; }
+.map-card.map-full .map-days { top: calc(10px + env(safe-area-inset-top)); inset-inline: calc(10px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-left)); }
+.map-card.map-full .map-ctl { top: calc(58px + env(safe-area-inset-top)); left: calc(10px + env(safe-area-inset-left)); }
+.map-card.map-full .map-layers { top: calc(58px + env(safe-area-inset-top)); left: calc(54px + env(safe-area-inset-left)); }
+.map-card.map-full .map-days[hidden] ~ .map-ctl, .map-card.map-full .map-days[hidden] ~ .map-layers { top: calc(10px + env(safe-area-inset-top)); }
+.map-card.map-full .map-caption { right: calc(10px + env(safe-area-inset-right)); }
+.map-card.map-full .map-strip { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+.map-card.map-full .map-stop { width: 210px; }
+html.map-full-open, html.map-full-open body { overflow: hidden; }
+
+/* the stop sheet's map (TripMap.mini): the same tiles and pin, no controls */
+.item-mini-map.leaflet-container { filter: none; background: #0d1a17; overflow: hidden; }
+.item-mini-map.map-photo-off .leaflet-tile-pane { filter: saturate(.86) contrast(1.04); }
+.item-mini-map .leaflet-control-attribution {
+  margin: 0; padding: 2px 8px; border-radius: 0 9px 0 0;
+  background: rgba(10, 21, 18, .6) !important; color: var(--paper-dim) !important;
+  font-family: var(--font-body); font-size: 10px; line-height: 1.5; direction: ltr;
+}
+.item-mini-map .leaflet-control-attribution a { color: var(--amber) !important; text-decoration: none; }
+.item-mini-map .map-pin { cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  .map-pin-ring, .map-you::after { animation: none; opacity: 0; }
   .route-line { animation: none; }
+  .map-btn.busy svg { animation: none; }
 }
 
 .copy-feedback { color: var(--mint); font-size: .85rem; min-height: 1.3em; margin-top: 8px; }
@@ -772,11 +970,9 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
   .day-weather { margin-inline-start: 0; }
   .timeline { padding-right: 20px; }
   .item-mini-map { height: 180px; }
-  .map-toolbar { padding: 12px 12px 10px; gap: 8px; }
-  .map-caption-row { padding: 10px 12px 12px; gap: 8px; }
-  .map-canvas { margin: 0 10px; border-radius: 14px; }
-  .map-days { gap: 8px; }
-  .map-days .day-tab { padding: 8px 14px; }
+  .map-canvas { height: 320px; }
+  .map-strip { padding: 8px 10px 10px; }
+  .map-stop { width: 160px; }
 }
 @media (max-width: 640px) {
   .weather-row { overflow-x: auto; }
@@ -2647,6 +2843,7 @@ body.budget-open { overflow: hidden; }
   70%, 100% { transform: scale(1.35); opacity: 0; }
 }
 @keyframes route-line-march { to { stroke-dashoffset: -22; } }
+@keyframes map-spin { to { transform: rotate(360deg); } }
 @keyframes breathe-a { from { opacity: 1; } to { opacity: .25; } }
 @keyframes breathe-b { from { opacity: 0; } to { opacity: 1; } }
 @keyframes orb-float {

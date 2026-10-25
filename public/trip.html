@@ -294,19 +294,33 @@
         <div class="weather-sub" id="weather-sub" hidden></div>
         <div class="weather-row" id="weather-row"></div>
       </div>
-      <div class="map-card glass">
-        <!-- day chips + style switcher + Leaflet canvas; trip.js swaps in a
-             Google embed iframe when Leaflet is unavailable (stale SW cache) -->
-        <div class="map-toolbar">
-          <div class="map-days" id="map-days" style="display:none"></div>
-        </div>
+      <!-- the trip map (trip-map.js): tiles edge to edge, and everything else floating
+           on them in glass — the day strip on top, the control stack on the left, the
+           destination chip bottom-right — then the day's stops as a strip of cards under
+           the canvas. The overlays stay hidden (CSS, .map-live) until Leaflet is up:
+           trip.js swaps a Google embed iframe into #trip-map when Leaflet is unavailable
+           (stale SW cache) or when nothing in the trip has coordinates yet. -->
+      <div class="map-card glass" aria-label="מפת הטיול">
         <div class="map-canvas">
           <div id="trip-map"></div>
-        </div>
-        <div class="map-caption-row">
+          <div class="map-days" id="map-days" role="group" aria-label="יום במפה" hidden></div>
+          <div class="map-ctl" role="group" aria-label="פקדי מפה">
+            <button type="button" class="map-btn" id="map-btn-full" title="מסך מלא" aria-label="מסך מלא"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+            <div class="map-btn-group map-zoom">
+              <button type="button" class="map-btn" id="map-btn-in" title="הגדלה" aria-label="הגדלה"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+              <button type="button" class="map-btn" id="map-btn-out" title="הקטנה" aria-label="הקטנה"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+            </div>
+            <div class="map-btn-group">
+              <button type="button" class="map-btn" id="map-btn-fit" title="מרכוז על תחנות היום" aria-label="מרכוז על תחנות היום"><svg viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+              <button type="button" class="map-btn" id="map-btn-locate" title="המיקום שלי" aria-label="המיקום שלי" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+            </div>
+            <button type="button" class="map-btn" id="map-btn-layers" title="סגנון המפה" aria-label="סגנון המפה" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></svg></button>
+          </div>
+          <div class="map-layers" id="map-layers" role="menu" aria-label="סגנון המפה" hidden></div>
+          <div class="map-note" id="map-note" role="status" hidden></div>
           <div class="map-caption" id="map-caption"></div>
-          <div class="map-styles" id="map-styles" hidden></div>
         </div>
+        <div class="map-strip" id="map-strip" aria-label="תחנות היום במפה" hidden></div>
       </div>
       <div id="nudge-slot"></div>
     </aside>
