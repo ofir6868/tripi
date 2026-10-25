@@ -303,6 +303,14 @@ const TripCalendar = (() => {
     body.querySelectorAll('.cal-wday-head').forEach((b) => {
       b.onclick = () => { view.mode = 'day'; view.anchor = +b.dataset.day; render(lastContainer, ctx); };
     });
+    slideIn(body);
+    attachSwipe(body, (step) => {
+      const next = w + step;
+      if (next < 1 || next > weeks) return;
+      view.anchor = (next - 1) * 7 + 1;
+      view.swiped = step;
+      render(lastContainer, ctx);
+    });
     TripHours.apply(body, ctx.state.trip.share_code);
     body.querySelectorAll('.cal-wevt').forEach((b) => {
       b.onclick = () => openStop(ctx, +b.dataset.item);
@@ -320,6 +328,47 @@ const TripCalendar = (() => {
       moveToDay: ctx.moveItemToDay,
       deleteStop: (id) => ctx.deleteItem(ctx.state.items.find((x) => x.id === id)),
       rerender: () => render(lastContainer, lastCtx),
+    });
+  }
+
+  // ---------- swipe: a trip is a run of days, and a thumb moves along it ----------
+  //
+  // On phones people swiped across the trip page again and again and nothing happened —
+  // 123 dead swipes from 7 people in one September week, nearly all on /trip. The day and
+  // week views now follow the thumb. RTL: the next day sits to the LEFT (the strip counts
+  // right to left), so a finger moving right pulls it in. A slow or long touch is not a
+  // swipe — that is the long-press that picks a stop up to drag it (trip-arrange.js), and
+  // the day strip and the photo strips scroll sideways on their own, so a swipe starting
+  // there is theirs.
+  const SWIPE_MIN_PX = 60;
+  const SWIPE_MAX_MS = 600;
+  function attachSwipe(el, onSwipe) {
+    if (!phoneMq.matches) return;
+    let x0 = 0, y0 = 0, t0 = 0, tracking = false;
+    el.addEventListener('touchstart', (e) => {
+      tracking = e.touches.length === 1
+        && !e.target.closest('.cal-day-strip, .rec-strip, .night-card, input, textarea, select');
+      if (!tracking) return;
+      x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
+    }, { passive: true });
+    el.addEventListener('touchcancel', () => { tracking = false; }, { passive: true });
+    el.addEventListener('touchend', (e) => {
+      if (!tracking) return;
+      tracking = false;
+      if (document.body.classList.contains('dragging') || document.body.classList.contains('arrange-mode')) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - x0, dy = t.clientY - y0;
+      if (Date.now() - t0 > SWIPE_MAX_MS || Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.6) return;
+      onSwipe(dx > 0 ? 1 : -1);
+    }, { passive: true });
+  }
+  // the view that a swipe landed on slides in from the side it came from
+  function slideIn(body) {
+    const dir = view.swiped;
+    view.swiped = 0;
+    if (!dir) return;
+    body.querySelectorAll('.cal-day-head, .cal-day-list, .cal-week').forEach((el) => {
+      el.classList.add(dir > 0 ? 'cal-slide-next' : 'cal-slide-prev');
     });
   }
 
@@ -375,6 +424,14 @@ const TripCalendar = (() => {
     body.querySelector('.cds-btn.active')?.scrollIntoView({ block: 'nearest', inline: 'center' });
     body.querySelectorAll('.cds-btn').forEach((b) => {
       b.onclick = () => { view.anchor = +b.dataset.day; render(lastContainer, ctx); };
+    });
+    slideIn(body);
+    attachSwipe(body, (step) => {
+      const next = d + step;
+      if (next < 1 || next > trip.days) return;
+      view.anchor = next;
+      view.swiped = step;
+      render(lastContainer, ctx);
     });
     // the closed-door marks, over the day's stops (public/js/trip-hours.js)
     TripHours.apply(body, ctx.state.trip.share_code);
