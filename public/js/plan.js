@@ -566,6 +566,10 @@
     userTouched = true; // continuing a draft counts as an active session
   }
 
+  // a trip already being planned on the server, offered before a second one is started
+  // here — most second drafts were the first one, forgotten (public/js/draft-nudge.js)
+  DraftNudge.offer(document.querySelector('.wizard-progress'), { via: 'wizard', place: 'beforebegin', lead: (d) => `כבר יש לכם טיול בתכנון: ${d.title}` });
+
   (function offerDraft() {
     let draft = null;
     try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { /* corrupt */ }
