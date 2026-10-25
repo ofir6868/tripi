@@ -318,7 +318,7 @@ async function generateList(trip, ph, { force = false } = {}) {
 מבנה: 6–9 סעיפים, בסך הכול 30–45 פריטים. סעיפים מקובלים: מסמכים ואישורים, כסף ותשלומים, בריאות, הזמנות מראש, תחבורה ביעד, אריזה, אלקטרוניקה, יום לפני היציאה, ביום הטיסה — אבל כל סעיף חייב להרוויח את מקומו בטיול **הזה**: סעיף "הזמנות מראש" מונה את התחנות שבמסלול שבאמת נגמרות (מוזיאונים עם כרטיסים מתוארכים, מסעדות מבוקשות, רכבות), סעיף "אריזה" מתאים לעונה ולסוג הפעילות (טרקים, שנורקלינג, חורף), ו"בריאות" כולל חיסונים/תרופות רק כשהיעד דורש.
 לכל פריט:
 - title קצר ומעשי (עד 10 מילים), note אופציונלי — פרט שחוסך טעות (איפה, כמה, למה), עד 20 מילים, או null.
-- scope: "shared" כשמישהו אחד עושה את זה בשם כולם (לשכור רכב, להזמין שולחן, להדפיס את ההזמנות); "personal" כשכל מטייל צריך את שלו (דרכון, תרופות, מטען).
+- scope: "shared" = נעשה פעם אחת לטיול, בשם כולם — כל הזמנה (לינה, רכבות, כרטיסים מתוארכים, שולחן), השכרת רכב, הדפסת אישורים, קניית מזומן לכולם; "personal" = כל מטייל צריך את שלו (דרכון, תרופות, מטען, ביגוד). זה נכון גם למטייל יחיד: ההבדל הוא אם המשימה נעשית פעם אחת לטיול או לכל אדם. בכל רשימה חייבים להיות לפחות 6 פריטי shared.
 - tags מהרשימה: buy = פריט פיזי שרוכשים לפני הטיול (מתאם, מטען נייד, מזומן, תרופות, ביגוד שחסר); online = פעולה שעושים ברשת (רישום, הזמנה, הורדה, השוואת מחירים); book = להזמין מראש כי נגמר; print = להדפיס; pack = נכנס למזוודה; ask = שאלה פתוחה שצריך לברר; urgent = חייב להיסגר השבוע. 0–3 תגיות, ובלי "later". תגית רק כשהיא מדויקת — "לארוז גרביים" הוא pack בלבד, לא online.
 - due_days: כמה ימים לפני היציאה זה צריך להיות גמור (60/30/14/7/3/1/0), או null אם לא משנה. כשהיציאה קרובה (ראו "עוד X ימים"), due_days לא יכול לעלות על X.
 - priority: 2 = מפספסים את זה ואין טיול; 1 = חשוב; 0 = נחמד.
@@ -345,9 +345,14 @@ async function generateList(trip, ph, { force = false } = {}) {
       const title = str(it.title, 120);
       if (!title || seen.has(title)) continue;
       seen.add(title);
+      // the rule the model is given above, kept in code too: a booking or a printout is
+      // made once for the trip, whatever scope it came back with — on 2026-10-25 a
+      // rebuild marked all 39 items personal and the משותף tab stood empty
+      const tags = cleanTags(it.tags).filter((t) => t !== 'later');
+      const scope = tags.includes('book') || tags.includes('print') ? 'shared' : cleanScope(it.scope);
       cleaned.push({
-        section: emoji ? `${emoji} ${name}` : name, title, note: strOrNull(it.note, 300), scope: cleanScope(it.scope),
-        tags: cleanTags(it.tags).filter((t) => t !== 'later'), due_days: cleanDue(it.due_days),
+        section: emoji ? `${emoji} ${name}` : name, title, note: strOrNull(it.note, 300), scope,
+        tags, due_days: cleanDue(it.due_days),
         priority: cleanPriority(it.priority), search: strOrNull(it.search, 160), sort: sort++,
       });
       if (cleaned.length >= MAX_ITEMS) break;
