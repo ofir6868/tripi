@@ -1132,19 +1132,30 @@
       if (message) (page === 'plan' ? TripPlan : TripRecs).say(message);
     }
     // ---- the ask bar: on a phone, the agent is one line away at the bottom of the
-    // trip, above the dock. Its placeholder types out the things people come here to
-    // say — an edit, a recommendation — one after another, so it reads as an invitation
-    // rather than an empty field. Sending hands the line to the chat (already in
-    // automatic mode) as a turn that has just gone out.
+    // trip, above the dock. It starts folded — one small pill at the same spot, so the
+    // itinerary is what the screen is about — and a tap opens the bar in place, where
+    // its placeholder types out the things people come here to say — an edit, a
+    // recommendation — one after another, so it reads as an invitation rather than an
+    // empty field. A tap elsewhere with nothing typed folds it back. Sending hands the
+    // line to the chat as a turn that has just gone out.
     if (canEditHeaders) {
+      const askCta = document.createElement('button');
+      askCta.type = 'button';
+      askCta.className = 'ai-ask-cta';
+      askCta.id = 'ai-ask-cta';
+      askCta.setAttribute('aria-expanded', 'false');
+      askCta.setAttribute('aria-controls', 'ai-ask-bar');
+      askCta.innerHTML = '<span class="aab-spark" aria-hidden="true">✨</span><span>לשאול את ה-AI</span>';
       const askBar = document.createElement('form');
       askBar.className = 'ai-ask-bar';
       askBar.id = 'ai-ask-bar';
+      askBar.hidden = true;
       askBar.setAttribute('aria-label', 'שאלה או בקשה לסוכן החכם');
       askBar.innerHTML = `
         <span class="aab-spark" aria-hidden="true">✨</span>
         <input type="text" id="ai-ask-input" maxlength="400" autocomplete="off" enterkeyhint="send" aria-label="מה לשנות או להמליץ?">
         <button type="submit" class="chat-send" aria-label="שליחה לסוכן החכם">${TripRecs.ICON.send}</button>`;
+      document.body.appendChild(askCta);
       document.body.appendChild(askBar);
       const askInput = askBar.querySelector('input');
       const dest = tripDests[0]?.name || trip.destination || 'האזור';
@@ -1157,7 +1168,25 @@
         'תזיז את השוק לבוקר',
         'טבע ונופים באזור',
         'תחליף את יום 3 במשהו רגוע יותר',
-      ], () => matchMedia('(max-width: 640px)').matches && !document.body.classList.contains('page-open'));
+      ], () => matchMedia('(max-width: 640px)').matches && !document.body.classList.contains('page-open') && !askBar.hidden);
+      const openAsk = () => {
+        askBar.hidden = false;
+        askCta.hidden = true;
+        askCta.setAttribute('aria-expanded', 'true');
+        askInput.focus();
+        typer.resume();
+      };
+      // folds only when nothing would be lost
+      const foldAsk = (force = false) => {
+        if (askBar.hidden || (!force && askInput.value.trim())) return;
+        askInput.blur();
+        askBar.hidden = true;
+        askCta.hidden = false;
+        askCta.setAttribute('aria-expanded', 'false');
+      };
+      askCta.onclick = openAsk;
+      document.addEventListener('click', (e) => { if (!e.target.closest('#ai-ask-bar, #ai-ask-cta')) foldAsk(); });
+      askInput.addEventListener('keydown', (e) => { if (e.key === 'Escape') { askInput.value = ''; foldAsk(); } });
       let sending = false;
       askBar.onsubmit = async (e) => {
         e.preventDefault();
@@ -1167,7 +1196,7 @@
         askInput.blur();
         try { await openAgent(text || null, 'ask-bar'); } finally { sending = false; }
         askInput.value = '';
-        typer.resume();
+        foldAsk(true); // the line went to the chat; coming back, the itinerary is clear again
       };
       // the bar is the trip's, not the chat's: it steps aside while a page or the
       // budget is open, and the animation stops with it
