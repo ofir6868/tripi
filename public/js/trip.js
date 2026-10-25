@@ -1169,20 +1169,48 @@
         'טבע ונופים באזור',
         'תחליף את יום 3 במשהו רגוע יותר',
       ], () => matchMedia('(max-width: 640px)').matches && !document.body.classList.contains('page-open') && !askBar.hidden);
+      // The pill grows into the bar and the bar shrinks back into the pill: the two
+      // wear the same glass, so the bar is simply revealed from the pill's rectangle
+      // outward (a clip-path with the pill's rounding) while its field and button
+      // fade in over it, and the pill fades out underneath. Folding plays it back.
+      const EASE = 'cubic-bezier(.2, .8, .2, 1)';
+      const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+      let morph = null;
+      const pillInset = () => {
+        const p = askCta.getBoundingClientRect();
+        const b = askBar.getBoundingClientRect();
+        return `inset(${p.top - b.top}px ${b.right - p.right}px ${b.bottom - p.bottom}px ${p.left - b.left}px round 999px)`;
+      };
       const openAsk = () => {
-        askBar.hidden = false;
-        askCta.hidden = true;
+        if (!askBar.hidden) { askInput.focus(); return; }
+        if (morph) morph.finish();
         askCta.setAttribute('aria-expanded', 'true');
-        askInput.focus();
+        const animate = !reduceMotion() && typeof askBar.animate === 'function';
+        // the field and button start invisible (the class is on before the bar shows,
+        // so there is nothing to transition from) and fade in once the glass is moving
+        if (animate) askBar.classList.add('is-morphing');
+        askBar.hidden = false;
+        askInput.focus(); // inside the tap, or the phone keeps its keyboard to itself
         typer.resume();
+        if (!animate) { askCta.hidden = true; return; }
+        const from = pillInset();
+        morph = askBar.animate([{ clipPath: from }, { clipPath: 'inset(0 0 0 0 round 999px)' }], { duration: 380, easing: EASE });
+        askCta.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, easing: 'ease', fill: 'forwards' });
+        requestAnimationFrame(() => askBar.classList.remove('is-morphing'));
+        morph.onfinish = () => { morph = null; askCta.hidden = true; };
       };
       // folds only when nothing would be lost
       const foldAsk = (force = false) => {
         if (askBar.hidden || (!force && askInput.value.trim())) return;
+        if (morph) morph.finish();
         askInput.blur();
-        askBar.hidden = true;
-        askCta.hidden = false;
         askCta.setAttribute('aria-expanded', 'false');
+        askCta.hidden = false;
+        if (reduceMotion() || typeof askBar.animate !== 'function') { askBar.hidden = true; return; }
+        askCta.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, delay: 140, easing: 'ease', fill: 'forwards' });
+        askBar.classList.add('is-morphing'); // the field and button fade out as the glass shrinks
+        morph = askBar.animate([{ clipPath: 'inset(0 0 0 0 round 999px)' }, { clipPath: pillInset() }], { duration: 320, easing: 'cubic-bezier(.4, 0, .2, 1)' });
+        morph.onfinish = () => { morph = null; askBar.hidden = true; askBar.classList.remove('is-morphing'); };
       };
       askCta.onclick = openAsk;
       document.addEventListener('click', (e) => { if (!e.target.closest('#ai-ask-bar, #ai-ask-cta')) foldAsk(); });
