@@ -21,7 +21,7 @@
 
 ## סטאק
 
-- Node.js + Express על Vercel (פונקציה אחת, `api/index.js`), PostgreSQL (Render)
+- Node.js + Express על Vercel (פונקציה אחת, `api/index.js`), PostgreSQL (Neon, דרך Vercel)
 - Frontend: HTML/CSS/JS ללא פריימוורק, RTL מלא, עיצוב זכוכית
 - APIs חינמיים ללא מפתח: Open-Meteo (חיזוי מזג אוויר + Geocoding לאוטוקומפליט יעדים בעברית), OSM Overpass (מלונות באזור, עם קאש בצד השרת), Google Maps Embed
 
