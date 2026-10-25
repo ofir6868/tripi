@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v98'; // the redesigned trip map (trip-map, trip-calendar, geo, trip.css) on top of v97
+const VERSION = 'v99'; // neighbouring dock tabs slide into each other (trip-pages, trip-modals, style.css) on top of v98
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first

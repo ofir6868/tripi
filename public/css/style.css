@@ -1402,6 +1402,11 @@ a:focus-visible, button:focus-visible, [role="button"]:focus-visible, [tabindex]
   animation: tpPageIn .22s ease;
 }
 .trip-page[hidden] { display: none; }
+/* sliding between neighbouring dock tabs (trip-pages.js): the page travelling on top
+   casts its edge over the one easing under it, and the one leaving takes no taps */
+.trip-page.tp-sliding { will-change: transform; }
+.trip-page.tp-top { box-shadow: 0 0 48px rgba(0, 0, 0, .55); }
+.trip-page.tp-leaving { pointer-events: none; }
 .tp-tools .btn { padding: 8px 14px; font-size: .88rem; }
 .chat-msg.user { justify-content: flex-end; }
 .chat-msg.ai .chat-bubble { align-self: flex-start; background: var(--glass); border: 1px solid var(--glass-border); border-bottom-right-radius: 6px; }
