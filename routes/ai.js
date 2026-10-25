@@ -23,6 +23,13 @@ const router = express.Router();
 // in e.g. Gemini later is a matter of changing these two env vars, nothing else.
 const AI_MODEL_WEAK = process.env.AI_MODEL_WEAK || 'gpt-4o-mini'; // cheap, fast — the default for most calls
 const AI_MODEL_STRONG = process.env.AI_MODEL_STRONG || 'gpt-4o'; // used where the weak model demonstrably drifts
+// Reasoning models (gpt-5+/gpt-6) think before they answer, and that thinking is paid out
+// of the same max_completion_tokens budget as the JSON. At their default effort a 400-token
+// call spends it all thinking and returns empty content: on 2026-10-22 switching every tier
+// to gpt-6-luna failed builds with "Unexpected end of JSON input" for a day. Set this
+// ("none"/"low") whenever a tier points at a reasoning model; leave it empty for gpt-4o,
+// which rejects the parameter.
+const AI_REASONING_EFFORT = process.env.AI_REASONING_EFFORT || '';
 // from this many days on, a single broad destination is asked which regions to
 // COMBINE (multi-select) rather than which one to focus on
 const COMBINE_REGIONS_FROM_DAYS = 10;
@@ -99,6 +106,7 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
         body: JSON.stringify({
           model,
           max_completion_tokens: maxTokens,
+          ...(AI_REASONING_EFFORT && { reasoning_effort: AI_REASONING_EFFORT }),
           messages,
           response_format: {
             type: 'json_schema',
@@ -113,13 +121,22 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
         return { failed: true };
       }
       const data = await aiRes.json();
-      const content = data.choices[0].message.content;
+      const choice = data.choices[0];
+      const content = choice.message.content;
       aiEvent(started, {
         $ai_http_status: aiRes.status,
         $ai_output_choices: [{ role: 'assistant', content }],
         $ai_input_tokens: data.usage?.prompt_tokens ?? null,
         $ai_output_tokens: data.usage?.completion_tokens ?? null,
       });
+      // a budget that ran out (on thinking or on the answer) is not malformed JSON —
+      // name it, so the log points at maxTokens / AI_REASONING_EFFORT and not the prompt
+      if (!content || choice.finish_reason === 'length') {
+        const reasoning = data.usage?.completion_tokens_details?.reasoning_tokens;
+        console.error(`OpenAI ${schemaName} ran out of tokens`, `model=${model}`, `finish_reason=${choice.finish_reason}`,
+          `max=${maxTokens}`, `reasoning_tokens=${reasoning ?? 'n/a'}`, `content_chars=${content ? content.length : 0}`);
+        return { failed: true };
+      }
       return { value: JSON.parse(content) };
     } catch (err) {
       // a silent null here is hard to tell apart from "the AI had nothing to say" —
