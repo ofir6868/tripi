@@ -248,14 +248,15 @@ const TripPlan = (() => {
   const FILE_TEXT_MAX = 4000;          // chars sent per document (the server keeps 3000)
   const FILE_ENOUGH_LETTERS = 60;      // text this long is a read; shorter means the picture goes too
   const letters = (t) => (String(t || '').match(/[A-Za-z֐-׿0-9]/g) || []).length;
-  const FILE_READ_LABEL = { text: 'נקרא במכשיר', image: 'נשלח כתמונה מוקטנת', none: 'לא נקרא — נשלח השם בלבד' };
   const fileEmoji = (kind) => (kind === 'pdf' ? '📕' : '🖼️');
 
-  // the names under the travellers' bubble — what was sent, and how it was read
+  // the names under the travellers' bubble — what went with that turn. How each was
+  // read (text, a reduced image, the name alone) is the machinery's business, not
+  // theirs: the chat answers either way, and the rest is noise under a bubble.
   function sentFilesHtml(files) {
     if (!Array.isArray(files) || !files.length) return '';
     return `<div class="chat-sent-files">${files.map((f) =>
-      `<span class="csf" title="${esc(FILE_READ_LABEL[f.read] || '')}">${fileEmoji(f.kind)} ${esc(f.name)}</span>`).join('')}</div>`;
+      `<span class="csf">${fileEmoji(f.kind)} ${esc(f.name)}</span>`).join('')}</div>`;
   }
 
   // an image, shrunk for the model: long edge ≤ 1024px as JPEG; smaller again when
@@ -286,8 +287,9 @@ const TripPlan = (() => {
   }
 
   // mounts the + button into `form` and the chips strip above it. `remaining` is how
-  // many documents the day still allows (null: unknown or unlimited).
-  function attachments(form, { max = 3, remaining = null, onChange } = {}) {
+  // many documents the day still allows (null: unknown or unlimited); `stash(file,
+  // text)` is where a read document is also kept — the trip's מסמכים (TripDocs.stash).
+  function attachments(form, { max = 3, remaining = null, onChange, stash = null } = {}) {
     const strip = document.createElement('div');
     strip.className = 'chat-files';
     strip.hidden = true;
@@ -310,16 +312,17 @@ const TripPlan = (() => {
     function paintBtn() {
       btn.classList.toggle('is-spent', left === 0);
       btn.classList.toggle('has-files', items.length > 0);
-      btn.title = left === 0 ? 'ניצלתם את שלושת הקבצים להיום — מחר שוב'
-        : `צירוף כרטיס טיסה, הזמנת מלון או צילום מסך${left != null ? ` — נשארו ${left} להיום` : ' (עד 3 ביום)'}`;
+      btn.title = left === 0 ? 'ניצלתם את שלושת הקבצים להיום — מחר שוב' : 'צירוף כרטיס טיסה, הזמנת מלון או צילום מסך';
       btn.setAttribute('aria-label', btn.title);
     }
     function setRemaining(v) { left = v === undefined ? left : v; paintBtn(); }
 
+    // the chip says the name and, while the device is still reading, that it is;
+    // which rung read it and what goes to the model are not the traveller's concern
     function chipHtml(it) {
       return `<span class="cf-chip is-${it.status}" data-id="${it.id}">
         <span class="cf-ic" aria-hidden="true">${it.image ? `<img src="${it.image}" alt="">` : fileEmoji(it.kind)}</span>
-        <span class="cf-body"><span class="cf-name">${esc(it.name)}</span><small class="cf-note">${esc(it.note || '')}</small></span>
+        <span class="cf-body"><span class="cf-name">${esc(it.name)}</span>${it.status === 'reading' ? '<small class="cf-note">קוראים…</small>' : ''}</span>
         <button type="button" class="cf-x" aria-label="הסרת ${esc(it.name)}">✕</button></span>`;
     }
     function paint() {
@@ -330,16 +333,10 @@ const TripPlan = (() => {
       });
       paintBtn();
     }
-    function note(it, text) {
-      it.note = text;
-      const el = strip.querySelector(`.cf-chip[data-id="${it.id}"] .cf-note`);
-      if (el) el.textContent = text;
-    }
-
     async function read(it) {
       let out = { text: '', via: 'none' };
       try {
-        if (typeof DocText !== 'undefined') out = await DocText.extract(it.file, { onStatus: (msg) => note(it, msg) });
+        if (typeof DocText !== 'undefined') out = await DocText.extract(it.file);
       } catch { /* a document we can't read is sent by name */ }
       if (!items.includes(it)) return; // removed while reading
       it.text = String(out.text || '').slice(0, FILE_TEXT_MAX);
@@ -347,9 +344,11 @@ const TripPlan = (() => {
       if (!enough && it.kind === 'image') it.image = await shrinkImage(it.file);
       if (!items.includes(it)) return;
       it.status = 'ready';
-      it.note = enough ? 'נקרא במכשיר ✓ — הטקסט יישלח, לא הקובץ' : it.image ? 'לא נקרא במכשיר — תישלח תמונה מוקטנת' : 'לא הצלחנו לקרוא — יישלח רק השם';
       paint();
       onChange?.();
+      // kept with the trip's documents too, filed by what was just read — in the
+      // background, and never a reason the turn waits
+      if (stash) stash(it.file, out.text).catch?.(() => {});
     }
 
     function pick(files) {
@@ -359,7 +358,7 @@ const TripPlan = (() => {
         if (f.size > FILE_MAX_BYTES) { TripPages.toast(`${f.name}: גדול מדי (עד 25MB)`); continue; }
         const kind = f.type === 'application/pdf' || /\.pdf$/i.test(f.name) ? 'pdf' : /^image\//.test(f.type) ? 'image' : null;
         if (!kind) { TripPages.toast('אפשר לצרף תמונות וקובצי PDF'); continue; }
-        const it = { id: ++n, file: f, name: f.name, kind, status: 'reading', text: '', image: null, note: 'קוראים במכשיר…' };
+        const it = { id: ++n, file: f, name: f.name, kind, status: 'reading', text: '', image: null };
         items.push(it);
         paint();
         read(it);
@@ -695,6 +694,7 @@ const TripPlan = (() => {
     const form = foot.querySelector('#plan-form');
     // the + : a ticket, a booking, a screenshot — read on the device, sent as text
     const attach = attachments(form, {
+      stash: (file, text) => (typeof TripDocs !== 'undefined' ? TripDocs.stash(ctx, file, text) : Promise.resolve(false)),
       onChange: () => {
         input.placeholder = attach.count() ? 'מה לעשות עם זה? (אפשר גם לשלוח ככה)' : 'כתבו לי מה תרצו…';
         if (!attach.reading()) drainNext(); // a send that waited for the reading goes now

@@ -236,6 +236,8 @@ const TripRecs = (() => {
       // a ticket or a booking handed to the chat — read on the device, sent as text —
       // for someone whose trip it can land on
       attach = ctx.canEdit ? TripPlan.attachments(foot.querySelector('#chat-form'), {
+        // a document handed to the chat is a document of the trip: it lands in מסמכים too
+        stash: (file, text) => (typeof TripDocs !== 'undefined' ? TripDocs.stash(ctx, file, text) : Promise.resolve(false)),
         onChange: () => {
           input.placeholder = attach.count() ? 'מה לעשות עם זה? (אפשר גם לשלוח ככה)' : 'שאלו, או בקשו שינוי בטיול…';
           if (!attach.reading() && nextQ) { const q = nextQ; nextQ = null; send(q); }

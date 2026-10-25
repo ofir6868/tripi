@@ -351,11 +351,32 @@ const TripDocs = (() => {
   }
 
   // how many documents this user keeps for this trip on this device — for the dock badge
+  // A document handed to one of the chats (TripPlan.attachments) is a document of the
+  // trip too, so it lands here as well — in the background, filed by the text the chat
+  // already read on the device (no second OCR), or by its name when there was none.
+  // The same file twice (name and size) is kept once. Nothing here is worth a toast:
+  // the badge on the dock's מסמכים tab is the whole announcement.
+  async function stash(ctx, file, text = '') {
+    const owner = ownerKey(ctx);
+    if (!owner || !file || file.size > MAX_BYTES) return false;
+    try {
+      const have = await list(owner);
+      if (have.some((d) => d.name === file.name && d.size === file.size)) return false;
+      const read = String(text || '').trim();
+      const { folder: fk, tags, via } = read ? DocClassify.classify({ name: file.name, text: read }) : classify(file);
+      const thumb = await makeThumb(file);
+      await add({ owner, name: file.name, type: file.type, size: file.size, addedAt: Date.now(), folder: fk, tags, via: read ? 'content' : via, auto: true, scanned: !!read, blob: file, thumb });
+      try { navigator.storage?.persist?.(); } catch { /* not offered — fine */ }
+      TripPages.badge('docs', await countOf(owner));
+      return true;
+    } catch { return false; }
+  }
+
   async function count(ctx) {
     const owner = ownerKey(ctx);
     if (!owner) return 0;
     try { return await countOf(owner); } catch { return 0; }
   }
 
-  return { render, count, classify };
+  return { render, count, classify, stash };
 })();
