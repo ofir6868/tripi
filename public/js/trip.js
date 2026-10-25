@@ -1766,6 +1766,7 @@
             currentDest: () => currentDest,
             openStop: (id) => TripCalendar.openStop(calCtx, id),
             dayDate,
+            state, canEdit: editMode, // the full-screen stop panel shows the stop's cost, as the sheet does
             initialDay: liveTripDay(),
           });
         } else {
