@@ -155,3 +155,15 @@ button.dest-chip.dc-add:hover {
 @media (pointer: coarse) {
 .ai-prefs textarea { font-size: 16px; }
 }
+
+/* the usual trip lengths, one tap each, under the days stepper */
+.days-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: -4px; }
+.days-preset {
+  padding: 7px 14px; border-radius: 999px; cursor: pointer; font: inherit; font-size: .88rem; font-weight: 700;
+  color: var(--paper-dim); background: var(--glass); border: 1px solid var(--glass-border);
+  transition: color .15s ease, border-color .15s ease, background .15s ease;
+}
+.days-preset:hover { color: var(--paper); }
+.days-preset.active { color: #2a1500; background: linear-gradient(180deg, var(--amber), var(--amber-deep)); border-color: transparent; }
+/* a held step button must not select its own glyph or open the OS menu */
+.step-btn { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }

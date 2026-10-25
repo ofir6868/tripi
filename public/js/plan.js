@@ -262,15 +262,52 @@
     return end;
   }
   function updateEndHint(pending) {
+    paintPresets();
     const end = endDate();
     if (!end) { endHint.textContent = PICK_HINT; return; }
     if (pending) { endHint.textContent = 'ועכשיו את יום החזרה'; return; }
     endHint.textContent = `${daysSel.value} ימים · חוזרים ב-`
       + end.toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' });
   }
-  document.getElementById('days-minus').onclick = () => { daysSel.value = +daysSel.value - 1; clampDays(); };
-  document.getElementById('days-plus').onclick = () => { daysSel.value = +daysSel.value + 1; clampDays(); };
+  // Every outside visitor who rage-clicked in this wizard did it here, in the same way:
+  // landed on this step from the homepage with 4 days, and tapped "+" — a dozen, twenty
+  // times — up to 10 or 16. So the usual lengths are one tap (the presets), holding a
+  // button keeps stepping and speeds up, and tapping the number selects it, so typing
+  // "14" replaces the 4 instead of making it 414.
+  function stepDays(delta) { daysSel.value = +daysSel.value + delta; clampDays(); userTouched = true; scheduleSave(); }
+  function holdToRepeat(btn, delta) {
+    let wait = null, repeat = null, repeated = false;
+    const stop = () => { clearTimeout(wait); clearInterval(repeat); wait = repeat = null; };
+    btn.addEventListener('pointerdown', () => {
+      repeated = false;
+      stop();
+      wait = setTimeout(() => {
+        let n = 0;
+        repeat = setInterval(() => { repeated = true; stepDays(delta); n++; if (n === 8) { clearInterval(repeat); repeat = setInterval(() => stepDays(delta), 45); } }, 110);
+      }, 380);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach((ev) => btn.addEventListener(ev, stop));
+    // the click that ends a hold is not one more step
+    btn.addEventListener('click', () => { if (repeated) { repeated = false; return; } stepDays(delta); });
+    btn.addEventListener('contextmenu', (e) => e.preventDefault()); // a long press is ours, not the OS menu's
+  }
+  holdToRepeat(document.getElementById('days-minus'), -1);
+  holdToRepeat(document.getElementById('days-plus'), 1);
   daysSel.addEventListener('change', clampDays);
+  daysSel.addEventListener('focus', () => daysSel.select());
+  const presets = document.getElementById('days-presets');
+  // looked up on each call: updateEndHint can run before this block has
+  function paintPresets() {
+    document.getElementById('days-presets')?.querySelectorAll('.days-preset').forEach((b) => b.classList.toggle('active', +b.dataset.days === +daysSel.value));
+  }
+  presets?.addEventListener('click', (e) => {
+    const b = e.target.closest('.days-preset');
+    if (!b) return;
+    daysSel.value = b.dataset.days;
+    clampDays();
+    userTouched = true;
+    scheduleSave();
+  });
 
   // ---- draft autosave: leave mid-creation, come back, continue ----
   // v3 covers steps 1-3 only — the itinerary itself lives on the server from the
