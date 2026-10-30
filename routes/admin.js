@@ -56,7 +56,10 @@ router.get('/api/admin/connectors-setup', authRequired, adminRequired, async (re
     apis: ['calendar-json.googleapis.com', 'gmail.googleapis.com', 'drive.googleapis.com'],
     scopes: connectors.SERVICE_KEYS.map((k) => connectors.SERVICES[k].scope),
     links: {
-      enable_apis: `https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com,gmail.googleapis.com,drive.googleapis.com${project ? `&project=${project}` : ''}`,
+      // one library page per API: the multi-API enable flow failed to load on a phone
+      // (2026-10-30), and the library page has a plain Enable button that always does
+      apis: ['calendar-json.googleapis.com', 'gmail.googleapis.com', 'drive.googleapis.com']
+        .map((api) => ({ api, label: api.split('.')[0].replace('calendar-json', 'Calendar').replace('gmail', 'Gmail').replace('drive', 'Drive'), href: `https://console.cloud.google.com/apis/library/${api}${q}` })),
       client: clientId ? `https://console.cloud.google.com/auth/clients/${encodeURIComponent(clientId)}${q}` : `https://console.cloud.google.com/auth/clients${q}`,
       clients: `https://console.cloud.google.com/auth/clients${q}`,
       scopes: `https://console.cloud.google.com/auth/scopes${q}`,

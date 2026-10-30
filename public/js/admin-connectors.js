@@ -33,8 +33,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     <div class="cs-steps">
       <section class="cs-step glass">
         <div class="cs-head"><span class="cs-num">1</span><h2>להדליק את שלושת ה-APIs</h2></div>
-        <p>הקישור פותח את שלושתם יחד${d.project ? ` בפרויקט <b dir="ltr">${esc(d.project)}</b>` : ''}. לוחצים <b>Enable</b> (או Next ואז Enable) — וזהו.</p>
-        ${go(d.links.enable_apis, 'הפעלת Calendar · Gmail · Drive')}
+        <p>שלושה קישורים, כל אחד נפתח על ה-API שלו${d.project ? ` בפרויקט <b dir="ltr">${esc(d.project)}</b>` : ''}. בכל אחד לוחצים <b>Enable</b>. אם כתוב <b>Manage</b> — הוא כבר דלוק.</p>
+        ${d.links.apis.map((a) => go(a.href, `הפעלת ${a.label} API`)).join('')}
       </section>
 
       <section class="cs-step glass">
