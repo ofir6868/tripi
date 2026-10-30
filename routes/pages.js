@@ -83,5 +83,6 @@ router.get('/plan', (_req, res) => sendPage(res, 'plan.html'));
 router.get('/my', (_req, res) => sendPage(res, 'my.html'));
 router.get('/admin', (_req, res) => sendPage(res, 'admin.html'));
 router.get('/admin/google', (_req, res) => sendPage(res, 'admin-google.html'));
+router.get('/admin/connectors', (_req, res) => sendPage(res, 'admin-connectors.html'));
 
 module.exports = router;

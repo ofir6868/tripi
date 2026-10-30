@@ -30,6 +30,43 @@ router.get('/api/announcements/current', authOptional, async (_req, res) => {
   }
 });
 
+// /admin/connectors — what Google Cloud still needs before the AI's connectors (lib/connectors.js)
+// work, with every link pre-filled: the OAuth client's project number is the prefix of the
+// client id, so the console can be opened on the right project without typing it. The
+// values that need pasting (redirect URI, scopes, API ids) are given exactly as the
+// console wants them. Nothing secret leaves here — the client id is public by design.
+router.get('/api/admin/connectors-setup', authRequired, adminRequired, async (req, res) => {
+  const connectors = require('../lib/connectors');
+  const clientId = process.env.GOOGLE_CLIENT_ID || '';
+  const project = (/^(\d+)-/.exec(clientId) || [])[1] || null;
+  const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+  const host = (req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
+  const origin = process.env.CANONICAL_ORIGIN || `${proto}://${host}`;
+  const redirect = process.env.CONNECTORS_REDIRECT_URI || `${origin}/api/connectors/google/callback`;
+  const q = project ? `?project=${project}` : '';
+  const mine = await connectors.statusFor(req.user.id).catch(() => null);
+  // the admin's own address, ready to paste into the console's test users
+  const { rows } = await pool.query('SELECT email FROM users WHERE id = $1', [req.user.id]).catch(() => ({ rows: [] }));
+  res.json({
+    configured: connectors.configured(),
+    client_id: clientId,
+    project,
+    redirect_uri: redirect,
+    login_redirect_uri: process.env.GOOGLE_REDIRECT_URI || `${origin}/api/auth/google/callback`,
+    apis: ['calendar-json.googleapis.com', 'gmail.googleapis.com', 'drive.googleapis.com'],
+    scopes: connectors.SERVICE_KEYS.map((k) => connectors.SERVICES[k].scope),
+    links: {
+      enable_apis: `https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com,gmail.googleapis.com,drive.googleapis.com${project ? `&project=${project}` : ''}`,
+      client: clientId ? `https://console.cloud.google.com/auth/clients/${encodeURIComponent(clientId)}${q}` : `https://console.cloud.google.com/auth/clients${q}`,
+      clients: `https://console.cloud.google.com/auth/clients${q}`,
+      scopes: `https://console.cloud.google.com/auth/scopes${q}`,
+      audience: `https://console.cloud.google.com/auth/audience${q}`,
+    },
+    mine: mine ? { account: mine.account, on: mine.services.filter((s) => s.on).map((s) => s.key) } : null,
+    admin_email: (rows[0] && rows[0].email) || null,
+  });
+});
+
 router.get('/api/admin/announcements', authRequired, adminRequired, async (_req, res) => {
   try {
     const { rows } = await pool.query(
