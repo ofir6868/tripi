@@ -38,6 +38,8 @@ const actions = require('../lib/plan-actions');
 const attachments = require('../lib/attachments');
 const { dailyQuota, exhausted } = require('../lib/quota');
 const ai = require('./ai');
+const aiTools = require('../lib/ai-tools');
+const connectors = require('../lib/connectors');
 const dayRecs = require('./day-recs');
 const COUNTRIES = require('../public/js/countries.js');
 
@@ -376,7 +378,7 @@ function describeOp(op, byId) {
   return { kind: 'update', title: cur ? cur.title : `#${op.id}`, when: cur ? when(op, cur) : '', changes };
 }
 
-function turnPrompt({ trip, items, state, side, history, pendingProposal, stepwise = false }) {
+function turnPrompt({ trip, items, state, side, history, pendingProposal, stepwise = false, services = [] }) {
   const dests = trip.dests;
   const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
   const multiArea = areaNames.length > 1;
@@ -423,7 +425,8 @@ flights: [] בכל שלב שאינו flights, וגם ב-flights ברגע שהכ�
 
 חוקי ops (כמו בעורך המסלולים): add חייב title קצר בעברית, note טיפ פרקטי קצר בעברית, time_label בפורמט HH:MM (או null כשלא ידוע), day_number בין 1 ל-${trip.days}; place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan") ורק למקום אמיתי וספציפי — לתחנה כללית או לטיסה החזירו null; cost הערכה לאדם בש"ח (מספר שלם) או null; category מתוך: ${ai.AI_CATEGORIES.join(', ')}${multiArea ? `; area מתוך: ${areaNames.join(', ')}` : `; area תמיד "${areaNames[0] || trip.destination}"`}. update/delete חייבים id של תחנה קיימת מהמסלול למטה, וב-update null בכל שדה שלא משתנה. אל תיגעו בתחנות שהמטיילים לא ביקשו לשנות. כל מקום ב-ops או ב-cards חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו.
 ${actions.PROMPT_RULES(trip.days)}
-${attachments.PROMPT_RULES}`;
+${attachments.PROMPT_RULES}
+${aiTools.promptRules({ services })}`;
 
   const facts = state.facts.length ? state.facts.map((f) => `- ${f}`).join('\n') : '(עדיין אין)';
   const areasLine = state.areas.length
@@ -489,18 +492,24 @@ function seedFlights(trip, state, modelLegs = null) {
 // `side`: the trip's hotels and budget (lib/plan-actions.js loadSide); `files`: the
 // cleaned attachments of this turn (lib/attachments.js) — their text under the
 // message, their images beside it
-async function planTurn({ trip, items, state, side, history, message, pendingProposal, files = [], ph }) {
+// `services`: the connectors this user switched on, deciding the turn's tools;
+// `progress`: the turn's progress row the chat polls while it waits (lib/ai-tools.js)
+async function planTurn({ trip, items, state, side, history, message, pendingProposal, files = [], services = [], userId = null, progress = null, ph }) {
   const stepwise = multiCountry(trip.dests);
-  const { system, user } = turnPrompt({ trip, items, state, side, history, pendingProposal, stepwise });
+  const { system, user } = turnPrompt({ trip, items, state, side, history, pendingProposal, stepwise, services });
+  const toolCtx = { userId, services };
   const raw = await ai.aiJson({
     system,
     user: user + `\n\nההודעה החדשה של המטיילים:\n${message}` + attachments.promptBlock(files),
     schemaName: 'plan_turn',
     schema: TURN_SCHEMA,
     maxTokens: 3200,
-    timeoutMs: 60000,
+    timeoutMs: 90000,
     model: PLAN_MODEL,
     images: attachments.images(files),
+    tools: aiTools.toolsFor(toolCtx),
+    toolCtx,
+    progress,
     ph,
   });
   if (!raw) return null;
@@ -531,6 +540,8 @@ async function planTurn({ trip, items, state, side, history, message, pendingPro
     actions: actions.cleanActions(raw.actions, trip, side && side.hotels),
     // a turn that writes nothing has nothing to decide; one that does, does as it said
     commit: !!raw.commit,
+    // what it looked up on the way — shown under the answer, kept on the row
+    tools: progress ? progress.summary() : [],
   };
 }
 
@@ -560,6 +571,7 @@ async function recordTurn(client, trip, state, items, turn, waiting, side = null
     suggestions: turn.suggestions,
     cards: turn.cards,
     build: turn.buildNow ? 'once' : null,
+    ...(turn.tools && turn.tools.length ? { tools: turn.tools } : {}),
   };
   // the trip looks settled: one invitation to bring co-planners in, offered once
   if (turn.tripReady && !state.invited && !turn.buildNow) { payload.invite = true; state.invited = true; }
@@ -845,8 +857,10 @@ router.post('/api/trips/code/:code/plan', authRequired, async (req, res) => {
     await client.query('COMMIT');
 
     const side = await actions.loadSide(pool, trip.id);
+    const services = await connectors.enabledFor(req.user.id).catch(() => []);
     const turn = await planTurn({
-      trip, items, state, side, history, message, pendingProposal, files,
+      trip, items, state, side, history, message, pendingProposal, files, services, userId: req.user.id,
+      progress: aiTools.progress(b.turn_id, req.user.id),
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
     if (!turn) return res.status(502).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });

@@ -1,4 +1,4 @@
-// Migrations 2–29, in order. Idempotent — safe to run on every boot, and the server
+// Migrations 2–30, in order. Idempotent — safe to run on every boot, and the server
 // does (lib/db-bootstrap.js), so a replaced database catches up by itself.
 // Usage: DATABASE_URL=postgres://... node db/migrate.js
 require('../lib/env');
@@ -403,6 +403,26 @@ async function migrate(pool, log = console.log) {
       user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       done_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (item_id, user_id)
+    )
+  `);
+
+  log('Migration 30: the AI may read the traveller\'s own Google services, one switch each...');
+  // One row per user and provider (lib/connectors.js): which services are on, the scopes
+  // Google actually granted, and the tokens — encrypted at rest, since a refresh token is
+  // a standing key to someone's mail. Dropping the row is the whole disconnect.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_connectors (
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL,
+      services JSONB NOT NULL DEFAULT '[]',
+      scopes TEXT NOT NULL DEFAULT '',
+      access_token_enc TEXT,
+      refresh_token_enc TEXT,
+      expires_at TIMESTAMPTZ,
+      account_email TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, provider)
     )
   `);
 

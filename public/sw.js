@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v101'; // the chats read documents and change hotels, budget and dates (trip-plan, trip-recs, trip.js, trip.css) on top of v100
+const VERSION = 'v102'; // the AI screen: tools, connectors, import and the new chat look (chat-ui, trip-plan, trip-recs, trip.css) on top of v101
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first
@@ -12,7 +12,7 @@ const STATIC = [
   '/css/style.css', '/css/home.css', '/css/trip.css', '/css/plan.css', '/css/my.css',
   '/css/seo.css', '/css/admin.css',
   '/js/wcag22.js', '/js/common.js', '/js/geo.js', '/js/home.js', '/js/trip.js',
-  '/js/trip-pages.js', '/js/trip-recs.js', '/js/trip-dayrecs.js', '/js/trip-hours.js', '/js/travel-rules.js', '/js/trip-travel.js', '/js/trip-plan.js', '/js/trip-photos.js', '/js/trip-docs.js', '/js/doc-classify.js', '/js/doc-text.js', '/js/checklist-tags.js', '/js/trip-checklist.js',
+  '/js/trip-pages.js', '/js/chat-ui.js', '/js/trip-recs.js', '/js/trip-dayrecs.js', '/js/trip-hours.js', '/js/travel-rules.js', '/js/trip-travel.js', '/js/trip-plan.js', '/js/trip-photos.js', '/js/trip-docs.js', '/js/doc-classify.js', '/js/doc-text.js', '/js/checklist-tags.js', '/js/trip-checklist.js',
   '/js/trip-modals.js', '/js/trip-arrange.js', '/js/trip-calendar.js', '/js/trip-map.js',
   '/js/plan.js', '/js/admin.js', '/js/admin-google.js', '/js/my.js',
   '/js/countries.js', '/js/airports.js', '/js/destinations.js', '/js/popular.js', '/js/datepicker.js', '/js/push.js', '/js/webmcp.js', '/js/webmcp-tools.js',

@@ -18,6 +18,8 @@ const posthog = require('../lib/posthog');
 const { dailyQuota, exhausted } = require('../lib/quota');
 const actions = require('../lib/plan-actions');
 const attachments = require('../lib/attachments');
+const aiTools = require('../lib/ai-tools');
+const connectors = require('../lib/connectors');
 
 const router = express.Router();
 
@@ -75,7 +77,13 @@ const isConnectionError = (err) => err && err.name !== 'AbortError'
 // aborted call (timeout message) from the rest.
 // `images`: reduced copies of documents the travellers attached (lib/attachments.js),
 // sent beside the text at `detail: low` — a fixed, small token cost per image.
-async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_MODEL_WEAK, timeoutMs = 30000, required = false, ph = null, images = [] }) {
+// `tools`: OpenAI function tools (lib/ai-tools.js toolsFor) the model may call before
+// it answers; `toolCtx` is what execute() needs (the user, the connectors on), and
+// `progress` the turn's progress row. The loop below is the only place a tool runs:
+// model → tool calls → results → model, at most MAX_TOOL_ROUNDS times, and then the
+// model is asked to answer with what it has. The final answer is the same strict JSON
+// as ever — tools change what the model knows, never the shape of what it says.
+async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_MODEL_WEAK, timeoutMs = 30000, required = false, ph = null, images = [], tools = null, toolCtx = null, progress = null }) {
   const messages = [
     { role: 'system', content: system },
     images.length
@@ -88,6 +96,7 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
     ? [messages[0], { role: 'user', content: `${user}
 [+${images.length} image(s)]` }]
     : messages;
+  const useTools = Array.isArray(tools) && tools.length > 0;
   // PostHog LLM analytics: one $ai_generation per OpenAI call, full input/output
   // included — cost is computed on their side from model + token counts, and
   // ph.traceId groups the calls of a single build/edit into one trace. A retried call
@@ -108,7 +117,9 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
 
   // each attempt gets its own controller — reusing an aborted signal would fail the
   // retry before it left the process
-  const attempt = async () => {
+  // `thread`: the messages of this round (the opening two, plus every tool exchange so
+  // far); `allowTools`: whether the model may still call one, or must answer now
+  const attempt = async (thread = messages, allowTools = false) => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     const started = Date.now();
@@ -121,7 +132,10 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
           model,
           max_completion_tokens: maxTokens,
           ...(takesReasoningEffort(model) && { reasoning_effort: AI_REASONING_EFFORT }),
-          messages,
+          messages: thread,
+          // the tool definitions stay on every round (a tool message in the thread needs
+          // them); the last round forbids calling any, so the model answers
+          ...(useTools && { tools, tool_choice: allowTools ? 'auto' : 'none' }),
           response_format: {
             type: 'json_schema',
             json_schema: { name: schemaName, strict: true, schema },
@@ -137,12 +151,16 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
       const data = await aiRes.json();
       const choice = data.choices[0];
       const content = choice.message.content;
+      const toolCalls = Array.isArray(choice.message.tool_calls) ? choice.message.tool_calls : [];
       aiEvent(started, {
         $ai_http_status: aiRes.status,
-        $ai_output_choices: [{ role: 'assistant', content }],
+        $ai_output_choices: [{ role: 'assistant', content, ...(toolCalls.length && { tool_calls: toolCalls }) }],
         $ai_input_tokens: data.usage?.prompt_tokens ?? null,
         $ai_output_tokens: data.usage?.completion_tokens ?? null,
       });
+      // the model asked for tools instead of answering: the round is over, the caller
+      // runs them and comes back
+      if (toolCalls.length && choice.finish_reason !== 'length') return { toolCalls, assistant: choice.message };
       // a budget that ran out (on thinking or on the answer) is not malformed JSON —
       // name it, so the log points at maxTokens / AI_REASONING_EFFORT and not the prompt
       if (!content || choice.finish_reason === 'length') {
@@ -166,14 +184,37 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
     }
   };
 
-  let res = await attempt();
-  if (res.failed && isConnectionError(res.err)) {
-    console.warn(`OpenAI ${schemaName} retrying after ${res.err.cause.code}`);
-    res = await attempt();
+  let thread = messages;
+  let rounds = 0;
+  for (;;) {
+    const allowTools = useTools && rounds < aiTools.MAX_TOOL_ROUNDS;
+    let res = await attempt(thread, allowTools);
+    if (res.failed && isConnectionError(res.err)) {
+      console.warn(`OpenAI ${schemaName} retrying after ${res.err.cause.code}`);
+      res = await attempt(thread, allowTools);
+    }
+    if (res.failed) {
+      if (required) throw (res.err || new Error('openai failed'));
+      return null;
+    }
+    if (!res.toolCalls) return res.value;
+    // the tools run — in parallel, each one bounded and never throwing — and their
+    // answers go back to the model as tool messages, one per call
+    rounds++;
+    const calls = res.toolCalls.slice(0, aiTools.MAX_CALLS_PER_ROUND);
+    const results = await Promise.all(calls.map(async (call) => {
+      const name = call.function && call.function.name;
+      const args = call.function && call.function.arguments;
+      const step = progress ? progress.start(name, args) : null;
+      const out = await aiTools.execute(name, args, toolCtx || {});
+      if (step) progress.finish(step, !/^\{"error"/.test(out));
+      return { role: 'tool', tool_call_id: call.id, content: out };
+    }));
+    // a call past the per-round cap is answered too, or the API refuses the thread
+    const refused = res.toolCalls.slice(calls.length).map((call) => ({ role: 'tool', tool_call_id: call.id, content: '{"error":"יותר מדי קריאות בסבב אחד"}' }));
+    thread = [...thread, { role: 'assistant', content: res.assistant.content || null, tool_calls: res.toolCalls }, ...results, ...refused];
+    if (progress) progress.thinking();
   }
-  if (!res.failed) return res.value;
-  if (required) throw (res.err || new Error('openai failed'));
-  return null;
 }
 
 // ---------- homepage free-text intake ----------
@@ -2164,7 +2205,7 @@ const RECS_SCHEMA = {
   required: ['text', 'cards'],
 };
 
-function recsSystemPrompt({ trip, dests, items, edit = false, prefs = null, side = null }) {
+function recsSystemPrompt({ trip, dests, items, edit = false, prefs = null, side = null, services = [] }) {
   const destText = dests.length
     ? dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ')
     : [trip.destination, trip.country].filter(Boolean).join(', ');
@@ -2208,7 +2249,8 @@ ${tripPrefsBlock(prefs)}
 - category מתוך הרשימה. cost: חינם / ₪ / ₪₪ / ₪₪₪. duration בעברית קצרה ("שעה", "שעתיים", "חצי יום"). time: שעת התחלה מומלצת בפורמט HH:MM, או מחרוזת ריקה.
 - area: שם היעד מהטיול שהמקום שייך אליו, בדיוק באחת הצורות האלה: ${areaNames.map((a) => `"${a}"`).join(', ')}.
 - text מציג את הכרטיסים כשיש כאלה ("שלוש נקודות פתיחה:") ואינו חוזר על ה-blurb שלהם.
-כל מקום בכרטיס חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו; מקום שאינכם בטוחים בו לא נכנס לכרטיס.${editRules}`;
+כל מקום בכרטיס חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו; מקום שאינכם בטוחים בו לא נכנס לכרטיס.
+${aiTools.promptRules({ services })}${editRules}`;
 }
 
 // the recs schema with ops on it — the same op shape the editor and the planner use
@@ -2276,25 +2318,34 @@ function recsUserPrompt(history, message, files = []) {
 // and the two tiers answered in different registers within one thread.
 // `side`: the trip's hotels and budget, for the actions; `files`: what the travellers
 // attached (lib/attachments.js), already cleaned.
-async function tripRecs({ trip, items, message, history, edit = false, prefs = null, side = null, files = [], ph }) {
+// `services`: the connectors this user switched on (lib/connectors.js) — they decide
+// which tools the turn carries; `progress`: the turn's progress row (lib/ai-tools.js).
+async function tripRecs({ trip, items, message, history, edit = false, prefs = null, side = null, files = [], services = [], userId = null, progress = null, ph }) {
   const dests = Array.isArray(trip.destinations) ? trip.destinations.filter((d) => d && d.name) : [];
   const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
+  const toolCtx = { userId, services };
   const raw = await aiJson({
-    system: recsSystemPrompt({ trip, dests, items, edit, prefs, side }),
+    system: recsSystemPrompt({ trip, dests, items, edit, prefs, side, services }),
     user: recsUserPrompt(history, message, files),
     schemaName: edit ? 'trip_recs_edit' : 'trip_recs',
     schema: edit ? RECS_EDIT_SCHEMA : RECS_SCHEMA,
     maxTokens: edit ? 2600 : 1400,
     model: AI_MODEL_STRONG,
+    // a turn that looks things up takes longer than one that answers from memory
+    timeoutMs: 90000,
     images: attachments.images(files),
+    tools: aiTools.toolsFor(toolCtx),
+    toolCtx,
+    progress,
     ph,
   });
   if (!raw) return null;
   const { cards: survivors, dropped } = await verifyRecCards(raw.cards, { dests, areaNames });
   const out = {
-    text: String(raw.text || '').trim().slice(0, 1200),
+    text: String(raw.text || '').trim().slice(0, 1600),
     cards: survivors,
     dropped,
+    tools: progress ? progress.summary() : [],
   };
   if (edit && Array.isArray(raw.ops) && raw.ops.length) {
     const verified = await verifyEditOps({ ops: raw.ops.slice(0, 20) }, {
@@ -2563,8 +2614,12 @@ router.post('/api/trips/code/:code/recs', authRequired, async (req, res) => {
       'SELECT id, day_number, time_label, title, category, area, place_query FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
     );
     const side = edit ? await actions.loadSide(pool, trip.id) : null;
+    // the traveller's own connectors ride only on their own trip: a visitor asking
+    // about someone else's trip gets the public tools and nothing of theirs
+    const services = mayEdit ? await connectors.enabledFor(req.user.id).catch(() => []) : [];
+    const progress = aiTools.progress(b.turn_id, req.user.id);
     const result = await tripRecs({
-      trip, items, message, history, edit, prefs, side, files,
+      trip, items, message, history, edit, prefs, side, files, services, userId: req.user.id, progress,
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
     if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });
@@ -2575,6 +2630,13 @@ router.post('/api/trips/code/:code/recs', authRequired, async (req, res) => {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
   }
+});
+
+// what a turn is doing right now — the tool calls so far — for the chat that is waiting
+// on it. The id is the client's own (sent with the turn), and the row is theirs alone.
+router.get('/api/ai/progress/:id', authRequired, async (req, res) => {
+  const steps = await aiTools.readProgress(req.params.id, req.user.id);
+  res.json({ steps: steps || [] });
 });
 
 module.exports = router;

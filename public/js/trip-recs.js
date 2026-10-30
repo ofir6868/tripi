@@ -77,13 +77,14 @@ const TripRecs = (() => {
   // an editor's explicit change request comes back as a proposal — stops (ops) and
   // hotels / budget / dates (actions) on the same card the planning chat uses, written
   // only on approval. `files`: documents read on the device (TripPlan.attachments).
-  async function ask(question, ctx, history, files = []) {
+  async function ask(question, ctx, history, files = [], turnId = null) {
     const r = await TRIPMAKER.api(`/api/trips/code/${ctx.trip.share_code}/recs`, {
       method: 'POST',
-      body: JSON.stringify({ message: question, history, attachments: files }),
+      body: JSON.stringify({ message: question, history, attachments: files, turn_id: turnId }),
     });
     const cards = (r.cards || []).map((c) => fromServerCard(c, ctx));
-    const out = { kind: cards.length ? 'places' : 'text', text: r.text, cards, remaining: r.remaining, files: r.files, payload: {} };
+    // what the turn looked up rides on the payload, where the planning chat keeps it too
+    const out = { kind: cards.length ? 'places' : 'text', text: r.text, cards, remaining: r.remaining, files: r.files, payload: r.tools && r.tools.length ? { tools: r.tools } : {} };
     if ((Array.isArray(r.ops) && r.ops.length) || (Array.isArray(r.actions) && r.actions.length)) {
       out.payload = { ops: r.ops || [], actions: r.actions || [], changes: r.changes || [], decision: 'pending', undo: null, undoActions: null };
     }
@@ -180,16 +181,33 @@ const TripRecs = (() => {
     if (m.role === 'user') return `<div class="chat-msg user"><div class="chat-bubble">${esc(m.text)}</div>${TripPlan.sentFilesHtml(m.files)}</div>`;
     if (m.quota) return TripPlan.quotaMsgHtml(m, TripPlan.referral(), '✨'); // the day's allowance is spent — the gentle card
     const cards = m.cards || [];
+    const p = m.payload || {};
     return `
       <div class="chat-msg ai" data-i="${i}">
         <span class="chat-avatar" aria-hidden="true">✨</span>
         <div class="chat-col">
-          <div class="chat-bubble">${m.html || esc(m.text || '')}</div>
+          ${ChatUI.workHtml(p.tools)}
+          ${m.html ? `<div class="chat-bubble">${m.html}</div>` : m.text ? `<div class="chat-bubble chat-md">${ChatUI.md(m.text)}</div>` : ''}
           ${cards.length ? `<div class="rec-strip">${cards.map((c, j) => cardHtml(c, i, j)).join('')}</div>` : ''}
           ${cards.filter((c) => !c.added).length >= 2
             ? `<button type="button" class="rec-add-all" data-i="${i}">${ICON.plus} הוספת כולם ליום אחד</button>` : ''}
-          ${m.payload && m.payload.changes ? TripPlan.changeCardHtml(m, latestApplied) : ''}
+          ${p.changes ? TripPlan.changeCardHtml(m, latestApplied) : ''}
+          ${p.imported ? ChatUI.importedHtml(p.imported) : ''}
+          ${m.text && i >= 0 && !m.html ? ChatUI.actionsHtml() : ''}
         </div>
+      </div>`;
+  }
+
+  // the empty thread: a greeting that reads as the start of something, and the first
+  // questions as cards to tap — the shape every assistant opens on, instead of a bubble
+  // and a row of chips the eye has already learned to skip
+  function heroHtml(mainDest, interests, locked) {
+    return `
+      <div class="chat-hero">
+        <div class="ch-orb" aria-hidden="true">✨</div>
+        <h3 class="ch-title">היי! אני מכיר את ${esc(mainDest)} די טוב</h3>
+        <p class="ch-sub">${interests.length ? `אני זוכר שאתם אחרי ${esc(interests.join(', '))} — אתאים לזה את ההמלצות. ` : ''}שאלו על מקומות, אוכל, טבע או ערב בחוץ, בקשו שינוי במסלול, או צרפו כרטיס — וכל המלצה שתאהבו נכנסת לטיול בלחיצה.</p>
+        ${locked ? '' : `<div class="ch-grid">${QUICK(mainDest).slice(0, 4).map((q) => `<button type="button" class="ch-card chat-chip-q">${esc(q)}</button>`).join('')}</div>`}
       </div>`;
   }
 
@@ -218,31 +236,74 @@ const TripRecs = (() => {
     let input = null;
     let attach = null; // the + beside the composer (editors only)
 
+    let box = null;
+    const PLACEHOLDER = ctx.canEdit ? 'שאלו, או בקשו שינוי בטיול…' : `שאלו על ${mainDest}…`;
     function paintFoot() {
-      foot.innerHTML = locked ? `
-        <form class="chat-form chat-locked" id="chat-form">
-          <input type="text" id="chat-input" placeholder="העתיקו את הטיול כדי לשוחח עם ה-AI" disabled>
-          <button type="submit" class="chat-send" aria-label="שליחה" disabled>${ICON.send}</button>
-        </form>` : `
-        <div class="chat-chips" id="chat-chips">${QUICK(mainDest).map((q) =>
-          `<button type="button" class="chat-chip">${esc(q)}</button>`).join('')}</div>
-        <form class="chat-form" id="chat-form">
-          <input type="text" id="chat-input" maxlength="300" placeholder="${ctx.canEdit ? 'שאלו, או בקשו שינוי בטיול…' : `שאלו על ${esc(mainDest)}…`}" autocomplete="off" enterkeyhint="send">
-          <button type="submit" class="chat-send" aria-label="שליחה">${ICON.send}</button>
-        </form>`;
-      input = foot.querySelector('#chat-input');
-      foot.querySelector('#chat-form').onsubmit = (e) => { e.preventDefault(); send(input.value); };
+      foot.innerHTML = '';
+      if (locked) {
+        foot.innerHTML = `
+          <div class="chat-dock"><form class="chat-pill chat-locked" id="chat-form">
+            <textarea class="cp-input" rows="1" placeholder="העתיקו את הטיול כדי לשוחח עם ה-AI" disabled></textarea>
+            <button type="submit" class="cp-send" aria-label="שליחה" disabled><span class="cp-send-ic">${ChatUI.ICON.up}</span></button>
+          </form></div>`;
+        input = null;
+        return;
+      }
+      // the quick questions sit in the hero while the thread is empty, and move down to
+      // the chip row once a conversation is under way
+      foot.innerHTML = `<div class="chat-chips" id="chat-chips"${msgs.length ? '' : ' hidden'}>${QUICK(mainDest).map((q) =>
+        `<button type="button" class="chat-chip">${esc(q)}</button>`).join('')}</div>`;
+      box = ChatUI.composer(foot, { id: 'chat', placeholder: PLACEHOLDER, maxLength: 300, onSend: (v) => send(v) });
+      input = box.input;
       foot.querySelectorAll('.chat-chip').forEach((b) => { b.onclick = () => send(b.textContent); });
       // a ticket or a booking handed to the chat — read on the device, sent as text —
-      // for someone whose trip it can land on
-      attach = ctx.canEdit ? TripPlan.attachments(foot.querySelector('#chat-form'), {
+      // for someone whose trip it can land on; the + menu also holds the pasted plan
+      // and the connectors
+      attach = ctx.canEdit ? TripPlan.attachments(box.form, {
+        button: false,
         // a document handed to the chat is a document of the trip: it lands in מסמכים too
         stash: (file, text) => (typeof TripDocs !== 'undefined' ? TripDocs.stash(ctx, file, text) : Promise.resolve(false)),
+        onState: (st) => box.setPlusState('has-files', st.hasFiles),
         onChange: () => {
-          input.placeholder = attach.count() ? 'מה לעשות עם זה? (אפשר גם לשלוח ככה)' : 'שאלו, או בקשו שינוי בטיול…';
+          box.setPlaceholder(attach.count() ? 'מה לעשות עם זה? (אפשר גם לשלוח ככה)' : PLACEHOLDER);
           if (!attach.reading() && nextQ) { const q = nextQ; nextQ = null; send(q); }
         },
       }) : null;
+      box.plus.onclick = () => ChatUI.plusMenu(box.plus, [
+        attach ? { icon: ChatUI.ICON.clip, label: 'צירוף מסמך', sub: attach.left() === 0 ? 'ניצלתם את שלושת הקבצים להיום' : 'כרטיס טיסה, אישור מלון, צילום מסך', disabled: attach.left() === 0, onClick: () => attach.open() } : null,
+        ctx.canEdit ? { icon: ChatUI.ICON.import, label: 'ייבוא תוכנית', sub: 'טקסט מ-AI אחר או מחבר — בונה או מתקן לפיו', onClick: () => ChatUI.importSheet(ctx, { onDone: imported }) } : null,
+        ctx.canEdit ? { icon: ChatUI.ICON.plug, label: 'חיבורים', sub: 'יומן, Gmail, Drive — לקריאה, באישורכם', onClick: () => ChatUI.connectorsSheet(ctx) } : null,
+        !ctx.canEdit ? { icon: ChatUI.ICON.copy, label: 'העתקת הטיול אליי', sub: 'כדי לשאול, לשנות ולהוסיף תחנות', onClick: () => thread.querySelector('.pc-unlock-cta, .pc-unlock-join')?.click() } : null,
+      ]);
+    }
+    if (slots.tools && ctx.canEdit) {
+      slots.tools.innerHTML = `<button type="button" class="btn btn-ghost tp-tool-import" aria-label="ייבוא תוכנית" title="ייבוא תוכנית מ-AI אחר">${ChatUI.ICON.import}<span>ייבוא</span></button>`;
+      slots.tools.querySelector('.tp-tool-import').onclick = () => ChatUI.importSheet(ctx, { onDone: imported });
+    }
+    const downBtn = ChatUI.scrollButton(body);
+    let stopPoll = null;
+    let liveSteps = [];
+    function startPoll(id) {
+      stopPoll?.();
+      liveSteps = [];
+      stopPoll = ChatUI.progressPoll(id, (steps) => { liveSteps = steps; ChatUI.paintWork(thread.querySelector('.chat-wait .chat-work'), steps); });
+    }
+    function endPoll() { stopPoll?.(); stopPoll = null; liveSteps = []; }
+
+    // a plan pasted in and written to the trip (ChatUI.importSheet): the itinerary and
+    // the hotels come back whole, and the import's summary joins this thread
+    function imported(r, mode, err) {
+      if (!r) {
+        if (err && err.quota) { msgs.push(TripPlan.quotaMsg(err.quota)); paint(); TripPlan.loadReferral().then(paint); }
+        return;
+      }
+      if (r.items) ctx.replaceItems(r.items);
+      if (r.side) ctx.applySide?.(r.side);
+      if (r.message) msgs.push({ id: nextId++, role: 'ai', text: r.message.text, payload: r.message.payload || {} });
+      saveThread(ctx, msgs);
+      paint();
+      paintFoot();
+      TripPages.toast(mode === 'fix' ? 'המסלול תוקן לפי התוכנית ✓' : 'המסלול נבנה מהתוכנית ✓', 'ok');
     }
 
     let painted = 0;
@@ -254,20 +315,28 @@ const TripRecs = (() => {
 
     function paint() {
       const la = latestApplied();
-      thread.innerHTML = msgHtml({ role: 'ai', html: WELCOME(mainDest, interestsOf(ctx)) }, -1)
+      const empty = !msgs.length && !busy && !nextQ;
+      thread.classList.toggle('is-empty', empty);
+      thread.innerHTML = (empty
+        ? heroHtml(mainDest, interestsOf(ctx), locked)
+        : msgHtml({ role: 'ai', html: WELCOME(mainDest, interestsOf(ctx)) }, -1))
         + (locked ? unlockCardHtml(ctx) : '')
         + msgs.map((m, i) => msgHtml(m, i, la)).join('');
+      thread.querySelectorAll('.chat-chip-q').forEach((b) => { b.onclick = () => send(b.textContent); });
+      const chips = foot.querySelector('#chat-chips');
+      if (chips) chips.hidden = empty;
       if (busy && !busySince) busySince = Date.now();
       if (!busy) busySince = 0;
       if (busy) thread.insertAdjacentHTML('beforeend', `
         <div class="chat-msg ai chat-in chat-wait"><span class="chat-avatar" aria-hidden="true">✨</span>
-          <div class="chat-col"><div class="chat-bubble chat-typing" aria-label="חושב…"><i></i><i></i><i></i></div>
+          <div class="chat-col">${ChatUI.workHtml(liveSteps, { live: true })}<div class="chat-bubble chat-typing" aria-label="חושב…"><i></i><i></i><i></i></div>
           ${TripPlan.waitNoteHtml(busySince)}</div></div>`);
       if (nextQ) thread.insertAdjacentHTML('beforeend', `
         <div class="chat-msg user chat-in chat-pending"><div class="chat-bubble">${esc(nextQ)}</div>
           <small class="chat-pending-note">יישלח ברגע שאסיים לענות</small></div>`);
-      foot.querySelector('.chat-send')?.classList.toggle('is-busy', busy);
+      box?.setBusy(busy);
       painted = scroller.settle(msgs, painted, true);
+      downBtn.check();
     }
 
     // the proposal card's buttons: the ops (or the recorded inverse) go to the server,
@@ -350,7 +419,7 @@ const TripRecs = (() => {
           // the copy is theirs to change: ask for a change and it comes back as a proposal
           paint();
           paintFoot();
-          input.focus();
+          box?.focus();
         }, 320);
       }, 950);
     }
@@ -358,6 +427,8 @@ const TripRecs = (() => {
     // one delegated handler for everything inside the thread
     thread.addEventListener('click', (e) => {
       if (TripPlan.handleCardClick(e, ctx)) return;
+      const msgEl = e.target.closest('.chat-msg.ai');
+      if (msgEl && e.target.closest('.ca-btn') && ChatUI.handleActionClick(e, msgs[+msgEl.dataset.i]?.text)) return;
       const unlockBtn = e.target.closest('.pc-unlock-cta');
       if (unlockBtn) {
         // the copy needs an account to land in — register first, and it runs on from
@@ -411,7 +482,7 @@ const TripRecs = (() => {
       }
       if (busy) {
         nextQ = nextQ ? `${nextQ}\n${q}` : (q || ' ');
-        input.value = '';
+        box?.clear();
         paint();
         return;
       }
@@ -430,18 +501,22 @@ const TripRecs = (() => {
       msgs.push(mine);
       turn++;
       busy = true;
-      input.value = '';
+      box?.clear();
       paint();
+      const turnId = ChatUI.turnId();
+      startPoll(turnId);
       try {
-        const reply = await ask(text.trim(), ctx, history, files);
+        const reply = await ask(text.trim(), ctx, history, files, turnId);
+        endPoll();
         if (attach) attach.clear();
         if (reply.files) mine.files = reply.files; // how each one was read, for the bubble
         delete reply.files;
         msgs.push({ id: nextId++, role: 'ai', ...reply });
       } catch (err) {
+        endPoll();
         if (err && err.quota) {
           busy = false;
-          if (nextQ) { input.value = nextQ; nextQ = null; }
+          if (nextQ) { box?.set(nextQ); nextQ = null; }
           msgs.push(TripPlan.quotaMsg(err.quota));
           paint();
           TripPlan.loadReferral().then(paint); // the referral numbers fill the card as they arrive

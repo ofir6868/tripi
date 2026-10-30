@@ -96,7 +96,11 @@ npm test           # כל הבדיקות שלא צריכות רשת, מפתח א
 | `PLACES_AUTOCOMPLETE_MONTHLY_LIMIT` | תקרת האוטוקומפליט של בוחר המקומות (ברירת מחדל 4,000). מעבר לתקרה הבוחר נופל ל-Photon, בדיוק כמו בלי מפתח |
 | `PLACES_DETAILS_MONTHLY_LIMIT` | תקרת פענוח הקואורדינטות של מקום שנבחר (ברירת מחדל 5,000) |
 | `GOOGLE_MONITORING_KEY` | אופציונלי — JSON של service account עם התפקיד Monitoring Viewer בפרויקט של מפתח ה-Places (גולמי או ב-base64). כשמוגדר, `/admin/google` משווה את המונה שלנו למה שגוגל עצמו ספר. `GOOGLE_MONITORING_PROJECT` דורס את הפרויקט שהמפתח מציין |
-| `GOOGLE_CLIENT_ID` | OAuth 2.0 Client ID מ-Google Cloud |
+| `BRAVE_SEARCH_API_KEY` | אופציונלי — מפתח Brave Search (2,000 חיפושים חינם בחודש) לכלי החיפוש של ה-AI (`lib/web-search.js`). בלעדיו החיפוש עובר דרך דף ה-HTML של DuckDuckGo, בלי מפתח. בשני המקרים התוצאות מסוננות לרשימת אתרי הטיולים המורשים בלבד (Booking, Klook, SWISS, אל על, Google Maps, Tripadvisor, Wikipedia…) |
+| `AI_SEARCH_EXTRA_SITES` | אופציונלי — אתרים נוספים שמותר ל-AI לחפש ולקרוא בהם, מופרדים בפסיקים (`example.com,other.org`) |
+| `CONNECTOR_SECRET` | אופציונלי — מפתח ההצפנה של טוקני החיבורים (יומן/Gmail/Drive) ב-`user_connectors`. ברירת מחדל: נגזר מ-`JWT_SECRET`. החלפתו מנתקת את כל החיבורים (השורות הופכות בלתי-קריאות ונחשבות מנותקות) |
+| `CONNECTORS_REDIRECT_URI` | אופציונלי — ברירת מחדל `{origin}/api/connectors/google/callback`. צריך להיות רשום ב-Google Cloud לצד ה-redirect של ההתחברות, ואותו Client ID משמש את שניהם. ה-scopes: `calendar.readonly`, `gmail.readonly`, `drive.readonly` — קריאה בלבד |
+| `GOOGLE_CLIENT_ID` | OAuth 2.0 Client ID מ-Google Cloud (התחברות, וגם החיבורים של ה-AI) |
 | `GOOGLE_CLIENT_SECRET` | OAuth 2.0 Client Secret מ-Google Cloud |
 | `GOOGLE_REDIRECT_URI` | אופציונלי — ברירת מחדל `{origin}/api/auth/google/callback` (בפרודקשן: `https://tripmaker.co.il/api/auth/google/callback`) |
 | `HOTEL_CONTENT_PROVIDER` | ספק תוכן המלונות: `osm` (ברירת מחדל, ללא מפתח) או `liteapi` |

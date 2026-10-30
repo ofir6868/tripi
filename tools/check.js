@@ -32,6 +32,7 @@ const CHECKS = [
   'tools/travel-fit-check.js',
   'tools/day-recs-plan-check.js',
   'tools/docs-classify-check.js',
+  'tools/ai-tools-check.js',
 ];
 for (const script of CHECKS) {
   const r = spawnSync(process.execPath, [script], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, DATABASE_URL: '' } });

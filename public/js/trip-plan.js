@@ -289,27 +289,33 @@ const TripPlan = (() => {
   // mounts the + button into `form` and the chips strip above it. `remaining` is how
   // many documents the day still allows (null: unknown or unlimited); `stash(file,
   // text)` is where a read document is also kept — the trip's מסמכים (TripDocs.stash).
-  function attachments(form, { max = 3, remaining = null, onChange, stash = null } = {}) {
+  // `button: false` mounts no button of its own — the composer's + menu (ChatUI) opens
+  // the picker through open() instead, and shows the state through onState()
+  function attachments(form, { max = 3, remaining = null, onChange, stash = null, button = true, onState = null } = {}) {
     const strip = document.createElement('div');
     strip.className = 'chat-files';
     strip.hidden = true;
     form.before(strip);
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'chat-plus';
-    btn.innerHTML = ICON.plus;
+    const btn = button ? document.createElement('button') : null;
+    if (btn) {
+      btn.type = 'button';
+      btn.className = 'chat-plus';
+      btn.innerHTML = ICON.plus;
+    }
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = FILE_ACCEPT;
     input.multiple = true;
     input.hidden = true;
-    form.prepend(btn);
+    if (btn) form.prepend(btn);
     form.append(input);
     let items = [];
     let n = 0;
     let left = remaining;
 
     function paintBtn() {
+      onState?.({ spent: left === 0, hasFiles: items.length > 0, left });
+      if (!btn) return;
       btn.classList.toggle('is-spent', left === 0);
       btn.classList.toggle('has-files', items.length > 0);
       btn.title = left === 0 ? 'ניצלתם את שלושת הקבצים להיום — מחר שוב' : 'צירוף כרטיס טיסה, הזמנת מלון או צילום מסך';
@@ -366,15 +372,17 @@ const TripPlan = (() => {
       onChange?.();
     }
 
-    btn.onclick = () => {
+    const open = () => {
       if (left === 0) { TripPages.toast('ניצלתם את שלושת הקבצים להיום — אפשר לכתוב את הפרטים במילים'); return; }
       input.click();
     };
+    if (btn) btn.onclick = open;
     input.onchange = () => { pick([...input.files]); input.value = ''; };
     paintBtn();
 
     return {
-      pick, setRemaining,
+      pick, setRemaining, open,
+      left: () => left,
       count: () => items.length,
       reading: () => items.some((it) => it.status === 'reading'),
       // what goes with the next turn: name, kind, the text — the image only when the
@@ -438,12 +446,15 @@ const TripPlan = (() => {
       <div class="chat-msg ai" data-i="${i}">
         <span class="chat-avatar" aria-hidden="true">🧭</span>
         <div class="chat-col">
-          <div class="chat-bubble">${esc(m.text || '')}</div>
+          ${ChatUI.workHtml(p.tools)}
+          ${m.text ? `<div class="chat-bubble chat-md">${ChatUI.md(m.text)}</div>` : ''}
           ${cards.length ? `<div class="rec-strip">${cards.map((c, j) => TripRecs.cardHtml(c, i, j)).join('')}</div>` : ''}
           ${changeCardHtml(m, latestApplied)}
           ${p.unlocked ? unlockedHtml() : ''}
           ${p.built ? `<div class="plan-card pc-applied"><div class="pc-head">${p.built.fill ? 'הימים הושלמו' : 'הטיול נבנה'} — ${p.built.count} תחנות</div></div>` : ''}
+          ${p.imported ? ChatUI.importedHtml(p.imported) : ''}
           ${p.invite ? inviteHtml(ctx.trip) : ''}
+          ${m.text && !m.transient ? ChatUI.actionsHtml() : ''}
         </div>
       </div>`;
   }
@@ -680,26 +691,45 @@ const TripPlan = (() => {
     // beam of light around the rim) — without the typing placeholder: that one invites
     // on the itinerary, and a chat already under way needs no inviting. The chips sit
     // above it: they are the one-tap answers to the last question.
-    foot.innerHTML = `
-      <div class="chat-chips" id="plan-chips"></div>
-      <div class="plan-dock" id="plan-dock">
-        <form class="chat-form plan-form plan-ask" id="plan-form">
-          <input type="text" id="plan-input" maxlength="400" placeholder="כתבו לי מה תרצו…" autocomplete="off" enterkeyhint="send">
-          <button type="submit" class="chat-send" aria-label="שליחה">${ICON.send}</button>
-        </form>
-      </div>`;
+    foot.innerHTML = '<div class="chat-chips" id="plan-chips"></div>';
+    // the composer: one pill, the + for everything that is not typing (ChatUI)
+    const PLACEHOLDER = 'כתבו לי מה תרצו…';
+    const box = ChatUI.composer(foot, { id: 'plan', placeholder: PLACEHOLDER, maxLength: 400, onSend: (v) => send(v) });
     const thread = body.querySelector('#plan-thread');
     const chips = foot.querySelector('#plan-chips');
-    const input = foot.querySelector('#plan-input');
-    const form = foot.querySelector('#plan-form');
-    // the + : a ticket, a booking, a screenshot — read on the device, sent as text
+    const input = box.input;
+    const form = box.form;
+    // a ticket, a booking, a screenshot — read on the device, sent as text; picked
+    // from the + menu, which also holds the pasted plan and the connectors
     const attach = attachments(form, {
+      button: false,
       stash: (file, text) => (typeof TripDocs !== 'undefined' ? TripDocs.stash(ctx, file, text) : Promise.resolve(false)),
+      onState: (st) => box.setPlusState('has-files', st.hasFiles),
       onChange: () => {
-        input.placeholder = attach.count() ? 'מה לעשות עם זה? (אפשר גם לשלוח ככה)' : 'כתבו לי מה תרצו…';
+        box.setPlaceholder(attach.count() ? 'מה לעשות עם זה? (אפשר גם לשלוח ככה)' : PLACEHOLDER);
         if (!attach.reading()) drainNext(); // a send that waited for the reading goes now
       },
     });
+    box.plus.onclick = () => ChatUI.plusMenu(box.plus, [
+      { icon: ChatUI.ICON.clip, label: 'צירוף מסמך', sub: attach.left() === 0 ? 'ניצלתם את שלושת הקבצים להיום' : 'כרטיס טיסה, אישור מלון, צילום מסך', disabled: attach.left() === 0, onClick: () => attach.open() },
+      { icon: ChatUI.ICON.import, label: 'ייבוא תוכנית', sub: 'טקסט מ-AI אחר או מחבר — בונה או מתקן לפיו', onClick: () => ChatUI.importSheet(ctx, { onDone: imported }) },
+      { icon: ChatUI.ICON.plug, label: 'חיבורים', sub: 'יומן, Gmail, Drive — לקריאה, באישורכם', onClick: () => ChatUI.connectorsSheet(ctx) },
+    ]);
+    // the header's one tool: the import, a tap away but out of the conversation's way
+    if (slots.tools) {
+      slots.tools.innerHTML = `<button type="button" class="btn btn-ghost tp-tool-import" aria-label="ייבוא תוכנית" title="ייבוא תוכנית מ-AI אחר">${ChatUI.ICON.import}<span>ייבוא</span></button>`;
+      slots.tools.querySelector('.tp-tool-import').onclick = () => ChatUI.importSheet(ctx, { onDone: imported });
+    }
+    const downBtn = ChatUI.scrollButton(body);
+    // the live row under the dots while a turn works: what it is checking right now
+    let stopPoll = null;
+    let liveSteps = [];
+    function startPoll(id) {
+      stopPoll?.();
+      liveSteps = [];
+      stopPoll = ChatUI.progressPoll(id, (steps) => { liveSteps = steps; ChatUI.paintWork(thread.querySelector('.chat-wait .chat-work'), steps); });
+    }
+    function endPoll() { stopPoll?.(); stopPoll = null; liveSteps = []; }
     // what a new turn does to the viewport: a long answer must not be scrolled past —
     // the thread lands with the START of the newest message in view (the bottom only
     // when it fits), and only the newly arrived messages animate in
@@ -989,15 +1019,16 @@ const TripPlan = (() => {
       // the same thing twice — it waits until the card has flipped
       if (busy && !deciding) thread.insertAdjacentHTML('beforeend', `
         <div class="chat-msg ai chat-in chat-wait"><span class="chat-avatar" aria-hidden="true">🧭</span>
-          <div class="chat-col"><div class="chat-bubble chat-typing" aria-label="חושב…"><i></i><i></i><i></i></div>
+          <div class="chat-col">${ChatUI.workHtml(liveSteps, { live: true })}<div class="chat-bubble chat-typing" aria-label="חושב…"><i></i><i></i><i></i></div>
           ${waitNoteHtml(busySince)}</div></div>`);
       // the turn typed ahead sits under the dots, plainly not sent yet
       if (nextQ) thread.insertAdjacentHTML('beforeend', pendingHtml());
-      foot.querySelector('.chat-send').classList.toggle('is-busy', busy);
-      input.placeholder = busy ? 'אפשר כבר לכתוב — אשלח כשאסיים' : attach.count() ? 'מה לעשות עם זה? (אפשר גם לשלוח ככה)' : 'כתבו לי מה תרצו…';
+      box.setBusy(busy);
+      box.setPlaceholder(busy ? 'אפשר כבר לכתוב — אשלח כשאסיים' : attach.count() ? 'מה לעשות עם זה? (אפשר גם לשלוח ככה)' : PLACEHOLDER);
       paintChips();
       growOpening();
       painted = scroller.settle(msgs, painted, loaded);
+      downBtn.check();
       if (dockOwed) {
         dockOwed = false;
         // the picks for the free days are due now, with everything the conversation just
@@ -1052,7 +1083,7 @@ const TripPlan = (() => {
       } catch (err) {
         msgs = [{ role: 'ai', text: (err && err.message) || 'לא הצלחתי לטעון את התכנון — נסו לרענן', payload: {} }];
         // nothing can be sent into a thread that did not load: what was typed goes back
-        if (nextQ) { input.value = nextQ; nextQ = null; }
+        if (nextQ) { box.set(nextQ); nextQ = null; }
       }
       paint();
       flush = () => {
@@ -1099,7 +1130,7 @@ const TripPlan = (() => {
       if (busy || !loaded || building) {
         if (receipt) return;
         nextQ = nextQ ? `${nextQ}\n${q}` : (q || ' ');
-        input.value = '';
+        box.clear();
         paint();
         return;
       }
@@ -1107,10 +1138,13 @@ const TripPlan = (() => {
       const mine = { role: 'user', text: q, payload: receipt ? { receipt: true } : (files.length ? { files: files.map((f) => ({ name: f.name, kind: f.kind })) } : {}) };
       msgs.push(mine);
       busy = true;
-      input.value = '';
+      box.clear();
       paint();
+      const turn = ChatUI.turnId();
+      startPoll(turn);
       try {
-        const r = await api(ctx, '', { method: 'POST', body: JSON.stringify({ message: text.trim(), receipt, attachments: files }) });
+        const r = await api(ctx, '', { method: 'POST', body: JSON.stringify({ message: text.trim(), receipt, attachments: files, turn_id: turn }) });
+        endPoll();
         attach.clear();
         if (r.sent) Object.assign(mine, r.sent); // the stored row says how each file was read
         if (r.files_remaining !== undefined) attach.setRemaining(r.files_remaining);
@@ -1131,9 +1165,10 @@ const TripPlan = (() => {
         if (r.message.payload && r.message.payload.build === 'once') build(false);
         else drainNext();
       } catch (err) {
+        endPoll();
         busy = false;
         // what was typed ahead goes back into the box rather than out after a failure
-        if (nextQ) { input.value = nextQ; nextQ = null; }
+        if (nextQ) { box.set(nextQ); nextQ = null; }
         if (err && err.quota) { outOfQuota(err.quota); return; }
         msgs.push({ role: 'ai', text: (err && err.message) || 'משהו השתבש בדרך — נסו שוב בעוד רגע.', payload: {}, transient: true });
         paint();
@@ -1273,6 +1308,8 @@ const TripPlan = (() => {
 
     thread.addEventListener('click', (e) => {
       if (handleCardClick(e, ctx)) return;
+      const msgEl = e.target.closest('.chat-msg.ai');
+      if (msgEl && e.target.closest('.ca-btn') && ChatUI.handleActionClick(e, msgs[+msgEl.dataset.i]?.text)) return;
       // "עבור לדף המסלול" — the chat closes the way its own back button closes it, so
       // the history entry it holds goes with it
       if (e.target.closest('.pu-go')) { TripPages.close(); return; }
@@ -1313,7 +1350,18 @@ const TripPlan = (() => {
       const undo = e.target.closest('.pc-undo');
       if (undo) decide(+undo.dataset.id, 'undo', undo);
     });
-    foot.querySelector('#plan-form').onsubmit = (e) => { e.preventDefault(); send(input.value); };
+    // a plan pasted in and written to the trip (ChatUI.importSheet): the itinerary, the
+    // hotels and the memory come back whole, and the import's own message joins the thread
+    function imported(r, mode, err) {
+      if (!r) { if (err && err.quota) outOfQuota(err.quota); return; }
+      if (r.state) { state = r.state; ctx.trip.plan_state = state; }
+      if (r.items) ctx.replaceItems(r.items);
+      if (r.side) ctx.applySide?.(r.side);
+      if (r.message) msgs.push(shape(r.message));
+      paint();
+      promoteAreas(r.plan || undefined);
+      TripPages.toast(mode === 'fix' ? 'המסלול תוקן לפי התוכנית ✓' : 'המסלול נבנה מהתוכנית ✓', 'ok');
+    }
 
     paint();
     load();
