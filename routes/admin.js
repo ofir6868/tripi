@@ -38,7 +38,11 @@ router.get('/api/announcements/current', authOptional, async (_req, res) => {
 router.get('/api/admin/connectors-setup', authRequired, adminRequired, async (req, res) => {
   const connectors = require('../lib/connectors');
   const clientId = process.env.GOOGLE_CLIENT_ID || '';
-  const project = (/^(\d+)-/.exec(clientId) || [])[1] || null;
+  // the console wants the project ID; the client id carries only the project NUMBER,
+  // which the console does not always honour (2026-10-30: it opened the last project
+  // used). GOOGLE_CLOUD_PROJECT names the ID outright; otherwise the page lets the
+  // admin type it once and remembers it in the browser.
+  const project = process.env.GOOGLE_CLOUD_PROJECT || (/^(\d+)-/.exec(clientId) || [])[1] || null;
   const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
   const host = (req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
   const origin = process.env.CANONICAL_ORIGIN || `${proto}://${host}`;

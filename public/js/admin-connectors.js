@@ -19,6 +19,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   const err = q.get('connectors_error') || (q.get('refused') ? 'Google לא אישר את ההרשאות שנבחרו' : '');
   if (connected || err) history.replaceState(null, '', location.pathname);
 
+  // the project the console links open on: what the admin typed here last time, else
+  // what the server derived. Links are built here so a change applies at once.
+  const PKEY = 'tripmaker_gcp_project';
+  let project = localStorage.getItem(PKEY) || d.project || '';
+  const pq = () => (project ? `?project=${encodeURIComponent(project)}` : "");
+  const links = () => ({
+    apis: d.apis.map((api) => ({ api, label: api.split('.')[0].replace('calendar-json', 'Calendar').replace('gmail', 'Gmail').replace('drive', 'Drive'), href: `https://console.cloud.google.com/apis/library/${api}${pq()}` })),
+    client: d.client_id ? `https://console.cloud.google.com/auth/clients/${encodeURIComponent(d.client_id)}${pq()}` : `https://console.cloud.google.com/auth/clients${pq()}`,
+    clients: `https://console.cloud.google.com/auth/clients${pq()}`,
+    scopes: `https://console.cloud.google.com/auth/scopes${pq()}`,
+    audience: `https://console.cloud.google.com/auth/audience${pq()}`,
+  });
   const copyRow = (value) => `<div class="cs-copy"><code>${esc(value)}</code><button type="button" data-copy="${esc(value)}">העתקה</button></div>`;
   const go = (href, label, ghost = false) => `<a class="cs-go${ghost ? ' ghost' : ''}" href="${esc(href)}" target="_blank" rel="noopener">${esc(label)} <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg></a>`;
   const on = (d.mine && d.mine.on) || [];
@@ -26,37 +38,44 @@ document.addEventListener('DOMContentLoaded', async () => {
   const next = encodeURIComponent('/admin/connectors');
   const testHref = `/api/connectors/google/start?t=${encodeURIComponent(TRIPMAKER.token)}&services=calendar,gmail,drive&next=${next}`;
 
+  const render = () => {
+  const L = links();
   root.innerHTML = `
     ${connected ? `<div class="cs-result glass ok">✓ החיבור עובד — Google החזיר: ${esc(connected)}</div>` : ''}
+    <section class="cs-step glass" style="margin-bottom:14px">
+      <div class="cs-head"><span class="cs-num">⚙</span><h2>הפרויקט ב-Google Cloud</h2></div>
+      <p>הקישורים למטה נפתחים על הפרויקט הזה. ה-OAuth client של ההתחברות יושב בפרויקט שמספרו <b dir="ltr">${esc((d.client_id || '').split('-')[0])}</b> — אם הקונסולה נפתחת על פרויקט אחר, בוחרים את הנכון בבורר הפרויקטים למעלה, מעתיקים את ה-<b>Project ID</b> שלו (למשל tripmaker-gsc) ומדביקים כאן.</p>
+      <div class="cs-copy"><input id="cs-project" dir="ltr" value="${esc(project)}" placeholder="project-id" style="flex:1;min-width:0;background:transparent;border:0;color:var(--paper);font:inherit;font-size:.9rem;outline:none"><button type="button" id="cs-project-save">שמירה</button></div>
+    </section>
     ${err ? `<div class="cs-result glass bad">✗ ${esc(err)}</div>` : ''}
     ${!d.configured ? '<div class="cs-result glass bad">GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET לא מוגדרים בשרת — ההתחברות עם Google וגם החיבורים כבויים</div>' : ''}
     <div class="cs-steps">
       <section class="cs-step glass">
         <div class="cs-head"><span class="cs-num">1</span><h2>להדליק את שלושת ה-APIs</h2></div>
-        <p>שלושה קישורים, כל אחד נפתח על ה-API שלו${d.project ? ` בפרויקט <b dir="ltr">${esc(d.project)}</b>` : ''}. בכל אחד לוחצים <b>Enable</b>. אם כתוב <b>Manage</b> — הוא כבר דלוק.</p>
-        ${d.links.apis.map((a) => go(a.href, `הפעלת ${a.label} API`)).join('')}
+        <p>שלושה קישורים, כל אחד נפתח על ה-API שלו${project ? ` בפרויקט <b dir="ltr">${esc(project)}</b>` : ''}. בכל אחד לוחצים <b>Enable</b>. אם כתוב <b>Manage</b> — הוא כבר דלוק.</p>
+        ${L.apis.map((a) => go(a.href, `הפעלת ${a.label} API`)).join('')}
       </section>
 
       <section class="cs-step glass">
         <div class="cs-head"><span class="cs-num">2</span><h2>להוסיף redirect ל-OAuth client</h2></div>
         <p>בדף שנפתח, תחת <b>Authorized redirect URIs</b> לוחצים <b>+ Add URI</b>, מדביקים, ו-<b>Save</b>. הכתובת הקיימת של ההתחברות נשארת.</p>
         ${copyRow(d.redirect_uri)}
-        ${go(d.links.client, 'פתיחת ה-OAuth client')}
-        <div class="cs-note">אם הקישור לא נוחת ישר על הלקוח: ${go(d.links.clients, 'רשימת הלקוחות', true)} ובוחרים את זה שה-ID שלו מתחיל ב-<span dir="ltr">${esc((d.client_id || '').slice(0, 14))}…</span></div>
+        ${go(L.client, 'פתיחת ה-OAuth client')}
+        <div class="cs-note">אם הקישור לא נוחת ישר על הלקוח: ${go(L.clients, 'רשימת הלקוחות', true)} ובוחרים את זה שה-ID שלו מתחיל ב-<span dir="ltr">${esc((d.client_id || '').slice(0, 14))}…</span></div>
       </section>
 
       <section class="cs-step glass">
         <div class="cs-head"><span class="cs-num">3</span><h2>להוסיף את שלושת ה-scopes</h2></div>
         <p><b>Add or remove scopes</b> → בתיבת <b>Manually add scopes</b> מדביקים את השלוש (שורה לכל אחת) → <b>Add to table</b> → <b>Update</b> → <b>Save</b>.</p>
         ${copyRow(d.scopes.join('\n'))}
-        ${go(d.links.scopes, 'פתיחת Data access (scopes)')}
+        ${go(L.scopes, 'פתיחת Data access (scopes)')}
       </section>
 
       <section class="cs-step glass">
         <div class="cs-head"><span class="cs-num">4</span><h2>Testing + משתמשי בדיקה</h2></div>
         <p>Gmail ו-Drive הם scopes "מוגבלים": בלי אימות של Google הם עובדים רק כשהאפליקציה ב-<b>Testing</b> ורק למשתמשים ברשימת הבדיקה. בדף שנפתח: Publishing status → <b>Testing</b>, ואז <b>+ Add users</b> עם המיילים שלכם.</p>
         ${d.admin_email ? copyRow(d.admin_email) : ''}
-        ${go(d.links.audience, 'פתיחת Audience')}
+        ${go(L.audience, 'פתיחת Audience')}
         <div class="cs-note">היומן לבדו הוא scope "רגיש" — הוא עובד גם ב-In production עם מסך אזהרה. כדי שכולם יוכלו לחבר Gmail/Drive צריך לעבור אימות אפליקציה של Google (טופס + וידאו), וזה שלב נפרד.</div>
       </section>
 
@@ -74,4 +93,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       try { await TRIPMAKER.copy(b.dataset.copy); b.textContent = 'הועתק ✓'; b.classList.add('is-done'); setTimeout(() => { b.textContent = 'העתקה'; b.classList.remove('is-done'); }, 1600); } catch { b.textContent = 'לא הצלחתי'; }
     };
   });
+  const input = root.querySelector('#cs-project');
+  const save = () => { project = input.value.trim(); localStorage.setItem(PKEY, project); render(); };
+  root.querySelector('#cs-project-save').onclick = save;
+  input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } };
+  };
+  render();
 });
