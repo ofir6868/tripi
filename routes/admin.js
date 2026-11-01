@@ -227,6 +227,8 @@ router.get('/api/admin/google', authRequired, adminRequired, async (_req, res) =
         month: { ok: sum(inMonth, 'ok'), rejected: sum(inMonth, 'rejected'), timeouts: sum(inMonth, 'timeouts'), refused: sum(inMonth, 'refused'), cache_hits: sum(inMonth, 'cache_hits') },
         days: rows.map((r) => ({ day: r.day, ok: r.ok, rejected: r.rejected, timeouts: r.timeouts, refused: r.refused, cache_hits: r.cache_hits })),
         last_error: lastErr ? { text: lastErr.last_error, at: lastErr.last_error_at } : null,
+        // Google's own gate shut (a 429 on a console quota): no call leaves until then
+        held_until: m.heldUntil ? (m.heldUntil() || null) : null,
       };
     });
 

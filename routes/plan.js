@@ -863,7 +863,7 @@ router.post('/api/trips/code/:code/plan', authRequired, async (req, res) => {
       progress: aiTools.progress(b.turn_id, req.user.id),
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
-    if (!turn) return res.status(502).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });
+    if (!turn) return res.status(503).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });
     quota.spend();
     for (let i = 0; i < files.length; i++) filesQuota.spend(); // every document the model read
 
@@ -1025,7 +1025,7 @@ router.post('/api/trips/code/:code/plan/build', authRequired, async (req, res) =
       startDate: trip.start_date || null,
       ph,
     });
-    if (!built.items.length) return res.status(502).json({ error: 'ה-AI החזיר מסלול ריק — נסו שוב' });
+    if (!built.items.length) return res.status(503).json({ error: 'ה-AI החזיר מסלול ריק — נסו שוב' });
     spend();
 
     await client.query('BEGIN');

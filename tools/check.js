@@ -34,6 +34,7 @@ const CHECKS = [
   'tools/docs-classify-check.js',
   'tools/ai-tools-check.js',
   'tools/nearby-check.js',
+  'tools/api-budget-check.js',
   'tools/moments-check.js',
 ];
 for (const script of CHECKS) {
