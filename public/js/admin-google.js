@@ -140,6 +140,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             <span>${s.free && s.free < scale ? '<i class="gg-key free"></i>' : ''}גוגל: חינם עד ${n(s.free)}, אחר כך $${s.price_per_1k} ל-1,000</span>
           </div>`}
 
+        ${s.held_until ? `<p class="gg-free-note gg-held">⛔ גוגל סגר את המכסה היומית שלו בקונסול — הקריאות נעצרות אצלנו עד ${esc(heWhen(s.held_until))}, והמסך מציג את הנפילה החיננית.</p>` : ''}
         <dl class="gg-facts">
           <div><dt>היום</dt><dd>${n(today.ok)} חויבו${today.rejected ? ` · ${n(today.rejected)} נדחו` : ''}${today.timeouts ? ` · ${n(today.timeouts)} לא נענו` : ''}${today.refused ? ` · ${n(today.refused)} נעצרו` : ''} · ${n(today.cache_hits)} מהמטמון</dd></div>
           ${unmetered ? '' : `<div><dt>צפי לסוף החודש</dt><dd>${n(s.projected)}${s.projected_cost ? ` · <span class="gg-cost">${usd(s.projected_cost)}</span>` : ''}</dd></div>`}

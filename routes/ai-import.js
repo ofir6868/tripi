@@ -132,7 +132,7 @@ router.post('/api/trips/code/:code/ai-import', authRequired, async (req, res) =>
       system, user, schemaName: 'trip_import', schema: IMPORT_SCHEMA,
       maxTokens: 9000, timeoutMs: 120000, model: ai.AI_MODEL_STRONG, ph,
     });
-    if (!raw) return res.status(502).json({ error: 'ה-AI לא הצליח לקרוא את התוכנית — נסו שוב, או קצרו אותה' });
+    if (!raw) return res.status(503).json({ error: 'ה-AI לא הצליח לקרוא את התוכנית — נסו שוב, או קצרו אותה' });
     // in a rebuild the slate is empty, so the model's ops are checked against nothing —
     // an update or a delete it wrote anyway has nothing to land on and is dropped
     const base = mode === 'fix' ? items : [];

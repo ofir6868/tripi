@@ -12,8 +12,9 @@
 //   · every answer is cached by a grid cell, not by the traveller's exact position, so
 //     two people at the same square — or one person walking across it — share it;
 //   · a monthly ceiling per SKU (lib/google-skus.js) is the real guarantee, and a spent
-//     month answers 503, which the page shows as "not available right now" with the
-//     navigation links still working;
+//     month — or a spent day on the console's own quota, which Google enforces with a 429
+//     our meter then honours until midnight Pacific — answers 503, which the page shows
+//     as "not available right now" with the navigation links still working;
 //   · only the participants of the trip can ask (they are the ones travelling), and a
 //     per-user limiter counts only the requests that reach Google.
 //
@@ -244,7 +245,11 @@ router.get('/api/trips/code/:code/nearby', authRequired, async (req, res) => {
     const out = await lookup(kind, cuisine, clat, clon, 'u' + req.user.id);
     if (out.limited) return res.status(429).json({ error: 'יותר מדי חיפושים — נסו שוב בעוד כמה דקות' });
     if (out.refused) return res.status(503).json({ error: 'ההמלצות באזור לא זמינות כרגע — נסו שוב מחר', reason: 'budget' });
-    if (out.failed) return res.status(502).json({ error: 'גוגל לא ענה — נסו שוב בעוד רגע', reason: 'failed' });
+    // 503, not 502, for a Google that did not answer: Cloudflare sits in front of the site
+    // and replaces an origin's 502 (and 504) with its own error page, so the message here
+    // never reached the traveller — they saw "the server did not answer (502)" and a
+    // retry button that bought another refusal (2026-11-01). A 503 passes through as is.
+    if (out.failed) return res.status(503).json({ error: 'גוגל לא ענה — נסו שוב בעוד רגע', reason: 'failed' });
 
     const prior = kind === 'sights' ? 80 : 40;
     const places = out.places
