@@ -103,6 +103,7 @@
   })();
 
   let editMode = false;
+  let nearbyAutoTried = false; // the in-trip screen opens by itself at most once per page load
   let canEditHeaders = null; // truthy = edit calls allowed (auth rides on the JWT)
   let printHooks = null;     // the window-level print pair of whichever trip is open
 
@@ -1508,6 +1509,12 @@
       });
       TripDocs.count(pageCtx).then((n) => TripPages.badge('docs', n));
     }
+    // the in-trip screen (trip-nearby.js): "what's good around here right now" and the
+    // restaurants. Participants of a saved trip only — they are the ones travelling, and
+    // the lookups behind it are paid for per question (routes/nearby.js).
+    const nearbyOn = canEdit && !trip.is_draft;
+    if (nearbyOn) TripNearby.init(pageCtx);
+    else document.getElementById('nearby-banner')?.remove();
     TripPages.initDock({
       onItinerary: () => {
         const top = document.getElementById('days-container').getBoundingClientRect().top + window.scrollY - 96;
@@ -1515,6 +1522,9 @@
       },
     });
     TripPages.openFromHash();
+    // on a trip day the screen is the first thing the traveller sees — once per visit to
+    // the page, not again when the page swaps in a copy of the trip
+    if (nearbyOn && !nearbyAutoTried) { nearbyAutoTried = true; TripNearby.autoOpen(); }
 
     // A trip that was just created lands straight in the planning chat (the wizard sends
     // it to #plan), and until that conversation settles the basics there is nothing here
