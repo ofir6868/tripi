@@ -1,0 +1,35 @@
+# The clock the moment pushes need (lib/reminders.js momentsTick, routes/cron.js).
+#
+# Vercel's free scheduler rings once a day, and a bus at 08:30 cannot wait for 06:00 UTC.
+# This repository is public, so a scheduled workflow here costs nothing: every five minutes
+# it rings /api/cron/moments with the same CRON_SECRET Vercel's own cron uses. The route is
+# safe at any frequency — a moment is claimed before it is sent — so an overlapping or late
+# run never double-pings. GitHub may delay a schedule by a few minutes under load, which is
+# why every lead time is measured in tens of minutes, not in ones.
+#
+# Needs one repository secret: CRON_SECRET, the value set in the Vercel project. Until it
+# is added the run skips with a note instead of failing on every tick.
+name: moments-clock
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: moments-clock
+  cancel-in-progress: false
+jobs:
+  ring:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      CRON_URL: ${{ vars.CRON_URL || 'https://tripmaker.co.il/api/cron/moments' }}
+    steps:
+      - name: ring the moments doorbell
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::notice::CRON_SECRET is not set as a repository secret — nothing rung. Add it (Settings → Secrets and variables → Actions) with the value from the Vercel project."
+            exit 0
+          fi
+          curl -fsS --max-time 60 -H "Authorization: Bearer $CRON_SECRET" "$CRON_URL"

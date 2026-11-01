@@ -14,8 +14,9 @@
 //
 // Two doorbells. /api/cron/tick is the daily one: everything, once a day, which is all the
 // free plan's scheduler offers. /api/cron/moments runs ONLY the moment pushes (the bus at
-// 08:30 cannot wait for a 06:00 UTC cron) and is meant for a free outside pinger that can
-// send a header — cron-job.org, every five minutes, `Authorization: Bearer <CRON_SECRET>`.
+// 08:30 cannot wait for a 06:00 UTC cron) and is rung every five minutes by the repository's
+// own GitHub Actions schedule (.github/workflows/moments-clock.yml — free, the repo is
+// public), or by any pinger that can send `Authorization: Bearer <CRON_SECRET>`.
 // It is safe at any frequency: a moment is claimed before it is sent, and the query behind
 // it is one indexed read. Without such a pinger moments still go out, late, with the daily
 // tick — and with any participant opening the trip page, which runs the same scan
