@@ -28,7 +28,6 @@ const TripNearby = (() => {
     waze: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 16.5A8 8 0 1 1 20 11c0 3.3-2.3 5.5-5 5.5H9.8"/><circle cx="8" cy="19" r="1.7"/><circle cx="16" cy="19" r="1.7"/><path d="M10 9.5h.01M15 9.5h.01"/><path d="M10 12.5a3 3 0 0 0 5 0"/></svg>',
     pin: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
     route: TRIPMAKER.routeIcon,
-    back: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
     globe: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18"/></svg>',
     phone: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2Z"/></svg>',
   };
@@ -360,8 +359,7 @@ const TripNearby = (() => {
 
   function paintFood(inner) {
     const waiting = st.foodLoading;
-    let html = `<button type="button" class="nb-back" data-act="sights">${ICON.back} מה לעשות באזור</button>`;
-    html += whereBar();
+    let html = whereBar();
     html += `
       <div class="nb-filters">
         <button type="button" class="nb-kosher${st.kosherOnly ? ' on' : ''}" data-act="kosher" aria-pressed="${st.kosherOnly}">✡ כשר בלבד</button>
@@ -596,6 +594,14 @@ const TripNearby = (() => {
       title: '📍 מה עושים עכשיו',
       sub: 'הכי מומלצים סביבכם — לפי דירוגי גוגל ומה שישראלים כתבו',
       render,
+      // the header's back arrow leaves the food list for the sights first, then the page
+      back: () => {
+        if (st.view !== 'food') return false;
+        st.view = 'sights'; st.error = null;
+        if (slots) slots.body.scrollTop = 0;
+        load();
+        return true;
+      },
     });
     banner(liveDay());
   }

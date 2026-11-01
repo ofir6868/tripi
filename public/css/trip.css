@@ -3873,13 +3873,11 @@ body.budget-open { overflow: hidden; }
 .nb-links .ic { width: 15px; height: 15px; }
 .nb-credit { font-size: .7rem; color: var(--paper-dim); opacity: .8; }
 
-.nb-more-btn, .nb-back {
+.nb-more-btn {
   align-self: center; cursor: pointer; padding: 9px 18px; border-radius: 999px;
   background: var(--glass); border: 1px solid var(--glass-border); color: var(--paper);
   font-family: var(--font-body); font-weight: 700; font-size: .9rem;
 }
-.nb-back { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: .84rem; }
-.nb-back .ic { width: 15px; height: 15px; }
 
 .nb-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .nb-kosher {
