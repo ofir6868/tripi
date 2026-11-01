@@ -52,7 +52,8 @@ const TripPages = (() => {
       <div class="tp-body"></div>
       <div class="tp-foot"></div>`;
     document.body.appendChild(el);
-    el.querySelector('.tp-back').onclick = () => close();
+    // a page with an inner level (nearby's food list) steps back to its own top first
+    el.querySelector('.tp-back').onclick = () => { if (!(pages[name].back && pages[name].back())) close(); };
     p.el = el;
     return el;
   }
