@@ -3573,7 +3573,7 @@ body.budget-open { overflow: hidden; }
 .cp-input {
   flex: 1; min-width: 0; resize: none; border: 0; outline: none; background: transparent; color: var(--paper);
   font: inherit; font-size: 1rem; line-height: 1.45; padding: 11px 6px; max-height: 140px;
-  scrollbar-width: thin;
+  overflow-y: hidden; scrollbar-width: thin; /* scrolls only at full height — composer() */
 }
 .cp-input::placeholder { color: rgba(245, 239, 227, .55); }
 .cp-plus, .cp-send {
@@ -3647,8 +3647,14 @@ body.budget-open { overflow: hidden; }
 @media (max-width: 640px) { .tp-tools .tp-tool-import span { display: none; } }
 
 /* ---- the empty thread: a greeting and four questions ---- */
-.chat-thread.is-empty { justify-content: center; }
-.chat-hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 8px 6px 24px; animation: chatIn .4s ease both; }
+/* centred with auto margins, not justify-content: when the greeting is taller than the
+   room (a phone inside an app's browser, a large font) auto margins fall to zero and the
+   thread scrolls from its top, where justify-content: center pushed the orb up under
+   the header with no way to scroll to it. And the room it centres in ends at the
+   composer — the 160px the thread keeps under the pill is for answers to slide under,
+   and it left the greeting sitting high, and scrolled, on a short screen */
+.page-chat .chat-thread.is-empty { padding-bottom: 96px; }
+.chat-hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 8px 6px 24px; margin-block: auto; animation: chatIn .4s ease both; }
 .ch-orb {
   width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; font-size: 1.4rem; margin-bottom: 4px;
   background: radial-gradient(circle at 30% 30%, rgba(255, 214, 140, .6), rgba(255, 180, 95, .25) 55%, rgba(143, 216, 196, .3));

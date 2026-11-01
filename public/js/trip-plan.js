@@ -219,7 +219,9 @@ const TripPlan = (() => {
         const nodes = [...thread.children].filter((el) => !el.classList.contains('chat-wait'));
         const fresh = nodes.slice(painted);
         if (first || !ready) {
-          body.scrollTop = body.scrollHeight;
+          // history lands on its end; the greeting of an empty thread lands on its top —
+          // taller than the screen and scrolled to its end, it hid its orb under the header
+          body.scrollTop = thread.classList.contains('is-empty') ? 0 : body.scrollHeight;
           first = !ready;
           return nodes.length;
         }

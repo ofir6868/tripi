@@ -156,6 +156,10 @@ const ChatUI = (() => {
     const grow = () => {
       input.style.height = 'auto';
       input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+      // the box scrolls only once it has stopped growing: scrollHeight is a whole number
+      // and the line box isn't, so a box sized to it overflows by a fraction of a pixel —
+      // enough for a phone to draw a scrollbar down the side of an empty field
+      input.style.overflowY = input.scrollHeight > 140 ? 'auto' : 'hidden';
       form.classList.toggle('is-tall', input.scrollHeight > 48);
       send.classList.toggle('has-text', !!input.value.trim());
     };
