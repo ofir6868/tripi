@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v103'; // the in-trip screen: what to do nearby and the restaurants (trip-nearby, nearby-kinds, trip.css) on top of v102
+const VERSION = 'v104'; // the moments: a push before the bus, the flight, the check-in, with the document a tap away (trip-moments, moment-kinds, trip.css) on top of v103
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first
@@ -12,7 +12,7 @@ const STATIC = [
   '/css/style.css', '/css/home.css', '/css/trip.css', '/css/plan.css', '/css/my.css',
   '/css/seo.css', '/css/admin.css',
   '/js/wcag22.js', '/js/common.js', '/js/geo.js', '/js/home.js', '/js/trip.js',
-  '/js/trip-pages.js', '/js/chat-ui.js', '/js/trip-recs.js', '/js/trip-dayrecs.js', '/js/trip-hours.js', '/js/travel-rules.js', '/js/trip-travel.js', '/js/trip-plan.js', '/js/nearby-kinds.js', '/js/trip-nearby.js', '/js/trip-photos.js', '/js/trip-docs.js', '/js/doc-classify.js', '/js/doc-text.js', '/js/checklist-tags.js', '/js/trip-checklist.js',
+  '/js/trip-pages.js', '/js/chat-ui.js', '/js/trip-recs.js', '/js/trip-dayrecs.js', '/js/trip-hours.js', '/js/travel-rules.js', '/js/trip-travel.js', '/js/trip-plan.js', '/js/nearby-kinds.js', '/js/trip-nearby.js', '/js/trip-photos.js', '/js/trip-docs.js', '/js/doc-classify.js', '/js/doc-text.js', '/js/moment-kinds.js', '/js/trip-moments.js', '/js/checklist-tags.js', '/js/trip-checklist.js',
   '/js/trip-modals.js', '/js/trip-arrange.js', '/js/trip-calendar.js', '/js/trip-map.js',
   '/js/plan.js', '/js/admin.js', '/js/admin-google.js', '/js/my.js',
   '/js/countries.js', '/js/airports.js', '/js/destinations.js', '/js/popular.js', '/js/datepicker.js', '/js/push.js', '/js/webmcp.js', '/js/webmcp-tools.js',
@@ -289,6 +289,10 @@ self.addEventListener('push', (e) => {
       : '';
 
     const announce = d.kind === 'announce';
+    // a moment (lib/moments.js) — the bus in 45 minutes — is the one push that must not
+    // slide off the screen: it stays until it is tapped or swiped, and its tap opens the
+    // ticket (trip-moments.js reads #moment-ID), not the itinerary
+    const moment = d.kind === 'moment';
     await self.registration.showNotification(flags ? `${title} ${flags}` : title, {
       body: d.body || '',
       icon,
@@ -298,7 +302,8 @@ self.addEventListener('push', (e) => {
       lang: 'he',
       tag: d.tag || 'tripmaker',
       renotify: true,           // a later ping on the same trip replaces, but still buzzes
-      vibrate: [28, 40, 28],
+      requireInteraction: moment,
+      vibrate: moment ? [60, 40, 60, 40, 120] : [28, 40, 28],
       timestamp: Date.now(),
       data: { url: d.url || '/' },
       actions: announce
@@ -306,10 +311,15 @@ self.addEventListener('push', (e) => {
           { action: 'open', title: 'לפתיחה' },
           { action: 'dismiss', title: 'סגירה' },
         ]
-        : [
-          { action: 'open', title: 'לצפייה במסלול' },
-          { action: 'dismiss', title: 'אחר כך' },
-        ],
+        : moment
+          ? [
+            { action: 'open', title: d.docs ? 'לפתיחת המסמך' : 'לפרטים' },
+            { action: 'dismiss', title: 'ראיתי' },
+          ]
+          : [
+            { action: 'open', title: 'לצפייה במסלול' },
+            { action: 'dismiss', title: 'אחר כך' },
+          ],
     });
   })());
 });
@@ -320,9 +330,14 @@ self.addEventListener('notificationclick', (e) => {
   const url = (e.notification.data && e.notification.data.url) || '/';
   e.waitUntil((async () => {
     const clientList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    // an already-open tab on this trip is focused rather than duplicated
-    const open = clientList.find((c) => new URL(c.url).pathname === url);
-    if (open) return open.focus();
+    // an already-open tab on this trip is focused rather than duplicated — and when the
+    // push points INTO the page (#moment-12), that tab is sent there first
+    const target = new URL(url, self.location.origin);
+    const open = clientList.find((c) => new URL(c.url).pathname === target.pathname);
+    if (open) {
+      if (target.hash && 'navigate' in open) { await open.navigate(url).catch(() => {}); }
+      return open.focus();
+    }
     const any = clientList.find((c) => 'focus' in c && 'navigate' in c);
     if (any) { await any.navigate(url); return any.focus(); }
     return self.clients.openWindow(url);

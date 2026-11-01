@@ -448,6 +448,8 @@ const TripPages = (() => {
     // keeps the line under it current — done/total, and how many are on fire)
     { id: 'checklist-btn', title: 'צ\'קליסט לטיול',
       desc: () => (typeof TripChecklist !== 'undefined' ? TripChecklist.moreDesc() : 'eSIM, ביטוח, אישורים, הזמנות מראש ואריזה') },
+    { id: 'moments-btn', title: 'תזכורות',
+      desc: () => (typeof TripMoments !== 'undefined' ? TripMoments.moreDesc() : 'כרטיסים, טיסות וצ׳ק-אין — התראה לפני, עם המסמך פתוח') },
     { id: 'budget-btn', title: 'תקציב', cls: (el) => (el.classList.contains('over') ? 'over' : el.classList.contains('warn') ? 'warn' : ''),
       desc: () => { const l = document.getElementById('budget-label')?.textContent; return l && l !== 'תקציב' ? `${l} מהתקציב כבר מתוכנן` : 'כמה זה עולה — התקרה, ההוצאות והחלוקה'; } },
     { id: 'hotels-btn', title: 'מלונות', desc: 'איפה ישנים — לילות, הזמנות ומחירים' },

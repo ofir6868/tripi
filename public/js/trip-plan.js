@@ -28,6 +28,8 @@ const TripPlan = (() => {
     add: { em: '➕', label: 'הוספה' }, update: { em: '✏️', label: 'שינוי' }, delete: { em: '🗑️', label: 'הסרה' },
     // beyond the stops (lib/plan-actions.js): a hotel, the budget frame, the dates
     hotel: { em: '🏨', label: 'מלון' }, hotel_delete: { em: '🏨', label: 'הסרת מלון' }, budget: { em: '💰', label: 'תקציב' }, dates: { em: '📅', label: 'תאריכים' },
+    // a timed push with the document a tap away (lib/moments.js)
+    moment: { em: '⏰', label: 'תזכורת' },
   };
   const FILL_CHIP = '✨ להשלים את שאר הימים אוטומטית';
   const QUIPS = [
@@ -401,7 +403,7 @@ const TripPlan = (() => {
     const changes = p.changes || [];
     if (!changes.length) return '';
     const done = p.decision === 'applied';
-    const side = changes.some((c) => ['hotel', 'hotel_delete', 'budget', 'dates'].includes(c.kind));
+    const side = changes.some((c) => ['hotel', 'hotel_delete', 'budget', 'dates', 'moment'].includes(c.kind));
     const where = side ? 'בטיול' : 'במסלול';
     const head = {
       pending: `שינויים מוצעים ${where}`, deciding: `שינויים מוצעים ${where}`, applied: `שינויים שבוצעו ${where}`,
@@ -409,7 +411,7 @@ const TripPlan = (() => {
     }[p.decision] || 'שינויים';
     const rows = changes.map((c) => {
       const k = KIND[c.kind] || KIND.update;
-      const detail = c.changes && c.changes.length ? ` — ${c.changes.join(', ')}` : (c.kind === 'hotel' && c.note ? c.note : '');
+      const detail = c.changes && c.changes.length ? ` — ${c.changes.join(', ')}` : ((c.kind === 'hotel' || c.kind === 'moment') && c.note ? c.note : '');
       return `<li class="pc-row pc-${c.kind}"><span class="pc-em" aria-hidden="true">${k.em}</span>
         <span class="pc-text"><b>${esc(c.title || '')}</b>${c.when ? `<small>${esc(c.when)}</small>` : ''}${detail ? `<span class="pc-detail">${esc(detail)}</span>` : ''}</span></li>`;
     }).join('');

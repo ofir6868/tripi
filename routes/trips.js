@@ -76,7 +76,7 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
       delete trip.invite_token; // the invite link is only revealed to participants
       delete trip.plan_state; // and so is the planning chat's memory — it holds what they told the AI
     }
-    const [items, hotels, budget, expenses, participants, settlements] = await Promise.all([
+    const [items, hotels, budget, expenses, participants, settlements, momentRows] = await Promise.all([
       pool.query('SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, time_label NULLS LAST, sort_order, id', [trip.id]),
       pool.query('SELECT * FROM trip_hotels WHERE trip_id = $1 ORDER BY night_start, id', [trip.id]),
       canEdit
@@ -99,7 +99,18 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
           [trip.id]
         )
         : Promise.resolve({ rows: [] }),
+      // the moments (lib/moments.js) ride along for participants, so the sheet a push
+      // opens has them even when the page came back from the service worker's cache
+      canEdit
+        ? pool.query('SELECT * FROM trip_moments WHERE trip_id = $1 ORDER BY starts_at, id', [trip.id])
+        : Promise.resolve({ rows: [] }),
     ]);
+    // a participant opening the trip is a clock too: a moment whose window is open and
+    // whose push nobody sent yet (the pinger is late, the host was asleep) goes out now —
+    // to everyone on the trip, in the background, never delaying this answer
+    if (momentRows.rows.some((m) => m.status === 'active' && !m.notified_at && new Date(m.starts_at).getTime() - m.lead_minutes * 60000 <= Date.now())) {
+      require('../lib/reminders').momentsTick().catch((err) => console.error('moments tick (page load) failed:', err.message));
+    }
     // privacy split: viewers (gallery + share-code) see the itinerary and hotel
     // names, never money, notes, expenses or the budget — those are for
     // participants (and the owner / admin). Documents and photos never leave
@@ -113,6 +124,7 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
       expenses: canEdit ? expenses.rows : [],
       settlements: canEdit ? settlements.rows : [],
       participants: participants.rows,
+      moments: canEdit ? momentRows.rows : [],
     });
   } catch (err) {
     console.error(err);

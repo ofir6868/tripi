@@ -81,6 +81,7 @@ app.use(require('./routes/ai'));
 app.use(require('./routes/plan'));
 app.use(require('./routes/ai-import'));
 app.use(require('./routes/connectors'));
+app.use(require('./routes/moments'));
 app.use(require('./routes/day-recs'));
 app.use(require('./routes/checklist'));
 app.use(require('./routes/hotels'));

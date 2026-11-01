@@ -336,6 +336,7 @@
     const state = {
       trip,
       hotels: data.hotels || [],
+      moments: data.moments || [], // the timed things with a push before them (trip-moments.js)
       budget: data.budget || null,
       expenses: data.expenses || [],
       settlements: data.settlements || [],
@@ -1370,6 +1371,7 @@
     settleBtn.style.display = privileged ? '' : 'none';
     document.getElementById('docs-btn').style.display = privileged ? '' : 'none';
     document.getElementById('checklist-btn').style.display = privileged ? '' : 'none';
+    document.getElementById('moments-btn').style.display = privileged ? '' : 'none';
     hotelsBtn.onclick = () => (canEdit ? TripModals.openHotels(modalCtx) : requireSignup());
     budgetBtn.onclick = () => (canEdit ? TripModals.openBudget(modalCtx) : requireSignup());
     settleBtn.onclick = () => (canEdit ? TripModals.openSettle(modalCtx) : requireSignup());
@@ -1451,6 +1453,7 @@
       applySide: (side) => {
         if (!side) return;
         if (Array.isArray(side.hotels)) state.hotels = side.hotels;
+        if (Array.isArray(side.moments) && typeof TripMoments !== 'undefined') TripMoments.refresh(side.moments);
         if ('budget' in side) state.budget = side.budget || null;
         const t = side.trip || {};
         if (t.start_date !== undefined && (t.start_date || null) !== (trip.start_date ? TRIPMAKER.isoDate(new Date(trip.start_date)) : null)) {
@@ -1508,6 +1511,18 @@
         onClose: () => pageCtx.onDocsClose?.(),
       });
       TripDocs.count(pageCtx).then((n) => TripPages.badge('docs', n));
+    }
+    // the moments (trip-moments.js): the page, the sheet a push lands on (#moment-ID), and
+    // the badge for proposals the Gmail scan left waiting. Participants only — a moment
+    // carries booking codes. The invite holder sees the tab and meets the sign-up at it.
+    if (canEdit) {
+      pageCtx.reload = () => loadTripInPlace(code);
+      TripMoments.init(pageCtx);
+    } else if (privileged) {
+      TripPages.register('moments', {
+        title: '⏰ תזכורות', sub: 'כרטיסים, טיסות וצ׳ק-אין — הטלפון מצלצל לפני, והמסמך נפתח בלחיצה',
+        render: (slots) => { slots.body.innerHTML = '<div class="tp-inner"><div class="docs-empty glass"><div class="de-icons">⏰</div><h3>התזכורות של הטיול</h3><p>כדי לראות ולהוסיף תזכורות צריך להצטרף לטיול.</p></div></div>'; requireSignup(); },
+      });
     }
     // the in-trip screen (trip-nearby.js): "what's good around here right now" and the
     // restaurants. Participants of a saved trip only — they are the ones travelling, and

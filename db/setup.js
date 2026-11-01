@@ -196,6 +196,31 @@ CREATE TABLE IF NOT EXISTS push_log (
   PRIMARY KEY (trip_id, kind, sent_on)
 );
 
+-- the timed things a traveller must not miss — a bus, a flight, a check-in — each with a
+-- push before it that opens the right documents (lib/moments.js, lib/reminders.js).
+-- The documents stay on the device; the row carries their names. Migration 31 adds the
+-- indexes, beside the ALTER-free table they index (see the note under the indexes).
+CREATE TABLE IF NOT EXISTS trip_moments (
+  id SERIAL PRIMARY KEY,
+  trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'other',
+  title TEXT NOT NULL,
+  starts_at TIMESTAMPTZ NOT NULL,
+  local_time TEXT,
+  tz TEXT,
+  lead_minutes INT NOT NULL DEFAULT 60,
+  details JSONB NOT NULL DEFAULT '{}',
+  docs JSONB NOT NULL DEFAULT '[]',
+  source JSONB NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'active',
+  hotel_id INT REFERENCES trip_hotels(id) ON DELETE SET NULL,
+  item_id INT REFERENCES trip_items(id) ON DELETE SET NULL,
+  created_by INT REFERENCES users(id) ON DELETE SET NULL,
+  notified_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_trips_share_code ON trips(share_code);
 CREATE INDEX IF NOT EXISTS idx_trips_public ON trips(is_public);
 CREATE INDEX IF NOT EXISTS idx_trips_owner ON trips(owner_id);

@@ -322,6 +322,7 @@ const TripDocs = (() => {
           <div class="ds-actions">
             <a class="btn btn-amber" href="${url}" target="_blank" rel="noopener">${ICON.open} פתיחה</a>
             ${canShare ? `<button type="button" class="btn btn-ghost ds-share">${ICON.share} שיתוף</button>` : ''}
+            ${typeof TripMoments !== 'undefined' && ctx.canEdit ? `<button type="button" class="btn btn-ghost ds-remind" title="ה-AI קורא את השעה מהמסמך, והטלפון מצלצל לפני — עם המסמך הזה פתוח">⏰ תזכורת מהמסמך</button>` : ''}
             <button type="button" class="btn btn-ghost ds-del">${ICON.trash} מחיקה</button>
           </div>
           <div class="ds-privacy">${PRIVACY}</div>`,
@@ -337,6 +338,9 @@ const TripDocs = (() => {
           bodyEl.querySelector('.ds-share')?.addEventListener('click', async () => {
             try { await navigator.share({ files: [file], title: d.name }); } catch { /* cancelled */ }
           });
+          // a ticket becomes a push before the bus (trip-moments.js): the text is read here,
+          // on the device, and only the text travels
+          bodyEl.querySelector('.ds-remind')?.addEventListener('click', () => TripPages.closeSheet(() => TripMoments.fromDoc(d)));
           bodyEl.querySelector('.ds-del').onclick = async () => {
             if (!confirm(`למחוק את "${d.name}" מהמכשיר?`)) return;
             try { await remove(d.id); } catch { TripPages.toast('המחיקה נכשלה'); return; }
@@ -378,5 +382,18 @@ const TripDocs = (() => {
     try { return await countOf(owner); } catch { return 0; }
   }
 
-  return { render, count, classify, stash };
+  // the documents of this trip on this device — for the moments page, which opens them by
+  // name when the push is tapped (find) and offers them in its form (all). Blobs included:
+  // the caller makes the object URL and owns it.
+  async function all(ctx) {
+    const owner = ownerKey(ctx);
+    if (!owner) return [];
+    try { return (await list(owner)).sort((a, b) => b.addedAt - a.addedAt); } catch { return []; }
+  }
+  async function find(ctx, names) {
+    const want = new Set(names || []);
+    return (await all(ctx)).filter((d) => want.has(d.name));
+  }
+
+  return { render, count, classify, stash, all, find };
 })();

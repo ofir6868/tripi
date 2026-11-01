@@ -1,4 +1,4 @@
-// Migrations 2–30, in order. Idempotent — safe to run on every boot, and the server
+// Migrations 2–31, in order. Idempotent — safe to run on every boot, and the server
 // does (lib/db-bootstrap.js), so a replaced database catches up by itself.
 // Usage: DATABASE_URL=postgres://... node db/migrate.js
 require('../lib/env');
@@ -425,6 +425,43 @@ async function migrate(pool, log = console.log) {
       PRIMARY KEY (user_id, provider)
     )
   `);
+
+  log('Migration 31: the trip has moments — a bus, a flight, a check-in — each with a push before it...');
+  // One row per timed thing a traveller must not miss (lib/moments.js): when it happens
+  // (an instant, and the local clock it was written in), how long before it the phone
+  // should buzz, the booking details worth having on the screen at the door, and WHICH
+  // DOCUMENTS to open then — by name, because the documents themselves never leave the
+  // device (public/js/trip-docs.js) and are matched there, in IndexedDB, when the push is
+  // tapped. A moment born from a hotel confirmation also points at the trip_hotels row it
+  // created; one born from a ticket at the trip_items stop. notified_at is the claim:
+  // UPDATE … WHERE notified_at IS NULL is what keeps overlapping ticks from double-pinging.
+  // status: 'active' counts down; 'proposed' is what a Gmail scan found and nobody has
+  // approved yet — shown in the app, never pushed about on its own.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trip_moments (
+      id SERIAL PRIMARY KEY,
+      trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL DEFAULT 'other',
+      title TEXT NOT NULL,
+      starts_at TIMESTAMPTZ NOT NULL,
+      local_time TEXT,
+      tz TEXT,
+      lead_minutes INT NOT NULL DEFAULT 60,
+      details JSONB NOT NULL DEFAULT '{}',
+      docs JSONB NOT NULL DEFAULT '[]',
+      source JSONB NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'active',
+      hotel_id INT REFERENCES trip_hotels(id) ON DELETE SET NULL,
+      item_id INT REFERENCES trip_items(id) ON DELETE SET NULL,
+      created_by INT REFERENCES users(id) ON DELETE SET NULL,
+      notified_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_moments_trip ON trip_moments(trip_id, starts_at)`);
+  // the due query: active, not yet sent, inside its lead window — this is the whole scan
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_moments_due ON trip_moments(starts_at) WHERE notified_at IS NULL AND status = 'active'`);
 
   log('Done.');
 }

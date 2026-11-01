@@ -11,6 +11,15 @@
 // and nothing else — the same shape as the rotation token in routes/rotation.js. Without
 // the secret set the route refuses everyone, which is the right answer for an endpoint
 // that would otherwise let a stranger spend the push and GitHub quotas for us.
+//
+// Two doorbells. /api/cron/tick is the daily one: everything, once a day, which is all the
+// free plan's scheduler offers. /api/cron/moments runs ONLY the moment pushes (the bus at
+// 08:30 cannot wait for a 06:00 UTC cron) and is meant for a free outside pinger that can
+// send a header — cron-job.org, every five minutes, `Authorization: Bearer <CRON_SECRET>`.
+// It is safe at any frequency: a moment is claimed before it is sent, and the query behind
+// it is one indexed read. Without such a pinger moments still go out, late, with the daily
+// tick — and with any participant opening the trip page, which runs the same scan
+// (routes/trips.js) so the person at the bus stop is rarely the only clock around.
 const express = require('express');
 const crypto = require('crypto');
 
@@ -56,5 +65,14 @@ async function tick(_req, res) {
 
 router.get('/api/cron/tick', cronAuth, tick);
 router.post('/api/cron/tick', cronAuth, tick);
+
+async function momentsOnly(_req, res) {
+  const results = await Promise.all([
+    run('moments', async () => { const n = await require('../lib/reminders').momentsTick(); return n; }),
+  ]);
+  res.json({ ok: true, ran: Object.fromEntries(results) });
+}
+router.get('/api/cron/moments', cronAuth, momentsOnly);
+router.post('/api/cron/moments', cronAuth, momentsOnly);
 
 module.exports = router;
