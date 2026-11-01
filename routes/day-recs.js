@@ -50,6 +50,7 @@ const { dailyQuota, exhausted } = require('../lib/quota');
 const ai = require('./ai');
 const { placeHours, openWindows } = require('../lib/opening-hours');
 const { stopPhoto } = require('../lib/stop-photos');
+const clock = require('../lib/trip-clock');
 
 const router = express.Router();
 
@@ -237,7 +238,7 @@ const itinerarySummary = (items, cap = 30) => {
 
 async function aiAreaBlocks(trip, items, { ph }) {
   const names = areaNamesOf(trip);
-  const dates = trip.start_date ? `, החל מ-${String(trip.start_date).slice(0, 10)}` : '';
+  const dates = trip.start_date ? `, החל מ-${clock.isoOf(trip.start_date)}` : '';
   const known = itinerarySummary(items);
   const raw = await ai.aiJson({
     system: `אתם מתכנני המסלולים של TRIP MAKER, ומחלקים טיול לאזורים לפי ימים.
@@ -347,7 +348,7 @@ const clashesWithTrip = (cards, titles) => (Array.isArray(cards) ? cards : []).s
 
 function systemPrompt(trip, blocks) {
   const areaNames = areaNamesOf(trip);
-  const dates = trip.start_date ? `, החל מ-${String(trip.start_date).slice(0, 10)}` : '';
+  const dates = trip.start_date ? `, החל מ-${clock.isoOf(trip.start_date)}` : '';
   const route = blocks.map((b) => `ימים ${b.from}-${b.to}: ${b.area}${b.cities.length ? ` (${b.cities.join(', ')})` : ''}`).join(' | ');
   return `אתם המדריך המקומי של TRIP MAKER — מומחה לטיולים שמכיר את ${destText(trip)} לעומק, ועוזרים למטייל ישראלי למלא את הימים הפנויים בטיול שלו.
 עונים בעברית, בגוף רבים ("אתם").

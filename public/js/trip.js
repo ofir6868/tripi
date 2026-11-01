@@ -287,7 +287,7 @@
 
     const meta = [];
     meta.push(`<span class="chip"><span class="dot">●</span> ${TRIPMAKER.esc(TRIPMAKER.destLine(trip))}</span>`);
-    meta.push(`<span class="chip"><span class="dot">●</span> ${trip.days} ימים</span>`);
+    meta.push(`<span class="chip" id="days-chip"><span class="dot">●</span> ${trip.days} ימים</span>`);
     // the dates chip goes in between, added by renderDateChip() once edit rights are
     // known — with no dates on the trip it's a badge that sets them, not a chip
     // the code is minted at creation but only revealed once planning is finished —
@@ -1456,7 +1456,16 @@
         if (Array.isArray(side.moments) && typeof TripMoments !== 'undefined') TripMoments.refresh(side.moments);
         if ('budget' in side) state.budget = side.budget || null;
         const t = side.trip || {};
-        if (t.start_date !== undefined && (t.start_date || null) !== (trip.start_date ? TRIPMAKER.isoDate(new Date(trip.start_date)) : null)) {
+        // the AI may change the trip's length too (dates_set with an end date): the day
+        // count every day loop reads is this same object, so the itinerary repaints with
+        // the new days and the hero chip follows
+        const daysChanged = Number.isInteger(t.days) && t.days !== trip.days;
+        if (daysChanged) {
+          trip.days = t.days;
+          const chip = document.getElementById('days-chip');
+          if (chip) chip.innerHTML = `<span class="dot">●</span> ${trip.days} ימים`;
+        }
+        if (daysChanged || (t.start_date !== undefined && (t.start_date || null) !== (trip.start_date ? TRIPMAKER.isoDate(new Date(trip.start_date)) : null))) {
           trip.start_date = t.start_date || null;
           trip.end_date = t.end_date || null;
           applyDates();

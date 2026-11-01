@@ -355,7 +355,10 @@ const TripRecs = (() => {
           const r = await TRIPMAKER.api(`${base}/apply`, { method: 'POST', body: JSON.stringify({ ops: m.payload.ops || [], actions: m.payload.actions || [] }) });
           const a = r.applied || {};
           const changed = (a.added + a.updated + a.removed + (a.actions || 0)) > 0;
-          m.payload.decision = changed ? 'applied' : 'rejected';
+          // a change the trip already had is done, not refused (it just has no undo)
+          m.payload.decision = changed || a.already ? 'applied' : 'rejected';
+          m.payload.applied = a;
+          m.payload.skipped = r.skipped || null;
           m.payload.undo = changed ? r.undo : null;
           m.payload.undoActions = changed ? r.undo_actions : null;
           if (r.items) ctx.replaceItems(r.items);

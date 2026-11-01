@@ -17,6 +17,8 @@ const COUNTRIES = require('../public/js/countries.js');
 const posthog = require('../lib/posthog');
 const { dailyQuota, exhausted } = require('../lib/quota');
 const actions = require('../lib/plan-actions');
+const clock = require('../lib/trip-clock');
+const moments = require('../lib/moments');
 const attachments = require('../lib/attachments');
 const aiTools = require('../lib/ai-tools');
 const connectors = require('../lib/connectors');
@@ -2067,6 +2069,25 @@ async function undoApplied(client, trip, undo) {
   }
 }
 
+// A card's two halves written together — the trip-level actions FIRST, then the stops.
+// An action may change the trip's calendar (dates_set: a longer trip, or day 1 moved
+// with the stops kept on their dates), and the ops in the same answer are numbered
+// against the trip as it will be: "make it 23 days and add the airport on day 23" must
+// not clamp the airport onto day 20. So when the calendar moved, the stops are re-read
+// (their day numbers may have shifted, and the undo records the values the ops really
+// replaced) before the ops land. Undo replays in the opposite order: the ops' inverse,
+// then the actions'. `trip.days` is updated in place by applyActions.
+async function applyOpsAndActions(client, trip, items, ops, acts) {
+  const a = acts && acts.length
+    ? await actions.applyActions(client, trip, acts)
+    : { count: 0, undo: [], already: 0, skipped: [], calendar: null };
+  const base = a.calendar
+    ? (await client.query('SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id])).rows
+    : items;
+  const r = ops && ops.length ? await applyEditOps(client, trip, base, ops) : { added: 0, updated: 0, removed: 0, undoOps: null };
+  return { r, a };
+}
+
 router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
   // acquired inside the try: when the database is unreachable this rejects, and an
   // await outside the try would leave the request hanging until the platform gave up
@@ -2205,12 +2226,12 @@ const RECS_SCHEMA = {
   required: ['text', 'cards'],
 };
 
-function recsSystemPrompt({ trip, dests, items, edit = false, prefs = null, side = null, services = [] }) {
+function recsSystemPrompt({ trip, dests, items, edit = false, prefs = null, side = null, services = [], tz = null }) {
   const destText = dests.length
     ? dests.map((d) => d.country && d.country !== d.name ? `${d.name} (${d.country})` : d.name).join(', ')
     : [trip.destination, trip.country].filter(Boolean).join(', ');
   const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
-  const dates = trip.start_date ? `, החל מ-${String(trip.start_date).slice(0, 10)}` : '';
+  const dates = trip.start_date ? `, החל מ-${clock.isoOf(trip.start_date)}` : '';
   const byDay = new Map();
   for (const it of items) {
     if (!byDay.has(it.day_number)) byDay.set(it.day_number, []);
@@ -2218,10 +2239,10 @@ function recsSystemPrompt({ trip, dests, items, edit = false, prefs = null, side
   }
   // in edit mode the stops carry their ids — an op has to name the stop it touches
   const itinerary = edit
-    ? (items.map((it) => `#${it.id} | יום ${it.day_number} | ${it.time_label || '--:--'} | [${it.category || 'כללי'}] ${it.title}` +
+    ? (items.map((it) => `#${it.id} | ${clock.dayLabel(trip, it.day_number)} | ${it.time_label || '--:--'} | [${it.category || 'כללי'}] ${it.title}` +
         (areaNames.length > 1 && it.area ? ` | אזור: ${it.area}` : '')).join('\n') || '(עדיין ריק)')
     : ([...byDay.entries()].slice(0, 30)
-      .map(([d, titles]) => `יום ${d}: ${titles.slice(0, 6).join(' · ')}`).join('\n') || '(עדיין ריק)');
+      .map(([d, titles]) => `${clock.dayLabel(trip, d)}: ${titles.slice(0, 6).join(' · ')}`).join('\n') || '(עדיין ריק)');
   const editRules = edit ? `
 
 עריכת המסלול (ops): המטיילים אפשרו לכם לשנות את המסלול בעצמכם, וכל שינוי שתציעו מוצג להם ככרטיס לאישור לפני שהוא נכנס.
@@ -2229,6 +2250,7 @@ function recsSystemPrompt({ trip, dests, items, edit = false, prefs = null, side
 - כשמציעים שינוי: text מנוסח כהצעה ("אני מציע להוסיף… מאשרים?") ובלי cards כפולים של אותם מקומות.
 - add: title קצר בעברית, note טיפ פרקטי קצר, time_label בפורמט HH:MM או null, day_number בין 1 ל-${trip.days}, place_query באנגלית עם עיר ומדינה רק למקום אמיתי (אחרת null), cost הערכה לאדם בש"ח או null, category מתוך: ${AI_CATEGORIES.join(', ')}, area מתוך: ${areaNames.map((a) => `"${a}"`).join(', ')}.
 - update/delete: id של תחנה קיימת מהמסלול למעלה; ב-update null בכל שדה שלא משתנה. לא נוגעים בתחנות שלא התבקשו.
+- כל מה שכתוב ב-text שאתם עושים חייב להופיע באותו תור ב-ops או ב-actions — אחרת לא קרה כלום בטיול. כשבקשה דורשת משהו שאין לו פעולה כאן, אמרו זאת בפשטות ואמרו איך עושים את זה ידנית בדף.
 ${actions.PROMPT_RULES(trip.days)}
 ${attachments.PROMPT_RULES}
 ${actions.contextLines(side && side.hotels, side && side.budget)}` : '';
@@ -2236,6 +2258,7 @@ ${actions.contextLines(side && side.hotels, side && side.budget)}` : '';
 עונים בעברית, בגוף רבים ("אתם"), בחום ובענייניות. השדה text — עד 80 מילים.
 
 הטיול: "${trip.title}", ${trip.days} ימים${dates}. יעדים: ${destText}.
+${clock.promptBlock(trip, { tz })}
 המסלול הנוכחי:
 ${itinerary}
 ${tripPrefsBlock(prefs)}
@@ -2250,6 +2273,7 @@ ${tripPrefsBlock(prefs)}
 - area: שם היעד מהטיול שהמקום שייך אליו, בדיוק באחת הצורות האלה: ${areaNames.map((a) => `"${a}"`).join(', ')}.
 - text מציג את הכרטיסים כשיש כאלה ("שלוש נקודות פתיחה:") ואינו חוזר על ה-blurb שלהם.
 כל מקום בכרטיס חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו; מקום שאינכם בטוחים בו לא נכנס לכרטיס.
+${clock.PROMPT_RULES}
 ${aiTools.promptRules({ services })}${editRules}`;
 }
 
@@ -2325,7 +2349,9 @@ async function tripRecs({ trip, items, message, history, edit = false, prefs = n
   const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
   const toolCtx = { userId, services };
   const raw = await aiJson({
-    system: recsSystemPrompt({ trip, dests, items, edit, prefs, side, services }),
+    // the destination's clock, for "today" once the travellers are there — cached for
+    // a year, and a turn without it still knows the date in Israel
+    system: recsSystemPrompt({ trip, dests, items, edit, prefs, side, services, tz: await moments.tzForTrip(trip).catch(() => null) }),
     user: recsUserPrompt(history, message, files),
     schemaName: edit ? 'trip_recs_edit' : 'trip_recs',
     schema: edit ? RECS_EDIT_SCHEMA : RECS_SCHEMA,
@@ -2395,11 +2421,11 @@ async function applyClientOps(req, res, mode) {
       const items = await client.query(
         'SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]
       ).then((r) => r.rows);
-      const r = ops.length ? await applyEditOps(client, trip, items, ops) : { added: 0, updated: 0, removed: 0, undoOps: null };
-      const a = acts.length ? await actions.applyActions(client, trip, acts) : { count: 0, undo: [] };
+      const { r, a } = await applyOpsAndActions(client, trip, items, ops, acts);
       const changed = r.added + r.updated + r.removed + a.count > 0;
       result = {
-        applied: { added: r.added, updated: r.updated, removed: r.removed, actions: a.count },
+        applied: { added: r.added, updated: r.updated, removed: r.removed, actions: a.count, already: a.already },
+        skipped: a.skipped.length ? a.skipped : undefined,
         undo: changed ? r.undoOps : null,
         undo_actions: a.count ? a.undo : null,
       };
@@ -2407,7 +2433,8 @@ async function applyClientOps(req, res, mode) {
       const u = b.undo && typeof b.undo === 'object' ? b.undo : null;
       const ua = Array.isArray(b.undo_actions) ? b.undo_actions : null;
       if (!u && !ua) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'אין מה לבטל' }); }
-      if (ua) await actions.undoActions(client, trip, ua);
+      // the opposite order of applyOpsAndActions: the stops' inverse first (recorded
+      // against the calendar as the actions left it), then the actions'
       if (u) {
       await undoApplied(client, trip, {
         added: (Array.isArray(u.added) ? u.added : []).map((id) => parseInt(id, 10)).filter(Number.isInteger),
@@ -2424,6 +2451,7 @@ async function applyClientOps(req, res, mode) {
         })),
       });
       }
+      if (ua) await actions.undoActions(client, trip, ua);
       result = { undone: true };
     }
     const fresh = await client.query(
@@ -2660,6 +2688,7 @@ module.exports.buildQuota = buildQuota;
 module.exports.buildErrorMessage = buildErrorMessage;
 module.exports.BUILD_EXHAUSTED = BUILD_EXHAUSTED;
 module.exports.applyEditOps = applyEditOps;
+module.exports.applyOpsAndActions = applyOpsAndActions;
 module.exports.undoApplied = undoApplied;
 module.exports.verifyEditOps = verifyEditOps;
 module.exports.verifyRecCards = verifyRecCards;

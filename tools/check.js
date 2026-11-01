@@ -36,6 +36,7 @@ const CHECKS = [
   'tools/nearby-check.js',
   'tools/api-budget-check.js',
   'tools/moments-check.js',
+  'tools/trip-clock-check.js',
 ];
 for (const script of CHECKS) {
   const r = spawnSync(process.execPath, [script], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, DATABASE_URL: '' } });

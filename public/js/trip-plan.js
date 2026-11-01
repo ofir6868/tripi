@@ -405,11 +405,18 @@ const TripPlan = (() => {
     const changes = p.changes || [];
     if (!changes.length) return '';
     const done = p.decision === 'applied';
+    // what the server could not write, in its words — a refusal with no reason reads as
+    // the AI not doing what it said (2026-11-01). And a change that asked for what the
+    // trip already was is not a failure: it says so instead of "not done".
+    const skipped = Array.isArray(p.skipped) ? p.skipped : [];
+    const reasons = skipped.map((x) => `<div class="pc-note">${esc(x.title ? x.title + ' — ' : '')}${esc(x.reason || '')}</div>`).join('');
+    const a = p.applied || {};
+    const onlyAlready = done && a.already && !(a.added || a.updated || a.removed || a.actions);
     const side = changes.some((c) => ['hotel', 'hotel_delete', 'budget', 'dates', 'moment'].includes(c.kind));
     const where = side ? 'בטיול' : 'במסלול';
     const head = {
       pending: `שינויים מוצעים ${where}`, deciding: `שינויים מוצעים ${where}`, applied: `שינויים שבוצעו ${where}`,
-      rejected: 'הצעה שלא בוצעה', undone: 'שינויים שבוטלו',
+      rejected: skipped.length ? 'שינויים שלא נכנסו' : 'הצעה שלא בוצעה', undone: 'שינויים שבוטלו',
     }[p.decision] || 'שינויים';
     const rows = changes.map((c) => {
       const k = KIND[c.kind] || KIND.update;
@@ -418,7 +425,9 @@ const TripPlan = (() => {
         <span class="pc-text"><b>${esc(c.title || '')}</b>${c.when ? `<small>${esc(c.when)}</small>` : ''}${detail ? `<span class="pc-detail">${esc(detail)}</span>` : ''}</span></li>`;
     }).join('');
     let foot = '';
-    if (p.decision === 'deciding') {
+    if (onlyAlready) {
+      foot = '<div class="pc-note">כבר היה כך בטיול — אין מה לשנות</div>';
+    } else if (p.decision === 'deciding') {
       // the tap landed: the buttons are gone and the card says what is happening
       // until the server answers — nothing else on screen moves yet
       foot = `<div class="pc-foot pc-busy"><span class="chat-typing" aria-hidden="true"><i></i><i></i><i></i></span>${p.deciding === 'accept' ? 'מכניסים למסלול…' : 'רגע…'}</div>`;
@@ -429,11 +438,11 @@ const TripPlan = (() => {
     } else if (done && latestApplied === m.id && (p.undo || p.undoActions)) {
       foot = `<div class="pc-foot"><button type="button" class="pc-undo" data-id="${m.id}">${ICON.undo} ביטול השינוי</button></div>`;
     } else if (p.decision === 'rejected') {
-      foot = '<div class="pc-note">לא בוצע</div>';
+      foot = reasons ? '' : '<div class="pc-note">לא בוצע</div>';
     } else if (p.decision === 'undone') {
       foot = '<div class="pc-note">בוטל — המסלול חזר לקדמותו</div>';
     }
-    return `<div class="plan-card pc-${p.decision || 'pending'}"><div class="pc-head">${esc(head)}</div><ul class="pc-list">${rows}</ul>${foot}</div>`;
+    return `<div class="plan-card pc-${p.decision || 'pending'}"><div class="pc-head">${esc(head)}</div><ul class="pc-list">${rows}</ul>${reasons}${foot}</div>`;
   }
 
   function msgHtml(m, i, latestApplied, ctx) {

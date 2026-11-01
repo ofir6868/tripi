@@ -24,6 +24,7 @@ const { pool } = require('../lib/db');
 const { authRequired } = require('../lib/auth');
 const { tripWithEditAuth, cleanPlanState, areasCoverTrip } = require('../lib/trips');
 const actions = require('../lib/plan-actions');
+const clock = require('../lib/trip-clock');
 const { exhausted } = require('../lib/quota');
 const ai = require('./ai');
 
@@ -76,7 +77,7 @@ const itineraryLines = (items, multiArea) => items.map((it) =>
 function importPrompt({ trip, dests, items, mode, text, hotels }) {
   const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
   const multiArea = areaNames.length > 1;
-  const dates = trip.start_date ? `, מתאריך ${String(trip.start_date).slice(0, 10)}` : '';
+  const dates = trip.start_date ? `, מתאריך ${clock.isoOf(trip.start_date)}` : '';
   const system =
 `אתם עורך המסלולים של TRIP MAKER. המטיילים הדביקו תוכנית טיול שנכתבה במקום אחר (AI אחר, חבר, פורום), והיא **מקור האמת**: המסלול צריך להיות התוכנית הזו, לא פרשנות שלכם עליה ולא תוספות משלכם.
 ${mode === 'rebuild'
@@ -86,11 +87,12 @@ ${mode === 'rebuild'
 כל מה שבתוכנית נכנס — גם מסעדות, גם "בוקר חופשי", גם לינה כתחנת "לינה" כשהתוכנית מציינת היכן ישנים. שום דבר שלא בתוכנית לא נכנס.
 areas: אם התוכנית מחלקת את הימים לאזורים/ערים (למשל ימים 1-3 טוקיו, 4-6 קיוטו) — החזירו את החלוקה המלאה (רצף מ-1 עד ${trip.days}); אחרת [].
 facts: עד 10 עובדות קצרות מהתוכנית שחשוב לזכור (סגנון, תקציב, העדפות, החלטות) — לזיכרון של המתכנן.
-ignored: כל דבר בתוכנית שלא נכנס ולמה — ימים מעבר ל-${trip.days}, יעד שאינו בטיול, פרט לא ברור. משפט לכל פריט. [] כשהכול נכנס.
+ignored: כל דבר בתוכנית שלא נכנס ולמה — ימים מעבר ל-${trip.days} (אלא אם החזרתם dates_set שמאריך את הטיול כך שיכיל אותם), יעד שאינו בטיול, פרט לא ברור. משפט לכל פריט. [] כשהכול נכנס.
 summary: 2-3 משפטים בעברית למטיילים: מה הבנתם מהתוכנית ומה נעשה.
 ${actions.PROMPT_RULES(trip.days)}`;
   const user =
 `הטיול: "${trip.title}" — ${ai.destDescFull(dests) || trip.destination}, ${trip.days} ימים${dates}.
+${clock.promptBlock(trip)}
 ${mode === 'fix' ? `המסלול הנוכחי (#מזהה | יום | שעה | [קטגוריה] כותרת | מקום):\n${itineraryLines(items, multiArea)}\n` : ''}${actions.contextLines(hotels, null)}
 
 התוכנית שהודבקה:
@@ -148,8 +150,9 @@ router.post('/api/trips/code/:code/ai-import', authRequired, async (req, res) =>
     client = await pool.connect();
     await client.query('BEGIN');
     if (mode === 'rebuild' && items.length) await client.query('DELETE FROM trip_items WHERE trip_id = $1', [trip.id]);
-    const r = verified.ops.length ? await ai.applyEditOps(client, trip, base, verified.ops) : { added: 0, updated: 0, removed: 0 };
-    const a = acts.length ? await actions.applyActions(client, trip, acts) : { count: 0 };
+    // a plan longer than the trip may lengthen it (dates_set) — written first, so its
+    // last days have somewhere to land (ai.applyOpsAndActions)
+    const { r, a } = await ai.applyOpsAndActions(client, trip, mode === 'rebuild' ? [] : base, verified.ops, acts);
     // the planning memory: the split the text drew, and what it said worth remembering
     const state = cleanPlanState(trip.plan_state);
     const areas = cleanAreas(raw.areas, trip.days);

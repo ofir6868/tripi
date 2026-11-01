@@ -35,6 +35,8 @@ const { authRequired } = require('../lib/auth');
 const { tripWithEditAuth, cleanPlanState, areasCoverTrip, tripPrefsBlock, PLAN_STAGES } = require('../lib/trips');
 const flights = require('../lib/flights');
 const actions = require('../lib/plan-actions');
+const clock = require('../lib/trip-clock');
+const moments = require('../lib/moments');
 const attachments = require('../lib/attachments');
 const { dailyQuota, exhausted } = require('../lib/quota');
 const ai = require('./ai');
@@ -349,9 +351,9 @@ const TURN_SCHEMA = {
 };
 
 // the itinerary as the editor prompt shows it — id, day, clock, category, title, area
-function itineraryLines(items, multiArea) {
+function itineraryLines(items, multiArea, trip = null) {
   return items.map((it) =>
-    `#${it.id} | יום ${it.day_number} | ${it.time_label || '--:--'} | [${it.category || 'כללי'}] ${it.title}` +
+    `#${it.id} | ${trip ? clock.dayLabel(trip, it.day_number) : `יום ${it.day_number}`} | ${it.time_label || '--:--'} | [${it.category || 'כללי'}] ${it.title}` +
     (multiArea && it.area ? ` | אזור: ${it.area}` : '') +
     (it.place_query ? ` | ${it.place_query}` : '')).join('\n') || '(המסלול עדיין ריק)';
 }
@@ -378,14 +380,14 @@ function describeOp(op, byId) {
   return { kind: 'update', title: cur ? cur.title : `#${op.id}`, when: cur ? when(op, cur) : '', changes };
 }
 
-function turnPrompt({ trip, items, state, side, history, pendingProposal, stepwise = false, services = [] }) {
+function turnPrompt({ trip, items, state, side, history, pendingProposal, stepwise = false, services = [], tz = null }) {
   const dests = trip.dests;
   const areaNames = dests.length ? dests.map((d) => d.name) : [trip.destination].filter(Boolean);
   const multiArea = areaNames.length > 1;
   // a day→area split is worth discussing only when the trip has room for more than one
   // area: several destinations, or a single broad one long enough to move between regions
   const splitAreas = multiArea || trip.days >= SPLIT_AREAS_FROM_DAYS;
-  const dates = trip.start_date ? `, מתאריך ${String(trip.start_date).slice(0, 10)}` : ' (בלי תאריכים עדיין)';
+  const dates = trip.start_date ? `, מתאריך ${clock.isoOf(trip.start_date)}` : ' (בלי תאריכים עדיין)';
   const perDay = [];
   for (let d = 1; d <= trip.days; d++) perDay.push(items.filter((it) => it.day_number === d).length);
 
@@ -412,8 +414,11 @@ ${stepwise
 - done: כל הימים נדונו. הציעו להשלים את שאר התחנות אוטומטית (יש למטיילים כפתור לזה), או להמשיך לחקור.
 בכל שלב אפשר לחקור: כשהמטיילים שואלים "מה יש ב…", "מה כדאי", "איפה אוכלים" — ענו ב-text והראו 2-3 cards של מקומות אמיתיים (עם תמונות בצד שלנו). cards הן להצגה בלבד — הן לא תחנות; תחנה נכנסת רק דרך ops.
 
+מה אתם יכולים לשנות בעצמכם, בכל שלב: תחנות (ops — הוספה, הזזה ליום או לשעה אחרים, עריכה, מחיקה), תאריכי הטיול ואורכו (dates_set), מלונות, תקציב, ותזכורות לטלפון (actions). כשמטיילים מבקשים אחד מאלה — עושים אותו באותו תור, לא מסבירים שצריך לעשות אותו ולא שואלים שאלה שהתשובה עליה כבר כתובה כאן (תאריך היום, מספר הימים, מה יש במסלול). שינוי שאין לו פעולה כאן (שם הטיול, היעדים עצמם, משתתפים) — אומרים בפשטות שזה נעשה בדף הטיול.
+כל פעולה שה-text אומר שנעשתה ("עדכנתי", "הוספתי", "קבעתי", "הזזתי") חייבת להופיע באותו תור ב-ops או ב-actions. facts הם הזיכרון שלכם ולא שינוי בטיול — "רשמתי" ב-facts לא מזיז שום דבר במסלול או בתאריכים.
+
 commit — כל תור שמחזיר ops או actions מחליט גם אם הם מתבצעים מיד או מוצעים:
-- commit=true (מתבצע מיד, עם אפשרות ביטול): כשהמטיילים ביקשו במפורש שינוי קונקרטי ("תוסיף", "תזיז ל-", "תוריד", "תעדכן את"), או כשאתם רק רושמים עובדה שהם מסרו — כרטיס שצירפו, מלון שהזמינו, תקציב שאמרו, תאריך שכתוב. נסחו ב-text מה עשיתם ("הוספתי…", "עדכנתי…") ומה השאלה הבאה.
+- commit=true (מתבצע מיד, עם אפשרות ביטול): כשהמטיילים ביקשו במפורש שינוי קונקרטי ("תוסיף", "תזיז ל-", "תוריד", "תעדכן את", "תגדיר", "תקבע", "תשנה", "תתקן"), כשהם עונים בחיוב ("כן", "סבבה", "יאללה", "תעשה את זה") על שינוי שהצעתם במילים בתור הקודם, או כשאתם רק רושמים עובדה שהם מסרו — כרטיס שצירפו, מלון שהזמינו, תקציב שאמרו, תאריך שכתוב, איפה הם נמצאים היום. נסחו ב-text מה עשיתם ("הוספתי…", "עדכנתי…") ומה השאלה הבאה.
 - commit=false (מוצג ככרטיס הצעה ומתבצע רק אחרי אישור): כשזו יוזמה שלכם — עוגנים ליום, חלופה, שינוי שלא התבקש במילים — או כשהשינוי מוחק או מחליף תחנות שהמטיילים בחרו, או נוגע ביותר מיום אחד. נסחו ב-text כהצעה ("אני מציע…") וסיימו ב"מאשרים?" או בשאלה הבאה.
 ${pendingProposal ? `יש הצעה קודמת שלכם שממתינה לאישור: ${pendingProposal}. אם המטיילים מאשרים אותה במילים ("כן", "סבבה", "מאשר") — החזירו approve_pending=true ו-ops ריק. אם הם מבקשים שינוי — החזירו ops חדש במקומה.` : 'approve_pending תמיד false.'}
 
@@ -425,6 +430,7 @@ flights: [] בכל שלב שאינו flights, וגם ב-flights ברגע שהכ�
 
 חוקי ops (כמו בעורך המסלולים): add חייב title קצר בעברית, note טיפ פרקטי קצר בעברית, time_label בפורמט HH:MM (או null כשלא ידוע), day_number בין 1 ל-${trip.days}; place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan") ורק למקום אמיתי וספציפי — לתחנה כללית או לטיסה החזירו null; cost הערכה לאדם בש"ח (מספר שלם) או null; category מתוך: ${ai.AI_CATEGORIES.join(', ')}${multiArea ? `; area מתוך: ${areaNames.join(', ')}` : `; area תמיד "${areaNames[0] || trip.destination}"`}. update/delete חייבים id של תחנה קיימת מהמסלול למטה, וב-update null בכל שדה שלא משתנה. אל תיגעו בתחנות שהמטיילים לא ביקשו לשנות. כל מקום ב-ops או ב-cards חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו.
 ${actions.PROMPT_RULES(trip.days)}
+${clock.PROMPT_RULES}
 ${attachments.PROMPT_RULES}
 ${aiTools.promptRules({ services })}`;
 
@@ -439,6 +445,7 @@ ${aiTools.promptRules({ services })}`;
 
   const user =
 `הטיול: "${trip.title}" — ${ai.destDescFull(dests) || trip.destination}, ${trip.days} ימים${dates}.
+${clock.promptBlock(trip, { tz })}
 ${tripPrefsBlock(state, { facts: false })}שלב נוכחי: ${state.stage}.
 מה שכבר הוסכם (facts):
 ${facts}
@@ -446,7 +453,7 @@ ${facts}
 שאלות הבהרה שטרם נשאלו:
 ${pending}
 המסלול הנוכחי (כל שורה: #מזהה | יום | שעה | [קטגוריה] כותרת | מקום):
-${itineraryLines(items, multiArea)}
+${itineraryLines(items, multiArea, trip)}
 עומס (תחנות ליום): ${perDay.map((c, i) => `${i + 1}:${c}`).join(' ')}
 ${actions.contextLines(side && side.hotels, side && side.budget)}
 
@@ -460,8 +467,13 @@ ${turns}`;
 function historyLine(row) {
   const p = row.payload || {};
   if (row.role === 'user' || !Array.isArray(p.changes) || !p.changes.length) return row.text;
-  const fate = { pending: 'ממתין לאישור', applied: 'בוצע', rejected: 'נדחה', undone: 'בוטל' }[p.decision] || '';
-  return `${row.text} [שינויים: ${p.changes.map((c) => c.title).join(', ')} — ${fate}]`;
+  // the model must hear WHY a change did not land, or it tells the travellers it did
+  const already = p.decision === 'applied' && p.applied && p.applied.already
+    && !(p.applied.added || p.applied.updated || p.applied.removed || p.applied.actions);
+  const fate = already ? 'כבר היה כך בטיול'
+    : ({ pending: 'ממתין לאישור', applied: 'בוצע', rejected: Array.isArray(p.skipped) && p.skipped.length ? 'לא נכנס' : 'נדחה', undone: 'בוטל' }[p.decision] || '');
+  const why = Array.isArray(p.skipped) && p.skipped.length ? ` (${p.skipped.map((x) => x.reason).join('; ')})` : '';
+  return `${row.text} [שינויים: ${p.changes.map((c) => c.title).join(', ')} — ${fate}${why}]`;
 }
 
 // the model's areas → the state's, only when they cover the trip properly. Blocks
@@ -494,9 +506,26 @@ function seedFlights(trip, state, modelLegs = null) {
 // message, their images beside it
 // `services`: the connectors this user switched on, deciding the turn's tools;
 // `progress`: the turn's progress row the chat polls while it waits (lib/ai-tools.js)
+// the trip's length once this turn's actions are written
+function plannedDays(trip, acts) {
+  let days = trip.days;
+  for (const a of acts) {
+    if (a.kind !== 'dates_set') continue;
+    if (a.days) days = a.days;
+    else if (a.end_date && trip.start_date) days = clock.dayDiff(clock.isoOf(trip.start_date), a.end_date) + 1;
+  }
+  return Math.min(Math.max(days, 1), 60);
+}
+
+// first person, past tense: what a reply says when it reports a change it made
+const DONE_WORDS = /(^|[\s,.;:!—-])(עדכנתי|הוספתי|קבעתי|הזזתי|שיניתי|הגדרתי|הורדתי|מחקתי|העברתי|רשמתי במסלול|תיקנתי)(?=$|[\s,.;:!?—-])/u;
+
 async function planTurn({ trip, items, state, side, history, message, pendingProposal, files = [], services = [], userId = null, progress = null, ph }) {
   const stepwise = multiCountry(trip.dests);
-  const { system, user } = turnPrompt({ trip, items, state, side, history, pendingProposal, stepwise, services });
+  // the destination's clock (cached for a year in lib/moments.js): once the travellers
+  // are there, "today" and "tomorrow" are its days, not Israel's
+  const tz = await moments.tzForTrip(trip).catch(() => null);
+  const { system, user } = turnPrompt({ trip, items, state, side, history, pendingProposal, stepwise, services, tz });
   const toolCtx = { userId, services };
   const raw = await ai.aiJson({
     system,
@@ -521,8 +550,21 @@ async function planTurn({ trip, items, state, side, history, message, pendingPro
     items, dests, destText: trip.destination, title: trip.title, ph,
   });
   const { cards } = await ai.verifyRecCards((raw.cards || []).slice(0, 3), { dests, areaNames });
+  const text = String(raw.text || '').trim().slice(0, 1200);
+  const ops = verified.ops || [];
+  const acts = actions.cleanActions(raw.actions, trip, side && side.hotels);
+  // The text and the card must tell the same story. A turn that says "עדכנתי" over a
+  // card still waiting for a tap left the traveller sure it was done when it wasn't —
+  // the model's own words decide: a change it reports as made is made (with an undo).
+  // And a turn that reports a change while carrying none is the silent kind of failure
+  // (PLAYBOOK §2): it goes to the log, where it can be counted.
+  const claimsDone = DONE_WORDS.test(text);
+  const writes = ops.length + acts.length > 0;
+  if (claimsDone && !writes && !raw.approve_pending) {
+    console.warn(`plan: trip ${trip.id} — the reply says a change was made, but carried none: "${text.slice(0, 120)}"`);
+  }
   return {
-    text: String(raw.text || '').trim().slice(0, 1200),
+    text,
     stage: PLAN_STAGES.includes(raw.stage) ? raw.stage : state.stage,
     // several countries never build in one shot, whatever the model answered
     buildNow: !!raw.build_now && !stepwise,
@@ -531,15 +573,18 @@ async function planTurn({ trip, items, state, side, history, message, pendingPro
     suggestions: (raw.suggestions || []).slice(0, 3).map((s) => String(s).slice(0, 60).trim()).filter(Boolean),
     facts: (raw.facts || []).slice(0, 24).map((s) => String(s).slice(0, 160).trim()).filter(Boolean),
     pendingQuestions: (raw.pending_questions || []).map((s) => String(s).slice(0, 200).trim()).filter(Boolean),
-    areas: cleanAreas(raw.areas, trip.days),
+    // a split for the trip as this turn's dates_set leaves it — a 23-day split beside
+    // "make it 23 days" is not out of range
+    areas: cleanAreas(raw.areas, plannedDays(trip, acts)),
     // null when the model named an airport that is not in the index — the defaults this
     // server worked out from the trip stand instead (lib/flights.js)
     flights: flights.legsFromModel(raw.flights, trip.days),
     cards,
-    ops: verified.ops || [],
-    actions: actions.cleanActions(raw.actions, trip, side && side.hotels),
-    // a turn that writes nothing has nothing to decide; one that does, does as it said
-    commit: !!raw.commit,
+    ops,
+    actions: acts,
+    // a turn that writes nothing has nothing to decide; one that does, does as it said —
+    // and one whose text reports the change as done is committed whatever it flagged
+    commit: !!raw.commit || (writes && claimsDone),
     // what it looked up on the way — shown under the answer, kept on the row
     tools: progress ? progress.summary() : [],
   };
@@ -556,7 +601,10 @@ async function recordTurn(client, trip, state, items, turn, waiting, side = null
   // what the model says is left (never grow — it cannot invent a clarifying question)
   state.stage = turn.stage;
   if (turn.facts.length || state.facts.length) state.facts = turn.facts.length ? turn.facts : state.facts;
-  if (turn.areas) state.areas = turn.areas;
+  // a split drawn for the trip as this turn's dates_set will leave it waits until that
+  // is written (below); one for the trip as it is lands now, and moves with the calendar
+  const areasLater = !!turn.areas && !turn.areas.every((a) => a.to <= trip.days);
+  if (turn.areas && !areasLater) state.areas = turn.areas;
   if (state.pending.length) {
     const left = new Set(turn.pendingQuestions);
     state.pending = state.pending.filter((q) => left.has(q.question));
@@ -583,7 +631,7 @@ async function recordTurn(client, trip, state, items, turn, waiting, side = null
     // "yes" in words: the proposal that was waiting is written, and its own card
     // flips to done — the new turn carries no changes of its own
     const cur = await loadItems(client, trip.id);
-    const r = await writeProposal(client, trip, cur, waiting.payload);
+    const r = await writeProposal(client, trip, cur, waiting.payload, state);
     await client.query(`UPDATE trip_plan_messages SET payload = payload || $1 WHERE id = $2`, [JSON.stringify(r.patch), waiting.id]);
     approvedId = waiting.id;
     fresh = await loadItems(client, trip.id);
@@ -596,7 +644,7 @@ async function recordTurn(client, trip, state, items, turn, waiting, side = null
       ...turn.actions.map((a) => actions.describeAction(a, side && side.hotels, side && side.budget)),
     ];
     if (turn.commit) {
-      const r = await writeProposal(client, trip, items, payload);
+      const r = await writeProposal(client, trip, items, payload, state);
       Object.assign(payload, r.patch);
       fresh = await loadItems(client, trip.id);
       if (r.sideChanged) freshSide = await actions.sideState(client, trip);
@@ -604,6 +652,7 @@ async function recordTurn(client, trip, state, items, turn, waiting, side = null
       payload.decision = 'pending';
     }
   }
+  if (areasLater && turn.areas.every((a) => a.to <= trip.days)) state.areas = turn.areas;
   // the basics just landed: this turn closes the stage instead of opening the next one,
   // a second message from the AI marks it, and the dock arrives under that. Stored rows,
   // not a flourish the client invents — they have to still be there after a reload, and
@@ -623,21 +672,48 @@ async function recordTurn(client, trip, state, items, turn, waiting, side = null
 // a card's changes, written: the stops through the editor's op-writer, the rest
 // through lib/plan-actions.js — and the patch that marks the card done (or refused,
 // when nothing could be written), with both inverses for the undo
-async function writeProposal(client, trip, items, payload) {
-  const ops = payload.ops || [];
-  const acts = payload.actions || [];
-  const r = ops.length ? await ai.applyEditOps(client, trip, items, ops) : { added: 0, updated: 0, removed: 0, undoOps: null };
-  const a = acts.length ? await actions.applyActions(client, trip, acts) : { count: 0, undo: [] };
+// The actions go first (ai.applyOpsAndActions): a dates_set may lengthen the trip or move
+// its days, and the ops beside it are numbered against the trip as it will be. A card
+// whose every change was already true is done, not refused — "לא בוצע" under a date the
+// trip already had read as the AI failing at the one thing it was asked (2026-11-01).
+// What could not be written comes back with a reason, on the card and in the history.
+async function writeProposal(client, trip, items, payload, state = null) {
+  const { r, a } = await ai.applyOpsAndActions(client, trip, items, payload.ops || [], payload.actions || []);
   const changed = r.added + r.updated + r.removed + a.count > 0;
+  if (a.calendar && state) moveCalendar(state, a.calendar);
   return {
     sideChanged: a.count > 0,
+    calendar: a.calendar,
     patch: {
-      decision: changed ? 'applied' : 'rejected',
+      decision: changed || (a.already && !a.skipped.length) ? 'applied' : 'rejected',
       undo: r.added + r.updated + r.removed > 0 ? r.undoOps : null,
       undoActions: a.count ? a.undo : null,
-      applied: { added: r.added, updated: r.updated, removed: r.removed, actions: a.count },
+      applied: { added: r.added, updated: r.updated, removed: r.removed, actions: a.count, already: a.already },
+      ...(a.skipped.length ? { skipped: a.skipped } : {}),
     },
   };
+}
+
+// The planning memory keeps day numbers too — the area split and the flights card. When
+// a dates_set moved the stops (keep_calendar) or changed the length, they follow: shifted
+// with the stops, the first and last areas stretched or trimmed to the new ends, so the
+// split still covers the trip and the free days' picks can keep reading it.
+function moveCalendar(state, { shift, days }) {
+  if (state.areas.length) {
+    let blocks = state.areas.map((a) => ({ ...a, from: a.from + shift, to: a.to + shift }))
+      .map((a) => ({ ...a, from: Math.max(a.from, 1), to: Math.min(a.to, days) }))
+      .filter((a) => a.to >= a.from);
+    if (blocks.length) {
+      blocks[0].from = 1;
+      blocks[blocks.length - 1].to = days;
+    }
+    state.areas = blocks;
+  }
+  if (state.flights && Array.isArray(state.flights.legs)) {
+    state.flights.legs = state.flights.legs.map((l) => ({
+      ...l, day: l.kind === 'return' ? days : Math.min(Math.max((parseInt(l.day, 10) || 1) + shift, 1), days),
+    }));
+  }
 }
 
 // ---------- routes ----------
@@ -926,7 +1002,12 @@ router.post('/api/trips/code/:code/plan/decide', authRequired, async (req, res) 
     await client.query('BEGIN');
     if (decision === 'undo') {
       if (p.undo) await ai.undoApplied(client, trip, p.undo);
-      if (p.undoActions) { await actions.undoActions(client, trip, p.undoActions); sideTouched = true; }
+      if (p.undoActions) {
+        const u = await actions.undoActions(client, trip, p.undoActions);
+        sideTouched = true;
+        // the area split and the flights card move back with the days
+        if (u.calendar) { moveCalendar(trip.plan_state, u.calendar); await saveState(client, trip.id, trip.plan_state); }
+      }
       patch.decision = 'undone';
       patch.undo = null;
       patch.undoActions = null;
@@ -934,9 +1015,10 @@ router.post('/api/trips/code/:code/plan/decide', authRequired, async (req, res) 
       patch.decision = 'rejected';
     } else {
       const items = await loadItems(client, trip.id);
-      const r = await writeProposal(client, trip, items, p);
+      const r = await writeProposal(client, trip, items, p, trip.plan_state);
       patch = r.patch;
       sideTouched = r.sideChanged;
+      if (r.calendar) await saveState(client, trip.id, trip.plan_state);
     }
     const { rows: upd } = await client.query(
       `UPDATE trip_plan_messages SET payload = payload || $1 WHERE id = $2 RETURNING ${ROW_FIELDS}`, [JSON.stringify(patch), id]
@@ -950,7 +1032,7 @@ router.post('/api/trips/code/:code/plan/decide', authRequired, async (req, res) 
     // next. So the decision is written as their turn and answered like one: after an
     // approval the AI moves to the next step, after a refusal it offers another way.
     // An undo is not a reply. A spent quota skips the answer, and says so.
-    if (decision === 'undo') return res.json({ message: upd[0], items, side });
+    if (decision === 'undo') return res.json({ message: upd[0], items, side, state: trip.plan_state });
     const titles = (p.changes || []).map((c) => c.title).join(', ');
     const said = decision === 'accept'
       ? `✓ אישרתי את השינויים${titles ? ': ' + titles : ''}`
