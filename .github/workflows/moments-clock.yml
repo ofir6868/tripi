@@ -7,14 +7,15 @@
 # run never double-pings. GitHub may delay a schedule by a few minutes under load, which is
 # why every lead time is measured in tens of minutes, not in ones.
 #
-# Needs one repository secret: CRON_SECRET, the value set in the Vercel project. Until it
-# is added the run skips with a note instead of failing on every tick.
+# No secret to copy: the run asks GitHub for an OIDC token (a JWT GitHub signs, naming this
+# repository) and the server verifies it against GitHub's published keys (lib/github-oidc.js).
 name: moments-clock
 on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
-permissions: {}
+permissions:
+  id-token: write
 concurrency:
   group: moments-clock
   cancel-in-progress: false
@@ -23,13 +24,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     env:
-      CRON_SECRET: ${{ secrets.CRON_SECRET }}
       CRON_URL: ${{ vars.CRON_URL || 'https://tripmaker.co.il/api/cron/moments' }}
+      AUDIENCE: ${{ vars.CRON_OIDC_AUDIENCE || 'tripmaker-cron' }}
     steps:
       - name: ring the moments doorbell
         run: |
-          if [ -z "$CRON_SECRET" ]; then
-            echo "::notice::CRON_SECRET is not set as a repository secret — nothing rung. Add it (Settings → Secrets and variables → Actions) with the value from the Vercel project."
-            exit 0
-          fi
-          curl -fsS --max-time 60 -H "Authorization: Bearer $CRON_SECRET" "$CRON_URL"
+          set -eu
+          token=$(curl -fsS --max-time 30 -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUDIENCE" | jq -r .value)
+          [ -n "$token" ] && [ "$token" != "null" ] || { echo "::error::no OIDC token from GitHub"; exit 1; }
+          curl -fsS --max-time 60 -H "Authorization: Bearer $token" "$CRON_URL"
