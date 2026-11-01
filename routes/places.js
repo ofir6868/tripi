@@ -105,7 +105,7 @@ router.get('/api/places/autocomplete', async (req, res) => {
     res.json(out);
   } catch (err) {
     console.error('places autocomplete failed', err.message);
-    res.status(502).json({ error: 'places failed' });
+    res.status(503).json({ error: 'places failed' });
   }
 });
 
@@ -142,7 +142,7 @@ router.get('/api/places/details', async (req, res) => {
     res.json(out);
   } catch (err) {
     console.error('places details failed', err.message);
-    res.status(502).json({ error: 'places failed' });
+    res.status(503).json({ error: 'places failed' });
   }
 });
 

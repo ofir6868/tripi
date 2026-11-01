@@ -215,6 +215,7 @@
 .gg-key.pace { background: var(--paper); }
 .gg-key.free { background: var(--paper-dim); opacity: .6; }
 .gg-free-note { font-size: .85rem; color: var(--paper-dim); font-weight: 300; margin: 0; }
+.gg-held { color: #f2b05a; font-weight: 400; margin-top: 6px; }
 
 .gg-facts { display: grid; grid-template-columns: max-content 1fr; gap: 5px 14px; margin: 0; font-size: .86rem; }
 .gg-facts > div { display: contents; }

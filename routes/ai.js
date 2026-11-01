@@ -1497,7 +1497,7 @@ router.post('/api/ai/itinerary', authRequired, async (req, res) => {
       throw err;
     }
     if (built.questions) return res.json({ questions: built.questions }); // no quota for asking
-    if (!built.items.length) return res.status(502).json({ error: 'ה-AI החזיר מסלול ריק — נסו שוב' });
+    if (!built.items.length) return res.status(503).json({ error: 'ה-AI החזיר מסלול ריק — נסו שוב' });
 
     spend();
     res.json({
@@ -2117,7 +2117,7 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
       // edits are single-call traces, but the id still ties retries apart in the UI
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
-    if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לעבד את הבקשה — נסו שוב עוד רגע' });
+    if (!result) return res.status(503).json({ error: 'ה-AI לא הצליח לעבד את הבקשה — נסו שוב עוד רגע' });
     quota.spend(); // the model call is the budgeted resource
 
     await client.query('BEGIN');
@@ -2622,7 +2622,7 @@ router.post('/api/trips/code/:code/recs', authRequired, async (req, res) => {
       trip, items, message, history, edit, prefs, side, files, services, userId: req.user.id, progress,
       ph: { distinctId: 'user_' + req.user.id, traceId: randomUUID() },
     });
-    if (!result) return res.status(502).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });
+    if (!result) return res.status(503).json({ error: 'ה-AI לא הצליח לענות — נסו שוב עוד רגע' });
     quota.spend(); // the model call is the budgeted resource
     for (let i = 0; i < files.length; i++) filesQuota.spend(); // and so is every document it read
     res.json({ ...result, files: attachments.stored(files), remaining: quota.remaining });
