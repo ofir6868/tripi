@@ -16,7 +16,8 @@
 // free plan's scheduler offers. /api/cron/moments runs ONLY the moment pushes (the bus at
 // 08:30 cannot wait for a 06:00 UTC cron) and is rung every five minutes by the repository's
 // own GitHub Actions schedule (.github/workflows/moments-clock.yml — free, the repo is
-// public), or by any pinger that can send `Authorization: Bearer <CRON_SECRET>`.
+// public), which proves itself with a GitHub-signed OIDC token instead of a copied secret
+// (lib/github-oidc.js); any other pinger sends `Authorization: Bearer <CRON_SECRET>`.
 // It is safe at any frequency: a moment is claimed before it is sent, and the query behind
 // it is one indexed read. Without such a pinger moments still go out, late, with the daily
 // tick — and with any participant opening the trip page, which runs the same scan
@@ -26,14 +27,28 @@ const crypto = require('crypto');
 
 const router = express.Router();
 
-function cronAuth(req, res, next) {
+// Two proofs open the door: the shared CRON_SECRET (Vercel's scheduler, any pinger), or a
+// GitHub Actions OIDC token from this very repository (lib/github-oidc.js) — the clock
+// workflow carries no secret at all. CRON_GITHUB_REPO names the repository allowed in;
+// CRON_OIDC_AUDIENCE is the audience the workflow asks GitHub for (both have defaults).
+const OIDC_REPO = process.env.CRON_GITHUB_REPO || 'ofir6868/tripi';
+const OIDC_AUDIENCE = process.env.CRON_OIDC_AUDIENCE || 'tripmaker-cron';
+
+async function cronAuth(req, res, next) {
   const secret = process.env.CRON_SECRET;
-  if (!secret) return res.status(503).json({ error: 'cron disabled: CRON_SECRET is not set' });
   const given = (req.headers.authorization || '').replace(/^Bearer /, '');
-  const a = crypto.createHash('sha256').update(given).digest();
-  const b = crypto.createHash('sha256').update(secret).digest();
-  if (!crypto.timingSafeEqual(a, b)) return res.status(401).json({ error: 'bad cron secret' });
-  next();
+  if (secret && given) {
+    const a = crypto.createHash('sha256').update(given).digest();
+    const b = crypto.createHash('sha256').update(secret).digest();
+    if (crypto.timingSafeEqual(a, b)) return next();
+  }
+  // a JWT is three dot-separated parts; anything else is not worth a signature check
+  if (given.split('.').length === 3) {
+    const claims = await require('../lib/github-oidc').verify(given, { repository: OIDC_REPO, audience: OIDC_AUDIENCE });
+    if (claims) { req.cronActor = `github:${claims.repository}@${claims.ref || ''}`; return next(); }
+  }
+  if (!secret) return res.status(503).json({ error: 'cron disabled: CRON_SECRET is not set' });
+  return res.status(401).json({ error: 'bad cron secret' });
 }
 
 // One job failing is not the others' problem: a GitHub outage must not cost us the
@@ -77,3 +92,4 @@ router.get('/api/cron/moments', cronAuth, momentsOnly);
 router.post('/api/cron/moments', cronAuth, momentsOnly);
 
 module.exports = router;
+module.exports._test = { cronAuth };
