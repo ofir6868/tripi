@@ -83,6 +83,27 @@ check(s(4.8, 2000) > s(4.2, 2000, 3), 'but not over a clearly better-rated one')
   await cacheSet('nearby.v1', cellKey('sights', null, clat, clon), []);
   check((await fromCache('sights', null, clat, clon) || [])[0] === c, 'an empty list here does not hide a full one next door');
 
+  // ---- Wikipedia, when nothing was bought: places to visit, by how many read about them ----
+  const { wikiPick } = require('../routes/nearby');
+  const pg = (pageid, title, description, views, extra = {}) => ({
+    pageid, title, description, coordinates: [{ lat: 35.71, lon: 139.79 }],
+    pageviews: { '2026-10-01': views, '2026-10-02': null }, ...extra,
+  });
+  const picked = wikiPick([
+    pg(1, 'Ueno Station', 'railway station in Tokyo, Japan', 90000),
+    pg(2, 'Taitō', 'special ward of Tokyo, Japan', 80000),
+    pg(3, 'Sensō-ji', 'Buddhist temple in Asakusa, Tokyo', 60000, { langlinks: [{ lang: 'he', title: 'סנסו-ג׳י' }], thumbnail: { source: 'https://upload.wikimedia.org/x/480px-a.jpg' } }),
+    pg(4, 'Tokyo National Museum', 'art museum in Ueno Park', 40000),
+    pg(5, 'Ueno Park', 'public park in Tokyo', 50000),
+    pg(6, 'Asakusa Elementary School', 'school in Tokyo', 100),
+    pg(7, 'Kappabashi', '', 9000),
+  ]);
+  check(picked.map((p) => p.id).join() === 'wiki:3,wiki:5,wiki:4', 'stations, wards and schools are not sights, and readers rank the rest: ' + picked.map((p) => p.id).join());
+  check(picked[0].name === 'סנסו-ג׳י' && /he\.wikipedia/.test(picked[0].website), 'the Hebrew title and article are used when there is one');
+  check(picked[0].photos.length === 1 && picked[0].views === 60000 && picked[0].rating === null, 'a photo, the readers, and no made-up rating');
+  const few = wikiPick([pg(1, 'Ueno Station', 'railway station', 9), pg(7, 'Kappabashi', '', 9000), pg(8, 'Yanaka', '', 500)]);
+  check(few.map((p) => p.id).join() === 'wiki:7,wiki:8', 'with too few sure sights, articles that are not plainly something else fill in');
+
   const m = meter('nearby_search');
   const want = clock.nextDayReset().toISOString();
   m.hold("Quota exceeded for limit 'SearchNearbyRequest per day'");
@@ -90,6 +111,6 @@ check(s(4.8, 2000) > s(4.2, 2000, 3), 'but not over a clearly better-rated one')
   m.hold('per minute'); // a shorter hold never shortens the daily one
   check(m.reopensAt().toISOString() === want, 'a per-minute 429 does not shorten the daily hold');
 
-  console.log(bad ? `${bad} nearby check(s) failed` : 'nearby: kosher reading, cards, ranking and the closed-Google fallback hold');
+  console.log(bad ? `${bad} nearby check(s) failed` : 'nearby: kosher reading, cards, ranking and the closed-Google fallbacks hold');
   process.exit(bad ? 1 : 0);
 })();
