@@ -7,6 +7,7 @@ const { JWT_SECRET, authRequired, authOptional } = require('../lib/auth');
 const { rateLimiter } = require('../lib/rate-limit');
 const analytics = require('../lib/posthog');
 const { createGuest, claimGuest, mergeGuestInto } = require('../lib/guest');
+const { ORIGIN, isLocalHost } = require('../lib/canonical-origin');
 
 const router = express.Router();
 
@@ -293,6 +294,15 @@ router.get('/api/auth/providers', (_req, res) => {
 router.get('/api/auth/google', googleLimit.middleware, (req, res) => {
   if (!googleConfigured()) {
     return res.status(503).json({ error: 'התחברות עם Google לא מוגדרת כרגע' });
+  }
+  // Google accepts only the redirect URIs listed in the Cloud Console, and only the
+  // canonical origin's callback is listed there. A flow started on any other door (www.,
+  // http://, a phone holding an old www. page) would send its own host's callback and get
+  // "Error 400: redirect_uri_mismatch". Restart such a flow on the canonical origin: the
+  // state is a signed token, not a cookie, so nothing is lost by moving hosts here.
+  if (!process.env.GOOGLE_REDIRECT_URI && !isLocalHost(req.hostname || '')
+      && publicOrigin(req) !== ORIGIN) {
+    return res.redirect(302, ORIGIN + req.originalUrl.replace(/^\/+/, '/'));
   }
   // a guest arrives here by navigation, not by fetch, so the guest token rides the
   // query string instead of the Authorization header; only its id is kept, inside the

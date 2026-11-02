@@ -242,6 +242,93 @@ async function fromCache(kind, cuisine, clat, clon) {
   return found ? found.value : null;
 }
 
+// And when nothing was bought nearby either, "what is worth seeing around here" still
+// has a free answer that knows how much a place matters: Wikipedia. A place with an
+// article is notable by definition, and how many people read that article in the last
+// month is the best free proxy for "the most recommended" there is — the temple everyone
+// visits has ten times the readers of the one only locals know. English Wikipedia,
+// because it covers Tokyo and Lisbon far better than Hebrew does; the Hebrew title is
+// used when the article has one. The geosearch also returns stations, wards and schools,
+// so a description has to read like a place to visit. The server reaches Wikimedia
+// (lib/stop-photos.js does every day), and the answer is ours to keep, so it is cached
+// by the same cell. No ratings, no hours, no reviews — the page says where it came from.
+// Restaurants have no such source; the page asks OpenStreetMap itself for those
+// (public/js/trip-nearby.js), because OSM's servers refuse datacenter addresses.
+const WIKI_SCOPE = 'nearby_wiki.v1';
+const WIKI_UA = { 'User-Agent': 'TRIPMAKER/1.0 (https://tripmaker.co.il; nearby sights)', Accept: 'application/json' };
+const NOT_A_SIGHT = /\b(station|railway|metro|subway|line|school|university|college|hospital|clinic|company|corporation|ward|neighbou?rhood|prefecture|municipality|constituency|electoral|embassy|consulate|hotel|office|headquarters|bank|airport|expressway|highway|interchange|apartment|residential|condominium|footballer|politician|born|election|tunnel|road|avenue|ministry|agency|court|prison|police|power plant|substation)\b/i;
+const A_SIGHT = /museum|temple|shrine|park|garden|castle|palace|tower|monument|memorial|cathedral|church|basilica|chapel|mosque|synagogue|gallery|zoo|aquarium|market|square|plaza|landmark|observ|theat|beach|viewpoint|lookout|fort|ruin|abbey|monastery|convent|statue|sculpture|fountain|bridge|street|promenade|harbou?r|pier|waterfall|lake|mountain|hill|island|old town|historic|heritage|amusement|shopping|bazaar|souk|stadium|arena|opera|concert|cemetery|mausoleum|tomb|pagoda|gate|lighthouse|archaeolog|attraction|skyscraper|observation|botanical|onsen|bath|village|quarter|canal|cave|crossing|alley/i;
+
+function wikiShape(pg) {
+  const c = (pg.coordinates || [])[0] || {};
+  const he = (pg.langlinks || []).find((l) => l.lang === 'he');
+  const views = Object.values(pg.pageviews || {}).reduce((a, v) => a + (v || 0), 0);
+  const img = pg.thumbnail && pg.thumbnail.source;
+  return {
+    id: 'wiki:' + pg.pageid,
+    source: 'wikipedia',
+    name: (he && he.title) || pg.title || '',
+    type: '',
+    ptype: '',
+    types: [],
+    status: 'OPERATIONAL',
+    rating: null,
+    count: 0,
+    views,
+    price: null,
+    lat: typeof c.lat === 'number' ? c.lat : null,
+    lon: typeof c.lon === 'number' ? c.lon : null,
+    address: '',
+    summary: String(pg.description || '').slice(0, 200),
+    hours: null,
+    utc: null,
+    website: he ? `https://he.wikipedia.org/wiki/${encodeURIComponent(he.title.replace(/ /g, '_'))}` : (pg.fullurl || null),
+    phone: null,
+    maps: c.lat != null ? `https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lon}` : null,
+    photos: img ? [{ thumb: img, large: img, credit: 'Wikipedia' }] : [],
+    he: 0,
+    reviews: [],
+    kosher: null,
+  };
+}
+
+// the readers of the month, as a rank: log so a famous temple does not drown the rest
+const wikiScore = (p) => +Math.log10(1 + (p.views || 0)).toFixed(4);
+
+function wikiPick(pages) {
+  const all = pages.map(wikiShape).filter((p) => p.name && p.lat != null);
+  const text = (pg) => `${pg.title || ''} ${pg.description || ''}`;
+  const keep = pages.filter((pg) => !NOT_A_SIGHT.test(text(pg)));
+  const sights = keep.filter((pg) => A_SIGHT.test(text(pg)));
+  // a description-less article is common outside the big cities: when the sure ones are
+  // too few, the ones that at least do not read as a station or a school make up the list
+  const chosen = new Set((sights.length >= 3 ? sights : keep).map((pg) => 'wiki:' + pg.pageid));
+  return all.filter((p) => chosen.has(p.id)).sort((a, b) => b.views - a.views).slice(0, 20);
+}
+
+async function wikiSights(clat, clon) {
+  const key = `${clat.toFixed(3)},${clon.toFixed(3)}`;
+  const hit = await cacheGet(WIKI_SCOPE, key, { ttlDays: TTL_DAYS });
+  if (hit.hit) return hit.value || [];
+  return once(WIKI_SCOPE + key, async () => {
+    const url = 'https://en.wikipedia.org/w/api.php?action=query&format=json&formatversion=2'
+      + `&generator=geosearch&ggscoord=${clat.toFixed(5)}%7C${clon.toFixed(5)}&ggsradius=${KIND.sights.radius}&ggslimit=60`
+      + '&prop=coordinates%7Cpageimages%7Cdescription%7Cpageviews%7Clanglinks%7Cinfo'
+      + '&piprop=thumbnail&pithumbsize=480&pilimit=60&pvipdays=30&lllang=he&lllimit=max&inprop=url&colimit=60';
+    try {
+      const r = await fetch(url, { headers: WIKI_UA, signal: AbortSignal.timeout(7000) });
+      if (!r.ok) { console.error('nearby: wikipedia', r.status); return null; }
+      const d = await r.json();
+      const places = wikiPick((d.query && d.query.pages) || []);
+      await cacheSet(WIKI_SCOPE, key, places);
+      return places;
+    } catch (err) {
+      console.error('nearby: wikipedia', err.name === 'TimeoutError' ? 'timeout' : err.message);
+      return null; // never cached: the next ask tries again
+    }
+  });
+}
+
 // GET ?kind=sights|food|kosher&lat=&lon=[&cuisine=burgers]
 router.get('/api/trips/code/:code/nearby', authRequired, async (req, res) => {
   try {
@@ -267,6 +354,13 @@ router.get('/api/trips/code/:code/nearby', authRequired, async (req, res) => {
     if (out.refused || out.failed) {
       const kept = await fromCache(kind, cuisine, clat, clon);
       if (kept) { out = { places: kept }; stale = true; }
+    }
+    if ((out.refused || out.failed) && kind === 'sights') {
+      const wiki = await wikiSights(clat, clon);
+      if (wiki && wiki.length) {
+        const places = wiki.map((p) => ({ ...p, score: wikiScore(p) }));
+        return res.json({ kind, cuisine, center: { lat: clat, lon: clon }, places, source: 'wikipedia' });
+      }
     }
     // `until` is when Google's gate opens again, so the page can say the hour in the
     // traveller's own clock — "tomorrow" was wrong for anyone east of California
@@ -349,4 +443,5 @@ module.exports = router;
 module.exports.shape = shape;
 module.exports.score = score;
 module.exports.fromCache = fromCache;
+module.exports.wikiPick = wikiPick;
 module.exports.cellKey = (kind, cuisine, clat, clon) => `${kind}|${cuisine || ''}|${clat.toFixed(3)},${clon.toFixed(3)}`;

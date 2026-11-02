@@ -395,8 +395,74 @@
 }
 .map-tip .mt-time { color: var(--mint); font-variant-numeric: tabular-nums; direction: ltr; }
 /* the walking-order line: a soft glow trace under a marching-dash top line */
-.route-line-glow { filter: blur(1.5px); animation: route-fade .6s ease backwards; }
-.route-line { animation: route-line-march 1.1s linear infinite, route-fade .6s ease backwards; }
+/* the route (trip-map.js drawRoute): casing, the day's colour, and a soft light
+   running along it in walking order */
+.route-casing { filter: blur(.6px); }
+.route-flow { animation: route-flow 2.4s linear infinite, route-fade 1.2s ease .9s backwards; }
+@keyframes route-flow { to { stroke-dashoffset: -30; } }
+
+/* photo bubbles (trip-map.js photoIcon): the stop's photo in a ring of white and
+   the day's colour, the number as a badge, a pointer under it, the name on a chip
+   that comes out on the selected (or hovered) stop. They pop in in walking order. */
+.map-ph-wrap { background: none; border: 0; }
+.map-ph {
+  position: relative; display: block; width: 48px; height: 56px; cursor: pointer;
+  transform-origin: 50% 100%;
+  animation: map-ph-pop .55s cubic-bezier(.2, .9, .3, 1.35) backwards;
+  transition: transform .22s cubic-bezier(.2, .9, .3, 1.3);
+}
+.map-ph-wrap.still .map-ph { animation: none; }
+.mph-img {
+  position: absolute; left: 0; top: 0; width: 48px; height: 48px; border-radius: 50%; overflow: hidden;
+  display: grid; place-items: center; font-size: 1.35rem;
+  background: radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--pin) 55%, #fff), var(--pin) 70%);
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2.5px var(--pin), 0 6px 16px rgba(0, 0, 0, .45);
+}
+.mph-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.mph-img.has-photo .mph-emoji { visibility: hidden; }
+/* the pointer: a small rotated square tucked under the bubble */
+.map-ph::after {
+  content: ''; position: absolute; left: 50%; top: 41px; width: 12px; height: 12px; margin-left: -6px;
+  background: #fff; transform: rotate(45deg); border-radius: 0 0 3px 0;
+  box-shadow: 2px 2px 0 1px var(--pin); z-index: -1;
+}
+.mph-num {
+  position: absolute; top: -5px; right: -6px; min-width: 21px; height: 21px; padding: 0 5px; border-radius: 999px;
+  display: grid; place-items: center; background: var(--pin); color: #1c1003; border: 2px solid #fff;
+  font-weight: 800; font-size: .7rem; font-variant-numeric: tabular-nums; line-height: 1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+}
+.mph-ring {
+  position: absolute; left: -6px; top: -6px; width: 60px; height: 60px; border-radius: 50%;
+  border: 2.5px solid var(--pin); opacity: 0; pointer-events: none;
+}
+.mph-label {
+  position: absolute; top: 60px; left: 50%; transform: translate(-50%, -4px) scale(.92); transform-origin: 50% 0;
+  display: flex; gap: 6px; align-items: center; max-width: 190px; padding: 5px 10px; border-radius: 999px;
+  background: rgba(10, 21, 18, .92); color: var(--paper); border: 1px solid color-mix(in srgb, var(--pin) 55%, transparent);
+  font-family: var(--font-body); font-size: .76rem; font-weight: 700; white-space: nowrap; direction: rtl;
+  overflow: hidden; text-overflow: ellipsis; box-shadow: 0 6px 18px rgba(0, 0, 0, .4);
+  opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .22s ease;
+}
+.mph-label b { color: var(--pin); font-variant-numeric: tabular-nums; }
+.map-ph-wrap:hover .map-ph, .map-ph-wrap:focus-visible .map-ph { transform: translateY(-3px) scale(1.06); }
+.map-ph-wrap:hover .mph-label, .map-ph-wrap:focus-visible .mph-label,
+.map-ph-wrap.is-active .mph-label, .map-ph-wrap.is-hover .mph-label { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.map-ph-wrap.is-active .map-ph { transform: translateY(-6px) scale(1.22); animation: map-ph-bounce .5s cubic-bezier(.2, .9, .3, 1.4); }
+.map-ph-wrap.is-active .mph-ring { animation: map-ph-ring 1.8s ease-out infinite; }
+.map-ph-wrap.is-hover .map-ph { transform: translateY(-3px) scale(1.08); }
+.map-ph-wrap:focus-visible { outline: none; }
+.map-ph-wrap:focus-visible .mph-img { outline: 2px solid var(--mint); outline-offset: 3px; }
+.map-ph-small .map-ph { width: 36px; height: 44px; }
+.map-ph-small .mph-img { width: 36px; height: 36px; border-width: 2px; font-size: 1rem; box-shadow: 0 0 0 2px var(--pin), 0 4px 10px rgba(0, 0, 0, .4); }
+.map-ph-small .map-ph::after { top: 30px; width: 9px; height: 9px; margin-left: -4.5px; }
+.map-ph-small .mph-num { min-width: 17px; height: 17px; font-size: .62rem; top: -4px; right: -5px; }
+.map-ph-small .mph-ring { width: 48px; height: 48px; }
+.map-ph-small .mph-label { top: 46px; }
+@keyframes map-ph-pop { from { opacity: 0; transform: translateY(-14px) scale(.4); } }
+@keyframes map-ph-bounce { 0% { transform: scale(1); } 55% { transform: translateY(-9px) scale(1.28); } 100% { transform: translateY(-6px) scale(1.22); } }
+@keyframes map-ph-ring { 0% { transform: scale(.8); opacity: .9; } 80%, 100% { transform: scale(1.5); opacity: 0; } }
 
 /* the stop strip under the canvas: number · hour · name, the road between cards.
    A card selects its pin; a second tap opens the stop. In RTL the first stop sits
@@ -409,15 +475,26 @@
 .map-strip::-webkit-scrollbar { display: none; }
 .map-strip[hidden] { display: none; }
 .map-stop {
-  flex: none; scroll-snap-align: start; width: 170px;
-  display: flex; align-items: center; gap: 9px; padding: 7px 9px;
-  border-radius: 13px; border: 1px solid var(--glass-border); background: var(--glass);
+  flex: none; scroll-snap-align: start; width: 228px;
+  display: flex; align-items: center; gap: 10px; padding: 6px;
+  border-radius: 16px; border: 1px solid var(--glass-border); background: var(--glass);
   color: var(--paper); text-align: start; cursor: pointer; font-family: var(--font-body);
   transition: border-color .15s ease, background-color .15s ease;
 }
 .map-stop.enter { animation: rise-in .38s ease backwards; }
 .map-stop:hover { background: var(--glass-strong); }
-.map-stop.active { border-color: rgba(255, 180, 95, .6); background: rgba(255, 180, 95, .1); }
+.map-stop.active { border-color: color-mix(in srgb, var(--day, var(--amber)) 70%, transparent); background: color-mix(in srgb, var(--day, var(--amber)) 13%, transparent); box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--day, var(--amber)) 60%, transparent); }
+.map-stop:active { transform: scale(.98); }
+/* the photo tile: the same photo as the pin, the number in its corner */
+.ms-photo {
+  position: relative; flex: none; width: 58px; height: 58px; border-radius: 12px; overflow: hidden;
+  display: grid; place-items: center; font-size: 1.5rem;
+  background: radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--day, var(--amber)) 45%, #fff), var(--day, var(--amber)) 75%);
+}
+.ms-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ms-photo.has-photo .ms-emoji { visibility: hidden; }
+.ms-photo .ms-num { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; font-size: .66rem; border: 1.5px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .35); }
+.map-stop.unplaced .ms-photo { filter: grayscale(1); opacity: .7; }
 .map-stop.unplaced { opacity: .6; }
 .map-stop:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
 .ms-num {
@@ -431,6 +508,9 @@
 .map-daycard .ms-count { color: var(--paper-dim); font-weight: 600; margin-inline-start: auto; }
 .map-stop.unplaced .ms-num { background: var(--glass-strong); color: var(--paper-dim); }
 .ms-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.map-stop:not(.map-daycard) .ms-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: .84rem; }
+.map-stop .ms-cat { font-size: .7rem; color: var(--paper-dim); font-weight: 600; }
+.map-stop:not(.map-daycard) .ms-time { align-self: flex-start; font-size: .74rem; }
 .ms-top { display: flex; align-items: center; gap: 6px; font-size: .72rem; line-height: 1.2; }
 .ms-time { color: var(--mint); font-weight: 700; font-variant-numeric: tabular-nums; direction: ltr; }
 .ms-cat { font-size: .8rem; }
@@ -439,8 +519,9 @@
   flex: none; align-self: center; display: flex; align-items: center; gap: 4px;
   color: var(--paper-dim); font-size: .68rem; font-weight: 700; white-space: nowrap;
 }
-.map-leg .ml-dot { width: 14px; height: 2px; border-radius: 2px; background: rgba(255, 180, 95, .45); }
-.map-leg.known { padding: 3px 7px; border-radius: 999px; background: rgba(255, 180, 95, .08); border: 1px dashed rgba(255, 180, 95, .4); }
+.map-leg { min-width: 10px; }
+.map-leg.known { flex-direction: column; gap: 3px; font-size: .66rem; }
+.map-leg.known::before { content: ''; width: 22px; height: 3px; border-radius: 3px; background: linear-gradient(90deg, transparent, var(--paper-dim), transparent); opacity: .5; }
 .map-leg svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* full screen: the card takes the viewport, the strip rides its bottom edge.
@@ -460,7 +541,7 @@
 .map-card.map-full .map-days[hidden] ~ .map-ctl, .map-card.map-full .map-days[hidden] ~ .map-layers { top: calc(10px + env(safe-area-inset-top)); }
 .map-card.map-full .map-caption { right: calc(10px + env(safe-area-inset-right)); }
 .map-card.map-full .map-strip { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
-.map-card.map-full .map-stop { width: 210px; }
+.map-card.map-full .map-stop { width: 236px; }
 html.map-full-open, html.map-full-open body { overflow: hidden; }
 
 /* the stop panel (full screen only): the whole stop beside its pin — photo, hour,
@@ -1142,7 +1223,7 @@ html.map-full-open, html.map-full-open body { overflow: hidden; }
 .pm-switch input:focus-visible + .pm-switch-track { box-shadow: 0 0 0 4px rgba(255, 180, 95, .18); }
 .pm-switch input:disabled { cursor: wait; }
 
-/* the ask bar's travelling border beam animates a custom angle (see .ai-ask-bar) —
+/* the ask pill's travelling border beam animates a custom angle (see .ai-ask-cta) —
    registering it is what lets the gradient turn instead of jumping between frames */
 @property --aab-a { syntax: '<angle>'; inherits: true; initial-value: 0deg; }
 
@@ -1198,7 +1279,7 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
   .item-mini-map { height: 180px; }
   .map-canvas { height: 320px; }
   .map-strip { padding: 8px 10px 10px; }
-  .map-stop { width: 160px; }
+  .map-stop { width: 212px; }
 }
 @media (max-width: 640px) {
   .weather-row { overflow-x: auto; }
@@ -1266,81 +1347,22 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
   body:has(.action-bar) .join-banner { bottom: calc(var(--dock-h) + 20px + env(safe-area-inset-bottom)); }
   body:has(.action-bar):has(.join-banner) { padding-bottom: calc(var(--dock-h) + 120px + env(safe-area-inset-bottom)); }
 
-  /* ---- the ask bar: the agent's line, pinned above the dock (editors, phones) ----
-     Same glass as the dock so the two read as one floating surface. What says "this
-     one talks to the AI" is the border: a beam of amber light travelling around the
-     rim (a conic gradient whose start angle animates, cut to a ring by a mask), with
-     a soft blurred copy of the same beam glowing behind the bar's edge. */
-  .ai-ask-bar {
-    --aab-a: 0deg;
-    position: fixed; z-index: 118;
-    bottom: calc(var(--dock-h) + var(--dock-inset) + 10px);
-    inset-inline: calc(10px + max(env(safe-area-inset-left), env(safe-area-inset-right)));
-    display: flex; align-items: center; gap: 6px;
-    /* the spark's side breathes, the button's side hugs the rim — logical, so RTL
-       gets the wide side where the spark is, not where the button is */
-    padding: 5px; padding-inline-start: 13px; border-radius: 999px;
-    border: 1px solid rgba(255, 180, 95, .28);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, .09), rgba(255, 255, 255, .025)),
-      linear-gradient(90deg, rgba(255, 180, 95, .08), transparent 40%),
-      rgba(11, 24, 20, .86);
-    -webkit-backdrop-filter: blur(26px) saturate(170%);
-    backdrop-filter: blur(26px) saturate(170%);
-    box-shadow:
-      0 18px 40px -14px rgba(0, 0, 0, .75), 0 2px 10px -5px rgba(0, 0, 0, .5),
-      inset 0 1px 0 var(--glass-highlight);
-    animation: aab-spin 9s linear infinite;
-  }
-  /* the beam — same gradient twice: a crisp ring on top, a faint halo behind. Kept
-     slow and dim on purpose: it should be noticed, not watched — the itinerary is the
-     thing on this screen. */
-  .ai-ask-bar::before,
-  .ai-ask-bar::after {
-    content: ''; position: absolute; inset: -2px; border-radius: inherit; pointer-events: none;
-    background: conic-gradient(from var(--aab-a),
-      transparent 0deg 230deg, rgba(255, 180, 95, .18) 290deg, rgba(255, 180, 95, .8) 340deg,
-      rgba(255, 214, 140, .9) 352deg, transparent 360deg);
-    /* cut to a ring: the box minus its content box */
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor; mask-composite: exclude;
-  }
-  .ai-ask-bar::before { padding: 1.5px; }
-  /* the halo: the same beam, blurred, in a ring just outside the rim — narrower than
-     the gap to the dock, so the dock never cuts it */
-  .ai-ask-bar::after { inset: -5px; padding: 6px; z-index: -1; opacity: .4; filter: blur(5px); }
-  @keyframes aab-spin { to { --aab-a: 360deg; } }
-  .aab-spark { flex: none; font-size: 1.05rem; line-height: 1; filter: drop-shadow(0 0 6px rgba(255, 180, 95, .5)); }
-  .ai-ask-bar input {
-    flex: 1; min-width: 0; padding: 11px 6px; border: 0; background: transparent;
-    color: var(--paper); font: inherit; font-size: 1rem; /* 16px keeps iOS from zooming */
-  }
-  .ai-ask-bar input:focus { outline: none; }
-  .ai-ask-bar input::placeholder { color: rgba(245, 239, 227, .7); opacity: 1; }
-  .ai-ask-bar:focus-within { border-color: rgba(255, 180, 95, .55); }
-  .ai-ask-bar:focus-within::after { opacity: .6; }
-  .ai-ask-bar .chat-send { width: 42px; height: 42px; box-shadow: 0 6px 18px -6px rgba(255, 180, 95, .9), inset 0 1px 0 rgba(255, 255, 255, .35); }
-  @media (prefers-reduced-motion: reduce) { .ai-ask-bar { animation: none; --aab-a: 300deg; } }
-  .ai-ask-bar[hidden] { display: none !important; }
-  /* while the bar grows out of the pill (trip.js), its field and button arrive a beat
-     after the glass — the glass is what the pill already was */
-  .ai-ask-bar input, .ai-ask-bar .chat-send, .ai-ask-bar .aab-spark { transition: opacity .22s ease .12s; }
-  .ai-ask-bar.is-morphing input, .ai-ask-bar.is-morphing .chat-send { opacity: 0; transition-delay: 0s; }
-  /* folded: the pill sits where the bar opens, centred — the itinerary keeps the eye */
+  /* ---- the ask pill: the way to the agent, pinned above the dock (editors, phones).
+     Same glass as the dock, with a beam of amber light travelling around the rim
+     (styled with the planning composer, below); a tap opens the AI's page. */
+  /* centred — the itinerary keeps the eye */
   .ai-ask-cta {
     position: fixed; z-index: 118; left: 50%; transform: translateX(-50%);
     bottom: calc(var(--dock-h) + var(--dock-inset) + 12px);
   }
-  body.page-open .ai-ask-bar, body.page-open .ai-ask-cta,
-  body.budget-open .ai-ask-bar, body.budget-open .ai-ask-cta,
-  body.cal-full-open .ai-ask-bar, body.cal-full-open .ai-ask-cta { display: none; }
-  /* the trip ends above the bar, and the toast lands above it too */
-  body:has(.action-bar):has(.ai-ask-bar) { padding-bottom: calc(var(--dock-h) + 96px + env(safe-area-inset-bottom)); }
-  body:has(.ai-ask-bar):not(.page-open) .tm-toast { bottom: calc(var(--dock-h) + 84px + env(safe-area-inset-bottom)); }
+  body.page-open .ai-ask-cta, body.budget-open .ai-ask-cta, body.cal-full-open .ai-ask-cta { display: none; }
+  /* the trip ends above the pill, and the toast lands above it too */
+  body:has(.action-bar):has(.ai-ask-cta) { padding-bottom: calc(var(--dock-h) + 96px + env(safe-area-inset-bottom)); }
+  body:has(.ai-ask-cta):not(.page-open) .tm-toast { bottom: calc(var(--dock-h) + 84px + env(safe-area-inset-bottom)); }
 }
 /* desktop keeps the card below the itinerary; the bar is a phone thing */
-@media (min-width: 641px) { .ai-ask-bar, .ai-ask-cta { display: none; } }
-@media print { .ai-ask-bar, .ai-ask-cta { display: none !important; } }
+@media (min-width: 641px) { .ai-ask-cta { display: none; } }
+@media print { .ai-ask-cta { display: none !important; } }
 
 .mw-controls { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .mw-footnote { text-align: center; color: rgba(245, 239, 227, .45); font-size: .86rem; margin-top: 16px; }
@@ -2579,9 +2601,9 @@ body.page-open { overflow: hidden; }
 
 /* ---------- תכנון: the composer floats over the thread ----------
    The footer stops being a bar across the bottom and becomes a layer over the thread
-   (the thread keeps room under its last message). In it, the trip page's ask bar —
+   (the thread keeps room under its last message). In it, the trip page's ask pill —
    the same glass and the same beam of amber light travelling around the rim (see
-   .ai-ask-bar) — folded by default into one small pill at the same spot: the
+   .ai-ask-cta) — folded by default into one small pill at the same spot: the
    conversation is what this screen is for, and a full composer under every answer
    was weight the eye paid for on every turn. The pill opens the bar in place. */
 .page-plan .tp-foot {
@@ -3514,6 +3536,12 @@ body.budget-open { overflow: hidden; }
 }
 .item-hours.shut { color: #ffb45f; background: rgba(255, 180, 95, .1); border-color: rgba(255, 180, 95, .34); }
 .item-hours .ih-icon { flex: none; }
+/* the extreme-weather watch on the stop sheet — the participants screen's switch row,
+   boxed so it reads as a setting of this stop, with a thumb-sized tap area on phones */
+.stop-ww {
+  margin: 12px 0 0; padding: 12px; min-height: 56px;
+  background: var(--glass); border: 1px solid var(--glass-border);
+}
 /* the week view's one-line version of the same mark — a glyph, no words */
 .we-shut { flex: none; font-size: .78rem; line-height: 1; }
 .cal-wevt.shut { border-color: rgba(255, 180, 95, .38); }

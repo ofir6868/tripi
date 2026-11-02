@@ -264,6 +264,7 @@
 
   const json = (status, body) => ({ status, body });
 
+  const weatherWatched = new Set();
   function handle(method, url, body) {
     const u = new URL(url, 'http://x');
     const p = u.pathname;
@@ -468,7 +469,14 @@
         return json(200, {
           trip, items, isOwner: true, canEdit: true, isAdmin: false,
           hotels, budget, expenses, participants: [{ id: 1, name: user.name, is_owner: true }],
+          weatherWatch: [...weatherWatched],
         });
+      }
+      // the extreme-weather switch on a stop sheet — remembered for the session
+      const wwm = rest.match(/^\/items\/(\d+)\/weather-watch$/);
+      if (wwm && method === 'PUT') {
+        if (body && body.on) weatherWatched.add(+wwm[1]); else weatherWatched.delete(+wwm[1]);
+        return json(200, { ok: true, on: !!(body && body.on), watched: [...weatherWatched] });
       }
       // the model's category for a hand-added stop — a keyword guess here, and null
       // (the generic tile) for anything it cannot place, which is the path to preview

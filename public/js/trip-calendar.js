@@ -559,6 +559,57 @@ const TripCalendar = (() => {
       <span class="ih-icon">${shut ? '🚪' : '🕒'}</span><span>${esc(label)}</span></div>`;
   }
 
+  // "Warn me if the weather here turns extreme" — per traveller, per stop. The server checks
+  // the forecast once a day and asks the AI only when it crosses rough thresholds
+  // (lib/weather-watch.js); the push goes to whoever turned this on, nobody else.
+  const WW_ICON = '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>';
+  const wwDesc = (ctx) => (ctx.trip.start_date
+    ? 'נבדוק את התחזית פעם ביום ונתריע רק על חום, קור או סערה קיצוניים שדורשים היערכות'
+    : 'כשיהיו תאריכים לטיול, נבדוק את התחזית פעם ביום ונתריע רק על מזג אוויר קיצוני');
+  function weatherWatchHtml(ctx, it) {
+    if (!it.id || !ctx.weatherWatch || !ctx.weatherWatch.on()) return '';
+    return `<label class="pm-setting stop-ww" for="stop-ww-toggle">
+      <span class="pm-setting-ic">${WW_ICON}</span>
+      <span class="pm-setting-text">
+        <span class="pm-setting-title">מעקב מזג אוויר קיצוני</span>
+        <span class="pm-setting-desc" id="stop-ww-desc">${esc(wwDesc(ctx))}</span>
+      </span>
+      <span class="pm-switch">
+        <input type="checkbox" id="stop-ww-toggle"${ctx.weatherWatch.has(it.id) ? ' checked' : ''}>
+        <span class="pm-switch-track" aria-hidden="true"><span class="pm-switch-knob"></span></span>
+      </span>
+    </label>`;
+  }
+  function wireWeatherWatch(ctx, it, body) {
+    const box = body.querySelector('#stop-ww-toggle');
+    if (!box) return;
+    const desc = body.querySelector('#stop-ww-desc');
+    box.onchange = async () => {
+      const on = box.checked;
+      box.disabled = true;
+      try {
+        // a watch that cannot reach the phone is a promise we would break: turning it on
+        // turns notifications on too, or says why it can't
+        if (on && typeof TRIPMAKER_PUSH !== 'undefined') {
+          const st = await TRIPMAKER_PUSH.state();
+          if (st === 'off') await TRIPMAKER_PUSH.enable();
+          else if (st === 'blocked') throw new Error('ההתראות חסומות בדפדפן — אפשר להפעיל אותן בהגדרות האתר');
+          else if (st === 'unavailable') {
+            throw new Error(TRIPMAKER_PUSH.needsInstall
+              ? 'באייפון צריך קודם להוסיף את TRIP MAKER למסך הבית — ואז אפשר להפעיל התראות'
+              : 'ההתראות לא זמינות במכשיר הזה');
+          }
+        }
+        await ctx.weatherWatch.set(it.id, on);
+        desc.textContent = on ? 'פועל — נתריע כאן אם התחזית תהיה קיצונית' : wwDesc(ctx);
+      } catch (err) {
+        box.checked = !on;
+        desc.textContent = err.message || 'לא הצלחנו לשמור — נסו שוב';
+      }
+      box.disabled = false;
+    };
+  }
+
   function renderStopView(ctx, it) {
     const wrap = stopSheet();
     const date = ctx.dayDate(it.day_number);
@@ -586,6 +637,7 @@ const TripCalendar = (() => {
       ${it.note ? `<div class="item-note"${tap('note')}>${esc(it.note)}</div>` : ''}
       ${it.place_query ? `<div class="item-more-place"${tap('place')}><span class="imp-pin">📍</span><span class="imp-text">${esc(it.place_query)}</span></div>` : ''}
       ${hoursLineHtml(it)}
+      ${weatherWatchHtml(ctx, it)}
       ${miniMap ? '<div class="item-mini-map" id="stop-mini-map" role="img" aria-label="מפת התחנה"></div>'
         : hasMap ? `<iframe class="item-mini-map" loading="lazy" title="מפת התחנה" src="${TRIPMAKER.mapsEmbedUrlExact(it)}"></iframe>` : ''}
       ${it.place_query || photo ? '<div class="stop-gallery"></div>' : ''}
@@ -594,6 +646,7 @@ const TripCalendar = (() => {
       ${ctx.canEdit ? `<button type="button" class="btn btn-amber sm-edit">${icPencil}<span>עריכת התחנה</span></button>` : ''}`;
 
     if (miniMap) TripMap.mini(body.querySelector('#stop-mini-map'), it);
+    wireWeatherWatch(ctx, it, body);
 
     const gal = body.querySelector('.stop-gallery');
     if (gal) {

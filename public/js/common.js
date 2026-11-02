@@ -97,6 +97,9 @@ const TRIPMAKER = {
     if (!res.ok) {
       const err = new Error(data.error || `השרת לא ענה כראוי (שגיאה ${res.status})`);
       err.status = res.status;
+      // no JSON of ours: the answer came from a hop in between (Cloudflare's 524 after
+      // 100 s, a proxy's 502), not from the route — which may still be finishing
+      err.relayed = !data.error;
       err.quota = data.quota || null; // an AI meter saying "not today" — the chats show a gentler card for it
       err.guest = !!data.guest;       // a door only an account can pass — the page opens the sign-up, not an error
       err.until = data.until || null; // a paid source closed until this instant — the page can name the hour

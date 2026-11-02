@@ -76,7 +76,7 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
       delete trip.invite_token; // the invite link is only revealed to participants
       delete trip.plan_state; // and so is the planning chat's memory — it holds what they told the AI
     }
-    const [items, hotels, budget, expenses, participants, settlements, momentRows] = await Promise.all([
+    const [items, hotels, budget, expenses, participants, settlements, momentRows, weatherWatch] = await Promise.all([
       pool.query('SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, time_label NULLS LAST, sort_order, id', [trip.id]),
       pool.query('SELECT * FROM trip_hotels WHERE trip_id = $1 ORDER BY night_start, id', [trip.id]),
       canEdit
@@ -104,6 +104,12 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
       canEdit
         ? pool.query('SELECT * FROM trip_moments WHERE trip_id = $1 ORDER BY starts_at, id', [trip.id])
         : Promise.resolve({ rows: [] }),
+      // the stops this traveller asked to be warned about (lib/weather-watch.js) — theirs
+      // alone, so it is per person, not per trip; an older database without the table
+      // answers an empty list rather than failing the page
+      canEdit && req.user
+        ? require('../lib/weather-watch').watchedItems(req.user.id, trip.id).catch(() => [])
+        : Promise.resolve([]),
     ]);
     // a participant opening the trip is a clock too: a moment whose window is open and
     // whose push nobody sent yet (the pinger is late, the host was asleep) goes out now —
@@ -125,6 +131,7 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
       settlements: canEdit ? settlements.rows : [],
       participants: participants.rows,
       moments: canEdit ? momentRows.rows : [],
+      weatherWatch,
     });
   } catch (err) {
     console.error(err);

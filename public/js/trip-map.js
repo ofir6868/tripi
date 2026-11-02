@@ -126,18 +126,28 @@ const TripMap = (() => {
     car: '<svg viewBox="0 0 24 24"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>',
   };
 
-  // a numbered pin — pure divIcon, so none of Leaflet's default marker images
-  // (which we don't vendor) are ever requested. A teardrop in the brand amber with
-  // a white ring, so it reads as a pin on pale streets, dark canvas and satellite
-  // photo alike; the pulse ring is drawn only on the selected pin (CSS .is-active)
-  const pinIcon = (label, extra, i, color) => L.divIcon({
-    className: 'map-pin-wrap' + (extra ? ' ' + extra : ''),
-    // the pins land one after the other, in walking order (CSS map-pin-drop)
-    html: `<span class="map-pin" style="animation-delay:${Math.min(i || 0, 24) * 45}ms${color ? `;--pin:${color}` : ''}"><span class="map-pin-ring"></span><span class="map-pin-num">${label}</span></span>`,
-    iconSize: [34, 40],
-    iconAnchor: [17, 36],
-    tooltipAnchor: [0, -34],
-  });
+  // The stop itself on the map, not a number on a teardrop (2026-11: "the dotted line
+  // and the pins aren't pretty"): a round bubble with the stop's photo — the same
+  // free photo the itinerary card shows (trip-photos.js) — ringed in white and in the
+  // day's colour, its number as a badge, a pointer under it, and its name on a chip
+  // that comes out when the stop is selected or hovered. A stop with no photo gets
+  // its category emoji on the day's colour. The overview draws them a size smaller.
+  const photoOf = (it) => (typeof TripPhotos !== 'undefined' ? TripPhotos.get(it.id) : null);
+  const photoIcon = (it, n, i, small, still) => {
+    const ph = photoOf(it);
+    const size = small ? 36 : 48;
+    return L.divIcon({
+      className: 'map-ph-wrap' + (small ? ' map-ph-small' : '') + (still ? ' still' : ''),
+      html: `<span class="map-ph" style="--pin:${dayColor(it.day_number)};animation-delay:${Math.min(i || 0, 24) * 55}ms">
+          <span class="mph-ring"></span>
+          <span class="mph-img${ph ? ' has-photo' : ''}"><span class="mph-emoji">${stopEmoji(it)}</span>${ph ? `<img alt="" decoding="async" referrerpolicy="no-referrer" src="${esc(ph.url)}" onerror="this.parentNode.classList.remove('has-photo');this.remove()">` : ''}</span>
+          <span class="mph-num">${n}</span>
+          <span class="mph-label">${it.time_label && !small ? `<b dir="ltr">${esc(it.time_label)}</b>` : ''}${esc(it.title)}</span>
+        </span>`,
+      iconSize: [size, size + 8],
+      iconAnchor: [size / 2, size + 8],
+    });
+  };
 
   const located = (it) => it.lat != null && it.lon != null;
   const dayItems = (day) => ctx.items().filter((it) => it.day_number === day);
@@ -533,13 +543,15 @@ const TripMap = (() => {
       const has = located(it);
       const num = has ? ++n : null;
       const leg = has && i < items.length - 1 && located(items[i + 1])
-        ? `<span class="map-leg" data-from="${it.id}" aria-hidden="true"><span class="ml-dot"></span></span>` : '';
+        ? `<span class="map-leg" data-from="${it.id}" aria-hidden="true"></span>` : '';
+      const ph = photoOf(it);
       return `<button type="button" class="map-stop enter${has ? '' : ' unplaced'}${it.id === activeId ? ' active' : ''}" data-id="${it.id}"
-          style="animation-delay:${i * 40}ms" title="${has ? 'לחיצה מסמנת במפה, לחיצה נוספת פותחת את התחנה' : 'לתחנה הזו אין עדיין מיקום'}">
-          <span class="ms-num" style="--day:${dayColor(selectedDay)}">${num == null ? '·' : num}</span>
+          style="animation-delay:${i * 40}ms;--day:${dayColor(selectedDay)}" title="${has ? 'לחיצה מסמנת במפה, לחיצה נוספת פותחת את התחנה' : 'לתחנה הזו אין עדיין מיקום'}">
+          <span class="ms-photo${ph ? ' has-photo' : ''}" aria-hidden="true"><span class="ms-emoji">${stopEmoji(it)}</span>${ph ? `<img alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${esc(ph.url)}" onerror="this.parentNode.classList.remove('has-photo');this.remove()">` : ''}<span class="ms-num">${num == null ? '·' : num}</span></span>
           <span class="ms-body">
-            <span class="ms-top">${it.time_label ? `<span class="ms-time">${esc(it.time_label)}</span>` : ''}<span class="ms-cat">${stopEmoji(it)}</span></span>
+            ${it.time_label ? `<span class="ms-time">${esc(it.time_label)}</span>` : ''}
             <span class="ms-title">${esc(it.title)}</span>
+            ${it.category ? `<span class="ms-cat">${esc(it.category)}</span>` : ''}
           </span>
         </button>${leg}`;
     }).join('');
@@ -553,6 +565,41 @@ const TripMap = (() => {
       };
     });
     fillLegs();
+    wireSwipe(strip);
+  }
+
+  // Swiping the cards walks the map (the way map apps pair a carousel with pins): when
+  // a swipe settles, the card at the start of the strip is selected and its pin comes
+  // into view. Our own scrolls (a pin tap scrolling its card in) are not swipes.
+  function wireSwipe(strip) {
+    if (strip.dataset.swipe) return;
+    strip.dataset.swipe = '1';
+    let t = null;
+    // only a hand on the strip makes a swipe — a re-render, a snap or our own
+    // scrollTo moving it must not pick a stop (and fly the map away from the day)
+    let touched = -Infinity;
+    const touch = () => { touched = performance.now(); };
+    ['pointerdown', 'touchstart', 'wheel'].forEach((ev) => strip.addEventListener(ev, touch, { passive: true }));
+    strip.addEventListener('scroll', () => {
+      if (performance.now() - touched > 2500) return;
+      clearTimeout(t);
+      t = setTimeout(() => {
+        if (!selectedDay || performance.now() < stripQuietUntil) return;
+        const box = strip.getBoundingClientRect();
+        let best = null;
+        let bestD = Infinity;
+        strip.querySelectorAll('.map-stop:not(.unplaced)').forEach((c) => {
+          const r = c.getBoundingClientRect();
+          const d = Math.abs(r.right - (box.right - 12)); // RTL: the start is the right edge
+          if (d < bestD) { bestD = d; best = c; }
+        });
+        if (!best) return;
+        const id = +best.dataset.id;
+        if (id === activeId) return;
+        fromSwipe = true;
+        try { setActive(id, true); } finally { fromSwipe = false; }
+      }, 160);
+    }, { passive: true });
   }
 
   // the overview's strip: one card per day — its colour, how many stops, the first
@@ -588,7 +635,7 @@ const TripMap = (() => {
       legs.forEach((leg, i) => {
         const el = strip.querySelector(`.map-leg[data-from="${stops[i].id}"]`);
         if (!el || !leg || leg.minutes < 1) return;
-        el.innerHTML = `${IC.car}<span>${fmtMin(leg.minutes)}</span>`;
+        el.innerHTML = `<span>${fmtMin(leg.minutes)}</span>`;
         el.classList.add('known');
         el.title = `${fmtMin(leg.minutes)} נסיעה · ${leg.km} ק״מ`;
       });
@@ -605,8 +652,7 @@ const TripMap = (() => {
       if (!el) return;
       const on = m.options.stopId === id;
       el.classList.toggle('is-active', on);
-      if (on) { m.setZIndexOffset(500); if (m.getTooltip()) m.openTooltip(); }
-      else { m.setZIndexOffset(0); if (m.getTooltip()) m.closeTooltip(); }
+      m.setZIndexOffset(on ? 500 : 0);
     });
     renderDetail();
     if (pan) {
@@ -625,10 +671,13 @@ const TripMap = (() => {
       }
     }
     const active = strip?.querySelector('.map-stop.active');
-    if (active && strip) {
+    if (active && strip && !fromSwipe) {
+      stripQuietUntil = performance.now() + 700; // our own scroll is not a swipe
       strip.scrollTo({ left: active.offsetLeft - (strip.clientWidth - active.offsetWidth) / 2, behavior: reduced() ? 'auto' : 'smooth' });
     }
   }
+  let fromSwipe = false;
+  let stripQuietUntil = 0;
 
   function markerOf(id) {
     let found = null;
@@ -746,7 +795,6 @@ const TripMap = (() => {
       const el = m.getElement && m.getElement();
       if (el) el.classList.remove('is-active');
       m.setZIndexOffset(0);
-      if (m.getTooltip()) m.closeTooltip();
     });
     renderDetail();
   }
@@ -768,18 +816,21 @@ const TripMap = (() => {
   // the top, the control stack on the left, the destination chip bottom-right — and
   // on the full page, the itinerary panel on the right with the stop panel beside
   // the controls on the left
+  // a photo bubble stands ~56px above its point (and half its width each side) —
+  // the frame keeps room for the bubble, not just for the point
+  const BUBBLE = 50;
   const framePad = () => {
     const detail = detailOpen();
     const panel = panelOn();
     if (panel) {
       return {
-        paddingTopLeft: [detail ? 430 : 70, ctx.trip.days > 1 ? 70 : 24],
+        paddingTopLeft: [detail ? 430 : 70, (ctx.trip.days > 1 ? 70 : 24) + BUBBLE],
         paddingBottomRight: [($('map-panel').offsetWidth || 360) + 40, 36],
       };
     }
     return {
-      paddingTopLeft: [58, ctx.trip.days > 1 ? 62 : 24],
-      paddingBottomRight: [detail && !narrow() ? 410 : 24, detail && narrow() ? 260 : 52],
+      paddingTopLeft: [58 + BUBBLE / 2, (ctx.trip.days > 1 ? 62 : 24) + BUBBLE],
+      paddingBottomRight: [(detail && !narrow() ? 410 : 24) + BUBBLE / 2, detail && narrow() ? 260 : 52],
     };
   };
 
@@ -816,17 +867,14 @@ const TripMap = (() => {
     stops.forEach((it, i) => {
       const n = selectedDay ? i + 1 : numInDay(it);
       const m = L.marker([it.lat, it.lon], {
-        icon: pinIcon(n, selectedDay ? '' : 'map-pin-small', i, dayColor(it.day_number)),
+        icon: photoIcon(it, n, i, !selectedDay),
         title: '',
         alt: `${selectedDay ? '' : `יום ${it.day_number}, `}${n}. ${it.title}`,
         keyboard: true,
         riseOnHover: true,
         stopId: it.id,
+        stopN: n,
       });
-      m.bindTooltip(
-        `<span class="mt-num" style="--day:${dayColor(it.day_number)}">${n}</span>${!selectedDay ? `<span class="mt-time">יום ${it.day_number}</span>` : it.time_label ? `<span class="mt-time">${esc(it.time_label)}</span>` : ''}<span class="mt-title">${stopEmoji(it)} ${esc(it.title)}</span>`,
-        { direction: 'top', className: 'map-tip', opacity: 1 }
-      );
       // a pin opens the same stop sheet a card tap opens — one surface per stop
       // (Enter on a focused pin arrives here as a click — Leaflet maps it). On the
       // full page the stop panel is that surface, so a pin selects instead.
@@ -849,29 +897,78 @@ const TripMap = (() => {
       map.fitBounds(L.latLngBounds(latlngs), { ...framePad(), maxZoom: 16, animate: false });
     }
     framed = true;
-    // the real road, once the router answers (straight lines until then)
+    // the real road, once the router answers (straight lines until then). It takes
+    // the straight line's place without drawing itself in a second time.
     if (selectedDay && latlngs.length > 1 && typeof GEO !== 'undefined') {
+      const t0 = performance.now();
       GEO.routeLegs(stops).then((legs) => {
         if (sig !== pinsSig || !legs || !legs.geometry || legs.geometry.length < 2) return;
         routeLayer.clearLayers();
-        drawRoute(legs.geometry, dayColor(selectedDay));
+        // a router that answered at once (cached) draws the road in; a late one
+        // replaces a line that was already drawn, quietly
+        drawRoute(legs.geometry, dayColor(selectedDay), false, performance.now() - t0 > 900);
       }).catch(() => { /* straight lines are an honest answer too */ });
     }
+    loadPhotos();
   }
 
-  // the walking order: a soft glow trace under a bright marching-dash line on top —
-  // reads over pale streets, dark canvas and a busy satellite photo alike. Adds to
-  // the route layer (the overview draws one per day); callers clear it first.
-  function drawRoute(latlngs, color, thin) {
+  // The photos arrive after the pins (one request per trip, cached — trip-photos.js);
+  // when they land, every bubble and card that has one is repainted in place — no
+  // re-framing, no second drop-in.
+  let photosAsked = false;
+  function loadPhotos() {
+    if (photosAsked || typeof TripPhotos === 'undefined' || !ctx.trip.share_code) return;
+    photosAsked = true;
+    TripPhotos.load(ctx.trip.share_code).then((data) => {
+      if (!data || !data.stops || !map) return;
+      pinLayer.eachLayer((m) => {
+        const it = ctx.items().find((x) => x.id === m.options.stopId);
+        if (!it || !photoOf(it)) return;
+        const on = m.options.stopId === activeId;
+        m.setIcon(photoIcon(it, m.options.stopN, 0, !selectedDay, true));
+        if (on) m.getElement()?.classList.add('is-active');
+      });
+      renderStrip();
+      if (fullscreen) renderPanel();
+    }).catch(() => { /* the emoji bubbles are the map without photos */ });
+  }
+
+  // The walking order as a road, not a row of dots: a dark casing so it holds on
+  // pale streets and satellite photo alike, the line in the day's colour, and over
+  // it a soft light that runs along it in walking order — the direction without
+  // arrows. A day the map has just been switched to draws its line in, from the
+  // first stop to the last. Adds to the route layer (the overview draws one per
+  // day, without the running light); callers clear it first.
+  function drawRoute(latlngs, color, thin, settled) {
     if (latlngs.length < 2) return;
     const c = color || '#ffb45f';
-    routeLayer.addLayer(L.polyline(latlngs, {
-      className: 'route-line-glow', color: c, weight: thin ? 7 : 9, opacity: .3, lineCap: 'round', lineJoin: 'round', interactive: false,
-    }));
-    routeLayer.addLayer(L.polyline(latlngs, {
-      className: 'route-line', color: c, weight: thin ? 3 : 4, opacity: 1,
-      dashArray: thin ? null : '1 10', lineCap: 'round', lineJoin: 'round', interactive: false,
-    }));
+    const casing = L.polyline(latlngs, {
+      className: 'route-casing', color: '#06100d', weight: thin ? 7 : 10, opacity: .45, lineCap: 'round', lineJoin: 'round', interactive: false,
+    });
+    const line = L.polyline(latlngs, {
+      className: 'route-line', color: c, weight: thin ? 3.5 : 5, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false,
+    });
+    routeLayer.addLayer(casing);
+    routeLayer.addLayer(line);
+    if (!thin) {
+      routeLayer.addLayer(L.polyline(latlngs, {
+        className: 'route-flow', color: '#fff', weight: 3, opacity: .75, dashArray: '2 28', lineCap: 'round', lineJoin: 'round', interactive: false,
+      }));
+    }
+    if (settled || reduced()) return;
+    // draw in: each path's dash is its own length, run from hidden to whole
+    [casing, line].forEach((pl) => {
+      const el = pl.getElement && pl.getElement();
+      if (!el || !el.getTotalLength) return;
+      const len = Math.ceil(el.getTotalLength());
+      el.style.strokeDasharray = `${len} ${len}`;
+      el.style.strokeDashoffset = String(len);
+      el.getBoundingClientRect(); // commit the start before the transition
+      el.style.transition = 'stroke-dashoffset 1.1s cubic-bezier(.4, 0, .2, 1)';
+      el.style.strokeDashoffset = '0';
+      // a zoom redraws the path at a new length — the dash must not cut it short
+      setTimeout(() => { el.style.transition = ''; el.style.strokeDasharray = ''; el.style.strokeDashoffset = ''; }, 1200);
+    });
   }
 
   function selectDay(day) {
@@ -1085,7 +1182,7 @@ const TripMap = (() => {
     });
     L.control.attribution({ position: 'bottomleft', prefix: false }).addTo(m);
     mountBase(m, mapStyle, { tile: null, overlays: [] });
-    L.marker([it.lat, it.lon], { icon: pinIcon(stopEmoji(it), 'map-pin-emoji', 0, it.day_number ? dayColor(it.day_number) : null), interactive: false, keyboard: false }).addTo(m);
+    L.marker([it.lat, it.lon], { icon: photoIcon(it, ctx ? numInDay(it) || '' : '', 0, false, true), interactive: false, keyboard: false }).addTo(m);
     m.setView([it.lat, it.lon], 15);
     el.classList.add('map-photo-' + (STYLES[mapStyle].photo ? 'on' : 'off'));
     setTimeout(() => m.invalidateSize(), 60); // the sheet is still sliding in

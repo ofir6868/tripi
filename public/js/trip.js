@@ -107,67 +107,6 @@
   let canEditHeaders = null; // truthy = edit calls allowed (auth rides on the JWT)
   let printHooks = null;     // the window-level print pair of whichever trip is open
 
-  // a placeholder that types: each phrase is typed out, held, deleted and replaced by
-  // the next — a cursor riding the text — for as long as `active()` says the field is
-  // on screen and the traveller isn't in it. Reduced motion swaps the phrases whole.
-  function typingPlaceholder(input, phrases, active = () => true) {
-    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const CARET = '|';
-    let i = 0, timer = null, running = false;
-    const stop = () => { clearTimeout(timer); timer = null; running = false; };
-    const later = (fn, ms) => { timer = setTimeout(fn, ms); };
-    const idle = () => document.activeElement === input || input.value;
-    function hold(text, ms) {
-      // the caret blinks while the phrase waits to be read
-      let on = true;
-      const t0 = Date.now();
-      const blink = () => {
-        if (Date.now() - t0 >= ms) { erase(text); return; }
-        on = !on;
-        input.placeholder = text + (on ? CARET : ' ');
-        later(blink, 480);
-      };
-      input.placeholder = text + CARET;
-      later(blink, 480);
-    }
-    function erase(text) {
-      let n = text.length;
-      const step = () => {
-        if (n <= 0) { i = (i + 1) % phrases.length; later(type, 260); return; }
-        n -= 1;
-        input.placeholder = text.slice(0, n) + CARET;
-        later(step, 22);
-      };
-      step();
-    }
-    function type() {
-      const text = phrases[i];
-      if (reduce) { input.placeholder = text; i = (i + 1) % phrases.length; later(type, 3200); return; }
-      let n = 0;
-      const step = () => {
-        n += 1;
-        input.placeholder = text.slice(0, n) + CARET;
-        if (n < text.length) later(step, 34 + Math.random() * 40);
-        else hold(text, 1900);
-      };
-      step();
-    }
-    // (re)start when the field is shown and empty; a focused field shows a plain prompt
-    function resume() {
-      if (!active() || idle()) { stop(); if (idle()) input.placeholder = 'מה לשנות או להמליץ?'; return; }
-      if (running) return;
-      running = true;
-      type();
-    }
-    input.addEventListener('focus', resume);
-    input.addEventListener('blur', () => setTimeout(resume, 0));
-    input.addEventListener('input', resume);
-    matchMedia('(max-width: 640px)').addEventListener?.('change', resume);
-    document.addEventListener('visibilitychange', () => { if (document.hidden) stop(); else resume(); });
-    resume();
-    return { resume, stop };
-  }
-
   function forgetInvite() {
     inviteToken = null;
     delete savedInvites[code];
@@ -234,7 +173,7 @@
     if (page) history.pushState({ tripmakerPage: page }, '', url + '#' + page);
     // the handful of things load() appends rather than rewrites — left in place they
     // would be drawn twice, and the second pass would wire only the newer one
-    for (const sel of ['#ai-ask-bar', '.trip-endcap', '.join-banner', '.push-ask',
+    for (const sel of ['#ai-ask-cta', '.trip-endcap', '.join-banner', '.push-ask',
       '#dates-modal', '#participants-modal']) document.querySelector(sel)?.remove();
     TripHours.invalidate();
     TripPhotos.invalidate();
@@ -268,6 +207,7 @@
     const isAdmin = !!data.isAdmin; // admins edit any trip
     const canEdit = !!data.canEdit;
     let participants = data.participants || [];
+    let weatherWatched = new Set(data.weatherWatch || []); // stops this traveller asked us to watch
     editMode = canEdit; // participants edit inline — there's no separate mode to enter
 
     document.title = `${trip.title} · TRIP MAKER`;
@@ -522,6 +462,18 @@
       ensureEdit: () => ensureEditRights(),
       refresh: () => renderItinerary(),
       // group votes — the calendar's stop sheet casts them, its cards show the tally
+      // extreme-weather watch on a stop (lib/weather-watch.js) — participants only, and
+      // per person: the set is this traveller's own
+      weatherWatch: {
+        on: () => canEdit && !!TRIPMAKER.user,
+        has: (id) => weatherWatched.has(id),
+        set: async (id, on) => {
+          const r = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/items/${id}/weather-watch`, {
+            method: 'PUT', body: JSON.stringify({ on }),
+          });
+          weatherWatched = new Set(r.watched || []);
+        },
+      },
       votes: {
         on: () => votesOn,
         html: (it) => voteHtml(it),
@@ -1133,104 +1085,18 @@
       TripPages.open(page);
       if (message) (page === 'plan' ? TripPlan : TripRecs).say(message);
     }
-    // ---- the ask bar: on a phone, the agent is one line away at the bottom of the
-    // trip, above the dock. It starts folded — one small pill at the same spot, so the
-    // itinerary is what the screen is about — and a tap opens the bar in place, where
-    // its placeholder types out the things people come here to say — an edit, a
-    // recommendation — one after another, so it reads as an invitation rather than an
-    // empty field. A tap elsewhere with nothing typed folds it back. Sending hands the
-    // line to the chat as a turn that has just gone out.
+    // ---- the ask pill: on a phone, the agent is one tap away at the bottom of the
+    // trip, above the dock. "לשאול את ה-AI" means the AI's page, so the tap goes
+    // straight there — the chat, its chips and its composer are where the asking
+    // happens, not a second, smaller field over the itinerary.
     if (canEditHeaders) {
       const askCta = document.createElement('button');
       askCta.type = 'button';
       askCta.className = 'ai-ask-cta';
       askCta.id = 'ai-ask-cta';
-      askCta.setAttribute('aria-expanded', 'false');
-      askCta.setAttribute('aria-controls', 'ai-ask-bar');
       askCta.innerHTML = '<span class="aab-spark" aria-hidden="true">✨</span><span>לשאול את ה-AI</span>';
-      const askBar = document.createElement('form');
-      askBar.className = 'ai-ask-bar';
-      askBar.id = 'ai-ask-bar';
-      askBar.hidden = true;
-      askBar.setAttribute('aria-label', 'שאלה או בקשה לסוכן החכם');
-      askBar.innerHTML = `
-        <span class="aab-spark" aria-hidden="true">✨</span>
-        <input type="text" id="ai-ask-input" maxlength="400" autocomplete="off" enterkeyhint="send" aria-label="מה לשנות או להמליץ?">
-        <button type="submit" class="chat-send" aria-label="שליחה לסוכן החכם">${TripRecs.ICON.send}</button>`;
+      askCta.onclick = () => openAgent(null, 'ask-pill');
       document.body.appendChild(askCta);
-      document.body.appendChild(askBar);
-      const askInput = askBar.querySelector('input');
-      const dest = tripDests[0]?.name || trip.destination || 'האזור';
-      const typer = typingPlaceholder(askInput, [
-        `מה חובה לראות ב${dest}?`,
-        'תוסיף אוכל רחוב ביום 2',
-        'איפה אוכלים טוב בערב?',
-        'תוריד את המוזיאונים',
-        'תכננו לי יום שלם',
-        'תזיז את השוק לבוקר',
-        'טבע ונופים באזור',
-        'תחליף את יום 3 במשהו רגוע יותר',
-      ], () => matchMedia('(max-width: 640px)').matches && !document.body.classList.contains('page-open') && !askBar.hidden);
-      // The pill grows into the bar and the bar shrinks back into the pill: the two
-      // wear the same glass, so the bar is simply revealed from the pill's rectangle
-      // outward (a clip-path with the pill's rounding) while its field and button
-      // fade in over it, and the pill fades out underneath. Folding plays it back.
-      const EASE = 'cubic-bezier(.2, .8, .2, 1)';
-      const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-      let morph = null;
-      const pillInset = () => {
-        const p = askCta.getBoundingClientRect();
-        const b = askBar.getBoundingClientRect();
-        return `inset(${p.top - b.top}px ${b.right - p.right}px ${b.bottom - p.bottom}px ${p.left - b.left}px round 999px)`;
-      };
-      const openAsk = () => {
-        if (!askBar.hidden) { askInput.focus(); return; }
-        if (morph) morph.finish();
-        askCta.setAttribute('aria-expanded', 'true');
-        const animate = !reduceMotion() && typeof askBar.animate === 'function';
-        // the field and button start invisible (the class is on before the bar shows,
-        // so there is nothing to transition from) and fade in once the glass is moving
-        if (animate) askBar.classList.add('is-morphing');
-        askBar.hidden = false;
-        askInput.focus(); // inside the tap, or the phone keeps its keyboard to itself
-        typer.resume();
-        if (!animate) { askCta.hidden = true; return; }
-        const from = pillInset();
-        morph = askBar.animate([{ clipPath: from }, { clipPath: 'inset(0 0 0 0 round 999px)' }], { duration: 380, easing: EASE });
-        askCta.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, easing: 'ease', fill: 'forwards' });
-        requestAnimationFrame(() => askBar.classList.remove('is-morphing'));
-        morph.onfinish = () => { morph = null; askCta.hidden = true; };
-      };
-      // folds only when nothing would be lost
-      const foldAsk = (force = false) => {
-        if (askBar.hidden || (!force && askInput.value.trim())) return;
-        if (morph) morph.finish();
-        askInput.blur();
-        askCta.setAttribute('aria-expanded', 'false');
-        askCta.hidden = false;
-        if (reduceMotion() || typeof askBar.animate !== 'function') { askBar.hidden = true; return; }
-        askCta.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, delay: 140, easing: 'ease', fill: 'forwards' });
-        askBar.classList.add('is-morphing'); // the field and button fade out as the glass shrinks
-        morph = askBar.animate([{ clipPath: 'inset(0 0 0 0 round 999px)' }, { clipPath: pillInset() }], { duration: 320, easing: 'cubic-bezier(.4, 0, .2, 1)' });
-        morph.onfinish = () => { morph = null; askBar.hidden = true; askBar.classList.remove('is-morphing'); };
-      };
-      askCta.onclick = openAsk;
-      document.addEventListener('click', (e) => { if (!e.target.closest('#ai-ask-bar, #ai-ask-cta')) foldAsk(); });
-      askInput.addEventListener('keydown', (e) => { if (e.key === 'Escape') { askInput.value = ''; foldAsk(); } });
-      let sending = false;
-      askBar.onsubmit = async (e) => {
-        e.preventDefault();
-        const text = askInput.value.trim();
-        if (sending) return;
-        sending = true;
-        askInput.blur();
-        try { await openAgent(text || null, 'ask-bar'); } finally { sending = false; }
-        askInput.value = '';
-        foldAsk(true); // the line went to the chat; coming back, the itinerary is clear again
-      };
-      // the bar is the trip's, not the chat's: it steps aside while a page or the
-      // budget is open, and the animation stops with it
-      new MutationObserver(() => typer.resume()).observe(document.body, { attributes: true, attributeFilter: ['class'] });
     }
 
     // ---- clone button: anyone holding the code can copy the itinerary into their
