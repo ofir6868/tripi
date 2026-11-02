@@ -443,26 +443,36 @@ const TripPages = (() => {
   // gives it. A row only shows while its button is offered *and* the dock isn't already
   // showing it: the budget tab, say, sits in the dock until the draft's save pill needs
   // the room, and then it lives here instead.
+  //
+  // Twelve rows in one column read as a junk drawer, so they sit under three headings —
+  // the trip itself, the people and the money between them, and taking it elsewhere.
+  // A heading shows only when at least one of its rows is offered.
+
+  const MORE_GROUPS = [
+    { id: 'trip', title: 'הטיול' },
+    { id: 'people', title: 'חברים וכסף' },
+    { id: 'share', title: 'שיתוף וייצוא' },
+  ];
 
   const MORE_ACTIONS = [
     // first, always: what still has to happen before the flight (trip-checklist.js
     // keeps the line under it current — done/total, and how many are on fire)
-    { id: 'checklist-btn', title: 'צ\'קליסט לטיול',
+    { id: 'checklist-btn', group: 'trip', title: 'צ\'קליסט לטיול',
       desc: () => (typeof TripChecklist !== 'undefined' ? TripChecklist.moreDesc() : 'eSIM, ביטוח, אישורים, הזמנות מראש ואריזה') },
-    { id: 'moments-btn', title: 'תזכורות',
+    { id: 'moments-btn', group: 'trip', title: 'תזכורות',
       desc: () => (typeof TripMoments !== 'undefined' ? TripMoments.moreDesc() : 'כרטיסים, טיסות וצ׳ק-אין — התראה לפני, עם המסמך פתוח') },
-    { id: 'map-open-btn', title: 'מפת הטיול', desc: 'כל התחנות על מפה במסך מלא — יום אחרי יום, או כל הטיול יחד' },
-    { id: 'budget-btn', title: 'תקציב', cls: (el) => (el.classList.contains('over') ? 'over' : el.classList.contains('warn') ? 'warn' : ''),
+    { id: 'map-open-btn', group: 'trip', title: 'מפת הטיול', desc: 'כל התחנות על מפה במסך מלא — יום אחרי יום, או כל הטיול יחד' },
+    { id: 'budget-btn', group: 'people', title: 'תקציב', cls: (el) => (el.classList.contains('over') ? 'over' : el.classList.contains('warn') ? 'warn' : ''),
       desc: () => { const l = document.getElementById('budget-label')?.textContent; return l && l !== 'תקציב' ? `${l} מהתקציב כבר מתוכנן` : 'כמה זה עולה — התקרה, ההוצאות והחלוקה'; } },
-    { id: 'hotels-btn', title: 'מלונות', desc: 'איפה ישנים — לילות, הזמנות ומחירים' },
-    { id: 'participants-btn', title: () => document.getElementById('participants-label')?.textContent || 'משתתפים', desc: 'מי מתכנן איתכם, וקישור ההזמנה' },
-    { id: 'settle-btn', title: 'חלוקת הוצאות',
+    { id: 'hotels-btn', group: 'trip', title: 'מלונות', desc: 'איפה ישנים — לילות, הזמנות ומחירים' },
+    { id: 'participants-btn', group: 'people', title: () => document.getElementById('participants-label')?.textContent || 'משתתפים', desc: 'מי מתכנן איתכם, וקישור ההזמנה' },
+    { id: 'settle-btn', group: 'people', title: 'חלוקת הוצאות',
       desc: 'מי חייב למי — לפי התקציב המשותף בלבד' },
-    { id: 'wa-share', title: 'שיתוף בוואטסאפ', desc: 'שולחים את המסלול לחברים' },
-    { id: 'copy-link', title: 'העתקת קישור', desc: 'קישור למסלול, להדבקה בכל מקום' },
-    { id: 'ics-btn', title: 'ייצוא ליומן', desc: 'קובץ ICS — גוגל קלנדר, אאוטלוק או יומן אפל' },
-    { id: 'print-btn', title: 'PDF / הדפסה', desc: 'המסלול המלא כמסמך' },
-    { id: 'clone-btn', title: 'שכפול הטיול', desc: 'עותק אישי שאפשר לערוך בחופשיות' },
+    { id: 'wa-share', group: 'share', title: 'שיתוף בוואטסאפ', desc: 'שולחים את המסלול לחברים' },
+    { id: 'copy-link', group: 'share', title: 'העתקת קישור', desc: 'קישור למסלול, להדבקה בכל מקום' },
+    { id: 'ics-btn', group: 'share', title: 'ייצוא ליומן', desc: 'קובץ ICS — גוגל קלנדר, אאוטלוק או יומן אפל' },
+    { id: 'print-btn', group: 'share', title: 'PDF / הדפסה', desc: 'המסלול המלא כמסמך' },
+    { id: 'clone-btn', group: 'share', title: 'שכפול הטיול', desc: 'עותק אישי שאפשר לערוך בחופשיות' },
   ];
 
   function isOffered(el) {
@@ -476,7 +486,7 @@ const TripPages = (() => {
 
   function openMore() {
     const rows = MORE_ACTIONS.filter((a) => isFolded(document.getElementById(a.id)));
-    const html = `<div class="more-list">${rows.map((a) => {
+    const rowHtml = (a) => {
       const src = document.getElementById(a.id);
       const svg = src.querySelector('svg')?.cloneNode(true);
       if (svg) svg.setAttribute('class', 'ic');
@@ -489,7 +499,15 @@ const TripPages = (() => {
           <span class="mr-text"><b>${esc(t)}</b><small>${esc(d)}</small></span>
           <span class="mr-chev" aria-hidden="true">‹</span>
         </button>`;
-    }).join('')}</div>`;
+    };
+    const html = MORE_GROUPS.map((g) => {
+      const mine = rows.filter((a) => a.group === g.id);
+      if (!mine.length) return '';
+      return `<section class="more-group">
+        <h4 class="more-group-title">${esc(g.title)}</h4>
+        <div class="more-list">${mine.map(rowHtml).join('')}</div>
+      </section>`;
+    }).join('');
     sheet('more-sheet', {
       title: 'עוד פעולות',
       html,
