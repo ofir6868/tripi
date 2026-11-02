@@ -250,7 +250,7 @@ const TripPages = (() => {
   // the itinerary's layer: whatever of it is on screen
   const homeLayer = () => [...document.querySelectorAll('body > .site-header, body > .trip-hero, #trip-layout, body > .site-footer')]
     .filter((el) => getComputedStyle(el).display !== 'none');
-  const homeFloats = () => [...document.querySelectorAll('#ai-ask-bar, .join-banner')]
+  const homeFloats = () => [...document.querySelectorAll('#ai-ask-cta, .join-banner')]
     .filter((el) => getComputedStyle(el).display !== 'none');
 
   const pageEl = (name) => (name === 'budget' ? document.getElementById('budget-page') : pages[name]?.el) || null;
