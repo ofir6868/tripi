@@ -68,5 +68,28 @@ check(s(4.6, 3000) > s(5.0, 6), '4.6 from 3,000 outranks 5.0 from 6');
 check(s(4.5, 800, 2) > s(4.5, 800, 0), 'Hebrew reviews lift an otherwise equal place');
 check(s(4.8, 2000) > s(4.2, 2000, 3), 'but not over a clearly better-rated one');
 
-console.log(bad ? `${bad} nearby check(s) failed` : 'nearby: kosher reading, cards and ranking hold');
-process.exit(bad ? 1 : 0);
+// ---- a closed Google: what we already bought still answers (2026-11-02) ----
+(async () => {
+  const { cacheSet, meter, clock } = require('../lib/api-budget');
+  const { fromCache, cellKey } = require('../routes/nearby');
+  const cell = 0.02;
+  const clat = Math.round(35.6895 / cell) * cell; // Tokyo
+  const clon = Math.round(139.6917 / cell) * cell;
+  check(await fromCache('sights', null, clat, clon) === null, 'nothing bought nearby, nothing to fall back to');
+  await cacheSet('nearby.v1', cellKey('sights', null, clat + cell, clon - cell), [c]);
+  const kept = await fromCache('sights', null, clat, clon);
+  check(kept && kept[0].name === 'Trattoria Test', 'a neighbouring square\'s list answers when Google is closed');
+  check(await fromCache('food', null, clat, clon) === null, 'but only for the same kind');
+  await cacheSet('nearby.v1', cellKey('sights', null, clat, clon), []);
+  check((await fromCache('sights', null, clat, clon) || [])[0] === c, 'an empty list here does not hide a full one next door');
+
+  const m = meter('nearby_search');
+  const want = clock.nextDayReset().toISOString();
+  m.hold("Quota exceeded for limit 'SearchNearbyRequest per day'");
+  check(m.reopensAt().toISOString() === want, 'Google\'s daily hold names midnight Pacific');
+  m.hold('per minute'); // a shorter hold never shortens the daily one
+  check(m.reopensAt().toISOString() === want, 'a per-minute 429 does not shorten the daily hold');
+
+  console.log(bad ? `${bad} nearby check(s) failed` : 'nearby: kosher reading, cards, ranking and the closed-Google fallback hold');
+  process.exit(bad ? 1 : 0);
+})();
