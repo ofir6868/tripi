@@ -26,7 +26,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { authRequired, JWT_SECRET } = require('../lib/auth');
 const { tripWithEditAuth } = require('../lib/trips');
-const { meter, cacheGet, cacheSet, once } = require('../lib/api-budget');
+const { meter, cacheGet, cacheSet, once, TTL_DAYS: CACHE_CEILING_DAYS } = require('../lib/api-budget');
 const { budget: photoBudget } = require('../lib/place-photos');
 const { rateLimiter } = require('../lib/rate-limit');
 const KINDS = require('../public/js/nearby-kinds');
@@ -223,6 +223,25 @@ async function lookup(kind, cuisine, clat, clon, userKey) {
   });
 }
 
+// When Google will not answer — the console's daily quota is spent (a 429 our meter
+// then honours until midnight Pacific), the month is paced out, or Google failed — the
+// screen used to go blank with "try tomorrow". On 2026-11-02 a traveller in Japan got
+// exactly that three hours into Google's day, and Google's midnight is 17:00 there. What
+// we already bought is still a good answer: this square's list even past the fortnight
+// (Google's terms allow thirty days, the same ceiling the cache sweep keeps), else the
+// list of a neighbouring square — the next cell over is a few streets away, well inside
+// the radius each list was searched on. Nothing here reaches Google.
+const RING = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+async function fromCache(kind, cuisine, clat, clon) {
+  const scope = kind === 'kosher' ? KOSHER_SCOPE : SCOPE;
+  const cell = KIND[kind].cell;
+  const keyAt = (a, o) => `${kind}|${cuisine || ''}|${a.toFixed(3)},${o.toFixed(3)}`;
+  const hits = await Promise.all(RING.map(([dy, dx]) =>
+    cacheGet(scope, keyAt(clat + dy * cell, clon + dx * cell), { ttlDays: CACHE_CEILING_DAYS })));
+  const found = hits.find((h) => h.hit && Array.isArray(h.value) && h.value.length);
+  return found ? found.value : null;
+}
+
 // GET ?kind=sights|food|kosher&lat=&lon=[&cuisine=burgers]
 router.get('/api/trips/code/:code/nearby', authRequired, async (req, res) => {
   try {
@@ -242,9 +261,19 @@ router.get('/api/trips/code/:code/nearby', authRequired, async (req, res) => {
     const cell = KIND[kind].cell;
     const clat = Math.round(lat / cell) * cell;
     const clon = Math.round(lon / cell) * cell;
-    const out = await lookup(kind, cuisine, clat, clon, 'u' + req.user.id);
+    let out = await lookup(kind, cuisine, clat, clon, 'u' + req.user.id);
     if (out.limited) return res.status(429).json({ error: 'יותר מדי חיפושים — נסו שוב בעוד כמה דקות' });
-    if (out.refused) return res.status(503).json({ error: 'ההמלצות באזור לא זמינות כרגע — נסו שוב מחר', reason: 'budget' });
+    let stale = false;
+    if (out.refused || out.failed) {
+      const kept = await fromCache(kind, cuisine, clat, clon);
+      if (kept) { out = { places: kept }; stale = true; }
+    }
+    // `until` is when Google's gate opens again, so the page can say the hour in the
+    // traveller's own clock — "tomorrow" was wrong for anyone east of California
+    if (out.refused) {
+      const until = (kind === 'kosher' ? kosherBudget : nearbyBudget).reopensAt();
+      return res.status(503).json({ error: 'ההמלצות באזור לא זמינות כרגע', reason: 'budget', until: until.toISOString() });
+    }
     // 503, not 502, for a Google that did not answer: Cloudflare sits in front of the site
     // and replaces an origin's 502 (and 504) with its own error page, so the message here
     // never reached the traveller — they saw "the server did not answer (502)" and a
@@ -259,7 +288,7 @@ router.get('/api/trips/code/:code/nearby', authRequired, async (req, res) => {
         photos: p.photos.map((ph) => ({ thumb: photoUrl(ph.ref, 400), large: photoUrl(ph.ref, 900), credit: ph.credit })),
       }))
       .sort((a, b) => b.score - a.score);
-    res.json({ kind, cuisine, center: { lat: clat, lon: clon }, places });
+    res.json({ kind, cuisine, center: { lat: clat, lon: clon }, places, stale });
   } catch (err) {
     console.error('nearby failed', err);
     res.status(500).json({ error: 'שגיאת שרת' });
@@ -319,3 +348,5 @@ module.exports = router;
 // for tools/nearby-check.js: the reading of a Google answer, with no network behind it
 module.exports.shape = shape;
 module.exports.score = score;
+module.exports.fromCache = fromCache;
+module.exports.cellKey = (kind, cuisine, clat, clon) => `${kind}|${cuisine || ''}|${clat.toFixed(3)},${clon.toFixed(3)}`;

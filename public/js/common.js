@@ -99,6 +99,7 @@ const TRIPMAKER = {
       err.status = res.status;
       err.quota = data.quota || null; // an AI meter saying "not today" — the chats show a gentler card for it
       err.guest = !!data.guest;       // a door only an account can pass — the page opens the sign-up, not an error
+      err.until = data.until || null; // a paid source closed until this instant — the page can name the hour
       throw err;
     }
     return data;

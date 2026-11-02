@@ -300,8 +300,20 @@ const TripNearby = (() => {
 
   const skeleton = (n, cls) => Array.from({ length: n }, () => `<div class="${cls} nb-skl"><span class="skl"></span><span class="skl"></span><span class="skl short"></span></div>`).join('');
 
+  // "back at 17:00" in the phone's own clock: Google's day ends at midnight Pacific, which
+  // is the afternoon in Japan and the morning in Israel — "tomorrow" was right for neither
+  function reopens(until) {
+    const t = new Date(until);
+    if (!until || Number.isNaN(t.getTime()) || t.getTime() <= Date.now()) return '';
+    const hm = t.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const days = Math.round((startOfDay(t) - startOfDay(Date.now())) / 86400000);
+    if (days === 0) return ` — חוזרות היום ב-${hm}`;
+    if (days === 1) return ` — חוזרות מחר ב-${hm}`;
+    return ` — חוזרות ב-${t.toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric' })} ב-${hm}`;
+  }
+
   function problem(err) {
-    const msg = err && err.message ? err.message : 'משהו השתבש';
+    const msg = (err && err.message ? err.message : 'משהו השתבש') + (err && err.until ? reopens(err.until) : '');
     const o = st.origin;
     const maps = o ? `https://www.google.com/maps/search/${encodeURIComponent(st.view === 'food' ? 'restaurants' : 'things to do')}/@${o.lat},${o.lon},15z` : null;
     return `<div class="nb-empty">
