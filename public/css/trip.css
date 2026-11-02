@@ -2661,6 +2661,17 @@ body.page-open { overflow: hidden; }
 .wc-why { text-align: center; color: var(--mint); font-size: .84rem; font-weight: 600; margin-top: 10px; min-height: 1.3em; }
 .wc-foot { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .more-list { display: flex; flex-direction: column; gap: 6px; }
+.more-cats { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--glass-border); }
+.more-cat .mr-ic { background: rgba(255, 255, 255, .06); color: var(--paper); }
+.mr-count {
+  flex: none; min-width: 24px; height: 24px; padding: 0 7px; border-radius: 12px;
+  display: grid; place-items: center; font-size: .76rem; font-weight: 700;
+  background: var(--glass-strong); color: var(--paper-dim);
+}
+.more-back {
+  display: inline-flex; align-items: center; gap: 4px; margin: 0 0 10px; padding: 6px 4px;
+  border: 0; background: none; color: var(--amber); font: inherit; font-size: .88rem; font-weight: 600; cursor: pointer;
+}
 .more-row {
   display: flex; align-items: center; gap: 12px; width: 100%;
   padding: 10px 12px; border-radius: 14px; cursor: pointer; text-align: right;
