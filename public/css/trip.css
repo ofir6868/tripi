@@ -233,7 +233,14 @@
 }
 .map-day .md-sub { font-size: .62rem; font-weight: 600; opacity: .7; margin-top: 2px; }
 .map-day:hover { background: var(--glass-strong); color: var(--paper); }
-.map-day.active, .map-day.active:hover { background: var(--amber); color: #241302; }
+.map-day.active, .map-day.active:hover { background: var(--day, var(--amber)); color: #241302; }
+.map-day .md-n { display: inline-flex; align-items: center; gap: 5px; }
+.map-day .md-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--day); flex: none; }
+.map-day.active .md-dot { background: #241302; opacity: .55; }
+.map-day.is-today:not(.active) .md-sub { color: var(--mint); opacity: 1; }
+.map-day-all .md-dots { display: inline-flex; gap: 2px; }
+.map-day-all .md-dots i { width: 6px; height: 6px; border-radius: 50%; }
+.map-day-all.active { background: var(--paper); }
 .map-day.active .md-sub { opacity: .85; }
 .map-day.no-pins:not(.active) { opacity: .5; }
 .map-day:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
@@ -324,6 +331,8 @@
   width: 34px; height: 34px; margin: 0 auto;
   border-radius: 50% 50% 50% 4px; transform: rotate(-45deg);
   background: linear-gradient(135deg, #ffcb7d, var(--amber, #ffb45f) 55%, var(--amber-deep, #e8853a));
+  /* the day's colour (trip-map.js DAY_COLORS) — the amber above is the fallback */
+  background: linear-gradient(135deg, color-mix(in srgb, var(--pin, #ffb45f) 62%, #fff), var(--pin, #ffb45f) 55%, color-mix(in srgb, var(--pin, #ffb45f) 72%, #000));
   border: 3px solid #fff;
   box-shadow: 0 3px 10px rgba(0, 0, 0, .5), 0 0 0 1px rgba(0, 0, 0, .15);
   cursor: pointer;
@@ -332,7 +341,7 @@
      only — a fill that held the last frame would freeze the hover/active scale */
   animation: map-pin-drop .5s cubic-bezier(.2, .9, .3, 1.25) backwards;
 }
-.map-pin-wrap:hover .map-pin, .map-pin-wrap:focus-visible .map-pin, .map-pin-wrap.is-active .map-pin {
+.map-pin-wrap:hover .map-pin, .map-pin-wrap:focus-visible .map-pin, .map-pin-wrap.is-active .map-pin, .map-pin-wrap.is-hover .map-pin {
   transform: rotate(-45deg) scale(1.14);
   box-shadow: 0 5px 16px rgba(0, 0, 0, .55), 0 0 0 1px rgba(0, 0, 0, .15);
 }
@@ -347,6 +356,9 @@
   font-variant-numeric: tabular-nums; line-height: 1;
 }
 .map-pin-emoji .map-pin-num { font-size: .95rem; }
+/* the overview's pins: every stop of the trip at once, so a size smaller */
+.map-pin-small .map-pin { width: 26px; height: 26px; border-width: 2px; margin-top: 8px; }
+.map-pin-small .map-pin-num { font-size: .7rem; }
 .map-pin-ring {
   display: none; position: absolute; inset: -7px; border-radius: 50%;
   border: 2px solid rgba(143, 216, 196, .7);
@@ -379,7 +391,7 @@
 .leaflet-tooltip-top.map-tip::before { border-top-color: rgba(10, 21, 18, .92); }
 .map-tip .mt-num {
   display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px;
-  border-radius: 999px; background: var(--amber); color: #241302; font-size: .7rem; font-weight: 800;
+  border-radius: 999px; background: var(--day, var(--amber)); color: #241302; font-size: .7rem; font-weight: 800;
 }
 .map-tip .mt-time { color: var(--mint); font-variant-numeric: tabular-nums; direction: ltr; }
 /* the walking-order line: a soft glow trace under a marching-dash top line */
@@ -411,8 +423,12 @@
 .ms-num {
   flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
   background: linear-gradient(135deg, #ffcb7d, var(--amber) 55%, var(--amber-deep));
+  background: var(--day, var(--amber));
   color: #241302; font-weight: 800; font-size: .74rem; font-variant-numeric: tabular-nums;
 }
+.map-daycard { width: 230px; border-color: color-mix(in srgb, var(--day) 35%, transparent); }
+.map-daycard .ms-dayname { color: var(--day); font-weight: 800; }
+.map-daycard .ms-count { color: var(--paper-dim); font-weight: 600; margin-inline-start: auto; }
 .map-stop.unplaced .ms-num { background: var(--glass-strong); color: var(--paper-dim); }
 .ms-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .ms-top { display: flex; align-items: center; gap: 6px; font-size: .72rem; line-height: 1.2; }
@@ -463,6 +479,8 @@ html.map-full-open, html.map-full-open body { overflow: hidden; }
   animation: detail-in .36s cubic-bezier(.2, .8, .2, 1) backwards;
 }
 .map-detail[hidden] { display: none; }
+.md-num { background: var(--day, var(--amber)) !important; }
+.md-day { font-size: .72rem; font-weight: 800; color: var(--paper-dim); }
 .map-detail.swap .md-body { animation: fade-in .3s ease backwards; }
 .map-days[hidden] ~ .map-detail { top: calc(12px + env(safe-area-inset-top)); }
 .md-close {
@@ -544,6 +562,110 @@ html.map-full-open, html.map-full-open body { overflow: hidden; }
   .map-card.map-full.has-detail .map-strip,
   .map-card.map-full.has-detail .map-caption { display: none; }
 }
+
+/* ---------- the full page (trip-map.js renderPanel) ----------
+   The card in the sidebar is the preview; the pill opens the full page (#map).
+   On a wide screen the itinerary sits in a glass panel on the right (RTL start),
+   the day strip shrinks to the space beside it, and the stop panel moves next to
+   the controls on the left. A phone keeps the strip and the bottom sheet. */
+.map-open-pill {
+  position: absolute; z-index: 1100; left: 50%; bottom: 12px; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 7px; padding: 8px 15px; border-radius: 999px;
+  border: 1px solid rgba(255, 180, 95, .45); background: rgba(10, 21, 18, .82); color: var(--paper);
+  -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
+  font-family: var(--font-body); font-size: .82rem; font-weight: 700; cursor: pointer; white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35); transition: background-color .15s ease, transform .15s ease;
+}
+.map-open-pill svg { width: 15px; height: 15px; fill: none; stroke: var(--amber); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.map-open-pill:hover { background: rgba(10, 21, 18, .95); }
+.map-open-pill:active { transform: translateX(-50%) scale(.96); }
+.map-open-pill:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.map-card:not(.map-live) .map-open-pill, .map-card.map-full .map-open-pill { display: none; }
+/* the pill takes the bottom centre — the destination chip moves out of its way */
+.map-card.map-live:not(.map-full) .map-caption { display: none; }
+.map-btn-fly { color: var(--amber); border-color: rgba(255, 180, 95, .45); }
+.map-btn-fly[hidden] { display: none; }
+
+.map-panel {
+  position: absolute; z-index: 1150;
+  top: calc(10px + env(safe-area-inset-top)); bottom: 10px; right: calc(10px + env(safe-area-inset-right));
+  width: min(370px, 36vw); display: flex; flex-direction: column; overflow: hidden;
+  border-radius: 20px; border: 1px solid var(--glass-border);
+  background: rgba(10, 21, 18, .86);
+  -webkit-backdrop-filter: blur(18px) saturate(140%); backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: var(--shadow-soft);
+  animation: detail-in .4s cubic-bezier(.2, .8, .2, 1) backwards;
+}
+.map-panel[hidden] { display: none; }
+.map-card.has-panel .map-days { inset-inline-start: calc(min(370px, 36vw) + 22px + env(safe-area-inset-right)); }
+.map-card.has-panel .map-strip, .map-card.has-panel .map-caption { display: none; }
+.map-card.has-panel .map-detail {
+  right: auto; left: calc(58px + env(safe-area-inset-left));
+  width: min(350px, calc(100% - min(370px, 36vw) - 100px));
+  animation-name: fade-in;
+}
+.mp-head { padding: 16px 16px 12px; border-bottom: 1px solid var(--glass-border); display: flex; flex-direction: column; gap: 12px; }
+.mp-title { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 1.3rem; line-height: 1.25; }
+.mp-sub { margin: 4px 0 0; color: var(--paper-dim); font-size: .8rem; }
+.mp-fly {
+  display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 14px; cursor: pointer;
+  border: 1px solid rgba(255, 180, 95, .4); color: var(--paper); text-align: start; font-family: var(--font-body);
+  background: linear-gradient(120deg, rgba(255, 180, 95, .2), rgba(124, 184, 255, .12));
+  transition: border-color .15s ease, transform .15s ease;
+}
+.mp-fly:hover { border-color: var(--amber); }
+.mp-fly:active { transform: scale(.98); }
+.mp-fly svg { flex: none; width: 26px; height: 26px; fill: none; stroke: var(--amber); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.mp-fly b { display: block; font-size: .9rem; }
+.mp-fly small { display: block; color: var(--paper-dim); font-size: .74rem; margin-top: 1px; }
+.mp-days { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 8px 14px; scrollbar-width: thin; }
+.mp-day { border-radius: 14px; margin-top: 4px; }
+.mp-day.open { background: rgba(255, 255, 255, .025); }
+.mp-dayhead {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 10px; border: 0; border-radius: 12px;
+  background: none; color: var(--paper); cursor: pointer; font-family: var(--font-body); text-align: start;
+}
+.mp-dayhead:hover { background: rgba(255, 255, 255, .05); }
+.mp-dayhead:focus-visible { outline: 2px solid var(--day); outline-offset: -2px; }
+.mp-daydot { width: 12px; height: 12px; border-radius: 50%; background: var(--day); box-shadow: 0 0 0 3px color-mix(in srgb, var(--day) 25%, transparent); flex: none; }
+.mp-dayname { display: flex; flex-direction: column; font-weight: 800; font-size: .95rem; line-height: 1.2; }
+.mp-dayname small { font-weight: 500; font-size: .72rem; color: var(--paper-dim); }
+.mp-today { font-size: .68rem; font-weight: 800; padding: 2px 8px; border-radius: 999px; background: var(--mint); color: #0a1512; }
+.mp-daycount { margin-inline-start: auto; font-size: .74rem; color: var(--paper-dim); font-weight: 600; }
+.mp-stops { padding: 0 6px 8px; position: relative; }
+.mp-stop {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 12px;
+  border: 1px solid transparent; background: none; color: var(--paper); cursor: pointer; text-align: start;
+  font-family: var(--font-body); transition: background-color .15s ease, border-color .15s ease;
+}
+.mp-stop:hover, .mp-stop.hover { background: rgba(255, 255, 255, .06); }
+.mp-stop.active { border-color: color-mix(in srgb, var(--day) 60%, transparent); background: color-mix(in srgb, var(--day) 12%, transparent); }
+.mp-stop:focus-visible { outline: 2px solid var(--day); outline-offset: -2px; }
+.mp-stop.unplaced { opacity: .6; }
+.mp-num {
+  flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--day); color: #241302; font-weight: 800; font-size: .78rem; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .85);
+}
+.mp-stop.unplaced .mp-num { background: var(--glass-strong); color: var(--paper-dim); box-shadow: none; }
+.mp-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mp-title { font-weight: 700; font-size: .88rem; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.mp-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: .72rem; color: var(--paper-dim); }
+.mp-meta b { color: var(--mint); font-variant-numeric: tabular-nums; }
+.mp-thumb {
+  flex: none; position: relative; width: 52px; height: 52px; border-radius: 11px; overflow: hidden;
+  display: grid; place-items: center; font-size: 1.4rem; background: linear-gradient(160deg, var(--ink-3), var(--ink-2));
+}
+.mp-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.mp-leg {
+  display: flex; align-items: center; gap: 6px; min-height: 14px; margin-inline-start: 20px; padding: 2px 0 2px 16px;
+  border-inline-start: 2px dotted color-mix(in srgb, var(--day) 55%, transparent);
+  color: var(--paper-dim); font-size: .7rem; font-weight: 600;
+}
+.mp-leg.known { min-height: 22px; }
+.mp-leg svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mp-empty { margin: 0; padding: 4px 10px 8px; color: var(--paper-dim); font-size: .8rem; }
+@media (prefers-reduced-motion: reduce) { .map-panel { animation: none; } }
 
 /* the stop sheet's map (TripMap.mini): the same tiles and pin, no controls */
 .item-mini-map.leaflet-container { filter: none; background: #0d1a17; overflow: hidden; }
@@ -4032,4 +4154,84 @@ body.budget-open { overflow: hidden; }
 @media (max-width: 480px) {
   .mo-details { grid-template-columns: 1fr 1fr; }
   .mo-side em { font-size: .76rem; }
+}
+
+/* ---------- the flyover (trip-flyover.js) ----------
+   A full-screen studio: the frame (16:9 or 9:16, fitted to the stage) on the
+   left, the settings panel on the right; on a phone the frame on top and the
+   panel as a sheet under it. The frame holds MapLibre's canvas and, over it,
+   the composite canvas that is what gets recorded. */
+html.fly-open, html.fly-open body { overflow: hidden; }
+.fly-root {
+  position: fixed; inset: 0; z-index: 500; display: grid; grid-template-columns: minmax(0, 1fr) 360px;
+  background: radial-gradient(120% 90% at 30% 20%, #16302a, #070f0d 70%); color: var(--paper);
+  font-family: var(--font-body); animation: fade-in .3s ease backwards;
+}
+.fly-stage { position: relative; min-width: 0; min-height: 0; display: grid; place-items: center; padding: 24px; }
+.fly-frame { position: relative; border-radius: 16px; overflow: hidden; box-shadow: 0 30px 80px -20px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .08); background: #0d1a17; }
+.fly-map, .fly-comp { position: absolute; inset: 0; width: 100%; height: 100%; }
+.fly-comp { pointer-events: none; }
+.fly-map .maplibregl-ctrl-attrib { display: none; }
+.fly-panel {
+  min-height: 0; overflow-y: auto; padding: 22px 20px 28px; border-inline-start: 1px solid var(--glass-border);
+  background: rgba(10, 21, 18, .7); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  display: flex; flex-direction: column; gap: 14px; scrollbar-width: thin;
+}
+.fly-close {
+  position: absolute; top: calc(14px + env(safe-area-inset-top)); right: calc(14px + env(safe-area-inset-right)); z-index: 2;
+  width: 40px; height: 40px; border-radius: 12px; border: 1px solid var(--glass-border);
+  background: rgba(10, 21, 18, .8); color: var(--paper); font-size: 1rem; cursor: pointer;
+}
+.fly-close:hover { background: rgba(10, 21, 18, .95); }
+.fly-head h2 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 1.35rem; }
+.fly-head p { margin: 6px 0 0; color: var(--paper-dim); font-size: .86rem; line-height: 1.55; }
+.fly-msg { margin: 0; padding: 9px 12px; border-radius: 12px; background: rgba(255, 180, 95, .1); border: 1px solid rgba(255, 180, 95, .3); color: #ffd9a8; font-size: .82rem; line-height: 1.5; }
+.fly-group { display: flex; flex-direction: column; gap: 6px; }
+.fly-label { font-size: .74rem; font-weight: 800; color: var(--paper-dim); letter-spacing: .02em; }
+.fly-scope {
+  padding: 10px 12px; border-radius: 12px; border: 1px solid var(--glass-border); background: var(--glass);
+  color: var(--paper); font-family: var(--font-body); font-size: .9rem;
+}
+.fly-scope option { background: #10201b; }
+.fly-opt {
+  display: flex; align-items: flex-start; gap: 10px; padding: 9px 11px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--glass-border); background: var(--glass); transition: border-color .15s ease;
+}
+.fly-opt:has(input:checked) { border-color: rgba(255, 180, 95, .6); background: rgba(255, 180, 95, .08); }
+.fly-opt.off { opacity: .55; cursor: default; }
+.fly-opt input { margin-top: 3px; accent-color: var(--amber); }
+.fly-opt b { display: block; font-size: .88rem; }
+.fly-opt small { display: block; color: var(--paper-dim); font-size: .74rem; margin-top: 2px; line-height: 1.4; }
+.fly-tl { border-radius: 12px; border: 1px dashed rgba(143, 216, 196, .35); background: rgba(143, 216, 196, .05); }
+.fly-tl summary { padding: 10px 12px; cursor: pointer; font-weight: 700; font-size: .86rem; color: var(--mint); }
+.fly-tl-body { padding: 0 12px 12px; font-size: .8rem; color: var(--paper-dim); line-height: 1.55; }
+.fly-tl-body p { margin: 0 0 8px; }
+.fly-tl-body ul { margin: 0 0 8px; padding-inline-start: 18px; }
+.fly-tl-body li { margin-bottom: 4px; }
+.fly-tl-body b { color: var(--paper); }
+.fly-tl-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.fly-tl-row .btn { padding: 7px 14px; font-size: .82rem; cursor: pointer; }
+.fly-tl-note { margin: 8px 0 0 !important; color: var(--mint); }
+.fly-tl-note:empty { display: none; }
+.fly-fine { font-size: .74rem; color: var(--paper-dim); opacity: .85; margin: 0; line-height: 1.5; }
+.fly-seg { display: flex; gap: 6px; }
+.fly-seg button {
+  flex: 1; padding: 9px 10px; border-radius: 12px; border: 1px solid var(--glass-border); background: var(--glass);
+  color: var(--paper-dim); font-family: var(--font-body); font-weight: 700; font-size: .84rem; cursor: pointer;
+}
+.fly-seg button[aria-pressed="true"] { border-color: rgba(255, 180, 95, .6); background: rgba(255, 180, 95, .1); color: var(--paper); }
+.fly-actions { display: flex; gap: 8px; margin-top: 4px; }
+.fly-actions .btn { flex: 1; justify-content: center; padding: 11px 14px; font-size: .92rem; text-decoration: none; }
+.fly-actions .btn:disabled { opacity: .45; cursor: default; }
+.fly-status { margin: 0; color: var(--paper-dim); font-size: .86rem; }
+.fly-status:empty { display: none; }
+.fly-prog { height: 6px; border-radius: 999px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.fly-prog i { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--amber), #7cb8ff); transition: width .4s ease; }
+.fly-video { width: 100%; max-height: 46vh; border-radius: 12px; background: #000; }
+.fly-last { align-self: flex-start; padding: 4px 0; border: 0; background: none; color: var(--amber); font-family: var(--font-body); font-weight: 700; font-size: .84rem; cursor: pointer; }
+@media (max-width: 760px) {
+  .fly-root { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 46vh) minmax(0, 1fr); }
+  .fly-root[data-aspect="tall"] { grid-template-rows: minmax(0, 58vh) minmax(0, 1fr); }
+  .fly-stage { padding: calc(10px + env(safe-area-inset-top)) 12px 10px; }
+  .fly-panel { border-inline-start: 0; border-top: 1px solid var(--glass-border); border-radius: 20px 20px 0 0; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
 }

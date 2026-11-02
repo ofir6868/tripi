@@ -38,6 +38,7 @@ const CHECKS = [
   'tools/moments-check.js',
   'tools/trip-clock-check.js',
   'tools/github-oidc-check.js',
+  'tools/flyover-check.js',
 ];
 for (const script of CHECKS) {
   const r = spawnSync(process.execPath, [script], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, DATABASE_URL: '' } });

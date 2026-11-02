@@ -19,6 +19,16 @@
 // a console.warn, so the next outage is at least loud (PLAYBOOK §2 — quiet is a bug).
 // A 200 with the wrong picture in it cannot be caught this way; that is why CARTO
 // is simply gone.
+//
+// The full page (2026-11): the card in the sidebar is a preview; the map people
+// actually use is the full page it opens into — its own address (#map, so back
+// closes it and a link can land on it), and laid out the way the trip apps that
+// travellers already know lay it out (Wanderlog, Google Travel): the itinerary in a
+// panel beside the map on a wide screen, every day in its own colour on both, and a
+// "כל הימים" view that shows the whole trip at once. A phone keeps the strip and the
+// stop sheet — a side panel on a phone is a map you can no longer see. From the full
+// page, a trip that has started can also be flown over in 3D and saved as a video
+// (trip-flyover.js, loaded only when asked: MapLibre is a megabyte).
 const TripMap = (() => {
   let map = null;
   let base = null;          // the big map's tile layers — see mountBase
@@ -26,7 +36,7 @@ const TripMap = (() => {
   let routeLayer = null;    // the walking-order line
   let youLayer = null;      // the traveller's own position (locate)
   let ctx = null;
-  let selectedDay = 1;
+  let selectedDay = 1;      // 0 = every day at once (the overview)
   let activeId = null;      // the stop the strip has selected (its pin is lit)
   let fullscreen = false;
   let framed = false;       // the map has shown a day once — later re-frames fly, the first one cuts
@@ -81,6 +91,11 @@ const TripMap = (() => {
     'אטרקציה': '🎡', 'אוכל': '🍜', 'טבע': '🌿', 'ים': '🏖️', 'תרבות': '🎭',
     'קניות': '🛍️', 'לינה': '🏨', 'נוף': '🌄', 'חיי לילה': '🌙',
   };
+  // one colour per day, the same in the pins, the route, the panel and the flyover —
+  // so "day 3 is the blue one" holds everywhere. Picked to read on pale streets, the
+  // dark canvas and satellite photo alike; a long trip wraps around.
+  const DAY_COLORS = ['#ffb45f', '#6fd3b8', '#7cb8ff', '#ff8fb1', '#c3a6ff', '#ffd75e', '#ff8a6b', '#9be36d'];
+  const dayColor = (day) => DAY_COLORS[(Math.max(day, 1) - 1) % DAY_COLORS.length];
   const stopEmoji = (it) => it.category === 'נסיעה'
     ? (typeof TripModals !== 'undefined' ? TripModals.travelIcon(it) : '🧳')
     : (CAT_EMOJI[it.category] || '📍');
@@ -105,6 +120,7 @@ const TripMap = (() => {
     fit: '<svg viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><circle cx="12" cy="12" r="2.5"/></svg>',
     locate: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
     layers: '<svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></svg>',
+    film: '<svg viewBox="0 0 24 24"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="m17 10 5-3v10l-5-3"/></svg>',
     expand: '<svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',
     collapse: '<svg viewBox="0 0 24 24"><path d="M6 18 18 6M6 6l12 12"/></svg>',
     car: '<svg viewBox="0 0 24 24"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>',
@@ -114,10 +130,10 @@ const TripMap = (() => {
   // (which we don't vendor) are ever requested. A teardrop in the brand amber with
   // a white ring, so it reads as a pin on pale streets, dark canvas and satellite
   // photo alike; the pulse ring is drawn only on the selected pin (CSS .is-active)
-  const pinIcon = (label, extra, i) => L.divIcon({
+  const pinIcon = (label, extra, i, color) => L.divIcon({
     className: 'map-pin-wrap' + (extra ? ' ' + extra : ''),
     // the pins land one after the other, in walking order (CSS map-pin-drop)
-    html: `<span class="map-pin" style="animation-delay:${(i || 0) * 55}ms"><span class="map-pin-ring"></span><span class="map-pin-num">${label}</span></span>`,
+    html: `<span class="map-pin" style="animation-delay:${Math.min(i || 0, 24) * 45}ms${color ? `;--pin:${color}` : ''}"><span class="map-pin-ring"></span><span class="map-pin-num">${label}</span></span>`,
     iconSize: [34, 40],
     iconAnchor: [17, 36],
     tooltipAnchor: [0, -34],
@@ -126,6 +142,22 @@ const TripMap = (() => {
   const located = (it) => it.lat != null && it.lon != null;
   const dayItems = (day) => ctx.items().filter((it) => it.day_number === day);
   const dayStops = (day) => dayItems(day).filter(located);
+  // what the map is showing: one day's stops, or (overview) every located stop in
+  // trip order. `num` is the stop's number within its own day — the pin's label
+  const curStops = () => {
+    if (selectedDay) return dayStops(selectedDay);
+    return ctx.items().filter(located).slice().sort((a, b) => a.day_number - b.day_number);
+  };
+  // the trip day today falls on, or 0 when the trip is not happening today
+  const todayDay = () => {
+    const s = ctx.dayDate && ctx.dayDate(1);
+    if (!s) return 0;
+    s.setHours(0, 0, 0, 0);
+    const t = new Date(); t.setHours(0, 0, 0, 0);
+    const d = Math.round((t - s) / 86400000) + 1;
+    return d >= 1 && d <= ctx.trip.days ? d : 0;
+  };
+  const numInDay = (it) => dayStops(it.day_number).findIndex((s) => s.id === it.id) + 1;
 
   // ---- basemaps ----
 
@@ -297,13 +329,15 @@ const TripMap = (() => {
     on('map-btn-fit', () => { pinsSig = null; renderPins(); });
     on('map-btn-locate', toggleLocate);
     on('map-btn-layers', () => ($('map-layers').hidden ? openLayers() : closeLayers()));
-    on('map-btn-full', () => setFullscreen(!fullscreen));
+    on('map-btn-full', () => (fullscreen ? closeFull() : openFull()));
+    on('map-open-pill', () => openFull());
+    on('map-btn-fly', () => openFlyover());
     document.addEventListener('keydown', (e) => {
       if (document.querySelector('#stop-modal.open')) return; // the sheet above the map has the keys
       if (e.key === 'Escape') {
         if (!$('map-layers').hidden) { closeLayers(); return; }
         if (fullscreen && activeId != null) { clearActive(); return; }
-        if (fullscreen) setFullscreen(false);
+        if (fullscreen) closeFull();
         return;
       }
       // full screen: the arrow keys walk the day (RTL — left is onward)
@@ -331,6 +365,31 @@ const TripMap = (() => {
   // from the old rectangle outward (a transform would squeeze the map, whose aspect
   // changes). Leaving runs the same reveal backwards, and the classes come off only
   // once it has closed. The map is re-framed when the motion settles.
+  // The full page has an address of its own. Opening pushes #map, so the phone's back
+  // gesture closes it the way it closes every other page here (trip-pages.js); the
+  // close button goes back through history too, so the two never fall out of step.
+  // A reload or a shared link on #map lands straight on the full page (init).
+  const MAP_HASH = '#map';
+  function openFull() {
+    if (fullscreen || !map) return;
+    if (location.hash === MAP_HASH) history.replaceState(null, '', location.pathname + location.search);
+    history.pushState({ tripmakerMap: 1 }, '', MAP_HASH);
+    setFullscreen(true);
+    TRIPMAKER.track?.('map_full_open', { code: ctx.trip.share_code, days: ctx.trip.days });
+  }
+  function closeFull() {
+    if (!fullscreen) return;
+    if (history.state && history.state.tripmakerMap) history.back(); // popstate closes it
+    else { setFullscreen(false); if (location.hash === MAP_HASH) history.replaceState(null, '', location.pathname + location.search); }
+  }
+  window.addEventListener('popstate', () => {
+    if (!map) return;
+    // a stop sheet opened over the full page pushes an entry at the same URL —
+    // stepping out of it leaves us on #map, still full
+    if (fullscreen && location.hash !== MAP_HASH) setFullscreen(false);
+    else if (!fullscreen && location.hash === MAP_HASH) setFullscreen(true);
+  });
+
   let flip = null;
   function setFullscreen(onOff) {
     const c = card();
@@ -357,6 +416,7 @@ const TripMap = (() => {
     }
     if (fullscreen) map.scrollWheelZoom.enable(); else map.scrollWheelZoom.disable();
     closeLayers();
+    renderPanel();
     renderDetail();
     const settle = () => { map.invalidateSize({ animate: false }); pinsSig = null; renderPins(); };
     if (reduced() || typeof c.animate !== 'function' || !before.width || !after.width) { setTimeout(settle, 30); return; }
@@ -388,7 +448,7 @@ const TripMap = (() => {
       first = false;
       // pan over only when you are actually near the day — a planner checking the
       // trip from home should not watch Rome slide away to show their sofa
-      const stops = dayStops(selectedDay);
+      const stops = curStops();
       const near = !stops.length || stops.some((s) => kmApart({ lat, lon }, s) <= 300);
       if (near) {
         const pts = stops.map((s) => [s.lat, s.lon]).concat([[lat, lon]]);
@@ -437,13 +497,18 @@ const TripMap = (() => {
     const days = ctx.trip.days;
     row.hidden = days <= 1;
     if (days <= 1) return;
-    row.innerHTML = Array.from({ length: days }, (_, i) => {
+    const today = todayDay();
+    // "כל הימים" first: the whole trip at once, every day in its colour
+    const all = `<button type="button" class="map-day map-day-all${selectedDay === 0 ? ' active' : ''}" data-day="0"
+        aria-pressed="${selectedDay === 0}" title="כל התחנות של הטיול, כל יום בצבע שלו">
+        <span class="md-n">כל הימים</span><span class="md-sub md-dots" aria-hidden="true">${DAY_COLORS.slice(0, Math.min(days, 5)).map((c) => `<i style="background:${c}"></i>`).join('')}</span></button>`;
+    row.innerHTML = all + Array.from({ length: days }, (_, i) => {
       const day = i + 1;
       const n = dayStops(day).length;
-      const sub = dayLabel(day);
-      return `<button type="button" class="map-day${day === selectedDay ? ' active' : ''}${n ? '' : ' no-pins'}"
-        data-day="${day}" aria-pressed="${day === selectedDay}" title="${n ? `${n} תחנות עם מיקום` : 'אין תחנות עם מיקום'}">
-        <span class="md-n">יום ${day}</span>${sub ? `<span class="md-sub">${sub}</span>` : ''}</button>`;
+      const sub = day === today ? 'היום' : dayLabel(day);
+      return `<button type="button" class="map-day${day === selectedDay ? ' active' : ''}${n ? '' : ' no-pins'}${day === today ? ' is-today' : ''}"
+        data-day="${day}" aria-pressed="${day === selectedDay}" style="--day:${dayColor(day)}" title="${n ? `${n} תחנות עם מיקום` : 'אין תחנות עם מיקום'}">
+        <span class="md-n"><i class="md-dot" aria-hidden="true"></i>יום ${day}</span>${sub ? `<span class="md-sub">${sub}</span>` : ''}</button>`;
     }).join('');
     row.querySelectorAll('.map-day').forEach((b) => {
       b.onclick = () => selectDay(+b.dataset.day);
@@ -459,6 +524,7 @@ const TripMap = (() => {
   function renderStrip() {
     const strip = $('map-strip');
     if (!strip) return;
+    if (!selectedDay) { renderDayCards(strip); return; }
     const items = dayItems(selectedDay);
     strip.hidden = !items.length;
     if (!items.length) { strip.innerHTML = ''; return; }
@@ -470,7 +536,7 @@ const TripMap = (() => {
         ? `<span class="map-leg" data-from="${it.id}" aria-hidden="true"><span class="ml-dot"></span></span>` : '';
       return `<button type="button" class="map-stop enter${has ? '' : ' unplaced'}${it.id === activeId ? ' active' : ''}" data-id="${it.id}"
           style="animation-delay:${i * 40}ms" title="${has ? 'לחיצה מסמנת במפה, לחיצה נוספת פותחת את התחנה' : 'לתחנה הזו אין עדיין מיקום'}">
-          <span class="ms-num">${num == null ? '·' : num}</span>
+          <span class="ms-num" style="--day:${dayColor(selectedDay)}">${num == null ? '·' : num}</span>
           <span class="ms-body">
             <span class="ms-top">${it.time_label ? `<span class="ms-time">${esc(it.time_label)}</span>` : ''}<span class="ms-cat">${stopEmoji(it)}</span></span>
             <span class="ms-title">${esc(it.title)}</span>
@@ -487,6 +553,27 @@ const TripMap = (() => {
       };
     });
     fillLegs();
+  }
+
+  // the overview's strip: one card per day — its colour, how many stops, the first
+  // and last of them. A tap opens that day.
+  function renderDayCards(strip) {
+    const days = Array.from({ length: ctx.trip.days }, (_, i) => i + 1).filter((d) => dayItems(d).length);
+    strip.hidden = !days.length;
+    strip.innerHTML = days.map((d, i) => {
+      const its = dayItems(d);
+      const first = its[0];
+      const last = its[its.length - 1];
+      const sub = dayLabel(d);
+      return `<button type="button" class="map-stop map-daycard enter" data-day="${d}" style="--day:${dayColor(d)};animation-delay:${i * 40}ms">
+          <span class="ms-num">${d}</span>
+          <span class="ms-body">
+            <span class="ms-top"><span class="ms-dayname">יום ${d}${sub ? ` · ${sub}` : ''}</span><span class="ms-count">${its.length} תחנות</span></span>
+            <span class="ms-title">${esc(first.title)}${its.length > 1 ? ` ← ${esc(last.title)}` : ''}</span>
+          </span>
+        </button>`;
+    }).join('');
+    strip.querySelectorAll('.map-daycard').forEach((b) => { b.onclick = () => selectDay(+b.dataset.day); });
   }
 
   // the road between the strip's cards — from the same OSRM answer the route line
@@ -512,6 +599,7 @@ const TripMap = (() => {
     activeId = id;
     const strip = $('map-strip');
     strip?.querySelectorAll('.map-stop').forEach((b) => b.classList.toggle('active', +b.dataset.id === id));
+    syncPanelActive(true);
     pinLayer.eachLayer((m) => {
       const el = m.getElement && m.getElement();
       if (!el) return;
@@ -527,8 +615,13 @@ const TripMap = (() => {
       const m = markerOf(id);
       if (m) {
         const ll = m.getLatLng();
-        if (map.getZoom() < 13) map.flyTo(ll, 15, { animate: !reduced(), duration: .7 });
-        else map.panInside(ll, { ...framePad(), animate: !reduced(), duration: .5 });
+        // centred in the clear part, not the middle of the canvas — on the full
+        // page the middle can be under the panel
+        const pad = framePad();
+        const off = L.point((pad.paddingTopLeft[0] - pad.paddingBottomRight[0]) / 2, (pad.paddingTopLeft[1] - pad.paddingBottomRight[1]) / 2);
+        const z = Math.max(map.getZoom(), 15);
+        const center = map.unproject(map.project(ll, z).subtract(off), z);
+        map.flyTo(center, z, { animate: !reduced(), duration: map.getZoom() < 13 ? .7 : .5 });
       }
     }
     const active = strip?.querySelector('.map-stop.active');
@@ -551,7 +644,7 @@ const TripMap = (() => {
   // stop: open its sheet, or navigate to it. Walk the day with הקודמת/הבאה or the
   // arrow keys. A side panel on a wide screen, a sheet over the strip on a phone.
 
-  const detailOpen = () => fullscreen && activeId != null && dayStops(selectedDay).some((s) => s.id === activeId);
+  const detailOpen = () => fullscreen && activeId != null && curStops().some((s) => s.id === activeId);
 
   function renderDetail() {
     const box = $('map-detail');
@@ -560,11 +653,17 @@ const TripMap = (() => {
     const open = detailOpen();
     c?.classList.toggle('has-detail', open);
     if (!open) { box.hidden = true; box.innerHTML = ''; box.dataset.id = ''; return; }
-    const stops = dayStops(selectedDay);
+    // the walk (הקודמת/הבאה) goes through what the map shows — the overview walks the
+    // whole trip; the road before and after is always the stop's own day
+    const stops = curStops();
     const idx = stops.findIndex((s) => s.id === activeId);
     const it = stops[idx];
-    const prev = stops[idx - 1];
-    const next = stops[idx + 1];
+    const dstops = dayStops(it.day_number);
+    const di = dstops.findIndex((s) => s.id === it.id);
+    const prev = dstops[di - 1];
+    const next = dstops[di + 1];
+    const stepPrev = stops[idx - 1];
+    const stepNext = stops[idx + 1];
     const photo = typeof TripPhotos !== 'undefined' ? TripPhotos.get(it.id) : null;
     const hours = typeof TripHours !== 'undefined' ? TripHours.get(it.id) : null;
     let hoursLine = '';
@@ -590,7 +689,8 @@ const TripMap = (() => {
       </div>
       <div class="md-body">
         <div class="md-head">
-          <span class="md-num">${idx + 1}</span>
+          <span class="md-num" style="--day:${dayColor(it.day_number)}">${di + 1}</span>
+          ${!selectedDay ? `<span class="md-day">יום ${it.day_number}</span>` : ''}
           ${it.time_label ? `<span class="md-time">${esc(it.time_label)}</span>` : ''}
           ${it.category ? `<span class="md-cat">${esc(it.category)}</span>` : ''}
           ${cost}
@@ -609,9 +709,9 @@ const TripMap = (() => {
         </div>
       </div>
       <div class="md-nav">
-        <button type="button" class="md-step" data-dir="-1" ${prev ? '' : 'disabled'}>‹ הקודמת</button>
+        <button type="button" class="md-step" data-dir="-1" ${stepPrev ? '' : 'disabled'}>‹ הקודמת</button>
         <span class="md-count">${idx + 1} / ${stops.length}</span>
-        <button type="button" class="md-step" data-dir="1" ${next ? '' : 'disabled'}>הבאה ›</button>
+        <button type="button" class="md-step" data-dir="1" ${stepNext ? '' : 'disabled'}>הבאה ›</button>
       </div>`;
     box.hidden = false;
     box.classList.toggle('swap', changed);
@@ -621,9 +721,9 @@ const TripMap = (() => {
     const img = box.querySelector('.md-media img');
     if (img) img.onerror = () => img.parentElement.classList.remove('has-photo');
     // the road, from the answer the route line already asked for
-    if (stops.length > 1 && typeof GEO !== 'undefined') {
+    if (dstops.length > 1 && typeof GEO !== 'undefined') {
       const id = it.id;
-      GEO.routeLegs(stops).then((legs) => {
+      GEO.routeLegs(dstops).then((legs) => {
         if (!legs || box.dataset.id !== String(id)) return;
         const fill = (which, leg) => {
           const row = box.querySelector(`.md-leg[data-leg="${which}"]`);
@@ -632,8 +732,8 @@ const TripMap = (() => {
           row.querySelector('.md-min').textContent = fmtMin(leg.minutes);
           row.title = `${leg.km} ק״מ`;
         };
-        fill('prev', legs[idx - 1]);
-        fill('next', legs[idx]);
+        fill('prev', legs[di - 1]);
+        fill('next', legs[di]);
       }).catch(() => box.querySelectorAll('.md-leg').forEach((r) => r.remove()));
     }
   }
@@ -641,6 +741,7 @@ const TripMap = (() => {
   function clearActive() {
     activeId = null;
     $('map-strip')?.querySelectorAll('.map-stop').forEach((b) => b.classList.remove('active'));
+    syncPanelActive(false);
     pinLayer.eachLayer((m) => {
       const el = m.getElement && m.getElement();
       if (el) el.classList.remove('is-active');
@@ -651,7 +752,7 @@ const TripMap = (() => {
   }
 
   function stepActive(dir) {
-    const stops = dayStops(selectedDay);
+    const stops = curStops();
     if (!stops.length) return;
     const idx = stops.findIndex((s) => s.id === activeId);
     const to = idx < 0 ? (dir > 0 ? 0 : stops.length - 1) : Math.min(Math.max(idx + dir, 0), stops.length - 1);
@@ -660,10 +761,22 @@ const TripMap = (() => {
 
   // ---- pins + route ----
 
+  // the full page's itinerary panel is on screen (wide screens only — see renderPanel)
+  const panelOn = () => fullscreen && !narrow() && !!$('map-panel') && !$('map-panel').hidden;
+
   // room around the day's bounds for what floats on the canvas: the day strip at
-  // the top, the control stack on the left, the destination chip bottom-right
+  // the top, the control stack on the left, the destination chip bottom-right — and
+  // on the full page, the itinerary panel on the right with the stop panel beside
+  // the controls on the left
   const framePad = () => {
     const detail = detailOpen();
+    const panel = panelOn();
+    if (panel) {
+      return {
+        paddingTopLeft: [detail ? 430 : 70, ctx.trip.days > 1 ? 70 : 24],
+        paddingBottomRight: [($('map-panel').offsetWidth || 360) + 40, 36],
+      };
+    }
     return {
       paddingTopLeft: [58, ctx.trip.days > 1 ? 62 : 24],
       paddingBottomRight: [detail && !narrow() ? 410 : 24, detail && narrow() ? 260 : 52],
@@ -674,7 +787,7 @@ const TripMap = (() => {
 
   function renderPins() {
     ensureMap();
-    const stops = dayStops(selectedDay);
+    const stops = curStops();
     const sig = selectedDay + '|' + stops.map((it) => `${it.id}:${it.lat},${it.lon}`).join(';');
     if (sig === pinsSig) return;
     pinsSig = sig;
@@ -682,7 +795,8 @@ const TripMap = (() => {
     routeLayer.clearLayers();
     if (!stops.some((s) => s.id === activeId)) activeId = null;
     if (!stops.length) {
-      say(dayItems(selectedDay).length ? `לתחנות של יום ${selectedDay} אין עדיין מיקום במפה` : `יום ${selectedDay} עדיין ריק`);
+      say(!selectedDay ? 'לתחנות של הטיול אין עדיין מיקום במפה'
+        : dayItems(selectedDay).length ? `לתחנות של יום ${selectedDay} אין עדיין מיקום במפה` : `יום ${selectedDay} עדיין ריק`);
       // nothing located on this day — fall back to the destination itself
       const d = ctx.currentDest();
       if (d && d.lat != null) {
@@ -694,24 +808,34 @@ const TripMap = (() => {
     }
     say('');
     const latlngs = stops.map((it) => [it.lat, it.lon]);
-    drawRoute(latlngs);
+    // a route per day, in that day's colour; the overview keeps straight lines (a
+    // router call per day of a three-week trip is not worth a glance at the whole)
+    const days = [...new Set(stops.map((s) => s.day_number))];
+    days.forEach((d) => drawRoute(stops.filter((s) => s.day_number === d).map((s) => [s.lat, s.lon]), dayColor(d), !selectedDay));
     // numbered pins drawn last, in their own group, so they always sit above the route
     stops.forEach((it, i) => {
+      const n = selectedDay ? i + 1 : numInDay(it);
       const m = L.marker([it.lat, it.lon], {
-        icon: pinIcon(i + 1, '', i),
+        icon: pinIcon(n, selectedDay ? '' : 'map-pin-small', i, dayColor(it.day_number)),
         title: '',
-        alt: `${i + 1}. ${it.title}`,
+        alt: `${selectedDay ? '' : `יום ${it.day_number}, `}${n}. ${it.title}`,
         keyboard: true,
         riseOnHover: true,
         stopId: it.id,
       });
       m.bindTooltip(
-        `<span class="mt-num">${i + 1}</span>${it.time_label ? `<span class="mt-time">${esc(it.time_label)}</span>` : ''}<span class="mt-title">${stopEmoji(it)} ${esc(it.title)}</span>`,
+        `<span class="mt-num" style="--day:${dayColor(it.day_number)}">${n}</span>${!selectedDay ? `<span class="mt-time">יום ${it.day_number}</span>` : it.time_label ? `<span class="mt-time">${esc(it.time_label)}</span>` : ''}<span class="mt-title">${stopEmoji(it)} ${esc(it.title)}</span>`,
         { direction: 'top', className: 'map-tip', opacity: 1 }
       );
       // a pin opens the same stop sheet a card tap opens — one surface per stop
-      // (Enter on a focused pin arrives here as a click — Leaflet maps it)
-      m.on('click', () => { setActive(it.id, false); ctx.openStop(it.id); });
+      // (Enter on a focused pin arrives here as a click — Leaflet maps it). On the
+      // full page the stop panel is that surface, so a pin selects instead.
+      m.on('click', () => {
+        if (fullscreen) { setActive(it.id, false); return; }
+        setActive(it.id, false); ctx.openStop(it.id);
+      });
+      m.on('mouseover', () => hoverPanel(it.id, true));
+      m.on('mouseout', () => hoverPanel(it.id, false));
       pinLayer.addLayer(m);
     });
     if (activeId != null) setActive(activeId, false); else renderDetail();
@@ -726,36 +850,228 @@ const TripMap = (() => {
     }
     framed = true;
     // the real road, once the router answers (straight lines until then)
-    if (latlngs.length > 1 && typeof GEO !== 'undefined') {
+    if (selectedDay && latlngs.length > 1 && typeof GEO !== 'undefined') {
       GEO.routeLegs(stops).then((legs) => {
         if (sig !== pinsSig || !legs || !legs.geometry || legs.geometry.length < 2) return;
-        drawRoute(legs.geometry);
+        routeLayer.clearLayers();
+        drawRoute(legs.geometry, dayColor(selectedDay));
       }).catch(() => { /* straight lines are an honest answer too */ });
     }
   }
 
   // the walking order: a soft glow trace under a bright marching-dash line on top —
-  // reads over pale streets, dark canvas and a busy satellite photo alike
-  function drawRoute(latlngs) {
-    routeLayer.clearLayers();
+  // reads over pale streets, dark canvas and a busy satellite photo alike. Adds to
+  // the route layer (the overview draws one per day); callers clear it first.
+  function drawRoute(latlngs, color, thin) {
     if (latlngs.length < 2) return;
+    const c = color || '#ffb45f';
     routeLayer.addLayer(L.polyline(latlngs, {
-      className: 'route-line-glow', color: '#ffb45f', weight: 9, opacity: .32, lineCap: 'round', lineJoin: 'round', interactive: false,
+      className: 'route-line-glow', color: c, weight: thin ? 7 : 9, opacity: .3, lineCap: 'round', lineJoin: 'round', interactive: false,
     }));
     routeLayer.addLayer(L.polyline(latlngs, {
-      className: 'route-line', color: '#ffc879', weight: 4, opacity: 1,
-      dashArray: '1 10', lineCap: 'round', lineJoin: 'round', interactive: false,
+      className: 'route-line', color: c, weight: thin ? 3 : 4, opacity: 1,
+      dashArray: thin ? null : '1 10', lineCap: 'round', lineJoin: 'round', interactive: false,
     }));
   }
 
   function selectDay(day) {
-    selectedDay = Math.min(Math.max(day, 1), ctx.trip.days);
+    selectedDay = Math.min(Math.max(day, 0), ctx.trip.days);
     pinsSig = null; // an explicit day pick re-frames the map even if nothing moved
     activeId = null;
     renderDetail();
     renderDayChips();
     renderPins();
     renderStrip();
+    renderPanel();
+  }
+
+  // ---- the full page's itinerary panel (wide screens) ----
+  //
+  // The itinerary beside the map, the way the trip apps people already use it lay it
+  // out: every day as a section in its colour, the day the map shows open, its stops
+  // as rows (number, hour, photo, name) with the road between them. A row selects
+  // its pin and opens the stop panel; hovering a row lights the pin, and hovering a
+  // pin lights the row. A day's header switches the map to that day; "כל הימים"
+  // opens them all. The flyover lives in the panel's head.
+
+  function flyoverEligible() {
+    if (!ctx.trip.start_date) return false;
+    const start = new Date(ctx.trip.start_date); start.setHours(0, 0, 0, 0);
+    if (Date.now() < start.getTime()) return false; // the trip has not started yet
+    return ctx.items().filter(located).length >= 2;
+  }
+
+  function renderPanel() {
+    const box = $('map-panel');
+    const c = card();
+    if (!box) return;
+    const on = fullscreen && !narrow();
+    box.hidden = !on;
+    c?.classList.toggle('has-panel', on);
+    syncFlyButton();
+    if (!on) { box.innerHTML = ''; return; }
+    const keepScroll = box.querySelector('.mp-days')?.scrollTop || 0;
+    const days = ctx.trip.days;
+    const today = todayDay();
+    const d1 = ctx.dayDate ? ctx.dayDate(1) : null;
+    const dN = ctx.dayDate ? ctx.dayDate(days) : null;
+    const fmt = (d) => d.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
+    const dest = ctx.currentDest && ctx.currentDest();
+    const located_n = ctx.items().filter(located).length;
+    const photo = (it) => (typeof TripPhotos !== 'undefined' ? TripPhotos.get(it.id) : null);
+    const sections = Array.from({ length: days }, (_, i) => {
+      const day = i + 1;
+      const its = dayItems(day);
+      const open = !selectedDay || selectedDay === day;
+      const date = ctx.dayDate ? ctx.dayDate(day) : null;
+      let n = 0;
+      const rows = open ? its.map((it, j) => {
+        const has = located(it);
+        const num = has ? ++n : null;
+        const ph = photo(it);
+        const leg = has && j < its.length - 1 && located(its[j + 1])
+          ? `<div class="mp-leg" data-from="${it.id}" aria-hidden="true"></div>` : '';
+        return `<button type="button" class="mp-stop${has ? '' : ' unplaced'}${it.id === activeId ? ' active' : ''}" data-id="${it.id}" data-day="${day}">
+            <span class="mp-num">${num == null ? '·' : num}</span>
+            <span class="mp-body">
+              <span class="mp-title">${esc(it.title)}</span>
+              <span class="mp-meta">${it.time_label ? `<b dir="ltr">${esc(it.time_label)}</b>` : ''}${it.category ? `<span>${stopEmoji(it)} ${esc(it.category)}</span>` : ''}${has ? '' : '<span>אין מיקום</span>'}</span>
+            </span>
+            <span class="mp-thumb${ph ? ' has-photo' : ''}" aria-hidden="true">${stopEmoji(it)}${ph ? `<img alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${esc(ph.url)}">` : ''}</span>
+          </button>${leg}`;
+      }).join('') : '';
+      return `<section class="mp-day${open ? ' open' : ''}${day === today ? ' is-today' : ''}" style="--day:${dayColor(day)}">
+          <button type="button" class="mp-dayhead" data-day="${day}" aria-expanded="${open}">
+            <span class="mp-daydot" aria-hidden="true"></span>
+            <span class="mp-dayname">יום ${day}${date ? `<small>${date.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'numeric' })}</small>` : ''}</span>
+            ${day === today ? '<span class="mp-today">היום</span>' : ''}
+            <span class="mp-daycount">${its.length ? `${its.length} תחנות` : 'ריק'}</span>
+          </button>
+          ${open ? `<div class="mp-stops">${rows || '<p class="mp-empty">אין עדיין תחנות ביום הזה</p>'}</div>` : ''}
+        </section>`;
+    }).join('');
+    box.innerHTML = `
+      <div class="mp-head">
+        <div class="mp-titles">
+          <h2 class="mp-title">${esc(ctx.trip.emoji || '🗺️')} ${esc(ctx.trip.title || 'מפת הטיול')}</h2>
+          <p class="mp-sub">${[dest && dest.name ? esc(dest.name) : '', d1 && dN ? `${fmt(d1)} – ${fmt(dN)}` : `${days} ימים`, `${located_n} תחנות במפה`].filter(Boolean).join(' · ')}</p>
+        </div>
+        ${flyoverEligible() ? `<button type="button" class="mp-fly" id="mp-fly">${IC.film}<span><b>סרטון טיסה מעל הטיול</b><small>תלת־ממד, מתחנה לתחנה — להורדה ולשיתוף</small></span></button>` : ''}
+      </div>
+      <div class="mp-days">${sections}</div>`;
+    const list = box.querySelector('.mp-days');
+    list.scrollTop = keepScroll;
+    box.querySelector('#mp-fly')?.addEventListener('click', openFlyover);
+    box.querySelectorAll('.mp-dayhead').forEach((b) => {
+      b.onclick = () => {
+        const d = +b.dataset.day;
+        selectDay(selectedDay === d && days > 1 ? 0 : d);
+      };
+    });
+    box.querySelectorAll('.mp-stop').forEach((b) => {
+      const id = +b.dataset.id;
+      b.onclick = () => {
+        const it = ctx.items().find((x) => x.id === id);
+        if (!it) return;
+        if (!located(it)) { ctx.openStop(id); return; }
+        if (activeId === id) { ctx.openStop(id); return; }
+        setActive(id, true);
+      };
+      b.onmouseenter = () => hoverPin(id, true);
+      b.onmouseleave = () => hoverPin(id, false);
+    });
+    box.querySelectorAll('.mp-thumb img').forEach((img) => { img.onerror = () => { img.parentElement.classList.remove('has-photo'); img.remove(); }; });
+    fillPanelLegs(box);
+  }
+
+  // the road between the panel's rows, from the answer the route line already asked for
+  function fillPanelLegs(box) {
+    if (typeof GEO === 'undefined') return;
+    const days = selectedDay ? [selectedDay] : Array.from({ length: ctx.trip.days }, (_, i) => i + 1);
+    days.forEach((d) => {
+      const stops = dayStops(d);
+      if (stops.length < 2) return;
+      GEO.routeLegs(stops).then((legs) => {
+        if (!legs || !box.isConnected) return;
+        legs.forEach((leg, i) => {
+          const el = box.querySelector(`.mp-leg[data-from="${stops[i].id}"]`);
+          if (!el || !leg || leg.minutes < 1) return;
+          el.innerHTML = `${IC.car}<span>${fmtMin(leg.minutes)} · ${leg.km} ק״מ</span>`;
+          el.classList.add('known');
+        });
+      }).catch(() => { /* the dotted line stays — the road is a bonus */ });
+    });
+  }
+
+  function syncPanelActive(scroll) {
+    const box = $('map-panel');
+    if (!box || box.hidden) return;
+    let hit = null;
+    box.querySelectorAll('.mp-stop').forEach((b) => {
+      const on = +b.dataset.id === activeId;
+      b.classList.toggle('active', on);
+      if (on) hit = b;
+    });
+    if (scroll && hit) {
+      const list = box.querySelector('.mp-days');
+      const top = hit.offsetTop - list.offsetTop;
+      if (top < list.scrollTop || top > list.scrollTop + list.clientHeight - hit.offsetHeight) {
+        list.scrollTo({ top: top - list.clientHeight / 3, behavior: reduced() ? 'auto' : 'smooth' });
+      }
+    }
+  }
+  function hoverPin(id, on) {
+    const m = markerOf(id);
+    const el = m && m.getElement && m.getElement();
+    if (!el) return;
+    el.classList.toggle('is-hover', on);
+    if (on) m.setZIndexOffset(400); else if (id !== activeId) m.setZIndexOffset(0);
+  }
+  function hoverPanel(id, on) {
+    $('map-panel')?.querySelector(`.mp-stop[data-id="${id}"]`)?.classList.toggle('hover', on);
+  }
+
+  // ---- the flyover (trip-flyover.js + MapLibre, fetched the first time it is asked for) ----
+
+  function syncFlyButton() {
+    const b = $('map-btn-fly');
+    if (b) b.hidden = !(fullscreen && narrow() && flyoverEligible());
+  }
+
+  let flyLoading = null;
+  function loadScript(src) {
+    return new Promise((res, rej) => {
+      const el = document.createElement('script');
+      el.src = src; el.async = true;
+      el.onload = res; el.onerror = () => rej(new Error(src));
+      document.head.appendChild(el);
+    });
+  }
+  function loadCss(href) {
+    if (document.querySelector(`link[href="${href}"]`)) return;
+    const l = document.createElement('link');
+    l.rel = 'stylesheet'; l.href = href;
+    document.head.appendChild(l);
+  }
+  function openFlyover() {
+    if (!flyLoading) {
+      say('טוענים את המפה התלת־ממדית…');
+      loadCss('/vendor/maplibre/maplibre-gl.css');
+      flyLoading = (typeof maplibregl !== 'undefined' ? Promise.resolve() : loadScript('/vendor/maplibre/maplibre-gl.js'))
+        .then(() => (typeof TripFlyover !== 'undefined' ? null : loadScript('/js/trip-flyover.js')))
+        .finally(() => say(''));
+      flyLoading.catch(() => { flyLoading = null; say('לא הצלחנו לטעון את המפה התלת־ממדית — בדקו את החיבור ונסו שוב', 4000); });
+    }
+    flyLoading.then(() => {
+      TripFlyover.open({
+        trip: ctx.trip,
+        items: () => ctx.items(),
+        dayDate: ctx.dayDate,
+        dayColor,
+        stopEmoji,
+        selectedDay,
+      });
+    }).catch(() => {});
   }
 
   // ---- the stop sheet's map: one pin, no controls, the same tiles ----
@@ -769,7 +1085,7 @@ const TripMap = (() => {
     });
     L.control.attribution({ position: 'bottomleft', prefix: false }).addTo(m);
     mountBase(m, mapStyle, { tile: null, overlays: [] });
-    L.marker([it.lat, it.lon], { icon: pinIcon(stopEmoji(it), 'map-pin-emoji'), interactive: false, keyboard: false }).addTo(m);
+    L.marker([it.lat, it.lon], { icon: pinIcon(stopEmoji(it), 'map-pin-emoji', 0, it.day_number ? dayColor(it.day_number) : null), interactive: false, keyboard: false }).addTo(m);
     m.setView([it.lat, it.lon], 15);
     el.classList.add('map-photo-' + (STYLES[mapStyle].photo ? 'on' : 'off'));
     setTimeout(() => m.invalidateSize(), 60); // the sheet is still sliding in
@@ -790,8 +1106,21 @@ const TripMap = (() => {
     renderPins();
     renderStrip();
     $('map-btn-full')?.setAttribute('aria-label', 'מסך מלא');
+    // the toolbar's "מפה" (and its row in "עוד" on a phone) — offered once there is a map
+    const openBtn = $('map-open-btn');
+    if (openBtn) { openBtn.style.display = ''; openBtn.onclick = openFull; }
+    // crossing the phone breakpoint on the full page swaps panel ⇄ strip
+    matchMedia('(max-width: 640px)').addEventListener?.('change', () => {
+      if (!fullscreen) return;
+      renderPanel(); renderDetail(); pinsSig = null; renderPins();
+    });
     // the sidebar may still be laying out on first paint — Leaflet measures once
-    setTimeout(() => { if (map) { map.invalidateSize(); pinsSig = null; renderPins(); } }, 60);
+    setTimeout(() => {
+      if (!map) return;
+      map.invalidateSize(); pinsSig = null; renderPins();
+      // a link (or a reload) on #map lands on the full page
+      if (location.hash === MAP_HASH && !fullscreen) openFull();
+    }, 60);
     return true;
   }
 
@@ -810,8 +1139,8 @@ const TripMap = (() => {
 
   // called from the renderItinerary funnel: add/edit/delete/drag all repaint pins
   function refresh() {
-    if (map && ctx) { renderDayChips(); renderPins(); renderStrip(); }
+    if (map && ctx) { renderDayChips(); renderPins(); renderStrip(); if (fullscreen) renderPanel(); }
   }
 
-  return { available, init, showDest, refresh, selectDay, mini };
+  return { available, init, showDest, refresh, selectDay, mini, openFull, dayColor };
 })();

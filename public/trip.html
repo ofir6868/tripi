@@ -121,6 +121,11 @@
         <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg></span>
         <span class="ab-label">מסמכים</span>
       </button>
+      <!-- the full-page map (trip-map.js shows it once the map is up) -->
+      <button class="action-btn secondary" id="map-open-btn" style="display:none" title="מפת הטיול — כל התחנות במסך מלא, יום אחרי יום">
+        <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg></span>
+        <span class="ab-label">מפה</span>
+      </button>
       <span class="ab-sep" aria-hidden="true"></span>
       <button class="action-btn finish" id="finish-btn" style="display:none" title="שמירת הטיול — הטיול מקבל קוד שיתוף">
         <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></span>
@@ -321,7 +326,12 @@
               <button type="button" class="map-btn" id="map-btn-locate" title="המיקום שלי" aria-label="המיקום שלי" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
             </div>
             <button type="button" class="map-btn" id="map-btn-layers" title="סגנון המפה" aria-label="סגנון המפה" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></svg></button>
+            <!-- the flyover on a phone (the full page's panel holds it on a wide screen) -->
+            <button type="button" class="map-btn map-btn-fly" id="map-btn-fly" title="סרטון טיסה מעל הטיול" aria-label="סרטון טיסה מעל הטיול" hidden><svg viewBox="0 0 24 24"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="m17 10 5-3v10l-5-3"/></svg></button>
           </div>
+          <!-- the full page's itinerary, beside the map (trip-map.js renderPanel; wide screens) -->
+          <div class="map-panel" id="map-panel" role="region" aria-label="המסלול לצד המפה" hidden></div>
+          <button type="button" class="map-open-pill" id="map-open-pill"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>פתיחת המפה המלאה</button>
           <div class="map-layers" id="map-layers" role="menu" aria-label="סגנון המפה" hidden></div>
           <div class="map-note" id="map-note" role="status" hidden></div>
           <div class="map-detail" id="map-detail" role="region" aria-label="פרטי התחנה שנבחרה" hidden></div>
