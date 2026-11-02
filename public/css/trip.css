@@ -4139,6 +4139,9 @@ body.budget-open { overflow: hidden; }
 .mo-docpick input { width: 18px; height: 18px; accent-color: var(--amber); flex: none; }
 .mo-docadd { border-style: dashed; color: var(--amber); justify-content: center; }
 .mo-docadd span { direction: rtl; text-align: center; display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.mo-docsnap { font: inherit; width: 100%; text-align: inherit; }
+.docs-snap { display: inline-flex; align-items: center; gap: 6px; }
+.docs-snap .ic { width: 16px; height: 16px; }
 
 /* proposals: what the AI read, each with its box */
 .mo-props { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }

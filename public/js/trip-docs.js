@@ -22,6 +22,7 @@ const TripDocs = (() => {
 
   const ICON = {
     plus: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>',
+    camera: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3Z"/><circle cx="12" cy="13" r="3.5"/></svg>',
     lock: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
     share: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>',
     open: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>',
@@ -136,8 +137,11 @@ const TripDocs = (() => {
     let folder = 'all';
 
     tools.innerHTML = `
+      ${TripPages.canSnap ? `<button type="button" class="btn btn-ghost docs-add docs-snap" id="docs-snap" aria-label="צילום מסמך">${ICON.camera}<span>צילום</span></button>` : ''}
       <button type="button" class="btn btn-amber docs-add" id="docs-add">${ICON.plus}<span>הוספה</span></button>
       <input type="file" id="docs-file" multiple accept="${ACCEPT}" hidden>`;
+    const snapBtn = tools.querySelector('#docs-snap');
+    if (snapBtn) snapBtn.onclick = () => TripPages.snap((f) => importFiles([f]));
     const fileInput = tools.querySelector('#docs-file');
     tools.querySelector('#docs-add').onclick = () => fileInput.click();
     fileInput.onchange = () => { importFiles([...fileInput.files]); fileInput.value = ''; };

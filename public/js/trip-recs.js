@@ -270,6 +270,7 @@ const TripRecs = (() => {
         },
       }) : null;
       box.plus.onclick = () => ChatUI.plusMenu(box.plus, [
+        attach && TripPages.canSnap ? { icon: ChatUI.ICON.camera, label: 'צילום', sub: attach.left() === 0 ? 'ניצלתם את שלושת הקבצים להיום' : 'כרטיס מודפס, שלט, תפריט — ישר מהמצלמה', disabled: attach.left() === 0, onClick: () => attach.snap() } : null,
         attach ? { icon: ChatUI.ICON.clip, label: 'צירוף מסמך', sub: attach.left() === 0 ? 'ניצלתם את שלושת הקבצים להיום' : 'כרטיס טיסה, אישור מלון, צילום מסך', disabled: attach.left() === 0, onClick: () => attach.open() } : null,
         ctx.canEdit ? { icon: ChatUI.ICON.import, label: 'ייבוא תוכנית', sub: 'טקסט מ-AI אחר או מחבר — בונה או מתקן לפיו', onClick: () => ChatUI.importSheet(ctx, { onDone: imported }) } : null,
         ctx.canEdit ? { icon: ChatUI.ICON.plug, label: 'חיבורים', sub: 'יומן, Gmail, Drive — לקריאה, באישורכם', onClick: () => ChatUI.connectorsSheet(ctx) } : null,

@@ -85,6 +85,16 @@ const isConnectionError = (err) => err && err.name !== 'AbortError'
 // model → tool calls → results → model, at most MAX_TOOL_ROUNDS times, and then the
 // model is asked to answer with what it has. The final answer is the same strict JSON
 // as ever — tools change what the model knows, never the shape of what it says.
+// Prompt caching. OpenAI caches a prompt's prefix by itself (1024+ tokens, identical
+// from the first byte) and bills the cached part at a fraction of the price — the same
+// saving Claude's prompt caching gives, with no breakpoints to place. It only works when
+// what is the same from turn to turn comes FIRST: the tool definitions, the schema, the
+// rules. So the chat prompts end with what changes — the itinerary, the hotels, the
+// pending proposal and the clock (which changes every minute) — never start with it.
+// `prompt_cache_key` routes calls of one kind to the same cache, which is what keeps the
+// hit rate up under traffic. If the endpoint refuses the parameter it is dropped.
+let cacheKeyOk = process.env.AI_PROMPT_CACHE_KEY !== 'off';
+
 async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_MODEL_WEAK, timeoutMs = 30000, required = false, ph = null, images = [], tools = null, toolCtx = null, progress = null }) {
   const messages = [
     { role: 'system', content: system },
@@ -133,6 +143,7 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
         body: JSON.stringify({
           model,
           max_completion_tokens: maxTokens,
+          ...(cacheKeyOk && { prompt_cache_key: `tripmaker:${schemaName}` }),
           ...(takesReasoningEffort(model) && { reasoning_effort: AI_REASONING_EFFORT }),
           messages: thread,
           // the tool definitions stay on every round (a tool message in the thread needs
@@ -146,6 +157,13 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
       });
       if (!aiRes.ok) {
         const errBody = await aiRes.text().catch(() => '');
+        // an endpoint that doesn't know the cache key answers 400 naming it: drop the
+        // key for the life of the process and send the same call again without it
+        if (aiRes.status === 400 && cacheKeyOk && /prompt_cache_key/.test(errBody)) {
+          cacheKeyOk = false;
+          console.warn('OpenAI rejected prompt_cache_key — sending without it from now on');
+          return { retryNow: true };
+        }
         console.error(`OpenAI ${schemaName} error`, aiRes.status, errBody.slice(0, 300));
         aiEvent(started, { $ai_http_status: aiRes.status, $ai_is_error: true, $ai_error: errBody.slice(0, 300) });
         return { failed: true };
@@ -159,6 +177,9 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
         $ai_output_choices: [{ role: 'assistant', content, ...(toolCalls.length && { tool_calls: toolCalls }) }],
         $ai_input_tokens: data.usage?.prompt_tokens ?? null,
         $ai_output_tokens: data.usage?.completion_tokens ?? null,
+        // the part of the input the provider served from its prompt cache (billed at a
+        // fraction) — the number that says whether the stable-prefix order below works
+        $ai_cache_read_input_tokens: data.usage?.prompt_tokens_details?.cached_tokens ?? null,
       });
       // the model asked for tools instead of answering: the round is over, the caller
       // runs them and comes back
@@ -191,6 +212,7 @@ async function aiJson({ system, user, schemaName, schema, maxTokens, model = AI_
   for (;;) {
     const allowTools = useTools && rounds < aiTools.MAX_TOOL_ROUNDS;
     let res = await attempt(thread, allowTools);
+    if (res.retryNow) res = await attempt(thread, allowTools);
     if (res.failed && isConnectionError(res.err)) {
       console.warn(`OpenAI ${schemaName} retrying after ${res.err.cause.code}`);
       res = await attempt(thread, allowTools);
@@ -2252,16 +2274,10 @@ function recsSystemPrompt({ trip, dests, items, edit = false, prefs = null, side
 - update/delete: id של תחנה קיימת מהמסלול למעלה; ב-update null בכל שדה שלא משתנה. לא נוגעים בתחנות שלא התבקשו.
 - כל מה שכתוב ב-text שאתם עושים חייב להופיע באותו תור ב-ops או ב-actions — אחרת לא קרה כלום בטיול. כשבקשה דורשת משהו שאין לו פעולה כאן, אמרו זאת בפשטות ואמרו איך עושים את זה ידנית בדף.
 ${actions.PROMPT_RULES(trip.days)}
-${attachments.PROMPT_RULES}
-${actions.contextLines(side && side.hotels, side && side.budget)}` : '';
+${attachments.PROMPT_RULES}` : '';
   return `אתם המדריך המקומי של TRIP MAKER — מומחה לטיולים שמכיר את ${destText} לעומק, ועונים למטייל ישראלי שמתכנן את הטיול הזה.
 עונים בעברית, בגוף רבים ("אתם"), בחום ובענייניות. השדה text — עד 80 מילים.
 
-הטיול: "${trip.title}", ${trip.days} ימים${dates}. יעדים: ${destText}.
-${clock.promptBlock(trip, { tz })}
-המסלול הנוכחי:
-${itinerary}
-${tripPrefsBlock(prefs)}
 כרטיסים (cards):
 - כרטיס הוא מקום אמיתי אחד שאפשר להגיע אליו: אתר, מסעדה, שוק, פארק, שכונה, מוזיאון, חוף. לא רעיון כללי ולא "סיור" בלי מקום.
 - כשהשאלה מבקשת מקומות, מה לעשות, איפה לאכול או תכנון של יום — 3 עד 4 כרטיסים, ובתכנון יום גם שעת התחלה לכל אחד. כשהיא שאלת מידע או טיפים — 0 כרטיסים, והתשובה כולה ב-text.
@@ -2274,7 +2290,13 @@ ${tripPrefsBlock(prefs)}
 - text מציג את הכרטיסים כשיש כאלה ("שלוש נקודות פתיחה:") ואינו חוזר על ה-blurb שלהם.
 כל מקום בכרטיס חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו; מקום שאינכם בטוחים בו לא נכנס לכרטיס.
 ${clock.PROMPT_RULES}
-${aiTools.promptRules({ services })}${editRules}`;
+${aiTools.promptRules({ services })}${editRules}
+
+הטיול: "${trip.title}", ${trip.days} ימים${dates}. יעדים: ${destText}.
+המסלול הנוכחי:
+${itinerary}
+${tripPrefsBlock(prefs)}${edit ? `\n${actions.contextLines(side && side.hotels, side && side.budget)}` : ''}
+${clock.promptBlock(trip, { tz })}`;
 }
 
 // the recs schema with ops on it — the same op shape the editor and the planner use
@@ -2709,3 +2731,4 @@ module.exports.AI_MODEL_STRONG = AI_MODEL_STRONG;
 module.exports.AI_MODEL_WEAK = AI_MODEL_WEAK;
 // routes/trips.js runs this after a publish-to-gallery toggle — fire-and-forget
 module.exports.proofreadPublicTripCopy = proofreadPublicTripCopy;
+module.exports.recsSystemPrompt = recsSystemPrompt;
