@@ -1,21 +1,45 @@
 // The trip, flown over in 3D — and saved as a video to keep or send.
 //
-// For a trip that has started (trip-map.js offers it from the full-page map): the
-// camera opens high over the whole trip, dives to the first stop, and flies stop to
-// stop in the order they were walked — tilted, over real terrain, the route drawing
-// itself behind it in each day's colour, the stop's name on screen while the camera
-// circles it. The same frames can be recorded on the device into a video file
-// (MediaRecorder on a canvas), downloaded or handed to the phone's share sheet.
+// For a trip that has started (trip-map.js offers it from the full-page map): a short
+// film, vertical for a story by default. It opens high over the whole trip with its
+// name, dives to the first stop, and then rides the road stop by stop — a marker on
+// the tip of a line that draws itself, the camera following behind it and turning
+// with the road, pulling out over a long drive and leaning in as it lands. Each stop
+// gets a pin that grows out of the ground with its name on a card; a small dashboard
+// counts the kilometres, the altitude under the marker and the hour. It ends pulled
+// back over the whole route, slowly circling, with the trip's totals.
+//
+// The film is a script, not a live flight: every frame's camera (centre, zoom, pitch,
+// bearing) and every overlay is computed up front from the stops (buildFrames), the
+// bearing smoothed so the camera never snaps. That is what makes the two ways out
+// possible:
+//   · watching plays the script by the clock (tiles may still be arriving);
+//   · "יצירת סרטון" renders it frame by frame — move the camera, wait until every tile
+//     is drawn, composite, hand the frame to the device's own H.264 encoder
+//     (WebCodecs) and mux an MP4 (mp4-muxer, vendored, loaded only then). No
+//     half-loaded tiles and no stutter, whatever the phone or the network — it simply
+//     takes longer than the film. Where WebCodecs is missing (older Firefox/Safari)
+//     the old way stays: MediaRecorder on the canvas while it plays in real time.
 //
 // What is on screen is what is recorded: the map is drawn by MapLibre (vendored,
 // loaded only when this opens) and every frame is composited onto a second canvas
-// together with the pins, the captions and the title cards — DOM markers and HTML
-// captions would not be in the video. Hebrew is drawn by the canvas itself (RTL).
+// together with the pins, the cards and the dashboard — DOM markers and HTML would
+// not be in the video. Hebrew is drawn by the canvas itself (RTL).
 //
-// Sources, keyless like the 2D map (PLAYBOOK §2): Esri World Imagery for the ground,
-// Esri's reference layer for place names, and the Terrarium elevation tiles AWS hosts
-// as open data for the relief. Esri failing before its first tile falls back to OSM
-// streets, loudly (console.warn) — the same rule as trip-map.js.
+// Sources, keyless like the 2D map (PLAYBOOK §2):
+//   · the ground: Sentinel-2 cloudless **2016** by EOX — one mosaic at every zoom, so
+//     no colour seams across a tilted frame and no popping when the zoom level
+//     changes. Only the 2016 (and 2017) layers are CC BY 4.0; 2018+ are CC BY-NC-SA,
+//     which a commercial app may not use without buying EOX's licence — don't "upgrade"
+//     the year without that. It is 10 m imagery: soft up close, so Esri World Imagery
+//     stays for streets (crisp, but a different picture per zoom). "אוטומטי" picks by
+//     the trip: mostly walks → Esri, drives/hikes/flights → Sentinel (groundFor).
+//   · relief: the Terrarium elevation tiles AWS hosts as open data.
+//   · roads: OSRM on routing.openstreetmap.de (FOSSGIS) — foot for short hops, car
+//     for the rest, one request per run of legs; a leg it can't route is a straight
+//     line, and a leg too long to drive is a dashed arc (a flight).
+// The imagery failing before its first tile falls back to OSM streets, loudly
+// (console.warn) — the same rule as trip-map.js.
 //
 // The path. "The path you actually went" lives in Google Maps Timeline, which Google
 // moved onto the phone in 2024–25: there is no API that reads it any more, for us or
@@ -24,27 +48,46 @@
 // here, on the device, cut down to the trip's own dates, and kept in this browser
 // only; nothing of it is sent to the server (the same rule as the documents page).
 // With it, each stop the traveller really reached is found in the timeline and the
-// flight follows the recorded track between them. Without it — or for stops the
-// timeline never came near — the flight is a straight line from place to place, or
-// no line at all, as the traveller picks.
+// flight follows the recorded track between them. Without it the film follows the
+// roads between the stops (or straight lines, or no line, as the traveller picks).
 const TripFlyover = (() => {
   const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services';
   const TILE = {
+    s2: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg',
     sat: `${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`,
     labels: `${ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`,
     osm: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
     dem: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
   };
-  const OUT = { wide: [1280, 720], tall: [720, 1280] };
+  const ROUTER = {
+    foot: 'https://routing.openstreetmap.de/routed-foot/route/v1/foot/',
+    car: 'https://routing.openstreetmap.de/routed-car/route/v1/driving/',
+  };
+  const CREDIT = {
+    s2: 'Imagery: Sentinel-2 cloudless by EOX (Copernicus data 2016) · Terrain: AWS Terrain Tiles',
+    esri: 'Imagery © Esri · Terrain: AWS Terrain Tiles',
+    osm: 'Map © OpenStreetMap contributors · Terrain: AWS Terrain Tiles',
+  };
+  // what the viewer plays at, and what a rendered film is made at (WebCodecs)
+  const VIEW = { wide: [1280, 720], tall: [720, 1280] };
+  const FILM = { wide: [1920, 1080], tall: [1080, 1920] };
   const FPS = 30;
+  const EXAG = 1.25;              // terrain exaggeration — the altitude readout divides it back out
   const MAX_STOPS = 45;           // past this the video samples the stops — a 90-stop film is a chore
   const MATCH_M = 300;            // how near the timeline must come for a stop to count as reached
+  const FOOT_KM = 3.5;            // a hop shorter than this is walked; longer is driven
+  const DRIVE_KM = 450;           // and longer than this was flown
   const TL_KEY = (code) => `tripmaker_timeline_${code}`;
+  const PREF_KEY = 'tripmaker_flyover_prefs';
 
   const esc = (s) => TRIPMAKER.esc(s);
   const $ = (sel) => root && root.querySelector(sel);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const smooth = (t) => { t = clamp(t, 0, 1); return t * t * t * (t * (t * 6 - 15) + 10); }; // quintic
+  const bump = (t) => Math.sin(Math.PI * clamp(t, 0, 1)) ** 2;   // 0 → 1 → 0, flat at both ends
+  const backOut = (t) => { t = clamp(t, 0, 1); const c = 1.70158; return 1 + (c + 1) * (t - 1) ** 3 + c * (t - 1) ** 2; };
   const rad = Math.PI / 180;
   const metres = (a, b) => {
     const x = (b[0] - a[0]) * Math.cos(((a[1] + b[1]) / 2) * rad);
@@ -56,6 +99,7 @@ const TripFlyover = (() => {
     const x = Math.cos(a[1] * rad) * Math.sin(b[1] * rad) - Math.sin(a[1] * rad) * Math.cos(b[1] * rad) * Math.cos((b[0] - a[0]) * rad);
     return Math.atan2(y, x) / rad;
   };
+  const turn = (from, to) => ((((to - from) % 360) + 540) % 360) - 180; // the short way round
 
   let root = null;
   let opts = null;
@@ -63,18 +107,32 @@ const TripFlyover = (() => {
   let comp = null;      // the composite canvas — the video
   let cx = null;
   let raf = 0;
-  let aspect = 'wide';
-  let pathMode = 'line'; // 'line' | 'none' | 'timeline'
+  let aspect = 'tall';
+  let imagery = 'auto';  // what the traveller picked: 'auto' | 's2' | 'esri'
+  let ground = 'esri';   // what is on the map now: 's2' | 'esri'
+  let pathMode = 'road'; // 'road' | 'line' | 'none' | 'timeline'
   let scope = 0;         // 0 = the whole trip, else one day
   let timeline = null;   // { points: [[t, lat, lon]], at, files }
-  let run = null;        // the flight in progress: { plan, idx, ... }
-  let rec = null;        // { recorder, chunks, mime }
-  let result = null;     // { url, blob, name }
+  let run = null;        // the film in progress: { plan, film, cur, ... }
+  let rec = null;        // { recorder, chunks, mime } — the real-time fallback
+  let result = null;     // { url, blob, name, type }
   let wake = null;
   let satLoaded = false;
   let satErrors = 0;
-  let attribution = 'Imagery © Esri · Terrain © Mapzen/AWS';
+  let fellBack = false;
   let fonts = { body: 'Assistant, sans-serif', display: '"Suez One", serif' };
+  let lineK = 1;         // line widths scale with the frame, so the video looks the same on any screen
+
+  function loadPrefs() {
+    try {
+      const p = JSON.parse(localStorage.getItem(PREF_KEY) || '{}');
+      if (p.aspect === 'wide' || p.aspect === 'tall') aspect = p.aspect;
+      if (['auto', 's2', 'esri'].includes(p.imagery)) imagery = p.imagery;
+    } catch { /* defaults */ }
+  }
+  function savePrefs() {
+    try { localStorage.setItem(PREF_KEY, JSON.stringify({ aspect, imagery })); } catch { /* fine */ }
+  }
 
   // ---------------------------------------------------------------- timeline files
 
@@ -253,12 +311,106 @@ const TripFlyover = (() => {
   function straight(a, b, n = 24) {
     return Array.from({ length: n + 1 }, (_, i) => [a[0] + ((b[0] - a[0]) * i) / n, a[1] + ((b[1] - a[1]) * i) / n]);
   }
+  // a flight: the great circle, sampled
+  function arc(a, b, n = 64) {
+    const [l1, p1] = [a[0] * rad, a[1] * rad];
+    const [l2, p2] = [b[0] * rad, b[1] * rad];
+    const d = 2 * Math.asin(Math.sqrt(Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin((l2 - l1) / 2) ** 2));
+    if (!d) return [a, b];
+    return Array.from({ length: n + 1 }, (_, i) => {
+      const f = i / n;
+      const A = Math.sin((1 - f) * d) / Math.sin(d);
+      const B = Math.sin(f * d) / Math.sin(d);
+      const x = A * Math.cos(p1) * Math.cos(l1) + B * Math.cos(p2) * Math.cos(l2);
+      const y = A * Math.cos(p1) * Math.sin(l1) + B * Math.cos(p2) * Math.sin(l2);
+      const z = A * Math.sin(p1) + B * Math.sin(p2);
+      return [Math.atan2(y, x) / rad, Math.atan2(z, Math.sqrt(x * x + y * y)) / rad];
+    });
+  }
 
-  function buildPlan() {
+  // no two points closer than `step` metres — the drawn line is cut every frame
+  function thin(path, step) {
+    if (path.length < 3) return path;
+    const out = [path[0]];
+    for (let j = 1; j < path.length - 1; j++) if (metres(out[out.length - 1], path[j]) >= step) out.push(path[j]);
+    out.push(path[path.length - 1]);
+    return out;
+  }
+
+  // One OSRM request for a run of consecutive legs, split back into legs at the
+  // snapped waypoints. Cached for the visit; a failure is null (the legs go straight).
+  const routeCache = new Map();
+  function route(profile, pts) {
+    const chain = pts.map((p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`).join(';');
+    const key = `${profile}|${chain}`;
+    if (routeCache.has(key)) return routeCache.get(key);
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 10000);
+    const p = fetch(`${ROUTER[profile]}${chain}?overview=full&geometries=geojson`, { signal: ctl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const coords = j && j.routes && j.routes[0] && j.routes[0].geometry && j.routes[0].geometry.coordinates;
+        if (!coords || !j.waypoints || j.waypoints.length !== pts.length) return null;
+        const legs = [];
+        let from = 0;
+        for (let w = 1; w < pts.length; w++) {
+          const goal = j.waypoints[w].location;
+          let best = from;
+          let bestD = Infinity;
+          for (let k = from; k < coords.length; k++) {
+            const d = Math.abs(coords[k][0] - goal[0]) + Math.abs(coords[k][1] - goal[1]);
+            if (d < bestD) { bestD = d; best = k; }
+            if (d === 0) break;
+          }
+          legs.push(coords.slice(from, best + 1));
+          from = best;
+        }
+        return legs;
+      })
+      .catch(() => null)
+      .finally(() => clearTimeout(timer));
+    p.then((v) => { if (!v) routeCache.delete(key); });
+    routeCache.set(key, p);
+    return p;
+  }
+
+  async function roadLegs(stops, kinds, legs) {
+    // runs of consecutive legs of the same kind, at most 24 legs a request
+    const runs = [];
+    for (let i = 1; i < stops.length; i++) {
+      const k = kinds[i];
+      if (k === 'fly') continue;
+      const last = runs[runs.length - 1];
+      if (last && last.kind === k && last.to === i - 1 && last.to - last.from < 24) last.to = i;
+      else runs.push({ kind: k, from: i - 1, to: i });
+    }
+    await Promise.all(runs.map(async (r) => {
+      const pts = stops.slice(r.from, r.to + 1).map((s) => [s.lon, s.lat]);
+      const got = await route(r.kind, pts);
+      if (!got) return;
+      got.forEach((path, j) => {
+        const i = r.from + j + 1;
+        const a = [stops[i - 1].lon, stops[i - 1].lat];
+        const b = [stops[i].lon, stops[i].lat];
+        const full = [a, ...path, b];
+        let len = 0;
+        for (let q = 1; q < full.length; q++) len += metres(full[q - 1], full[q]);
+        // a road five times the crow's flight is OSRM snapping to the wrong bank
+        if (len > metres(a, b) * 5 + 3000) return;
+        legs[i] = thin(full, r.kind === 'foot' ? 8 : Math.max(25, len / 500));
+      });
+    }));
+  }
+
+  async function buildPlan() {
     let stops = scopeStops();
     let mode = pathMode;
     let note = '';
     const legs = [];  // legs[i]: the path into stop i (i ≥ 1), lon/lat pairs
+    const kindOf = (a, b) => {
+      const km = metres([a.lon, a.lat], [b.lon, b.lat]) / 1000;
+      return km < FOOT_KM ? 'foot' : km < DRIVE_KM ? 'car' : 'fly';
+    };
     if (mode === 'timeline' && timeline) {
       const hits = matchTimeline(stops);
       if (hits.length >= 2) {
@@ -273,156 +425,351 @@ const TripFlyover = (() => {
           legs[i] = [[prev.stop.lon, prev.stop.lat], ...path, [h.stop.lon, h.stop.lat]];
         });
       } else {
-        mode = 'line';
-        note = 'ציר הזמן לא עבר ליד תחנות הטיול — הסרטון טס בקו ישר';
+        mode = 'road';
+        note = 'ציר הזמן לא עבר ליד תחנות הטיול — הסרטון נוסע בדרכים';
       }
     }
-    if (mode !== 'timeline') {
-      stops.forEach((s, i) => { if (i) legs[i] = straight([stops[i - 1].lon, stops[i - 1].lat], [s.lon, s.lat]); });
+    const kinds = stops.map((s, i) => (i ? kindOf(stops[i - 1], s) : null));
+    if (mode === 'road') {
+      setStatus('מחפשים את הדרכים בין התחנות…');
+      await roadLegs(stops, kinds, legs);
+      const missing = kinds.filter((k, i) => i && k !== 'fly' && !legs[i]).length;
+      if (missing) note = note || `${missing === kinds.length - 1 ? 'לא מצאנו דרכים בין התחנות' : `ל-${missing} קטעים לא מצאנו דרך`} — שם הקו ישר`;
     }
-    // cumulative lengths, so "how far along the leg" can cut the path at a fraction
+    stops.forEach((s, i) => {
+      if (!i || legs[i]) return;
+      const a = [stops[i - 1].lon, stops[i - 1].lat];
+      const b = [s.lon, s.lat];
+      legs[i] = kinds[i] === 'fly' ? arc(a, b) : straight(a, b);
+    });
+    // cumulative lengths, so "how far along the leg" can cut the path at a distance
     const cum = legs.map((path) => {
       if (!path) return null;
       const c = [0];
       for (let j = 1; j < path.length; j++) c.push(c[j - 1] + metres(path[j - 1], path[j]));
       return c;
     });
-    const n = stops.length;
-    const dwell = n <= 12 ? 2600 : n <= 25 ? 1800 : 1100;
-    const speed = n <= 25 ? 1 : 0.75;
-    return { stops, legs, cum, mode, note, dwell, speed, drawLine: mode !== 'none' };
+    const len = cum.map((c) => (c ? c[c.length - 1] : 0));
+    return { stops, legs, cum, len, kinds, mode, note, drawLine: mode !== 'none' };
   }
 
-  function legDuration(km, speed) {
-    return clamp(1700 + Math.log2(1 + km) * 600, 2000, 6500) * speed;
-  }
-
-  // the part of leg i drawn so far — `frac` of its length
-  function cutLeg(plan, i, frac) {
+  // where along leg i the marker is at `d` metres, and the path drawn up to there
+  function pointAt(plan, i, d) {
     const path = plan.legs[i];
     const cum = plan.cum[i];
-    if (!path) return [];
-    if (frac >= 1) return path;
-    const goal = cum[cum.length - 1] * frac;
-    const out = [path[0]];
+    if (d <= 0) return path[0];
     for (let j = 1; j < path.length; j++) {
-      if (cum[j] <= goal) { out.push(path[j]); continue; }
-      const t = (goal - cum[j - 1]) / ((cum[j] - cum[j - 1]) || 1);
-      out.push([path[j - 1][0] + (path[j][0] - path[j - 1][0]) * t, path[j - 1][1] + (path[j][1] - path[j - 1][1]) * t]);
-      break;
+      if (cum[j] < d) continue;
+      const t = (d - cum[j - 1]) / ((cum[j] - cum[j - 1]) || 1);
+      return [lerp(path[j - 1][0], path[j][0], t), lerp(path[j - 1][1], path[j][1], t)];
     }
+    return path[path.length - 1];
+  }
+  function sliceTo(plan, i, d) {
+    const path = plan.legs[i];
+    const cum = plan.cum[i];
+    const out = [path[0]];
+    for (let j = 1; j < path.length && cum[j] < d; j++) out.push(path[j]);
+    out.push(pointAt(plan, i, d));
     return out;
   }
-
-  function setTrail(plan, upto, frac) {
-    const src = map && map.getSource('trail');
-    if (!src) return;
-    const features = [];
-    if (plan.drawLine) {
-      for (let i = 1; i <= upto && i < plan.stops.length; i++) {
-        const coords = i < upto ? plan.legs[i] : cutLeg(plan, i, frac);
-        if (coords && coords.length > 1) {
-          features.push({ type: 'Feature', properties: { color: opts.dayColor(plan.stops[i].day_number) }, geometry: { type: 'LineString', coordinates: coords } });
-        }
-      }
-    }
-    src.setData({ type: 'FeatureCollection', features });
+  // the way the road runs at `d`: from a little behind to a little ahead
+  function bearingAt(plan, i, d) {
+    const w = clamp(plan.len[i] * 0.12, 40, 4000);
+    const a = pointAt(plan, i, clamp(d - w, 0, plan.len[i]));
+    const b = pointAt(plan, i, clamp(d + w, 0, plan.len[i]));
+    return metres(a, b) < 1 ? null : bearing(a, b);
   }
 
   // ---------------------------------------------------------------- the map
 
+  const EMPTY = { type: 'FeatureCollection', features: [] };
+
   function style() {
+    const raster = { 'raster-saturation': 0.15, 'raster-contrast': 0.08, 'raster-fade-duration': 0 };
+    const round = { 'line-cap': 'round', 'line-join': 'round' };
+    const show = (on) => ({ visibility: on ? 'visible' : 'none' });
     return {
       version: 8,
       sources: {
-        sat: { type: 'raster', tiles: [TILE.sat], tileSize: 256, maxzoom: 19, attribution: 'Imagery © Esri' },
+        s2: { type: 'raster', tiles: [TILE.s2], tileSize: 256, maxzoom: 15 },
+        sat: { type: 'raster', tiles: [TILE.sat], tileSize: 256, maxzoom: 19 },
         labels: { type: 'raster', tiles: [TILE.labels], tileSize: 256, maxzoom: 19 },
-        osm: { type: 'raster', tiles: [TILE.osm], tileSize: 256, maxzoom: 19, attribution: '© OpenStreetMap' },
-        dem: { type: 'raster-dem', tiles: [TILE.dem], tileSize: 256, maxzoom: 15, encoding: 'terrarium', attribution: 'Terrain: Mapzen / AWS Open Data' },
-        trail: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+        osm: { type: 'raster', tiles: [TILE.osm], tileSize: 256, maxzoom: 19 },
+        dem: { type: 'raster-dem', tiles: [TILE.dem], tileSize: 256, maxzoom: 14, encoding: 'terrarium' },
+        ghost: { type: 'geojson', data: EMPTY },
+        trail: { type: 'geojson', data: EMPTY },
+        marker: { type: 'geojson', data: EMPTY },
       },
       layers: [
-        { id: 'bg', type: 'background', paint: { 'background-color': '#0d1a17' } },
+        { id: 'bg', type: 'background', paint: { 'background-color': '#33402f' } }, // ground-ish, for a tile that never came
         // the fallback sits hidden under the imagery — a hidden layer's tiles are never fetched
-        { id: 'osm', type: 'raster', source: 'osm', layout: { visibility: 'none' } },
-        { id: 'sat', type: 'raster', source: 'sat', paint: { 'raster-saturation': 0.12, 'raster-contrast': 0.08 } },
-        { id: 'labels', type: 'raster', source: 'labels', paint: { 'raster-opacity': 0.85 } },
-        { id: 'trail-glow', type: 'line', source: 'trail', layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': ['get', 'color'], 'line-width': 14, 'line-opacity': 0.35, 'line-blur': 6 } },
-        { id: 'trail', type: 'line', source: 'trail', layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': ['get', 'color'], 'line-width': 5 } },
-        { id: 'trail-core', type: 'line', source: 'trail', layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': '#ffffff', 'line-width': 1.6, 'line-opacity': 0.8 } },
+        { id: 'osm', type: 'raster', source: 'osm', layout: show(false), paint: { 'raster-fade-duration': 0 } },
+        { id: 's2', type: 'raster', source: 's2', layout: show(ground === 's2'), paint: raster },
+        { id: 'sat', type: 'raster', source: 'sat', layout: show(ground === 'esri'), paint: raster },
+        { id: 'labels', type: 'raster', source: 'labels', layout: show(ground === 'esri'), paint: { 'raster-opacity': 0.8, 'raster-fade-duration': 0 } },
+        // the whole way, faint, so the eye knows where the line is going
+        { id: 'ghost', type: 'line', source: 'ghost', layout: round,
+          paint: { 'line-color': '#ffffff', 'line-opacity': 0.35, 'line-width': 1.4, 'line-dasharray': [2, 2] } },
+        { id: 'trail-glow', type: 'line', source: 'trail', layout: round,
+          paint: { 'line-color': ['get', 'color'], 'line-width': 11, 'line-blur': 6, 'line-opacity': 0.7 } },
+        // walked: a solid road in the day's colour with a bright core
+        { id: 'trail-foot', type: 'line', source: 'trail', layout: round, filter: ['==', ['get', 'kind'], 'foot'],
+          paint: { 'line-color': ['get', 'color'], 'line-width': 4 } },
+        { id: 'trail-core', type: 'line', source: 'trail', layout: round, filter: ['==', ['get', 'kind'], 'foot'],
+          paint: { 'line-color': '#fffaf0', 'line-width': 1.2, 'line-opacity': 0.75 } },
+        // driven or flown: white dashes over the day's glow
+        { id: 'trail-ride', type: 'line', source: 'trail', layout: { 'line-join': 'round' }, filter: ['!=', ['get', 'kind'], 'foot'],
+          paint: { 'line-color': '#ffffff', 'line-width': 2.6, 'line-dasharray': [1.6, 1.2] } },
+        { id: 'marker-glow', type: 'circle', source: 'marker',
+          paint: { 'circle-radius': 9, 'circle-color': '#ffffff', 'circle-opacity': 0.35, 'circle-blur': 0.8, 'circle-pitch-alignment': 'map' } },
+        { id: 'marker', type: 'circle', source: 'marker',
+          paint: { 'circle-radius': 3.6, 'circle-color': ['get', 'color'], 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5, 'circle-pitch-alignment': 'map' } },
       ],
-      terrain: { source: 'dem', exaggeration: 1.4 },
+      terrain: { source: 'dem', exaggeration: EXAG },
       sky: {
-        'sky-color': '#7fb4e6', 'horizon-color': '#f3d9b1', 'fog-color': '#cfe0ea',
-        'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.6, 'fog-ground-blend': 0.25, 'atmosphere-blend': 0.8,
+        'sky-color': '#6f9fd8', 'horizon-color': '#f3e2cf', 'fog-color': '#e9eef4',
+        'sky-horizon-blend': 0.5, 'horizon-fog-blend': 0.55, 'fog-ground-blend': 0.35, 'atmosphere-blend': 0.8,
       },
     };
   }
 
+  // widths are CSS pixels of the frame; the film is the frame scaled up, so a line
+  // is as thick in the video whether the frame was 260 or 900 pixels on screen
+  const WIDTHS = [
+    ['ghost', 'line-width', 1.4], ['trail-glow', 'line-width', 11], ['trail-glow', 'line-blur', 6],
+    ['trail-foot', 'line-width', 4], ['trail-core', 'line-width', 1.2], ['trail-ride', 'line-width', 2.6],
+    ['marker-glow', 'circle-radius', 9], ['marker', 'circle-radius', 3.6], ['marker', 'circle-stroke-width', 1.5],
+  ];
+  function scaleLines() {
+    if (!map || !map.isStyleLoaded()) return;
+    WIDTHS.forEach(([layer, prop, v]) => map.setPaintProperty(layer, prop, v * lineK));
+  }
+
+  // 'auto': a trip that stays inside one city (its stops within ~20 km) is about
+  // streets seen up close, where Esri is sharp and Sentinel is mush; a trip that
+  // drives, hikes across valleys or flies is about the land, where one seamless
+  // mosaic looks like a film.
+  function groundFor(stops) {
+    if (imagery !== 'auto') return imagery;
+    if (stops.length < 2) return 'esri';
+    const lon = stops.map((s) => s.lon);
+    const lat = stops.map((s) => s.lat);
+    const span = metres([Math.min(...lon), Math.min(...lat)], [Math.max(...lon), Math.max(...lat)]);
+    return span < 20000 ? 'esri' : 's2';
+  }
+  function setGround(which) {
+    if (which === ground) return;
+    ground = which;
+    if (!map || fellBack) return;
+    map.setLayoutProperty('s2', 'visibility', which === 's2' ? 'visible' : 'none');
+    map.setLayoutProperty('sat', 'visibility', which === 'esri' ? 'visible' : 'none');
+    map.setLayoutProperty('labels', 'visibility', which === 'esri' ? 'visible' : 'none');
+    satLoaded = false; satErrors = 0;
+  }
+  const credit = () => CREDIT[fellBack ? 'osm' : ground];
+  const closeZoom = () => (ground === 's2' && !fellBack ? 13.7 : 15.2); // the close-up at a stop
+
   function makeMap() {
     const box = $('.fly-map');
-    const [w] = OUT[aspect];
+    const first = scopeStops()[0] || opts.items().find((i) => i.lon != null) || { lon: 0, lat: 0 };
     map = new maplibregl.Map({
       container: box,
       style: style(),
-      center: [opts.items().find((i) => i.lon != null)?.lon || 0, opts.items().find((i) => i.lat != null)?.lat || 0],
+      center: [first.lon, first.lat],
       zoom: 3,
       pitch: 0,
       interactive: false,
       attributionControl: false,
       fadeDuration: 0,
       maxPitch: 75,
-      pixelRatio: Math.max(1, w / (box.clientWidth || w)),
+      pixelRatio: Math.max(1, VIEW[aspect][0] / (box.clientWidth || VIEW[aspect][0])),
       canvasContextAttributes: { preserveDrawingBuffer: true, antialias: true },
     });
-    satLoaded = false; satErrors = 0; attribution = 'Imagery © Esri · Terrain © Mapzen/AWS';
-    map.on('sourcedata', (e) => { if (e.sourceId === 'sat' && e.tile) satLoaded = true; });
+    satLoaded = false; satErrors = 0; fellBack = false;
+    const groundSource = () => (ground === 's2' ? 's2' : 'sat');
+    map.on('sourcedata', (e) => { if (e.sourceId === groundSource() && e.tile) satLoaded = true; });
     map.on('error', (e) => {
-      if (e.sourceId !== 'sat' || satLoaded) return;
+      if (e.sourceId !== groundSource() || satLoaded || fellBack) return;
       if (++satErrors === 4) {
-        console.warn('trip-flyover: Esri imagery is failing — falling back to OpenStreetMap streets');
+        console.warn(`trip-flyover: ${ground === 's2' ? 'EOX Sentinel-2' : 'Esri'} imagery is failing — falling back to OpenStreetMap streets`);
         // a layer swap, not setTiles: reloading a raster source under terrain throws in MapLibre 5
-        map.setLayoutProperty('sat', 'visibility', 'none');
-        map.setLayoutProperty('labels', 'visibility', 'none');
+        ['s2', 'sat', 'labels'].forEach((l) => map.setLayoutProperty(l, 'visibility', 'none'));
         map.setLayoutProperty('osm', 'visibility', 'visible');
-        attribution = 'Map © OpenStreetMap contributors · Terrain © Mapzen/AWS';
+        fellBack = true;
       }
     });
+    map.on('render', onMapRender);
     return new Promise((res, rej) => {
-      map.once('load', res);
+      map.once('load', () => { scaleLines(); res(); });
       setTimeout(() => rej(new Error('load timeout')), 20000);
     });
   }
 
-  function sizeFrame() {
+  // fit the frame to the stage at the aspect, and the composite to `size` pixels
+  function sizeFrame(size) {
     const stage = $('.fly-stage');
     const frame = $('.fly-frame');
     if (!stage || !frame) return;
-    const [w, h] = OUT[aspect];
+    const [w, h] = size || VIEW[aspect];
+    const [vw, vh] = VIEW[aspect];
     const cs = getComputedStyle(stage);
     const sw = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const sh = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-    const k = Math.min(sw / w, sh / h);
-    frame.style.width = `${Math.floor(w * k)}px`;
-    frame.style.height = `${Math.floor(h * k)}px`;
+    const k = Math.min(sw / vw, sh / vh);
+    frame.style.width = `${Math.floor(vw * k)}px`;
+    frame.style.height = `${Math.floor(vh * k)}px`;
     comp.width = w; comp.height = h;
+    lineK = Math.min(frame.clientWidth, frame.clientHeight) / 360 || 1;
     if (map) {
       map.resize();
       map.setPixelRatio(Math.max(1, w / (frame.clientWidth || w)));
+      scaleLines();
     }
   }
 
-  const idle = (ms) => new Promise((res) => {
-    if (!map) return res();
-    let done = false;
-    const fin = () => { if (!done) { done = true; res(); } };
-    if (map.areTilesLoaded && map.areTilesLoaded() && !map.isMoving()) { setTimeout(fin, 60); return; }
-    map.once('idle', fin);
-    setTimeout(fin, ms);
-  });
+  // Every tile for this camera drawn: 'idle' fires after a render with nothing left
+  // to load. The repaint makes sure a render happens even when the camera stood still.
+  function settled(cap = 8000) {
+    return new Promise((res) => {
+      let done = false;
+      const fin = () => { if (done) return; done = true; clearTimeout(timer); map.off('idle', fin); res(); };
+      const timer = setTimeout(fin, cap);
+      map.once('idle', fin);
+      map.triggerRepaint();
+    });
+  }
+
+  // ---------------------------------------------------------------- the script
+
+  const P = (s) => [s.lon, s.lat];
+  const lerpLL = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t)];
+  // How far the centre has travelled when the zoom has gone from z0 to z: in step
+  // with the scale, so the ground slides past at an even speed while the camera dives
+  // or climbs, instead of rushing at the end (what flyTo does for the same reason).
+  const along = (z0, z1, z, u) => (Math.abs(z1 - z0) < 0.05 ? smooth(u) : (2 ** (z0 - z) - 1) / (2 ** (z0 - z1) - 1));
+
+  function fitOf(points, padFrac = 0.16) {
+    const b = new maplibregl.LngLatBounds();
+    points.forEach((p) => b.extend(p));
+    const frame = $('.fly-frame');
+    const pad = Math.min(frame.clientWidth, frame.clientHeight) * padFrac;
+    let cam = null;
+    try { cam = map.cameraForBounds(b, { padding: pad }); } catch { cam = null; }
+    return { center: b.getCenter().toArray(), zoom: cam && Number.isFinite(cam.zoom) ? cam.zoom : 10 };
+  }
+
+  // The whole film as one frame per 1/30 s: camera and what is on screen. Lengths
+  // come from the number of stops (a story is about a minute, whatever the trip),
+  // drives and flights taking longer than walks.
+  function buildFrames(plan) {
+    const n = plan.stops.length;
+    const Zs = closeZoom();             // the close-up at a stop
+    const all = fitOf(plan.legs.flatMap((l) => l || []).concat(plan.stops.map(P)));
+    all.zoom = Math.min(all.zoom, Zs - 0.6);
+    const zStart = clamp(Math.min(all.zoom - 2.6, 6.5), 1.5, 8);
+    const per = clamp(62 / n, 1.7, 6.5);
+    const weight = { foot: 1, car: 1.3, fly: 1.6 };
+    const segs = [];
+    let f = 0;
+    const add = (kind, secs, extra) => {
+      const len = Math.max(2, Math.round(secs * FPS));
+      segs.push({ kind, f0: f, f1: f + len, ...extra });
+      f += len;
+    };
+    add('intro', 6);
+    plan.stops.forEach((s, i) => {
+      if (i) add('leg', per * 0.6 * weight[plan.kinds[i]], { i, newDay: !scope && s.day_number !== plan.stops[i - 1].day_number });
+      add('stop', Math.max(1.2, per * 0.4) + (i === n - 1 ? 0.5 : 0), { i });
+    });
+    add('outro', 6.5);
+
+    const legFit = plan.legs.map((l) => (l ? fitOf(l, 0.22) : null));
+    const frames = new Array(f);
+    let b = 0;        // the bearing the camera has
+    let target = 0;   // the bearing it is turning toward — 6% of the way each frame
+    let km = 0;       // the road behind the marker, legs already done
+    segs.forEach((seg, si) => {
+      const len = seg.f1 - seg.f0;
+      const hold = target;
+      for (let q = 0; q < len; q++) {
+        const u = len > 1 ? q / (len - 1) : 1;
+        const fr = { si, u, c: null, z: 0, p: 0, b: 0, leg: null, d: 0, km };
+        if (seg.kind === 'intro') {
+          // hang over the whole trip under the title, then dive to the first stop,
+          // tilting up and turning in the second half
+          const v = smooth((u - 0.22) / 0.78);
+          fr.z = lerp(zStart, Zs, v);
+          fr.c = lerpLL(all.center, P(plan.stops[0]), along(zStart, Zs, fr.z, v));
+          const tilt = smooth((v - 0.45) / 0.55);
+          fr.p = 52 * tilt;
+          b = target = -20 * tilt;
+        } else if (seg.kind === 'leg') {
+          const i = seg.i;
+          const L = plan.len[i];
+          const kind = plan.kinds[i];
+          const d = L * smooth(u);
+          const m = pointAt(plan, i, d);
+          const lf = legFit[i];
+          const zMid = Math.min(Zs - (kind === 'foot' ? 0.6 : 0.9), lf.zoom);
+          const w = bump(u);
+          fr.z = lerp(Zs, zMid, w);
+          // the centre leaves the marker for the middle of the leg as the camera pulls out
+          fr.c = lerpLL(m, lerpLL(lf.center, m, 0.5), w * (kind === 'foot' ? 0.35 : 1));
+          // low enough that a valley's walls don't hide the road (higher pitch, more wall)
+          fr.p = kind === 'fly' ? lerp(52, 32, w) : kind === 'car' ? 52 + 6 * w : 52;
+          const brg = kind === 'fly' ? bearing(plan.legs[i][0], plan.legs[i][plan.legs[i].length - 1]) : bearingAt(plan, i, d);
+          if (brg != null) target = b + turn(b, brg);
+          fr.leg = i; fr.d = d; fr.km = km + d;
+          if (q === len - 1) km += L;
+        } else if (seg.kind === 'stop') {
+          fr.c = P(plan.stops[seg.i]);
+          fr.z = Zs + 0.3 * bump(u);
+          fr.p = 52 + 3 * bump(u);
+          target = hold + 18 * u; // a slow turn around the stop
+          fr.km = km;
+        } else {
+          // up and away over the whole route, circling
+          const v = smooth(u * 1.25);
+          fr.z = lerp(Zs, all.zoom, v);
+          fr.c = lerpLL(P(plan.stops[n - 1]), all.center, along(Zs, all.zoom, fr.z, v));
+          fr.p = lerp(52, 46, v);
+          target = hold + 30 * u;
+          fr.km = km;
+        }
+        if (seg.kind !== 'intro') b += turn(b, target) * 0.06;
+        fr.b = b;
+        frames[seg.f0 + q] = fr;
+      }
+    });
+    return { frames, segs, totalKm: km / 1000 };
+  }
+
+  // ---------------------------------------------------------------- one frame
+
+  function legFeature(plan, i, coords) {
+    return { type: 'Feature', properties: { color: opts.dayColor(plan.stops[i].day_number), kind: plan.kinds[i] === 'foot' ? 'foot' : 'ride' }, geometry: { type: 'LineString', coordinates: coords } };
+  }
+
+  // move the camera and the drawn line to frame `k`
+  function applyFrame(k) {
+    const { plan, film } = run;
+    const fr = film.frames[k];
+    const seg = film.segs[fr.si];
+    run.cur = k;
+    map.jumpTo({ center: fr.c, zoom: fr.z, pitch: fr.p, bearing: fr.b });
+    // legs before this one are done; this one is drawn up to the marker
+    const done = seg.kind === 'leg' ? seg.i - 1 : seg.kind === 'stop' ? seg.i : seg.kind === 'outro' ? plan.stops.length - 1 : 0;
+    const features = [];
+    if (plan.drawLine) {
+      for (let i = 1; i <= done; i++) features.push(legFeature(plan, i, plan.legs[i]));
+      if (seg.kind === 'leg' && fr.d > 0) features.push(legFeature(plan, seg.i, sliceTo(plan, seg.i, fr.d)));
+    }
+    map.getSource('trail').setData({ type: 'FeatureCollection', features });
+    let mk = null;
+    if (seg.kind === 'leg') mk = { at: pointAt(plan, seg.i, fr.d), day: plan.stops[seg.i].day_number };
+    map.getSource('marker').setData(mk ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { color: opts.dayColor(mk.day) }, geometry: { type: 'Point', coordinates: mk.at } }] } : EMPTY);
+  }
 
   // ---------------------------------------------------------------- compositing
 
@@ -435,39 +782,124 @@ const TripFlyover = (() => {
     cx.arcTo(x, y, x + w, y, r);
     cx.closePath();
   }
+  function fit(text, weight, size, family, maxW, min) {
+    let s = size;
+    cx.font = `${weight} ${s}px ${family}`;
+    while (cx.measureText(text).width > maxW && s > min) { s -= 1; cx.font = `${weight} ${s}px ${family}`; }
+    return s;
+  }
+  function spaced(px) { try { cx.letterSpacing = `${px}px`; } catch { /* older canvas: no spacing */ } }
 
-  function drawPin(x, y, n, color, k, big, alpha) {
+  // a stop already passed (or still ahead, fainter): a dot in the day's colour with its number
+  function dot(x, y, n, color, k, alpha) {
     cx.save();
     cx.globalAlpha = alpha;
-    const r = (big ? 19 : 13) * k;
-    if (big) {
-      const pulse = (performance.now() % 1600) / 1600;
-      cx.beginPath();
-      cx.arc(x, y, r + (8 + pulse * 18) * k, 0, Math.PI * 2);
-      cx.strokeStyle = `rgba(255,255,255,${0.7 * (1 - pulse)})`;
-      cx.lineWidth = 3 * k;
-      cx.stroke();
-    }
+    const r = 11 * k;
     cx.shadowColor = 'rgba(0,0,0,.5)';
-    cx.shadowBlur = 10 * k;
-    cx.shadowOffsetY = 3 * k;
+    cx.shadowBlur = 8 * k;
     cx.beginPath();
     cx.arc(x, y, r, 0, Math.PI * 2);
     cx.fillStyle = color;
     cx.fill();
     cx.shadowColor = 'transparent';
-    cx.lineWidth = 3 * k;
+    cx.lineWidth = 2.5 * k;
     cx.strokeStyle = '#fff';
     cx.stroke();
     cx.fillStyle = '#241302';
-    cx.font = `800 ${Math.round((big ? 17 : 12) * k)}px ${fonts.body}`;
+    cx.font = `800 ${Math.round(11 * k)}px ${fonts.body}`;
     cx.textAlign = 'center';
     cx.textBaseline = 'middle';
     cx.direction = 'ltr';
-    cx.fillText(String(n), x, y + 1 * k);
+    cx.fillText(String(n), x, y + 0.5 * k);
     cx.restore();
   }
 
+  // The stop being visited: a white stem grows out of the ground (overshooting a
+  // little), a dot with a ring at its foot, two rings pulsing out, and a card on top
+  // with the stop's name, its hour and what it is. `age` is seconds since it landed.
+  function bigPin(x, y, stop, n, k, age, fade) {
+    const color = opts.dayColor(stop.day_number);
+    const grow = backOut(age / 0.55);
+    const stem = 92 * k * grow;
+    cx.save();
+    cx.globalAlpha = fade;
+    for (let r = 0; r < 2; r++) {
+      const p = ((age + r * 0.7) % 1.4) / 1.4;
+      cx.beginPath();
+      cx.ellipse(x, y, (10 + p * 46) * k, (10 + p * 46) * k * 0.55, 0, 0, Math.PI * 2);
+      cx.strokeStyle = `rgba(255,255,255,${0.75 * (1 - p)})`;
+      cx.lineWidth = 2.5 * k;
+      cx.stroke();
+    }
+    if (stem > 1) {
+      const g = cx.createLinearGradient(0, y, 0, y - stem);
+      g.addColorStop(0, 'rgba(255,255,255,.95)');
+      g.addColorStop(1, 'rgba(255,255,255,.55)');
+      cx.fillStyle = g;
+      cx.fillRect(x - 1.6 * k, y - stem, 3.2 * k, stem);
+    }
+    cx.shadowColor = 'rgba(0,0,0,.5)';
+    cx.shadowBlur = 10 * k;
+    cx.beginPath();
+    cx.arc(x, y, 9 * k * Math.min(1, grow * 1.4), 0, Math.PI * 2);
+    cx.fillStyle = color;
+    cx.fill();
+    cx.shadowColor = 'transparent';
+    cx.lineWidth = 3.5 * k;
+    cx.strokeStyle = '#fff';
+    cx.stroke();
+    // the card
+    const a = clamp((age - 0.3) / 0.35, 0, 1);
+    if (a > 0) {
+      const W = comp.width;
+      const title = stop.title || '';
+      const meta = [stop.time_label, `${opts.stopEmoji(stop)} ${stop.category || ''}`.trim()].filter(Boolean).join(' · ');
+      const head = `${dayLabel(stop.day_number)} · תחנה ${n}`;
+      const pad = 16 * k;
+      cx.direction = 'rtl';
+      cx.textAlign = 'right';
+      cx.textBaseline = 'alphabetic';
+      const ts = fit(title, 400, 34 * k, fonts.display, W * 0.78 - 2 * pad, 18 * k);
+      const tw = cx.measureText(title).width;
+      cx.font = `700 ${15 * k}px ${fonts.body}`;
+      const hw = cx.measureText(head).width;
+      cx.font = `600 ${15 * k}px ${fonts.body}`;
+      const mw = meta ? cx.measureText(meta).width : 0;
+      const bw = Math.min(Math.max(tw, hw, mw) + 2 * pad + 8 * k, W * 0.86);
+      const bh = pad * 2 + 18 * k + ts * 1.1 + (meta ? 24 * k : 0);
+      const bx = clamp(x - bw / 2, 14 * k, W - 14 * k - bw);
+      const by = y - stem - bh - 8 * k + (1 - a) * 14 * k;
+      cx.globalAlpha = fade * a;
+      roundRect(bx, by, bw, bh, 18 * k);
+      cx.fillStyle = 'rgba(12,16,22,.68)';
+      cx.fill();
+      cx.lineWidth = 1 * k;
+      cx.strokeStyle = 'rgba(255,255,255,.14)';
+      cx.stroke();
+      // the accent bar, on the reading side
+      roundRect(bx + bw - 6 * k, by + 14 * k, 4 * k, bh - 28 * k, 2 * k);
+      cx.fillStyle = color;
+      cx.fill();
+      const xr = bx + bw - pad - 8 * k;
+      let ty = by + pad + 14 * k;
+      cx.font = `800 ${15 * k}px ${fonts.body}`;
+      cx.fillStyle = color;
+      cx.fillText(head, xr, ty);
+      ty += ts * 1.1;
+      cx.font = `400 ${ts}px ${fonts.display}`;
+      cx.fillStyle = '#fff6e6';
+      cx.fillText(title, xr, ty);
+      if (meta) {
+        ty += 24 * k;
+        cx.font = `600 ${15 * k}px ${fonts.body}`;
+        cx.fillStyle = 'rgba(255,246,230,.75)';
+        cx.fillText(meta, xr, ty);
+      }
+    }
+    cx.restore();
+  }
+
+  function dayLabel(day) { return `יום ${day}`; }
   function dayText(day) {
     const d = opts.dayDate ? opts.dayDate(day) : null;
     return `יום ${day}${d ? ` · ${d.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}` : ''}`;
@@ -479,101 +911,197 @@ const TripFlyover = (() => {
     const f = (d) => d.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' });
     return `${f(a)} – ${f(b)} ${b.getFullYear()}`;
   }
+  const kmText = (km) => (km < 10 ? km.toFixed(1) : Math.round(km).toLocaleString('he-IL'));
+  const minutes = (s) => { const m = String(s || '').match(/^(\d{1,2})[:.](\d{2})/); return m ? +m[1] * 60 + +m[2] : null; };
 
-  // centred title card (intro / outro), fading by `a`
-  function titleCard(a, big, sub, small) {
+  // The opening title: the trip's name opening up letter by letter, then the dates
+  // and what is in it, each a beat later.
+  function introTitle(t, plan) {
     const W = comp.width;
     const H = comp.height;
     const k = Math.min(W, H) / 720;
+    const a = clamp((t - 0.3) / 0.7, 0, 1) * clamp((5.1 - t) / 0.7, 0, 1);
+    if (a <= 0) return;
     cx.save();
-    cx.globalAlpha = a;
-    const g = cx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
-    g.addColorStop(0, 'rgba(6,13,11,.55)');
-    g.addColorStop(1, 'rgba(6,13,11,.85)');
+    const g = cx.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H * 0.45, Math.max(W, H) * 0.6);
+    g.addColorStop(0, `rgba(6,13,11,${0.45 * a})`);
+    g.addColorStop(1, `rgba(6,13,11,${0.15 * a})`);
     cx.fillStyle = g;
     cx.fillRect(0, 0, W, H);
     cx.textAlign = 'center';
     cx.textBaseline = 'middle';
     cx.direction = 'rtl';
+    cx.shadowColor = 'rgba(0,0,0,.5)';
+    cx.shadowBlur = 20 * k;
+    const title = opts.trip.title || 'הטיול';
+    spaced(lerp(0, 6 * k, smooth((t - 0.3) / 3.5)));
+    const size = fit(title, 400, 78 * k, fonts.display, W * 0.84, 28 * k);
+    cx.globalAlpha = a;
     cx.fillStyle = '#fff6e6';
-    cx.shadowColor = 'rgba(0,0,0,.45)';
-    cx.shadowBlur = 18 * k;
-    let size = 64 * k;
-    cx.font = `400 ${size}px ${fonts.display}`;
-    while (cx.measureText(big).width > W * 0.86 && size > 26 * k) { size -= 2 * k; cx.font = `400 ${size}px ${fonts.display}`; }
-    cx.fillText(big, W / 2, H / 2 - 22 * k);
-    cx.shadowBlur = 0;
-    cx.font = `700 ${26 * k}px ${fonts.body}`;
+    cx.fillText(title, W / 2, H * 0.45);
+    spaced(0);
+    cx.shadowBlur = 10 * k;
+    const sub = clamp((t - 1.0) / 0.6, 0, 1);
+    cx.globalAlpha = a * sub;
+    cx.fillStyle = 'rgba(255,255,255,.85)';
+    cx.fillRect(W / 2 - 60 * k * sub, H * 0.45 + size * 0.62, 120 * k * sub, 1.5 * k);
+    cx.font = `700 ${24 * k}px ${fonts.body}`;
     cx.fillStyle = '#ffc879';
-    cx.fillText(sub, W / 2, H / 2 + 38 * k);
-    if (small) {
-      cx.font = `600 ${19 * k}px ${fonts.body}`;
-      cx.fillStyle = 'rgba(255,246,230,.75)';
-      cx.fillText(small, W / 2, H / 2 + 78 * k);
-    }
+    cx.fillText(datesText(), W / 2, H * 0.45 + size * 0.62 + 32 * k);
+    const sub2 = clamp((t - 1.6) / 0.6, 0, 1);
+    cx.globalAlpha = a * sub2;
+    cx.font = `600 ${18 * k}px ${fonts.body}`;
+    cx.fillStyle = 'rgba(255,246,230,.8)';
+    const days = new Set(plan.stops.map((s) => s.day_number)).size;
+    cx.fillText(`${plan.stops.length} תחנות · ${days === 1 ? 'יום אחד' : `${days} ימים`}`, W / 2, H * 0.45 + size * 0.62 + 66 * k);
     cx.restore();
   }
 
-  function caption(stop, n, a) {
+  // a new day: its number, a line opening from the middle, the date under it
+  function chapter(t, dur, stop) {
     const W = comp.width;
     const H = comp.height;
     const k = Math.min(W, H) / 720;
-    const pad = 20 * k;
-    const color = opts.dayColor(stop.day_number);
+    const span = Math.min(2.4, dur);
+    const a = clamp(t / 0.35, 0, 1) * clamp((span - t) / 0.4, 0, 1);
+    if (a <= 0) return;
+    const y = H * (H > W ? 0.24 : 0.28);
     cx.save();
     cx.globalAlpha = a;
+    cx.textAlign = 'center';
+    cx.textBaseline = 'middle';
     cx.direction = 'rtl';
-    cx.textAlign = 'right';
-    cx.textBaseline = 'alphabetic';
-    const title = stop.title || '';
-    const meta = [stop.time_label, `${opts.stopEmoji(stop)} ${stop.category || ''}`.trim()].filter(Boolean).join(' · ');
-    let ts = 36 * k;
-    cx.font = `400 ${ts}px ${fonts.display}`;
-    const maxW = W - 2 * (28 * k) - 2 * pad;
-    while (cx.measureText(title).width > maxW && ts > 20 * k) { ts -= 1.5 * k; cx.font = `400 ${ts}px ${fonts.display}`; }
-    const tw = cx.measureText(title).width;
-    cx.font = `700 ${19 * k}px ${fonts.body}`;
-    const dw = cx.measureText(dayText(stop.day_number)).width + 40 * k;
-    const mw = cx.measureText(meta).width;
-    const boxW = Math.min(Math.max(tw, dw, mw) + 2 * pad, W - 56 * k);
-    const boxH = pad * 2 + 26 * k + ts * 1.15 + 26 * k;
-    const x1 = W - 28 * k;
-    const x0 = x1 - boxW;
-    const y0 = H - 40 * k - boxH;
-    const rise = (1 - a) * 18 * k;
-    cx.translate(0, rise);
-    roundRect(x0, y0, boxW, boxH, 18 * k);
-    cx.fillStyle = 'rgba(10,21,18,.78)';
-    cx.fill();
-    cx.lineWidth = 1.5 * k;
-    cx.strokeStyle = 'rgba(255,255,255,.14)';
-    cx.stroke();
-    // day line: a dot in the day's colour, then the day
-    let y = y0 + pad + 18 * k;
-    cx.beginPath();
-    cx.arc(x1 - pad - 7 * k, y - 6 * k, 7 * k, 0, Math.PI * 2);
-    cx.fillStyle = color;
-    cx.fill();
-    cx.fillStyle = color;
-    cx.font = `800 ${19 * k}px ${fonts.body}`;
-    cx.fillText(`${dayText(stop.day_number)}  ·  תחנה ${n}`, x1 - pad - 22 * k, y);
-    y += ts * 1.15 + 4 * k;
+    cx.shadowColor = 'rgba(0,0,0,.55)';
+    cx.shadowBlur = 16 * k;
+    cx.font = `800 ${15 * k}px ${fonts.body}`;
+    cx.fillStyle = opts.dayColor(stop.day_number);
+    spaced(4 * k);
+    cx.fillText('· פרק חדש ·', W / 2, y - 52 * k);
+    spaced(2 * k);
+    cx.font = `400 ${60 * k}px ${fonts.display}`;
     cx.fillStyle = '#fff6e6';
-    cx.font = `400 ${ts}px ${fonts.display}`;
-    cx.fillText(title, x1 - pad, y);
-    if (meta) {
-      y += 28 * k;
-      cx.fillStyle = 'rgba(255,246,230,.75)';
-      cx.font = `600 ${18 * k}px ${fonts.body}`;
-      cx.fillText(meta, x1 - pad, y);
-    }
+    cx.fillText(`יום ${stop.day_number}`, W / 2, y);
+    spaced(0);
+    const line = 130 * k * smooth(t / 0.7);
+    cx.fillStyle = 'rgba(255,255,255,.85)';
+    cx.fillRect(W / 2 - line, y + 40 * k, line * 2, 1.5 * k);
+    const d = opts.dayDate ? opts.dayDate(stop.day_number) : null;
+    cx.font = `700 ${19 * k}px ${fonts.body}`;
+    cx.fillStyle = 'rgba(255,246,230,.85)';
+    cx.fillText(d ? d.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' }) : (stop.area || ''), W / 2, y + 68 * k);
     cx.restore();
   }
 
-  function watermark() {
+  // the dashboard along the road: how far, how high, and what time it is
+  function hud(a, fr, seg, plan) {
     const W = comp.width;
     const H = comp.height;
     const k = Math.min(W, H) / 720;
+    const i = seg.i;
+    const at = pointAt(plan, i, fr.d);
+    let alt = null;
+    try { const e = map.queryTerrainElevation(at); if (e != null && Number.isFinite(e)) alt = Math.max(0, Math.round(e / EXAG)); } catch { /* no terrain yet */ }
+    const s0 = plan.stops[i - 1];
+    const s1 = plan.stops[i];
+    const m0 = minutes(s0.time_label);
+    const m1 = minutes(s1.time_label);
+    let time = dayLabel(s1.day_number);
+    let timeHead = 'יום';
+    if (s0.day_number === s1.day_number && m0 != null && m1 != null && m1 > m0) {
+      const m = Math.round(lerp(m0, m1, plan.len[i] ? fr.d / plan.len[i] : 1));
+      time = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+      timeHead = 'שעה';
+    }
+    const cols = [
+      ['מרחק', `${kmText(fr.km / 1000)}`, 'ק״מ'],
+      ['גובה', alt == null ? '—' : alt.toLocaleString('he-IL'), alt == null ? '' : 'מ׳'],
+      [timeHead, time, ''],
+    ];
+    const y = H - (H > W ? 150 : 96) * k;
+    const colW = Math.min(W * 0.27, 190 * k);
+    cx.save();
+    cx.globalAlpha = a;
+    cx.textAlign = 'center';
+    cx.direction = 'rtl';
+    cx.shadowColor = 'rgba(0,0,0,.6)';
+    cx.shadowBlur = 12 * k;
+    cols.forEach(([head, val, unit], j) => {
+      const x = W / 2 + (1 - j) * colW; // right to left
+      cx.textBaseline = 'alphabetic';
+      cx.font = `800 ${13 * k}px ${fonts.body}`;
+      cx.fillStyle = 'rgba(255,255,255,.72)';
+      spaced(3 * k);
+      cx.fillText(head, x, y);
+      spaced(0);
+      cx.font = `400 ${38 * k}px ${fonts.display}`;
+      cx.fillStyle = '#fff6e6';
+      cx.direction = 'ltr';
+      const vw = cx.measureText(val).width;
+      cx.fillText(val, x - (unit ? 10 * k : 0), y + 44 * k);
+      if (unit) {
+        cx.font = `700 ${14 * k}px ${fonts.body}`;
+        cx.fillStyle = '#ffc879';
+        cx.textAlign = 'left';
+        cx.direction = 'rtl';
+        cx.fillText(unit, x - 10 * k + vw / 2 + 5 * k, y + 44 * k);
+        cx.textAlign = 'center';
+      }
+      cx.direction = 'rtl';
+      if (j < 2) {
+        cx.fillStyle = 'rgba(255,255,255,.22)';
+        cx.fillRect(x - colW / 2, y - 6 * k, 1 * k, 56 * k);
+      }
+    });
+    cx.restore();
+  }
+
+  function outroCard(t, plan, film) {
+    const W = comp.width;
+    const H = comp.height;
+    const k = Math.min(W, H) / 720;
+    const a = clamp((t - 1.4) / 0.8, 0, 1);
+    if (a <= 0) return;
+    cx.save();
+    cx.globalAlpha = a;
+    const g = cx.createLinearGradient(0, H * 0.45, 0, H);
+    g.addColorStop(0, 'rgba(6,13,11,0)');
+    g.addColorStop(1, 'rgba(6,13,11,.75)');
+    cx.fillStyle = g;
+    cx.fillRect(0, 0, W, H);
+    cx.textAlign = 'center';
+    cx.textBaseline = 'middle';
+    cx.direction = 'rtl';
+    cx.shadowColor = 'rgba(0,0,0,.5)';
+    cx.shadowBlur = 16 * k;
+    const y = H - (H > W ? 330 : 190) * k;
+    const size = fit(opts.trip.title || 'הטיול', 400, 54 * k, fonts.display, W * 0.84, 24 * k);
+    cx.fillStyle = '#fff6e6';
+    cx.fillText(opts.trip.title || 'הטיול', W / 2, y);
+    cx.font = `700 ${21 * k}px ${fonts.body}`;
+    cx.fillStyle = '#ffc879';
+    cx.fillText(datesText(), W / 2, y + size * 0.55 + 22 * k);
+    // the day's totals, three numbers
+    const days = new Set(plan.stops.map((s) => s.day_number)).size;
+    const totals = [[kmText(film.totalKm), 'ק״מ בדרך'], [String(plan.stops.length), 'תחנות'], [String(days), days === 1 ? 'יום' : 'ימים']];
+    const colW = Math.min(W * 0.27, 190 * k);
+    totals.forEach(([v, l], j) => {
+      const x = W / 2 + (1 - j) * colW;
+      const ty = y + size * 0.55 + 92 * k;
+      cx.font = `400 ${40 * k}px ${fonts.display}`;
+      cx.fillStyle = '#fff6e6';
+      cx.direction = 'ltr';
+      cx.fillText(v, x, ty);
+      cx.direction = 'rtl';
+      cx.font = `700 ${14 * k}px ${fonts.body}`;
+      cx.fillStyle = 'rgba(255,246,230,.75)';
+      cx.fillText(l, x, ty + 36 * k);
+    });
+    cx.restore();
+  }
+
+  function watermark(k) {
+    const W = comp.width;
+    const H = comp.height;
     cx.save();
     cx.textBaseline = 'top';
     cx.direction = 'ltr';
@@ -586,204 +1114,267 @@ const TripFlyover = (() => {
     const w = cx.measureText('TRIP').width;
     cx.fillStyle = '#fff6e6';
     cx.fillText('MAKER', 24 * k + w, 22 * k);
-    // the trip's name, top right
     cx.direction = 'rtl';
     cx.textAlign = 'right';
-    cx.font = `700 ${18 * k}px ${fonts.body}`;
+    cx.font = `700 ${17 * k}px ${fonts.body}`;
     cx.fillText(`${opts.trip.emoji || ''} ${opts.trip.title || ''}`.trim(), W - 24 * k, 22 * k);
     // attribution, as small as it may be and still be read
     cx.direction = 'ltr';
-    cx.textAlign = 'left';
+    cx.textAlign = 'center';
     cx.textBaseline = 'bottom';
     cx.shadowBlur = 4 * k;
-    cx.font = `600 ${11 * k}px ${fonts.body}`;
-    cx.fillStyle = 'rgba(255,255,255,.7)';
-    cx.fillText(attribution, 14 * k, H - 10 * k);
+    cx.font = `600 ${10.5 * k}px ${fonts.body}`;
+    cx.fillStyle = 'rgba(255,255,255,.72)';
+    cx.fillText(`${credit()} · Roads © OpenStreetMap`, W / 2, H - 10 * k);
     cx.restore();
   }
 
-  function frame() {
-    raf = requestAnimationFrame(frame);
+  // the finish: shade at the top and bottom so white text holds on bright ground,
+  // and a vignette that pulls the eye to the middle
+  function grade(W, H) {
+    const g = cx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, 'rgba(0,0,0,.38)');
+    g.addColorStop(0.16, 'rgba(0,0,0,0)');
+    g.addColorStop(0.7, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(0,0,0,.45)');
+    cx.fillStyle = g;
+    cx.fillRect(0, 0, W, H);
+    const v = cx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.45, W / 2, H / 2, Math.hypot(W, H) * 0.62);
+    v.addColorStop(0, 'rgba(8,14,20,0)');
+    v.addColorStop(1, 'rgba(8,14,20,.42)');
+    cx.fillStyle = v;
+    cx.fillRect(0, 0, W, H);
+  }
+
+  // Draw the map as it is now and everything over it, for frame `run.cur` (or the
+  // bare map with the watermark when nothing is playing).
+  function composite() {
     if (!map || !comp) return;
     const W = comp.width;
     const H = comp.height;
     const k = Math.min(W, H) / 720;
     try { cx.drawImage(map.getCanvas(), 0, 0, W, H); } catch { return; }
-    // soft shade top and bottom, so white text holds on bright imagery
-    const g = cx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, 'rgba(0,0,0,.35)');
-    g.addColorStop(0.18, 'rgba(0,0,0,0)');
-    g.addColorStop(0.7, 'rgba(0,0,0,0)');
-    g.addColorStop(1, 'rgba(0,0,0,.4)');
-    cx.fillStyle = g;
-    cx.fillRect(0, 0, W, H);
-    if (!run) { watermark(); return; }
-    const { plan } = run;
-    // the trail grows with the camera: how far along the leg the centre has come
-    if (run.flying != null) {
-      const i = run.flying;
-      const a = [plan.stops[i - 1].lon, plan.stops[i - 1].lat];
-      const b = [plan.stops[i].lon, plan.stops[i].lat];
-      const c = map.getCenter();
-      const total = metres(a, b) || 1;
-      run.frac = clamp(Math.max(run.frac, 1 - metres([c.lng, c.lat], b) / total), 0, 1);
-      setTrail(plan, i, run.frac);
-    }
-    // pins: the ones already reached in full, the rest waiting faintly
+    grade(W, H);
+    if (!run || run.cur == null) { watermark(k); return; }
+    const { plan, film } = run;
+    const fr = film.frames[run.cur];
+    const seg = film.segs[fr.si];
+    const t = (run.cur - seg.f0) / FPS;
+    const dur = (seg.f1 - seg.f0) / FPS;
     const scale = W / (map.getCanvas().clientWidth || W);
-    plan.stops.forEach((s, i) => {
-      if (i === run.idx) return;
-      const p = map.project([s.lon, s.lat]);
-      const x = p.x * scale;
-      const y = p.y * scale;
-      if (x < -40 || y < -40 || x > W + 40 || y > H + 40) return;
-      drawPin(x, y, run.nums[i], opts.dayColor(s.day_number), k, false, i < run.idx ? 1 : 0.45);
-    });
-    if (run.idx >= 0 && run.idx < plan.stops.length) {
-      const s = plan.stops[run.idx];
-      const p = map.project([s.lon, s.lat]);
-      drawPin(p.x * scale, p.y * scale, run.nums[run.idx], opts.dayColor(s.day_number), k, true, 1);
+    const xy = (s) => { const p = map.project([s.lon, s.lat]); return [p.x * scale, p.y * scale]; };
+    const onScreen = ([x, y]) => x > -60 && y > -60 && x < W + 60 && y < H + 60;
+    // which stop is "here", and which are behind
+    const reached = seg.kind === 'stop' ? seg.i : seg.kind === 'leg' ? seg.i - 1 : seg.kind === 'outro' ? plan.stops.length : -1;
+    const big = seg.kind === 'stop' ? seg.i : (seg.kind === 'leg' && t < 0.5 ? seg.i - 1 : -1);
+    if (seg.kind !== 'intro' || t > 4.6) {
+      plan.stops.forEach((s, j) => {
+        if (j === big) return;
+        const p = xy(s);
+        if (onScreen(p)) dot(p[0], p[1], run.nums[j], opts.dayColor(s.day_number), k, j <= reached ? 1 : 0.5);
+      });
     }
-    watermark();
-    const now = performance.now();
-    if (run.cap) caption(run.cap.stop, run.cap.n, clamp((now - run.cap.at) / 400, 0, 1) * (run.cap.out ? clamp(1 - (now - run.cap.out) / 300, 0, 1) : 1));
-    if (run.card) {
-      const t = now - run.card.at;
-      const a = clamp(t / 500, 0, 1) * clamp((run.card.until - now) / 500, 0, 1);
-      titleCard(a, run.card.big, run.card.sub, run.card.small);
+    if (big >= 0) {
+      const p = xy(plan.stops[big]);
+      const age = seg.kind === 'stop' ? t : (film.segs[fr.si - 1].f1 - film.segs[fr.si - 1].f0) / FPS + t;
+      const fade = seg.kind === 'stop' ? 1 : clamp(1 - t / 0.5, 0, 1);
+      if (onScreen(p)) bigPin(p[0], p[1], plan.stops[big], run.nums[big], k, age, fade);
     }
-    // the progress line, along the bottom edge of the frame
-    const prog = $('.fly-prog i');
-    if (prog) prog.style.width = `${Math.round(clamp(run.progress || 0, 0, 1) * 100)}%`;
-  }
-
-  // ---------------------------------------------------------------- the flight
-
-  // Waits on the clock, not on 'moveend': with terrain on, MapLibre fires stray
-  // move events (its own terrain re-settling) that would end a leg the moment it
-  // began. The camera move takes `duration`; a little slack lets it land.
-  async function animate(kind, camera) {
-    if (!run || run.stopped) return;
-    map[kind]({ ...camera, essential: true });
-    const until = performance.now() + (camera.duration || 1000);
-    while (run && !run.stopped && performance.now() < until) await sleep(50);
-    for (let i = 0; i < 10 && map.isEasing && map.isEasing(); i++) await sleep(40);
-  }
-  const fly = (camera) => animate('flyTo', camera);
-  const ease = (camera) => animate('easeTo', camera);
-
-  function boundsOf(stops) {
-    const b = new maplibregl.LngLatBounds();
-    stops.forEach((s) => b.extend([s.lon, s.lat]));
-    return b;
-  }
-
-  // a flight that throws halfway must not leave the panel stuck on "בטיסה"
-  async function play(record) {
-    try { await flight(record); } catch (e) {
-      console.error('trip-flyover: the flight failed', e);
-      if (run) run.stopped = true;
-      if (rec) await stopRecording(true);
-      run = null;
-      releaseWake();
-      renderSetup('משהו השתבש באמצע הטיסה — נסו שוב');
+    if (seg.kind === 'leg') {
+      const a = clamp(t / 0.4, 0, 1) * clamp((dur - t) / 0.4, 0, 1);
+      if (a > 0) hud(a, fr, seg, plan);
+      if (seg.newDay) chapter(t, dur, plan.stops[seg.i]);
     }
+    watermark(k);
+    if (seg.kind === 'intro') introTitle(t, plan);
+    if (seg.kind === 'outro') outroCard(t, plan, film);
   }
 
-  async function flight(record) {
-    const plan = buildPlan();
-    if (plan.stops.length < 2) { renderSetup('צריך לפחות שתי תחנות עם מיקום כדי לטוס ביניהן'); return; }
-    const nums = plan.stops.map((s) => {
+  // composite each time MapLibre draws, so the pins sit on the frame they belong to
+  function onMapRender() { if (run && run.cur != null && !run.offline) composite(); }
+
+  // the idle loop: keeps the composite showing the map while nothing plays
+  function tick() {
+    raf = requestAnimationFrame(tick);
+    if (!run || run.cur == null) composite();
+  }
+
+  // ---------------------------------------------------------------- playing
+
+  function stopNumbers(plan) {
+    return plan.stops.map((s) => {
       const day = opts.items().filter((it) => it.day_number === s.day_number && it.lat != null && it.lon != null);
       return day.findIndex((x) => x.id === s.id) + 1;
     });
-    run = { plan, nums, idx: -1, flying: null, frac: 0, cap: null, card: null, progress: 0, stopped: false };
-    renderPlaying(record, plan.note);
-    setTrail(plan, 0, 0);
-    const over = boundsOf(plan.stops);
-    const cam = map.cameraForBounds(over, { padding: Math.min(comp.width, comp.height) * 0.12 }) || { center: over.getCenter(), zoom: 10 };
-    const introZoom = clamp((cam.zoom || 10) - 1.2, 2, 13);
-    map.jumpTo({ center: cam.center, zoom: introZoom, pitch: 0, bearing: 0 });
+  }
 
-    // warm the tiles first, so the film is not of tiles arriving: the opening shot
-    // and (for a recording) every stop's close-up, once each, off camera
-    setStatus('מכינים את המפה…');
-    await idle(7000);
-    if (record) {
-      for (let i = 0; i < plan.stops.length && !run.stopped; i++) {
-        setStatus(`מכינים את המפה · ${i + 1}/${plan.stops.length}`);
-        const s = plan.stops[i];
-        map.jumpTo({ center: [s.lon, s.lat], zoom: 15.6, pitch: 62, bearing: 0 });
-        await idle(1600);
-      }
-      map.jumpTo({ center: cam.center, zoom: introZoom, pitch: 0, bearing: 0 });
-      await idle(3000);
-    }
-    if (run.stopped) { run = null; renderSetup(); return; }
-    if (record && !startRecording()) { record = false; }
-    setStatus(record ? 'מקליטים — השאירו את המסך דלוק ואת הדף פתוח' : 'צפייה בלבד — שום דבר לא מוקלט');
-    TRIPMAKER.track?.(record ? 'flyover_record' : 'flyover_play', { code: opts.trip.share_code, stops: plan.stops.length, path: plan.mode, aspect });
+  async function prepare() {
+    const plan = await buildPlan();
+    if (plan.stops.length < 2) { renderSetup('צריך לפחות שתי תחנות עם מיקום כדי לטוס ביניהן'); return null; }
+    if (!root || !map) return null;
+    setGround(groundFor(plan.stops));
+    const film = buildFrames(plan);
+    map.getSource('ghost').setData({ type: 'FeatureCollection', features: plan.drawLine ? plan.legs.filter(Boolean).map((l) => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: l } })) : [] });
+    return { plan, film, nums: stopNumbers(plan), cur: null, stopped: false, offline: false };
+  }
 
-    const total = plan.stops.length + 2;
-    // intro
-    run.card = { big: `${opts.trip.title || 'הטיול'}`, sub: datesText(), small: `${plan.stops.length} תחנות · ${new Set(plan.stops.map((s) => s.day_number)).size} ימים`, at: performance.now(), until: performance.now() + 2800 };
-    await ease({ zoom: introZoom + 0.6, bearing: -12, pitch: 25, duration: 2800, easing: (t) => t });
-    run.card = null;
-    let lastDay = null;
-    for (let i = 0; i < plan.stops.length && !run.stopped; i++) {
-      const s = plan.stops[i];
-      const target = [s.lon, s.lat];
-      const from = i ? [plan.stops[i - 1].lon, plan.stops[i - 1].lat] : null;
-      const km = from ? metres(from, target) / 1000 : 5;
-      let brg = map.getBearing();
-      if (from) {
-        const path = plan.legs[i];
-        brg = bearing(path ? path[Math.max(0, path.length - 6)] : from, target);
-      }
-      if (run.cap) run.cap.out = performance.now();
-      if (s.day_number !== lastDay && lastDay != null && !scope) {
-        // a new day: its name over the flight
-        run.card = { big: `יום ${s.day_number}`, sub: dayText(s.day_number).replace(/^יום \d+ · /, ''), at: performance.now(), until: performance.now() + 1700 };
-      }
-      lastDay = s.day_number;
-      run.flying = i ? i : null;
-      run.frac = 0;
-      const duration = i ? legDuration(km, plan.speed) : 3200;
-      await fly({ center: target, zoom: 15.6, pitch: 62, bearing: brg, duration, curve: km > 30 ? 1.8 : 1.3 });
-      if (i) setTrail(plan, i, 1);
-      run.flying = null;
-      run.card = null;
-      run.idx = i;
-      run.cap = { stop: s, n: nums[i], at: performance.now() };
-      run.progress = (i + 1) / total;
-      await ease({ bearing: brg + 38, pitch: 64, duration: plan.dwell, easing: (t) => t });
+  // 'play' = watch it by the clock; 'film' = render frame by frame into an MP4;
+  // 'live' = the fallback recording, MediaRecorder while it plays by the clock.
+  // A run that throws halfway must not leave the panel stuck on "בטיסה".
+  async function play(how) {
+    if (run) return;
+    renderPlaying(how);
+    try {
+      run = { cur: null, stopped: false, preparing: true };
+      const r = await prepare();
+      if (!r || run.stopped) { run = null; if (r) renderSetup(); return; }
+      run = r;
+      renderPlaying(how, r.plan.note);
+      TRIPMAKER.track?.(`flyover_${how}`, { code: opts.trip.share_code, stops: r.plan.stops.length, path: r.plan.mode, aspect, imagery, ground, secs: Math.round(r.film.frames.length / FPS) });
+      if (how === 'film') await renderFilm();
+      else await realtime(how === 'live');
+    } catch (e) {
+      console.error('trip-flyover: the film failed', e);
+      if (rec) await stopRecording(true);
+      run = null;
+      releaseWake();
+      sizeFrame();
+      renderSetup('משהו השתבש באמצע — נסו שוב');
+      return;
     }
-    if (!run.stopped) {
-      // outro: up over everything, the whole route drawn
-      if (run.cap) run.cap.out = performance.now();
-      setTrail(plan, plan.stops.length, 1);
-      run.idx = plan.stops.length; // no stop is "here" any more
-      await fly({ center: cam.center, zoom: clamp((cam.zoom || 10) - 0.2, 2, 15), pitch: 35, bearing: 0, duration: 3000 });
-      run.cap = null;
-      run.card = { big: opts.trip.title || 'הטיול', sub: datesText(), small: 'נוצר ב-TRIP MAKER', at: performance.now(), until: performance.now() + 3200 };
-      run.progress = 1;
-      await ease({ bearing: 14, duration: 3000, easing: (t) => t });
-    }
-    const stopped = run.stopped;
-    if (rec) await stopRecording(stopped);
+    const stopped = !run || run.stopped;
     run = null;
     releaseWake();
+    sizeFrame();
     if (!stopped && result) renderDone();
     else renderSetup();
+  }
+
+  // by the clock: the frame for the time that has passed, whatever the tiles are doing
+  async function realtime(record) {
+    const n = run.film.frames.length;
+    if (record) {
+      // warm the tiles first, so the film is not of tiles arriving: the opening shot
+      // and every stop's close-up, once each, off camera
+      for (let i = 0; i < run.plan.stops.length && !run.stopped; i++) {
+        setStatus(`מכינים את המפה · ${i + 1}/${run.plan.stops.length}`);
+        const s = run.plan.stops[i];
+        map.jumpTo({ center: [s.lon, s.lat], zoom: closeZoom(), pitch: 52, bearing: 0 });
+        await settled(2000);
+      }
+      if (run.stopped) return;
+      applyFrame(0);
+      await settled(4000);
+      if (!startRecording()) record = false;
+    }
+    setStatus(record ? 'מקליטים — השאירו את המסך דלוק ואת הדף פתוח' : 'צפייה בלבד — שום דבר לא מוקלט');
+    await new Promise((res) => {
+      const t0 = performance.now();
+      const step = () => {
+        if (!run || run.stopped) return res();
+        const k = Math.floor(((performance.now() - t0) / 1000) * FPS);
+        if (k >= n) return res();
+        if (k !== run.cur) applyFrame(k);
+        setProgress(k / n);
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+    if (rec) await stopRecording(!run || run.stopped);
   }
 
   function stop() {
     if (!run) return;
     run.stopped = true;
-    map?.stop();
   }
 
-  // ---------------------------------------------------------------- recording
+  // ---------------------------------------------------------------- the film (WebCodecs)
+
+  const canFilm = () => typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined';
+  let muxerLoading = null;
+  function loadMuxer() {
+    if (typeof Mp4Muxer !== 'undefined') return Promise.resolve();
+    if (!muxerLoading) {
+      muxerLoading = new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = '/vendor/mp4-muxer/mp4-muxer.js';
+        s.onload = res;
+        s.onerror = () => { muxerLoading = null; rej(new Error('mp4-muxer failed to load')); };
+        document.head.appendChild(s);
+      });
+    }
+    return muxerLoading;
+  }
+
+  // the biggest H.264 the device will encode: 1080×1920, else 720×1280
+  async function encoderConfig() {
+    const sizes = [FILM[aspect], VIEW[aspect]];
+    for (const [w, h] of sizes) {
+      for (const codec of ['avc1.640028', 'avc1.4d0028', 'avc1.42e028', 'avc1.42e01f']) {
+        const cfg = { codec, width: w, height: h, bitrate: w * h > 1.5e6 ? 6_000_000 : 3_500_000, framerate: FPS, latencyMode: 'quality', avc: { format: 'avc' } };
+        try {
+          const ok = await VideoEncoder.isConfigSupported(cfg);
+          if (ok && ok.supported) return cfg;
+        } catch { /* try the next */ }
+      }
+    }
+    return null;
+  }
+
+  const visible = () => new Promise((res) => {
+    if (!document.hidden) return res();
+    const on = () => { if (!document.hidden) { document.removeEventListener('visibilitychange', on); res(); } };
+    document.addEventListener('visibilitychange', on);
+  });
+
+  // Frame by frame: move the camera, wait for every tile, composite, encode. Leaving
+  // the page pauses it (a hidden page draws nothing) and coming back carries on.
+  async function renderFilm() {
+    await loadMuxer();
+    const cfg = await encoderConfig();
+    if (!cfg) { setStatus('המכשיר הזה לא מקודד וידאו — מקליטים בזמן אמת'); return realtime(true); }
+    sizeFrame([cfg.width, cfg.height]);
+    run.offline = true;
+    grabWake();
+    const target = new Mp4Muxer.ArrayBufferTarget();
+    const muxer = new Mp4Muxer.Muxer({ target, video: { codec: 'avc', width: cfg.width, height: cfg.height, frameRate: FPS }, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
+    let failed = null;
+    const encoder = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => { failed = e; } });
+    encoder.configure(cfg);
+    const n = run.film.frames.length;
+    const t0 = performance.now();
+    for (let k = 0; k < n; k++) {
+      if (!run || run.stopped || failed) break;
+      if (document.hidden) { setStatus('ההכנה מושהית — חזרו לדף כדי להמשיך'); await visible(); }
+      applyFrame(k);
+      await settled();
+      composite();
+      const vf = new VideoFrame(comp, { timestamp: Math.round((k * 1e6) / FPS), duration: Math.round(1e6 / FPS) });
+      encoder.encode(vf, { keyFrame: k % (FPS * 2) === 0 });
+      vf.close();
+      while (encoder.encodeQueueSize > 4) await sleep(4);
+      if (k % 5 === 0) {
+        const per = (performance.now() - t0) / (k + 1);
+        const left = Math.round((per * (n - k)) / 1000);
+        setStatus(`מכינים את הסרטון · ${Math.round((k / n) * 100)}% · ${left > 90 ? `עוד כ-${Math.round(left / 60)} דק׳` : `עוד ${left} שנ׳`}`);
+        setProgress(k / n);
+      }
+    }
+    if (!run || run.stopped || failed) {
+      try { encoder.close(); } catch { /* closed */ }
+      if (failed) throw failed;
+      return;
+    }
+    setStatus('אורזים את הקובץ…');
+    await encoder.flush();
+    encoder.close();
+    muxer.finalize();
+    const blob = new Blob([target.buffer], { type: 'video/mp4' });
+    if (result) URL.revokeObjectURL(result.url);
+    result = { blob, url: URL.createObjectURL(blob), name: `tripmaker-${opts.trip.share_code}-flyover.mp4`, type: 'video/mp4', secs: Math.round(n / FPS), size: `${cfg.width}×${cfg.height}` };
+  }
+
+  // ---------------------------------------------------------------- recording (fallback)
 
   function pickMime() {
     const list = ['video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
@@ -795,7 +1386,7 @@ const TripFlyover = (() => {
     try {
       const stream = comp.captureStream(FPS);
       const mime = pickMime();
-      const recorder = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), videoBitsPerSecond: 8_000_000 });
+      const recorder = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), videoBitsPerSecond: 6_000_000 });
       const chunks = [];
       recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
       recorder.start(1000);
@@ -836,8 +1427,9 @@ const TripFlyover = (() => {
     wake = null;
   }
 
-  // a recording needs the page on screen: frames stop while it is hidden, and the
-  // film would jump. Leaving the page stops the flight rather than ruin the video.
+  // A real-time recording needs the page on screen: frames stop while it is hidden,
+  // and the film would jump. Leaving the page stops it rather than ruin the video.
+  // (The frame-by-frame film just pauses — see renderFilm.)
   function onVisibility() {
     if (document.hidden && run && rec) {
       stop();
@@ -850,6 +1442,10 @@ const TripFlyover = (() => {
   function setStatus(msg) {
     const el = $('.fly-status');
     if (el) el.textContent = msg || '';
+  }
+  function setProgress(v) {
+    const prog = $('.fly-prog i');
+    if (prog) prog.style.width = `${Math.round(clamp(v || 0, 0, 1) * 100)}%`;
   }
 
   function daysWithStops() {
@@ -867,12 +1463,29 @@ const TripFlyover = (() => {
     const rOpt = (name, val, cur, label, sub, disabled) => `
       <label class="fly-opt${disabled ? ' off' : ''}"><input type="radio" name="${name}" value="${val}"${cur === val ? ' checked' : ''}${disabled ? ' disabled' : ''}>
         <span><b>${label}</b>${sub ? `<small>${sub}</small>` : ''}</span></label>`;
+    const seg = (attr, cur, list, label) => `
+      <div class="fly-seg" role="radiogroup" aria-label="${label}">
+        ${list.map(([v, t]) => `<button type="button" data-${attr}="${v}" aria-pressed="${cur === v}">${t}</button>`).join('')}
+      </div>`;
+    const film = canFilm();
+    const live = !film && canRecord();
     panel.innerHTML = `
       <div class="fly-head">
         <h2>🎬 סרטון טיסה מעל הטיול</h2>
-        <p>המצלמה טסה מתחנה לתחנה מעל מפה תלת־ממדית, והמסלול נמתח מאחוריה. אפשר לצפות, או להקליט סרטון ולשמור אותו.</p>
+        <p>המצלמה נוסעת בדרך מתחנה לתחנה מעל מפה תלת־ממדית, הקו נמתח מאחוריה וכל תחנה קמה עם השם שלה. סרטון של כדקה, לסטורי או לשמירה.</p>
       </div>
       ${msg ? `<p class="fly-msg">${esc(msg)}</p>` : ''}
+      <div class="fly-actions">
+        <button type="button" class="btn btn-ghost fly-play">▶ צפייה</button>
+        ${film || live ? '<button type="button" class="btn btn-amber fly-rec">● יצירת סרטון</button>' : ''}
+      </div>
+      ${film ? `<p class="fly-fine">הסרטון נבנה פריים אחר פריים במכשיר (MP4 ‏${FILM[aspect][0]}×${FILM[aspect][1]}) — לוקח כמה דקות, ואפשר לצאת מהדף ולחזור.</p>` : ''}
+      ${!film && !live ? '<p class="fly-fine">הדפדפן הזה לא יודע להקליט וידאו — אפשר לצפות בטיסה (ולהקליט את המסך מהטלפון).</p>' : ''}
+      ${result ? '<button type="button" class="fly-last">הסרטון האחרון שיצרתם ›</button>' : ''}
+      <div class="fly-group">
+        <div class="fly-label">צורה</div>
+        ${seg('aspect', aspect, [['tall', '▯ לסטורי'], ['wide', '▭ לרוחב']], 'צורת הסרטון')}
+      </div>
       <div class="fly-group">
         <div class="fly-label">מה מצלמים</div>
         <select class="fly-scope" aria-label="מה מצלמים">
@@ -882,11 +1495,17 @@ const TripFlyover = (() => {
       </div>
       <div class="fly-group" role="radiogroup" aria-label="המסלול בסרטון">
         <div class="fly-label">המסלול</div>
+        ${rOpt('path', 'road', pathMode, 'בדרכים', 'שבילים ברגל, כבישים ברכב, וקשת בטיסה')}
         ${rOpt('path', 'timeline', pathMode, 'המסלול שעשיתם בפועל', tl ? `מציר הזמן של Google · ${tlDays} ימים, ${tl.points.length.toLocaleString('he-IL')} נקודות` : 'דורש ייבוא של ציר הזמן מ-Google Maps (למטה)', !tl)}
-        ${rOpt('path', 'line', pathMode, 'קו ישר מתחנה לתחנה', 'לפי סדר התחנות במסלול')}
+        ${rOpt('path', 'line', pathMode, 'קו ישר מתחנה לתחנה', '')}
         ${rOpt('path', 'none', pathMode, 'בלי קו', 'רק טיסה מתחנה לתחנה')}
       </div>
-      <details class="fly-tl"${tl ? '' : ' open'}>
+      <div class="fly-group">
+        <div class="fly-label">הקרקע</div>
+        ${seg('imagery', imagery, [['auto', 'אוטומטי'], ['s2', 'אחיד'], ['esri', 'חד']], 'תמונת הקרקע')}
+        <p class="fly-fine">${{ auto: 'טיול בתוך עיר מקבל צילום חד מקרוב; טיול של נסיעות, טבע וטיסות מקבל פסיפס אחיד וקולנועי.', s2: 'Sentinel‑2: אותו צבע בכל גובה, בלי תפרים — מראה קולנועי, רך מקרוב.', esri: 'Esri: חד מקרוב, אבל הצבעים מתחלפים בין גבהים.' }[imagery]}</p>
+      </div>
+      <details class="fly-tl"${tl ? '' : ''}>
         <summary>${tl ? '✓ ציר הזמן מיובא' : '📍 ייבוא ציר הזמן מ-Google Maps'}</summary>
         <div class="fly-tl-body">
           <p>Google העבירה את ציר הזמן לטלפון עצמו ב-2024, ואין יותר דרך לקרוא אותו מבחוץ — לא לנו ולא לאף אחד. אבל אפשר לייצא אותו מהטלפון ולבחור את הקובץ כאן:</p>
@@ -901,21 +1520,8 @@ const TripFlyover = (() => {
           </div>
           <p class="fly-tl-note" role="status"></p>
         </div>
-      </details>
-      <div class="fly-group">
-        <div class="fly-label">צורה</div>
-        <div class="fly-seg" role="radiogroup" aria-label="צורת הסרטון">
-          <button type="button" data-aspect="wide" aria-pressed="${aspect === 'wide'}">▭ לרוחב</button>
-          <button type="button" data-aspect="tall" aria-pressed="${aspect === 'tall'}">▯ לסטורי</button>
-        </div>
-      </div>
-      <div class="fly-actions">
-        <button type="button" class="btn btn-ghost fly-play">▶ צפייה</button>
-        ${canRecord() ? '<button type="button" class="btn btn-amber fly-rec">● יצירת סרטון</button>' : ''}
-      </div>
-      ${canRecord() ? '' : '<p class="fly-fine">הדפדפן הזה לא יודע להקליט וידאו — אפשר לצפות בטיסה (ולהקליט את המסך מהטלפון).</p>'}
-      ${result ? '<button type="button" class="fly-last">הסרטון האחרון שיצרתם ›</button>' : ''}`;
-    panel.querySelector('.fly-scope').onchange = (e) => { scope = +e.target.value; };
+      </details>`;
+    panel.querySelector('.fly-scope').onchange = (e) => { scope = +e.target.value; setGround(groundFor(scopeStops())); overview(); };
     panel.querySelectorAll('input[name="path"]').forEach((r) => { r.onchange = () => { pathMode = r.value; }; });
     panel.querySelector('.fly-file input').onchange = (e) => { if (e.target.files.length) importFiles(e.target.files); };
     const del = panel.querySelector('.fly-tl-del');
@@ -923,25 +1529,32 @@ const TripFlyover = (() => {
       del.onclick = () => {
         try { localStorage.removeItem(TL_KEY(opts.trip.share_code)); } catch { /* ignore */ }
         timeline = null;
-        if (pathMode === 'timeline') pathMode = 'line';
+        if (pathMode === 'timeline') pathMode = 'road';
         renderSetup('ציר הזמן נמחק מהמכשיר');
       };
     }
-    panel.querySelectorAll('.fly-seg button').forEach((b) => {
-      b.onclick = () => { aspect = b.dataset.aspect; root.dataset.aspect = aspect; sizeFrame(); renderSetup(); };
+    panel.querySelectorAll('[data-aspect]').forEach((b) => {
+      b.onclick = () => { aspect = b.dataset.aspect; root.dataset.aspect = aspect; savePrefs(); sizeFrame(); overview(); renderSetup(); };
     });
-    panel.querySelector('.fly-play').onclick = () => play(false);
-    panel.querySelector('.fly-rec')?.addEventListener('click', () => play(true));
+    panel.querySelectorAll('[data-imagery]').forEach((b) => {
+      b.onclick = () => { imagery = b.dataset.imagery; setGround(groundFor(scopeStops())); savePrefs(); renderSetup(); };
+    });
+    panel.querySelector('.fly-play').onclick = () => play('play');
+    panel.querySelector('.fly-rec')?.addEventListener('click', () => play(film ? 'film' : 'live'));
     panel.querySelector('.fly-last')?.addEventListener('click', renderDone);
+    if (!map) panel.querySelectorAll('.fly-play, .fly-rec').forEach((b) => { b.disabled = true; });
   }
 
-  function renderPlaying(record, note) {
+  function renderPlaying(how, note) {
     const panel = $('.fly-panel');
+    if (!panel) return;
+    const head = how === 'film' ? '🎬 מכינים את הסרטון' : how === 'live' ? '● מקליטים' : '▶ בטיסה';
     panel.innerHTML = `
-      <div class="fly-head"><h2>${record ? '● מקליטים' : '▶ בטיסה'}</h2></div>
+      <div class="fly-head"><h2>${head}</h2></div>
       <p class="fly-status" role="status"></p>
       ${note ? `<p class="fly-msg">${esc(note)}</p>` : ''}
       <div class="fly-prog" aria-hidden="true"><i></i></div>
+      ${how === 'film' ? '<p class="fly-fine">כל פריים מחכה שהמפה תיטען במלואה, כך שהסרטון חלק גם אם הרשת איטית. אפשר לצאת מהדף — ההכנה תמשיך כשתחזרו.</p>' : ''}
       <div class="fly-actions"><button type="button" class="btn btn-ghost fly-stop">■ עצירה</button></div>`;
     panel.querySelector('.fly-stop').onclick = stop;
   }
@@ -952,8 +1565,9 @@ const TripFlyover = (() => {
     const file = new File([result.blob], result.name, { type: result.type });
     const share = !!(navigator.canShare && navigator.canShare({ files: [file] }));
     const mb = (result.blob.size / 1048576).toFixed(1);
+    const facts = [`${mb}MB`, result.type.includes('mp4') ? 'MP4' : 'WebM', result.size, result.secs ? `${result.secs} שנ׳` : ''].filter(Boolean).join(' · ');
     panel.innerHTML = `
-      <div class="fly-head"><h2>✓ הסרטון מוכן</h2><p>${mb}MB · ${result.type.includes('mp4') ? 'MP4' : 'WebM'}</p></div>
+      <div class="fly-head"><h2>✓ הסרטון מוכן</h2><p>${facts}</p></div>
       <video class="fly-video" src="${result.url}" controls playsinline loop></video>
       <div class="fly-actions">
         <a class="btn btn-amber" href="${result.url}" download="${esc(result.name)}">הורדה</a>
@@ -971,14 +1585,25 @@ const TripFlyover = (() => {
 
   function onKey(e) { if (e.key === 'Escape' && root) { e.stopPropagation(); close(); } }
   function onPop() { if (root && !(history.state && history.state.tripmakerFly)) teardown(); }
-  function onResize() { sizeFrame(); }
+  function onResize() { if (!run || !run.offline) sizeFrame(); }
+
+  // the still behind the panel: the stops from above, tilted
+  function overview() {
+    if (!map || run) return;
+    const stops = scopeStops();
+    if (!stops.length) return;
+    const fitted = fitOf(stops.map(P));
+    map.jumpTo({ center: fitted.center, zoom: Math.min(fitted.zoom, 14), pitch: 45, bearing: -15 });
+  }
 
   async function open(o) {
     if (root) return;
     opts = o;
     scope = 0;
+    loadPrefs();
+    ground = groundFor(scopeStops());
     timeline = loadStoredTimeline();
-    if (pathMode === 'timeline' && !timeline) pathMode = 'line';
+    if (pathMode === 'timeline' && !timeline) pathMode = 'road';
     const css = getComputedStyle(document.body);
     const body = css.getPropertyValue('--font-body').trim();
     const display = css.getPropertyValue('--font-display').trim();
@@ -1011,18 +1636,16 @@ const TripFlyover = (() => {
       await makeMap();
     } catch (e) {
       console.warn('trip-flyover: map failed', e);
+      try { map?.remove(); } catch { /* half made */ }
+      map = null;
       renderSetup('המפה התלת־ממדית לא עלתה במכשיר הזה (WebGL כבוי או לא נתמך)');
-      root.querySelectorAll('.fly-play, .fly-rec').forEach((b) => { b.disabled = true; });
       return;
     }
+    if (!root) return; // closed while loading
     sizeFrame();
-    const stops = scopeStops();
-    if (stops.length) {
-      const b = boundsOf(stops);
-      const cam = map.cameraForBounds(b, { padding: 60 });
-      if (cam) map.jumpTo({ ...cam, pitch: 45, bearing: -15 });
-    }
-    raf = requestAnimationFrame(frame);
+    overview();
+    renderSetup();
+    raf = requestAnimationFrame(tick);
     TRIPMAKER.track?.('flyover_open', { code: opts.trip.share_code, timeline: !!timeline });
   }
 
@@ -1043,13 +1666,24 @@ const TripFlyover = (() => {
     document.removeEventListener('visibilitychange', onVisibility);
     try { map?.remove(); } catch { /* already gone */ }
     map = null;
+    run = null;
     root?.remove();
     root = null;
     comp = null;
     document.documentElement.classList.remove('fly-open');
   }
 
-  // parseTimeline is exposed for tools/flyover-check.js
-  return { open, close, parseTimeline };
+  // parseTimeline is exposed for tools/flyover-check.js; the script helpers for its film checks
+  // _frame(k): build the film if needed and show exactly frame k, tiles loaded — what
+  // the rendered film would hold there (tools/preview screenshots look at it)
+  async function _frame(k) {
+    if (!run) { run = await prepare(); if (!run) return 0; }
+    const n = run.film.frames.length;
+    applyFrame(clamp(k, 0, n - 1));
+    await settled();
+    composite();
+    return n;
+  }
+  return { open, close, parseTimeline, _frame, _test: { arc, thin, smooth, bump, turn, along } };
 })();
 if (typeof module === 'object' && module.exports) module.exports = TripFlyover;

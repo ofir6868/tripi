@@ -64,3 +64,15 @@ assert.deepStrictEqual(parseTimeline({ hello: 1 }), []);
 assert.deepStrictEqual(parseTimeline([{ visit: { topCandidate: { placeLocation: 'nowhere' } } }]), []);
 
 console.log(`flyover: ${n}/4 Google Timeline export shapes read`);
+
+// The film's script helpers: a flight's arc starts and ends on the two airports, the
+// camera turns the short way round, and the easing curves start at 0 and land on 1.
+{
+  const { _test: t } = require('../public/js/trip-flyover.js');
+  const a = t.arc([34.88, 32.0], [12.25, 41.8]);
+  assert(Math.abs(a[0][0] - 34.88) < 1e-6 && Math.abs(a[a.length - 1][1] - 41.8) < 1e-6, 'arc: ends on its stops');
+  assert(t.turn(350, 10) === 20 && t.turn(10, 350) === -20, 'turn: the short way round');
+  assert(t.smooth(0) === 0 && t.smooth(1) === 1 && t.bump(0) === 0 && t.bump(1) < 1e-9, 'easing: ends');
+  assert(Math.abs(t.along(6, 14, 14, 1) - 1) < 1e-9 && t.along(6, 14, 6, 0) === 0, 'along: dive lands on the stop');
+  console.log('flyover: film script helpers hold');
+}
