@@ -2690,6 +2690,10 @@ router.get('/api/ai/progress/:id', authRequired, async (req, res) => {
 });
 
 module.exports = router;
+// what a draft wears before the AI has chosen (public/js/plan.js saves these) — the
+// build treats them as empty, so its own pick replaces them
+module.exports.PLACEHOLDER_COVER = COVER_OPTIONS[0].url;
+module.exports.PLACEHOLDER_EMOJI = '🧭';
 // the edit route can only run on a trip that already exists in the DB, so tools/ai-eval
 // reaches the model through this instead — everything it measures happens in here
 module.exports.aiEditOps = aiEditOps;

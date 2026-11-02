@@ -1133,8 +1133,15 @@ router.post('/api/trips/code/:code/plan/build', authRequired, async (req, res) =
     );
     if (built.meta) {
       await client.query(
-        `UPDATE trips SET description = COALESCE(description, $1), emoji = COALESCE(emoji, $2), cover_image = COALESCE(cover_image, $3) WHERE id = $4`,
-        [built.meta.description, built.meta.emoji, built.meta.cover_image, trip.id]
+        // the wizard saves the draft wearing placeholders — the compass and the desert
+        // road (public/js/plan.js buildTripPayload) — "swapped for the AI's pick at build
+        // time". COALESCE alone kept them: every planner-built trip, Rome and Lisbon alike,
+        // wore the same desert van. A placeholder counts as empty; a pick of their own stays.
+        `UPDATE trips SET description = COALESCE(description, $1),
+                emoji = CASE WHEN emoji IS NULL OR emoji = $5 THEN $2 ELSE emoji END,
+                cover_image = CASE WHEN cover_image IS NULL OR cover_image = $6 THEN $3 ELSE cover_image END
+          WHERE id = $4`,
+        [built.meta.description, built.meta.emoji, built.meta.cover_image, trip.id, ai.PLACEHOLDER_EMOJI, ai.PLACEHOLDER_COVER]
       );
     }
     state.stage = 'done';
