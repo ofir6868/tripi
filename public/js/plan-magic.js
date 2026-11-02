@@ -466,8 +466,8 @@ const PlanMagic = (() => {
           <span class="mg-flags"></span>
         </div>
         <div class="mg-head">
-          <h2 class="mg-title"><span class="mg-skel" style="width:70%"></span></h2>
-          <div class="mg-meta"><span class="mg-skel" style="width:45%"></span></div>
+          <h2 class="mg-title"><span class="mg-ghost">לאן הפעם?</span></h2>
+          <div class="mg-meta"><span class="mg-meta-hint">בחרו יעד, והטיול יתחיל להיבנות כאן ✨</span></div>
         </div>
         <div class="mg-body">
           <section class="mg-sec mg-sec-route">
@@ -632,7 +632,7 @@ const PlanMagic = (() => {
   function setTitle(text) {
     if (text === titleShown) return;
     titleShown = text;
-    if (!text) { P.title.innerHTML = '<span class="mg-skel" style="width:70%"></span>'; return; }
+    if (!text) { P.title.innerHTML = '<span class="mg-ghost">לאן הפעם?</span>'; return; }
     P.title.innerHTML = [...text].map((ch, i) => (ch === ' ' ? ' ' : `<span class="mg-ch" style="--d:${Math.min(i, 40) * 22}ms">${esc(ch)}</span>`)).join('');
   }
 
@@ -688,6 +688,7 @@ const PlanMagic = (() => {
       c.title = n ? `יום ${i + 1} · ${s.destinations[di].name}` : `יום ${i + 1}`;
     }
     P.days.classList.toggle('is-long', s.days > 21);
+    P.days.classList.toggle('is-ghost', !n); // days with nowhere to be yet are outlines, not loading bars
     P.aside.textContent = s.start ? fmtRange(s) : 'תאריכים — כשתבחרו';
     if (n > 1) {
       const counts = s.destinations.map((_, i) => split.filter((x) => x === i).length);
@@ -698,7 +699,7 @@ const PlanMagic = (() => {
 
   function renderRoute(s) {
     if (!s.destinations.length) {
-      P.route.innerHTML = '<span class="mg-skel" style="width:85%"></span><span class="mg-skel" style="width:55%"></span>';
+      P.route.innerHTML = `<span class="mg-stop mg-stop-home"><b>${esc(HOME.name)}</b></span><span class="mg-leg" style="--c:#ffb45f"><i>${PLANE_SVG}</i></span><span class="mg-stop mg-stop-ghost"><b>?</b></span>`;
       return;
     }
     const legs = s.destinations.map((d, i) => `
@@ -711,7 +712,7 @@ const PlanMagic = (() => {
     if (!s.interests.length) {
       P.vibes.innerHTML = s.step >= 3
         ? '<span class="mg-vibe-empty">בחרו מה מעניין אתכם, וזה יופיע כאן</span>'
-        : '<span class="mg-skel" style="width:30%"></span><span class="mg-skel" style="width:24%"></span><span class="mg-skel" style="width:34%"></span>';
+        : '<span class="mg-vibe-empty">בשלב 3 תבחרו מה מעניין אתכם</span>';
     } else {
       const have = new Set([...P.vibes.querySelectorAll('.mg-vibe')].map((e) => e.dataset.k));
       P.vibes.innerHTML = s.interests.map((k) => `<span class="mg-vibe${have.has(k) ? '' : ' is-new'}" data-k="${esc(k)}">${emojiOf[k] || '✨'} ${esc(k)}</span>`).join('');
@@ -737,7 +738,7 @@ const PlanMagic = (() => {
     const se = season(s);
     P.meta.innerHTML = bits.length
       ? `${bits.map(esc).join(' · ')}${se ? ` <span class="mg-season">${se}</span>` : ''}`
-      : (s.destinations.length ? '<span class="mg-meta-hint">כמה זמן? בשלב הבא</span>' : '<span class="mg-skel" style="width:45%"></span>');
+      : (s.destinations.length ? '<span class="mg-meta-hint">כמה זמן? בשלב הבא</span>' : '<span class="mg-meta-hint">בחרו יעד, והטיול יתחיל להיבנות כאן ✨</span>');
 
     renderRoute(s);
     renderDays(s);

@@ -552,3 +552,16 @@ html.mg-launching .mg-switch { opacity: 0; transition: opacity .6s ease; }
     transition-duration: .001ms !important;
   }
 }
+
+/* ---------------------------------------------------------------- the empty card
+   Before the first destination the card is an invitation, not a loading state: no
+   shimmer anywhere (on a phone a row of shimmering bars read as "stuck"), a question
+   for a title, a ghost stop at the end of the route, and the days as outlines. */
+.mg-ghost { color: rgba(245, 239, 227, .55); }
+.mg-stop-ghost { --c: #ffb45f; border-style: dashed; background: transparent; color: var(--amber); animation: mg-blink 2s ease-in-out infinite; }
+.mg-days.is-ghost .mg-day { background: transparent; border: 1px dashed rgba(255, 255, 255, .25); }
+.mg-days.is-ghost .mg-day b { color: rgba(245, 239, 227, .45); }
+@media (max-width: 999px) {
+  .mg-days.is-ghost { display: none; }
+  .mg-meta-hint { font-size: .8rem; line-height: 1.35; }
+}
