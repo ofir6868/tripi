@@ -1372,6 +1372,8 @@
     document.getElementById('docs-btn').style.display = privileged ? '' : 'none';
     document.getElementById('checklist-btn').style.display = privileged ? '' : 'none';
     document.getElementById('moments-btn').style.display = privileged ? '' : 'none';
+    // the hotels page (#hotels) — registered up front so a reload on it lands back on it
+    if (canEdit && trip.days >= 2) TripModals.initHotels(modalCtx);
     hotelsBtn.onclick = () => (canEdit ? TripModals.openHotels(modalCtx) : requireSignup());
     budgetBtn.onclick = () => (canEdit ? TripModals.openBudget(modalCtx) : requireSignup());
     settleBtn.onclick = () => (canEdit ? TripModals.openSettle(modalCtx) : requireSignup());
@@ -1413,7 +1415,7 @@
           nudgeSlot.appendChild(nudge);
           nudge.onclick = () => TripModals.openHotels(modalCtx);
         }
-        nudge.textContent = `😴 ${runs.map((r) => r.from === r.to ? `לילה ${r.from}` : `לילות ${r.from}–${r.to}`).join(', ')} עדיין בלי מלון ›`;
+        nudge.textContent = `😴 ${runs.map((r) => r.from === r.to ? `לילה ${r.from}` : `לילות \u2066${r.from}–${r.to}\u2069`).join(', ')} עדיין בלי מלון ›`;
       } else nudge?.remove();
     }
     updateAmbient();

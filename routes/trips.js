@@ -653,6 +653,10 @@ function cleanHotel(body, trip) {
     price_total: moneyOrNull(body.price_total, 999999999),
     link,
     note: body.note ? String(body.note).slice(0, 300) : null,
+    // a stay picked from the suggestions keeps its picture and the provider's id,
+    // so the hotels page shows the real place and can open its details sheet
+    photo: body.photo && /^https:\/\//i.test(String(body.photo).trim()) ? String(body.photo).trim().slice(0, 600) : null,
+    ref: body.ref ? String(body.ref).trim().slice(0, 64) || null : null,
   };
 }
 
@@ -663,9 +667,9 @@ router.post('/api/trips/code/:code/hotels', authOptional, async (req, res) => {
     const h = cleanHotel(req.body || {}, trip);
     if (!h.name) return res.status(400).json({ error: 'חסר שם למלון' });
     const { rows } = await pool.query(
-      `INSERT INTO trip_hotels (trip_id, name, night_start, night_end, status, stars, lat, lon, price_total, link, note)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [trip.id, h.name, h.night_start, h.night_end, h.status, h.stars, h.lat, h.lon, h.price_total, h.link, h.note]
+      `INSERT INTO trip_hotels (trip_id, name, night_start, night_end, status, stars, lat, lon, price_total, link, note, photo, ref)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      [trip.id, h.name, h.night_start, h.night_end, h.status, h.stars, h.lat, h.lon, h.price_total, h.link, h.note, h.photo, h.ref]
     );
     res.json(rows[0]);
   } catch (err) {
@@ -682,10 +686,10 @@ router.put('/api/trips/code/:code/hotels/:hotelId', authOptional, async (req, re
     if (!h.name) return res.status(400).json({ error: 'חסר שם למלון' });
     const { rows } = await pool.query(
       `UPDATE trip_hotels SET name=$1, night_start=$2, night_end=$3, status=$4, stars=$5,
-         lat=$6, lon=$7, price_total=$8, link=$9, note=$10
-       WHERE id = $11 AND trip_id = $12 RETURNING *`,
+         lat=$6, lon=$7, price_total=$8, link=$9, note=$10, photo=$11, ref=$12
+       WHERE id = $13 AND trip_id = $14 RETURNING *`,
       [h.name, h.night_start, h.night_end, h.status, h.stars, h.lat, h.lon, h.price_total, h.link, h.note,
-       req.params.hotelId, trip.id]
+       h.photo, h.ref, req.params.hotelId, trip.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'המלון לא נמצא' });
     res.json(rows[0]);
@@ -856,10 +860,10 @@ router.post('/api/trips/code/:code/clone', authRequired, async (req, res) => {
       );
     }
     await client.query(
-      `INSERT INTO trip_hotels (trip_id, name, night_start, night_end, status, stars, lat, lon, price_total, link, note)
+      `INSERT INTO trip_hotels (trip_id, name, night_start, night_end, status, stars, lat, lon, price_total, link, note, photo, ref)
        SELECT $1, name, night_start, night_end, status, stars, lat, lon,
               CASE WHEN $3 THEN price_total ELSE NULL END, link,
-              CASE WHEN $3 THEN note ELSE NULL END
+              CASE WHEN $3 THEN note ELSE NULL END, photo, ref
        FROM trip_hotels WHERE trip_id = $2`,
       [t.rows[0].id, src.id, copyMoney]
     );

@@ -1358,52 +1358,6 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
   transition: all .18s ease; white-space: nowrap;
 }
 
-/* ---------- hotels modal ---------- */
-
-.night-strip { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 4px; }
-.night-seg {
-  flex: 1 0 34px; min-width: 34px; height: 46px; position: relative; cursor: pointer;
-  display: grid; place-items: center; border-radius: 10px;
-  background: rgba(6, 13, 11, .5); border: 1px solid var(--glass-border);
-  color: var(--paper); font-family: var(--font-body); font-weight: 700; font-size: .88rem;
-  transition: transform .15s ease;
-}
-.night-seg:hover { transform: translateY(-2px); }
-.night-seg .ns-dot {
-  position: absolute; bottom: 5px; width: 6px; height: 6px; border-radius: 50%;
-}
-.night-dests { display: flex; gap: 4px; margin-top: 6px; }
-.night-dests span {
-  flex-basis: 0; text-align: center; font-size: .76rem; font-weight: 600; color: var(--mint);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.coverage-line {
-  margin-top: 12px; padding: 9px 14px; border-radius: var(--radius-sm);
-  background: rgba(255, 180, 95, .08); border: 1px solid rgba(255, 180, 95, .25);
-  color: var(--amber); font-weight: 600; font-size: .92rem;
-}
-
-.hotel-card {
-  margin-top: 12px; padding: 14px 16px; border-radius: var(--radius-sm);
-  background: rgba(6, 13, 11, .4); border: 1px solid var(--glass-border);
-  border-inline-start-width: 3px;
-}
-.hc-top { display: flex; align-items: center; gap: 10px; }
-.hc-name { font-weight: 700; flex: 1; min-width: 0; }
-.hc-status {
-  border: 1px solid var(--glass-border); border-radius: 999px; padding: 5px 12px;
-  cursor: pointer; font-family: var(--font-body); font-weight: 700; font-size: .8rem;
-  background: rgba(143, 216, 196, .12); color: var(--mint);
-}
-.hc-status.idea { background: rgba(255, 180, 95, .1); color: var(--amber); }
-.hc-nights { color: var(--paper-dim); font-size: .88rem; margin-top: 5px; }
-.hc-nights small { opacity: .75; }
-.hc-details { color: var(--amber); font-size: .88rem; font-weight: 600; margin-top: 5px; }
-.hc-warn { color: var(--danger); font-size: .84rem; font-weight: 600; margin-top: 6px; }
-.hc-actions { display: flex; align-items: center; gap: 14px; margin-top: 10px; font-size: .86rem; }
-.hc-actions a:hover { text-decoration: underline; }
-.hc-spacer { flex: 1; }
-
 /* ---- night cards: where you sleep, inside the itinerary ----
    A night without a hotel is a hole in the plan, so it renders between the day
    it follows and the next one instead of hiding behind a button. It stays
@@ -1526,8 +1480,6 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
 .nb-edit:hover { color: var(--paper); }
 
 /* ---- hotel sheet: the detail view behind a night-card tile ---- */
-.hs-hero { border-radius: 12px; overflow: hidden; background: var(--ink-3); aspect-ratio: 16 / 9; }
-.hs-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .hs-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
 .hs-score {
   background: rgba(143, 216, 196, .14); color: var(--mint);
@@ -1537,17 +1489,12 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
 .hs-book { display: flex; justify-content: center; gap: 8px; margin-top: 14px; text-decoration: none; }
 .hs-loading { color: var(--paper-dim); font-weight: 300; margin-top: 16px; }
 
-.hs-gallery { display: flex; gap: 6px; margin-top: 12px; overflow-x: auto; padding-bottom: 4px; }
-.hs-gallery img { flex: 0 0 120px; height: 84px; object-fit: cover; border-radius: 8px; display: block; }
-
-/* one row per rated category — the number is the point, so it leads */
-.hs-cats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
-.hs-cat {
-  display: flex; align-items: baseline; gap: 6px;
-  background: rgba(6, 13, 11, .45); border: 1px solid var(--glass-border);
-  border-radius: 999px; padding: 4px 11px; font-size: .82rem;
-}
+/* ratings as short bars: the number leads, the bar lets four of them compare at a glance */
+.hs-cats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-top: 16px; }
+.hs-cat { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; font-size: .84rem; }
 .hs-cat span { color: var(--paper-dim); font-weight: 300; }
+.hs-cat i { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .08); position: relative; overflow: hidden; }
+.hs-cat i::after { content: ''; position: absolute; inset-block: 0; inset-inline-start: 0; width: var(--w); border-radius: 2px; background: var(--mint); }
 
 .hs-sec { margin-top: 16px; }
 .hs-sec h3 { font-family: var(--font-display); font-size: 1rem; margin-bottom: 7px; }
@@ -1561,16 +1508,294 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
   border-radius: 8px; padding: 3px 9px; font-size: .78rem; font-weight: 300; color: var(--paper-dim);
 }
 .hs-times { margin-top: 14px; color: var(--paper-dim); font-size: .84rem; font-weight: 300; }
-.hc-actions button { display: inline-flex; align-items: center; gap: 5px; }
-.hc-actions button {
-  background: none; border: none; cursor: pointer; color: var(--paper-dim);
-  font-family: var(--font-body); font-size: .86rem; font-weight: 600; padding: 0;
+
+/* the hotel's sheet: photos you swipe, then the facts, the booking button pinned under them */
+.tp-sheet-card.hotel-detail-card { width: min(600px, 100%); }
+.hd-gallery {
+  display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none;
+  margin: 0 -22px; padding: 0 22px;
 }
-.hc-actions button:hover { color: var(--paper); }
-.hc-actions .hc-del:hover { color: var(--danger); }
-.hc-divider {
-  margin-top: 18px; padding-top: 12px; border-top: 1px dashed rgba(255, 255, 255, .14);
-  color: var(--paper-dim); font-weight: 700; font-size: .92rem;
+.hd-gallery::-webkit-scrollbar { display: none; }
+.hd-gallery { align-items: flex-start; }
+.hd-gallery img {
+  flex: 0 0 86%; width: 86%; height: min(58vw, 300px); object-fit: cover; border-radius: 16px; display: block;
+  scroll-snap-align: center; background: var(--ink-3);
+}
+.hd-gallery img:only-child { flex-basis: 100%; width: 100%; }
+.hd-noimg { flex: 1; aspect-ratio: 16 / 9; display: grid; place-items: center; border-radius: 16px; background: var(--ink-3); }
+.hd-noimg .ic { width: 36px; height: 36px; color: rgba(207, 199, 182, .35); }
+.hd-count { margin-top: 6px; text-align: center; font-size: .74rem; color: var(--paper-dim); }
+.hd-foot {
+  position: sticky; bottom: -20px; z-index: 2; margin: 16px -22px -20px; padding: 12px 22px calc(16px + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(15, 30, 26, 0), rgba(15, 30, 26, .97) 28%);
+}
+.hd-foot .hs-book { margin-top: 0; min-height: 50px; align-items: center; font-size: 1rem; }
+
+/* ---------- the hotels page (#hotels) ----------
+   Phone first: one column, everything a thumb reaches, the add button floating
+   above the dock. A booked stay is a picture with its dates under it, the way the
+   booking apps show a reservation; an open night is a dashed card that says so,
+   with the hotels nearest where that day ends right inside it. */
+
+.tp-inner.hp { display: flex; flex-direction: column; gap: 16px; padding-bottom: 120px; }
+
+.hp-summary {
+  position: relative; overflow: hidden; display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; border-radius: var(--radius);
+}
+.hp-summary::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(120% 160% at 100% 0, rgba(255, 180, 95, .16), transparent 55%);
+}
+.hp-summary.all-done::before { background: radial-gradient(120% 160% at 100% 0, rgba(143, 216, 196, .2), transparent 55%); }
+.hp-ring { position: relative; flex: none; width: 64px; height: 64px; }
+.hp-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.hr-track { fill: none; stroke: rgba(255, 255, 255, .1); stroke-width: 6; }
+.hr-fill { fill: none; stroke: var(--amber); stroke-width: 6; stroke-linecap: round; transition: stroke-dasharray .6s ease; }
+.all-done .hr-fill { stroke: var(--mint); }
+.hr-num {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; direction: ltr;
+  font-size: .8rem; color: var(--paper-dim); font-variant-numeric: tabular-nums;
+}
+.hr-num b { font-size: 1.3rem; font-weight: 800; color: var(--paper); }
+.hp-sum-text { position: relative; flex: 1; min-width: 0; }
+.hp-sum-text h3 { font-family: var(--font-display); font-size: 1.12rem; line-height: 1.25; }
+.hp-sum-text p { margin-top: 3px; color: var(--paper-dim); font-size: .84rem; line-height: 1.4; }
+.hp-sum-text .hp-sum-money { display: flex; align-items: center; gap: 6px; color: var(--amber); font-weight: 700; }
+.hp-sum-money .ic { width: 14px; height: 14px; flex: none; }
+.hp-sum-go {
+  position: relative; flex: none; padding: 9px 13px; border-radius: 999px; cursor: pointer;
+  background: rgba(255, 180, 95, .14); border: 1px solid rgba(255, 180, 95, .42); color: var(--amber);
+  font: 700 .82rem var(--font-body); white-space: nowrap;
+}
+
+/* the nights, one dated chip each, grouped under their destination */
+.hp-nights {
+  display: flex; gap: 14px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity;
+  margin-inline: calc(-1 * clamp(14px, 4vw, 28px)); padding: 2px clamp(14px, 4vw, 28px) 4px;
+}
+.hp-nights::-webkit-scrollbar { display: none; }
+.hn-group { flex: none; display: flex; flex-direction: column; gap: 6px; }
+.hn-area { padding-inline-start: 2px; color: var(--mint); font-size: .74rem; font-weight: 700; white-space: nowrap; }
+.hn-row { display: flex; gap: 6px; }
+.hp-night {
+  position: relative; flex: none; width: 54px; padding: 8px 0 9px; border-radius: 14px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 1px; scroll-snap-align: start;
+  background: var(--glass); border: 1px solid var(--glass-border); color: var(--paper); font-family: var(--font-body);
+  transition: transform .15s ease;
+}
+.hp-night:active { transform: scale(.94); }
+.hp-night:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.hn-top { color: var(--paper-dim); font-size: .7rem; font-weight: 600; }
+.hn-big { font-size: .92rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.hn-bar { width: 22px; height: 4px; margin-top: 5px; border-radius: 2px; background: var(--c, rgba(255, 255, 255, .15)); }
+.hp-night.is-booked { background: rgba(255, 255, 255, .08); border-color: var(--c); }
+@supports (background: color-mix(in srgb, red 10%, transparent)) {
+  .hp-night.is-booked { background: color-mix(in srgb, var(--c) 15%, transparent); border-color: color-mix(in srgb, var(--c) 55%, transparent); }
+}
+.hp-night.is-gap { border-style: dashed; border-color: rgba(255, 180, 95, .45); }
+.hp-night.is-gap .hn-bar { background: repeating-linear-gradient(90deg, var(--amber) 0 4px, transparent 4px 7px); }
+.hp-night.is-idea { border-style: dashed; border-color: rgba(255, 180, 95, .45); }
+.hp-night.is-idea .hn-bar { background: rgba(255, 180, 95, .6); }
+
+.hp-list { display: flex; flex-direction: column; gap: 14px; }
+
+/* a booked stay */
+.hp-stay {
+  overflow: hidden; scroll-margin-top: 14px; border-radius: var(--radius);
+  background: rgba(16, 32, 27, .78); border: 1px solid var(--glass-border); box-shadow: var(--shadow-soft);
+}
+.st-cover { position: relative; aspect-ratio: 16 / 9; max-height: 230px; width: 100%; overflow: hidden; background: linear-gradient(135deg, var(--ink-3), var(--ink-2)); }
+.st-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.st-cover::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(6, 13, 11, .4) 0, transparent 28%, transparent 42%, rgba(6, 13, 11, .92) 100%);
+}
+.st-cover.is-city img { filter: saturate(.8) brightness(.85); }
+.stc-status, .stc-nights {
+  position: absolute; top: 12px; z-index: 1; display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border-radius: 999px; font-size: .76rem; font-weight: 800;
+}
+.stc-status { inset-inline-start: 12px; background: rgba(143, 216, 196, .94); color: #0a1f19; }
+.stc-status .ic { width: 13px; height: 13px; stroke-width: 3; }
+.stc-nights {
+  inset-inline-end: 12px; background: rgba(6, 13, 11, .55); border: 1px solid rgba(255, 255, 255, .2);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.stc-title { position: absolute; inset-inline: 14px; bottom: 12px; z-index: 1; }
+.stc-title h3 { font-family: var(--font-display); font-size: 1.32rem; line-height: 1.2; text-shadow: 0 2px 12px rgba(0, 0, 0, .55); }
+.stc-title p { margin-top: 2px; color: rgba(245, 239, 227, .86); font-size: .84rem; }
+.st-body { display: flex; flex-direction: column; border-top: 3px solid var(--c); }
+.st-dates { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; padding: 14px 16px 12px; }
+.std { display: flex; flex-direction: column; gap: 2px; }
+.std:last-child { align-items: flex-end; text-align: end; }
+.std small { color: var(--paper-dim); font-size: .72rem; font-weight: 600; }
+.std b { font-size: 1.1rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.std span { display: inline-flex; align-items: center; gap: 5px; color: var(--paper-dim); font-size: .76rem; }
+.std span i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.std-mid { position: relative; width: 78px; display: flex; justify-content: center; }
+.std-mid::before { content: ''; position: absolute; inset-inline: 0; top: 50%; border-top: 1.5px dashed rgba(255, 255, 255, .24); }
+.std-mid span {
+  position: relative; display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; border-radius: 999px;
+  background: var(--ink-2); border: 1px solid var(--glass-border); font-size: .8rem; font-weight: 800;
+}
+.std-mid .ic { width: 12px; height: 12px; color: var(--amber); }
+.st-money {
+  display: flex; align-items: center; gap: 6px; margin: 0 16px; padding: 9px 12px; border-radius: 12px;
+  background: rgba(255, 180, 95, .08); border: 1px solid rgba(255, 180, 95, .2); color: var(--paper-dim); font-size: .86rem;
+}
+.st-money b { color: var(--amber); font-size: .96rem; }
+.st-money .ic { width: 14px; height: 14px; color: var(--amber); flex: none; }
+.st-warn { margin: 10px 16px 0; color: var(--danger); font-size: .84rem; font-weight: 600; }
+.st-actions { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; padding: 12px 12px 14px; }
+.st-act {
+  min-height: 58px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  padding: 8px 4px; border-radius: 14px; cursor: pointer; text-decoration: none;
+  background: var(--glass); border: 1px solid var(--glass-border); color: var(--paper);
+  font: 700 .78rem var(--font-body); transition: background .15s ease, transform .15s ease;
+}
+.st-act .ic { width: 19px; height: 19px; color: var(--mint); }
+.st-act:hover { background: var(--glass-strong); }
+.st-act:active { transform: scale(.96); }
+.st-alts { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--glass-border); }
+.st-alts-t { padding-inline-start: 4px; color: var(--paper-dim); font-size: .8rem; font-weight: 700; }
+
+/* an idea: still being weighed, one tap from booked */
+.hp-idea {
+  display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 14px; cursor: pointer;
+  background: rgba(6, 13, 11, .42); border: 1px dashed rgba(255, 180, 95, .35);
+}
+.hp-idea:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.hi-thumb { flex: none; width: 50px; height: 50px; display: grid; place-items: center; overflow: hidden; border-radius: 10px; background: var(--ink-3); font-size: 1.2rem; }
+.hi-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hi-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hi-text b { font-size: .93rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hi-text small { color: var(--paper-dim); font-size: .76rem; }
+.hi-book {
+  flex: none; min-height: 38px; padding: 0 13px; border-radius: 999px; cursor: pointer;
+  background: rgba(143, 216, 196, .12); border: 1px solid rgba(143, 216, 196, .45); color: var(--mint);
+  font: 700 .8rem var(--font-body);
+}
+
+/* an open night */
+.hp-gap {
+  display: flex; flex-direction: column; gap: 10px; padding: 14px 14px 14px; scroll-margin-top: 14px;
+  border-radius: var(--radius); border: 1.5px dashed rgba(255, 180, 95, .4);
+  background: linear-gradient(180deg, rgba(255, 180, 95, .08), rgba(16, 32, 27, .55) 55%);
+}
+.hg-head { display: flex; align-items: center; gap: 12px; }
+.hg-moon { flex: none; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; background: rgba(255, 180, 95, .15); color: var(--amber); }
+.hg-moon .ic { width: 20px; height: 20px; }
+.hg-titles { min-width: 0; }
+.hg-titles h3 { font-family: var(--font-display); font-size: 1.1rem; }
+.hg-titles h3 small { font-family: var(--font-body); font-size: .82rem; font-weight: 600; color: var(--paper-dim); }
+.hg-titles p { margin-top: 1px; color: var(--paper-dim); font-size: .84rem; }
+.hg-ideas { display: flex; flex-direction: column; gap: 8px; }
+.hg-sugg { color: var(--paper-dim); font-size: .82rem; }
+.hg-sugg b { color: var(--paper); font-weight: 700; }
+.hp-gap .hg-rail { margin: 0 -14px; padding-inline: 14px; scroll-padding-inline: 14px; }
+.hp-gap .nc-hotel { flex-basis: 158px; }
+.hp-gap .nc-empty { margin: 0; }
+.hg-actions { display: flex; gap: 8px; }
+.hg-have, .hg-search {
+  flex: 1; min-height: 46px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border-radius: 999px; cursor: pointer; text-decoration: none; font-family: var(--font-body);
+}
+.hg-have { border: 0; background: linear-gradient(135deg, var(--amber), var(--amber-deep)); color: #241302; font-weight: 800; font-size: .9rem; }
+.hg-search { background: var(--glass); border: 1px solid var(--glass-border); color: var(--paper); font-weight: 700; font-size: .88rem; }
+.hg-have .ic, .hg-search .ic { width: 16px; height: 16px; }
+.hg-have .ic { stroke-width: 2.6; }
+
+.hp-flash { animation: hpFlash 1.2s ease; }
+@keyframes hpFlash {
+  0% { box-shadow: 0 0 0 0 rgba(255, 180, 95, 0); }
+  25% { box-shadow: 0 0 0 3px rgba(255, 180, 95, .75); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 180, 95, 0); }
+}
+.hp-empty { padding: 36px 20px; text-align: center; border-radius: var(--radius); }
+.hp-empty-ic { font-size: 2.4rem; }
+.hp-empty h3 { font-family: var(--font-display); margin-top: 8px; }
+.hp-empty p { color: var(--paper-dim); margin-top: 4px; }
+
+/* the add button floats over the page's foot — above the dock on a phone */
+.page-hotels .tp-foot {
+  position: absolute; bottom: 0; inset-inline: 0; z-index: 3; display: flex; justify-content: flex-end;
+  padding: 0 16px calc(18px + env(safe-area-inset-bottom)); pointer-events: none;
+  background: transparent; border-top: 0; -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.hp-fab {
+  pointer-events: auto; display: inline-flex; align-items: center; gap: 8px; height: 52px; padding: 0 22px; border: 0;
+  border-radius: 999px; cursor: pointer; color: #241302; font: 800 .98rem var(--font-body);
+  background: linear-gradient(135deg, #ffcb7d, var(--amber) 55%, var(--amber-deep));
+  box-shadow: 0 12px 30px -6px rgba(232, 133, 58, .55), 0 2px 8px rgba(0, 0, 0, .45);
+  transition: transform .15s ease, padding .2s ease;
+}
+.hp-fab span { white-space: nowrap; }
+.hp-fab.is-mini { padding: 0 16px; }
+.hp-fab.is-mini span { display: none; }
+.hp-fab:active { transform: scale(.96); }
+.hp-fab .ic { width: 18px; height: 18px; stroke-width: 2.6; }
+@media (max-width: 640px) {
+  body:has(.action-bar):not(.dock-veiled) .page-hotels .tp-foot { bottom: calc(var(--dock-h) + var(--dock-inset) + 4px); padding-bottom: 10px; }
+}
+
+/* the stay sheet: big targets, nights picked by tapping, the save button pinned */
+.tp-sheet-card.stay-card { width: min(560px, 100%); }
+.he { display: flex; flex-direction: column; gap: 8px; }
+.he-l { margin-top: 6px; font-size: .86rem; font-weight: 700; color: var(--paper); }
+.he-l small { margin-inline-start: 4px; color: var(--paper-dim); font-size: .76rem; font-weight: 400; }
+.he input {
+  width: 100%; min-height: 50px; padding: 12px 14px; border-radius: 14px;
+  background: rgba(6, 13, 11, .55); border: 1px solid var(--glass-border); color: var(--paper);
+  font: 400 1rem var(--font-body);
+}
+.he input::placeholder { color: rgba(207, 199, 182, .55); }
+.he input:focus { outline: none; border-color: rgba(255, 180, 95, .6); box-shadow: 0 0 0 3px rgba(255, 180, 95, .15); }
+.he .autocomplete-wrap { position: relative; }
+.he .autocomplete-list { background: rgba(15, 30, 26, .98); }
+.he .ac-icon img { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; display: block; }
+.he-nights { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 6px; }
+.he-night {
+  position: relative; min-height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: 12px; cursor: pointer; background: var(--glass); border: 1px solid var(--glass-border);
+  color: var(--paper); font-family: var(--font-body); transition: background .12s ease;
+}
+.he-night small { color: var(--paper-dim); font-size: .68rem; }
+.he-night b { font-size: .9rem; font-variant-numeric: tabular-nums; }
+.he-night.on { background: rgba(255, 180, 95, .2); border-color: rgba(255, 180, 95, .55); }
+.he-night.first, .he-night.last { background: linear-gradient(135deg, var(--amber), var(--amber-deep)); border-color: transparent; color: #241302; }
+.he-night.first small, .he-night.last small { color: rgba(36, 19, 2, .75); }
+.he-night.taken i { position: absolute; top: 5px; inset-inline-end: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--mint); }
+.he-range { color: var(--paper-dim); font-size: .84rem; }
+.he-range b { color: var(--amber); }
+.he .seg button { min-height: 44px; }
+.he-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.he .form-error:empty { display: none; }
+.he-foot {
+  position: sticky; bottom: -20px; z-index: 2; display: flex; gap: 10px; align-items: center;
+  margin: 8px -22px -20px; padding: 12px 22px calc(16px + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(15, 30, 26, 0), rgba(15, 30, 26, .97) 28%);
+}
+.he-foot .hf-save { flex: 1; justify-content: center; min-height: 50px; font-size: 1rem; }
+.he-del {
+  min-height: 50px; display: inline-flex; align-items: center; gap: 6px; padding: 0 16px; border-radius: 999px; cursor: pointer;
+  background: rgba(255, 122, 110, .1); border: 1px solid rgba(255, 122, 110, .35); color: var(--danger); font: 700 .88rem var(--font-body);
+}
+.he-del .ic { width: 16px; height: 16px; }
+@media (max-width: 640px) {
+  .hd-gallery { margin: 0 -16px; padding: 0 16px; }
+  .hd-foot, .he-foot { bottom: calc(-18px - env(safe-area-inset-bottom)); margin-inline: -16px; padding-inline: 16px; margin-bottom: calc(-18px - env(safe-area-inset-bottom)); }
+  .he-row { grid-template-columns: 1fr; }
+}
+
+/* wide screens: the stay lies on its side — the photo beside the dates */
+@media (min-width: 760px) {
+  .tp-inner.hp { width: min(880px, 100%); }
+  .hp-stay { display: flex; }
+  .st-cover { flex: 0 0 300px; aspect-ratio: auto; max-height: none; min-height: 240px; }
+  .st-body { flex: 1; min-width: 0; border-top: 0; border-inline-start: 3px solid var(--c); }
+  .st-actions { margin-top: auto; }
+  .hp-gap .nc-hotel { flex-basis: 176px; }
 }
 
 /* ---------- ambient budget/hotels on the trip page ---------- */

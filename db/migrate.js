@@ -463,6 +463,12 @@ async function migrate(pool, log = console.log) {
   // the due query: active, not yet sent, inside its lead window — this is the whole scan
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_moments_due ON trip_moments(starts_at) WHERE notified_at IS NULL AND status = 'active'`);
 
+  log('Migration 32: a stay remembers its photo and the provider\'s id...');
+  // a hotel saved from the suggestions shows its own picture on the hotels page, and
+  // its details sheet opens from the stay. Both null for anything typed by hand.
+  await pool.query(`ALTER TABLE trip_hotels ADD COLUMN IF NOT EXISTS photo TEXT`);
+  await pool.query(`ALTER TABLE trip_hotels ADD COLUMN IF NOT EXISTS ref TEXT`);
+
   log('Done.');
 }
 
