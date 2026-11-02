@@ -1269,8 +1269,22 @@ const TripPlan = (() => {
       if (building) return;
       building = true;
       const overlay = showOverlay(fill ? 'את שאר הימים' : 'את הטיול');
+      const before = lastBuiltId();
       try {
-        const r = await api(ctx, '/build', { method: 'POST', body: JSON.stringify({ fill }) });
+        let r;
+        try {
+          r = await api(ctx, '/build', { method: 'POST', body: JSON.stringify({ fill }) });
+        } catch (err) {
+          // a long build outlives the hops in front of the server: Cloudflare cuts the wait
+          // at 100 s (524), a phone drops its connection, a proxy answers 502 — while the
+          // route keeps going and writes the trip. On 2026-11-02 a 4-day Rome build landed
+          // at 55 s behind a "שגיאה 502" that never went away. So a failure that did not
+          // come from the route itself waits for the build to show up before it is believed.
+          if (!err || err.quota || !(err.relayed || !err.status)) throw err;
+          overlay.say('הבנייה עדיין רצה — מחכים לה… ✈️');
+          r = await awaitBuilt(before);
+          if (!r) throw err;
+        }
         overlay.say('שומרים את הטיול… ✈️');
         state = r.state;
         ctx.trip.plan_state = state;
@@ -1296,6 +1310,33 @@ const TripPlan = (() => {
         msgs.push({ role: 'ai', text: '⚠️ ' + ((err && err.message) || 'הבנייה נכשלה — נסו שוב'), payload: {}, transient: true });
         paint();
       }
+    }
+
+    // the newest "built" message in the thread — the mark a finished build leaves
+    function lastBuiltId(list) {
+      const rows = list || msgs;
+      for (let i = rows.length - 1; i >= 0; i--) {
+        if (rows[i].payload && rows[i].payload.built && rows[i].id) return String(rows[i].id);
+      }
+      return null;
+    }
+
+    // after the request was lost on the way: read the thread until a build newer than
+    // the one before shows up (the route's own limit is 300 s), or give up and say so
+    async function awaitBuilt(before) {
+      const until = Date.now() + 5 * 60 * 1000;
+      while (Date.now() < until) {
+        await new Promise((ok) => setTimeout(ok, 5000));
+        try {
+          const r = await api(ctx, '');
+          const id = lastBuiltId(r.messages || []);
+          if (id && id !== before) {
+            const t = await TRIPMAKER.api(`/api/trips/code/${ctx.trip.share_code}`).catch(() => ({}));
+            return { state: r.state, plan: null, items: t.items || [] };
+          }
+        } catch { /* the network may still be coming back — keep reading */ }
+      }
+      return null;
     }
 
     function showOverlay(label) {
