@@ -1109,14 +1109,6 @@ button.dest-chip.dc-add .ic { width: 15px; height: 15px; }
 .seg button.active {
   background: linear-gradient(135deg, var(--amber), var(--amber-deep)); color: #241302;
 }
-.night-seg.empty {
-  background: repeating-linear-gradient(135deg, rgba(255, 255, 255, .04) 0 6px, transparent 6px 12px);
-  color: var(--paper-dim);
-}
-.coverage-line.ok { background: rgba(143, 216, 196, .08); border-color: rgba(143, 216, 196, .3); color: var(--mint); }
-.hc-actions a { color: var(--mint); text-decoration: none; font-weight: 600; }
-/* the row's stroke icons ride the text baseline, a notch smaller than .ic's default */
-.hc-actions .ic { width: 14px; height: 14px; vertical-align: -2px; }
 .nc-head .ic { width: 15px; height: 15px; color: var(--amber); flex: none; }
 .nc-photo .ic { width: 20px; height: 20px; color: rgba(207, 199, 182, .35); }
 .nc-price.loading { color: var(--paper-dim); font-weight: 300; font-size: .73rem; }
@@ -1131,7 +1123,6 @@ button.dest-chip.dc-add .ic { width: 15px; height: 15px; }
 .nc-foot .ic { width: 13px; height: 13px; vertical-align: -2px; }
 .night-booked .ic { width: 16px; height: 16px; flex: none; }
 .hs-cat b { color: var(--mint); }
-.hc-actions a { display: inline-flex; align-items: center; gap: 5px; }
 #budget-btn.warn { color: var(--amber); }
 #budget-btn.over { color: var(--danger); }
 .day-route .ic { width: 14px; height: 14px; }

@@ -268,22 +268,129 @@ const TripModals = (() => {
   }
 
   // =================================================================
-  //  HOTELS MODAL
+  //  HOTELS PAGE — "איפה ישנים"
+  //
+  //  A full page like the other dock pages (#hotels, back closes it), built
+  //  phone-first the way travel apps lay out a stay: the trip's nights as a row
+  //  of dated chips, then every stretch of the trip in order — a booked stay as
+  //  a card with its photo, check-in and check-out; a night nobody solved as an
+  //  open card with the hotels nearest where that day ends. Adding and editing
+  //  happen in a bottom sheet, and the nights are picked by tapping them.
   // =================================================================
 
+  const WEEKDAY = ['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'];
+
+  // the evening of `offset` days after the trip starts, as { wd, dm } — or null with no dates
+  function tripDay(state, offset) {
+    const iso = String(state.trip.start_date || '').slice(0, 10);
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3] + offset);
+    return { wd: WEEKDAY[d.getDay()], dm: `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}` };
+  }
+  // night N is the evening of day N; its check-out is the morning of day N+1
+  const nightDay = (state, n) => tripDay(state, n - 1);
+
+  // the map's colour for a day — one colour per day across the pin, the line and here
+  const dayTint = (day) => (typeof TripMap !== 'undefined' && TripMap.dayColor ? TripMap.dayColor(day) : '#ffb45f');
+
+  const nightsWord = (k) => (k === 1 ? 'לילה אחד' : `${k} לילות`);
+  // the range is isolated left-to-right: in a Hebrew line, "1–4" would otherwise read as "4–1"
+  const rangeWord = (a, b) => (a === b ? `לילה ${a}` : `לילות \u2066${a}–${b}\u2069`);
+
+  // the stay's picture: its own when it came from a suggestion, else its city's
+  function stayPhoto(state, h, areaName) {
+    if (h.photo) return h.photo;
+    if (typeof DEST_PHOTOS === 'undefined') return null;
+    const dests = Array.isArray(state.trip.destinations) ? state.trip.destinations : [];
+    const d = dests.find((x) => x && x.name === areaName) || dests[0] || { name: state.trip.destination, country: state.trip.country };
+    const f = DEST_PHOTOS.find(d) || DEST_PHOTOS.find({ name: state.trip.destination, country: state.trip.country });
+    return DEST_PHOTOS.img(f ? f.id : DEST_PHOTOS.generic[(state.trip.id || 0) % DEST_PHOTOS.generic.length], 900);
+  }
+
+  // The trip cut into stretches, in order: a booked stay covering consecutive nights,
+  // or a run of nights with nothing booked. Ideas sit with the stretch they start in.
+  function hotelSegments(state) {
+    const cover = nightCoverage(state);
+    const segs = [];
+    for (let n = 1; n <= nightCount(state); n++) {
+      const h = cover[n] || null;
+      const last = segs[segs.length - 1];
+      if (last && last.hotel === h && last.to === n - 1) { last.to = n; continue; }
+      segs.push({ hotel: h, from: n, to: n, ideas: [] });
+    }
+    for (const idea of state.hotels.filter((x) => x.status === 'idea')) {
+      const seg = segs.find((s) => idea.night_start >= s.from && idea.night_start <= s.to) || segs[segs.length - 1];
+      if (seg) seg.ideas.push(idea);
+    }
+    return segs;
+  }
+
+  const HP_ICON = {
+    plus: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>',
+    nav: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 19-9-9 19-2-8-8-2z"/></svg>',
+    ticket: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 9a3 3 0 0 0 0 6v3a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-3a3 3 0 0 0 0-6V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2M13 17v2M13 11v2"/></svg>',
+    info: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>',
+    tag: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>',
+  };
+
+  let hotelsCtx = null;
+  const railCache = new Map(); // anchor → nearby hotels, for this visit
+  let hotelsRender = null; // the open page's render(), so a change elsewhere can repaint it
+
+  // the page is registered once the trip knows it has nights; reload on #hotels lands on it
+  function initHotels(ctx) {
+    hotelsCtx = ctx;
+    if (typeof TripPages === 'undefined') return;
+    TripPages.register('hotels', {
+      title: '🏨 איפה ישנים',
+      sub: 'כל לילה בטיול — מה כבר הוזמן, מה עוד פתוח, ומלונות ליד המקום שבו היום נגמר',
+      render: (slots) => renderHotelsPage(slots, hotelsCtx),
+      onClose: () => { hotelsRender = null; },
+    });
+  }
+
+  // opts.addNight: arriving from a night in the itinerary — a booked night opens its
+  // stay for editing, an open one opens the add sheet on that night
   function openHotels(ctx, opts = {}) {
+    if (!hotelsCtx || hotelsCtx !== ctx) initHotels(ctx);
     const { state } = ctx;
-    const wrap = shell('hotels-modal', '🏨 איפה ישנים?', '');
-    const body = wrap.querySelector('.mw-body');
-    wrap.querySelector('.mw-controls').innerHTML = '';
-    let formState = null; // null | {editing: hotel|null, night_from, night_to}
+    if (typeof TripPages === 'undefined') return;
+    if (TripPages.current() === 'hotels') hotelsRender?.();
+    else TripPages.open('hotels');
+    if (opts.addNight && nightCount(state) > 0) {
+      const h = nightCoverage(state)[opts.addNight];
+      if (h) openStaySheet(ctx, h, h.night_start, h.night_end);
+      else openStaySheet(ctx, null, opts.addNight, opts.addNight);
+    }
+  }
+
+  function renderHotelsPage(slots, ctx) {
+    const { state } = ctx;
+    const { body, foot } = slots;
 
     if (nightCount(state) === 0) {
-      body.innerHTML = '<div class="empty-day">טיול של יום אחד — ישנים בבית 🙂</div>';
+      body.innerHTML = '<div class="tp-inner"><div class="hp-empty glass"><div class="hp-empty-ic">🏡</div><h3>טיול של יום אחד</h3><p>ישנים בבית 🙂</p></div></div>';
+      foot.innerHTML = '';
       return;
     }
 
-    function nightLabel(n) { return `לילה ${n}`; }
+    foot.innerHTML = state.canEdit
+      ? `<button type="button" class="hp-fab" id="hp-add">${HP_ICON.plus}<span>הוספת מלון</span></button>`
+      : '';
+    // the button shrinks to its icon once the page scrolls, so it never sits on a card's buttons
+    const fab = foot.querySelector('#hp-add');
+    // (and starts as one when there are stays on screen already: the label is for the empty page)
+    if (fab) {
+      const mini = () => fab.classList.toggle('is-mini', state.hotels.length > 0 || body.scrollTop > 40);
+      body.onscroll = mini;
+      fab.setAttribute('aria-label', 'הוספת מלון');
+      requestAnimationFrame(mini);
+    }
+    fab?.addEventListener('click', () => {
+      const run = uncoveredRuns(state)[0];
+      openStaySheet(ctx, null, run ? run.from : 1, run ? run.to : nightCount(state));
+    });
 
     function overlapsOf(hotel) {
       if (hotel.status !== 'booked') return [];
@@ -291,133 +398,234 @@ const TripModals = (() => {
         h.id !== hotel.id && h.night_start <= hotel.night_end && hotel.night_start <= h.night_end);
     }
 
-    function render() {
+    function summaryHtml() {
+      const total = nightCount(state);
       const cover = nightCoverage(state);
+      const done = Object.keys(cover).filter((n) => +n <= total).length;
       const runs = uncoveredRuns(state);
-      const booked = bookedHotels(state);
-      const ideas = state.hotels.filter((h) => h.status === 'idea');
+      const cur = curOf(state);
+      const spend = bookedHotels(state).reduce((s, h) => s + (+h.price_total || 0), 0);
+      const pricedNights = bookedHotels(state).filter((h) => +h.price_total > 0)
+        .reduce((s, h) => s + (h.night_end - h.night_start + 1), 0);
+      const R = 26, C = 2 * Math.PI * R;
+      const frac = total ? done / total : 0;
+      const title = done === total ? 'כל הלילות מסודרים'
+        : done === 0 ? 'עוד לא סגרתם איפה ישנים' : `${done} מתוך ${total} לילות מסודרים`;
+      const sub = done === total
+        ? 'אפשר לישון בשקט 🎉'
+        : `${runs.map((r) => rangeWord(r.from, r.to)).join(', ')} — עדיין פתוח`;
+      return `
+        <section class="hp-summary glass${done === total ? ' all-done' : ''}">
+          <div class="hp-ring" role="img" aria-label="${done} מתוך ${total} לילות מסודרים">
+            <svg viewBox="0 0 64 64" aria-hidden="true">
+              <circle cx="32" cy="32" r="${R}" class="hr-track"/>
+              ${done ? `<circle cx="32" cy="32" r="${R}" class="hr-fill" stroke-dasharray="${(C * frac).toFixed(1)} ${C.toFixed(1)}"/>` : ''}
+            </svg>
+            <span class="hr-num"><b>${done}</b>/${total}</span>
+          </div>
+          <div class="hp-sum-text">
+            <h3>${title}</h3>
+            <p>${sub}</p>
+            ${spend > 0 && state.canEdit ? `<p class="hp-sum-money">${HP_ICON.tag}${fmt(spend, cur)} על לינה${pricedNights > 1 ? ` · ${fmt(spend / pricedNights, cur)} ללילה` : ''}</p>` : ''}
+          </div>
+          ${runs.length && done > 0 ? `<button type="button" class="hp-sum-go" data-go="${runs[0].from}">לילה ${runs[0].from} ‹</button>` : ''}
+        </section>`;
+    }
+
+    function nightsHtml(segs) {
       const blocks = destBlocks(state);
-
-      // night strip + destination label row (flex-grow spans per block's nights)
-      const stripSegs = [];
-      for (let n = 1; n <= nightCount(state); n++) {
-        const h = cover[n];
-        stripSegs.push(`
-          <button type="button" class="night-seg${h ? '' : ' empty'}" data-night="${n}"
-            ${h ? `style="background:${hotelColor(state, h)}22;border-color:${hotelColor(state, h)}88" data-hotel="${h.id}"` : ''}
-            title="${h ? esc(h.name) : 'עוד אין מלון ללילה הזה'}">
-            <span class="ns-num">${n}</span>
-            ${h ? `<span class="ns-dot" style="background:${hotelColor(state, h)}"></span>` : ''}
-          </button>`);
-      }
-      const destRow = blocks.length > 1 ? `<div class="night-dests">${blocks.map((b) => {
-        const nights = Math.max(Math.min(b.to, nightCount(state)) - b.from + 1, 0);
-        return nights > 0 ? `<span style="flex-grow:${nights}">${esc(b.name)}</span>` : '';
-      }).join('')}</div>` : '';
-
-      const coverageLine = !booked.length ? '' :
-        runs.length === 0
-          ? '<div class="coverage-line ok">🎉 כל הלילות מסודרים!</div>'
-          : `<div class="coverage-line">😴 ${runs.map((r) => r.from === r.to ? `לילה ${r.from}` : `לילות ${r.from}–${r.to}`).join(', ')} עדיין בלי מלון</div>`;
-
-      const cardHtml = (h) => {
-        const over = overlapsOf(h);
-        const color = h.status === 'booked' ? hotelColor(state, h) : 'rgba(255,255,255,.25)';
-        const checkout = h.night_end + 1;
-        const block = blocks.find((b) => h.night_start >= b.from && h.night_start <= b.to);
+      const total = nightCount(state);
+      const chip = (n) => {
+        const seg = segs.find((s) => n >= s.from && n <= s.to);
+        const h = seg && seg.hotel;
+        const hasIdea = !h && state.hotels.some((x) => x.status === 'idea' && x.night_start <= n && n <= x.night_end);
+        const d = nightDay(state, n);
+        const color = h ? hotelColor(state, h) : null;
         return `
-        <div class="hotel-card" data-id="${h.id}" style="border-inline-start-color:${color}">
-          <div class="hc-top">
-            <span class="hc-name">🏨 ${esc(h.name)}${h.stars ? ` <span class="hotel-stars">${'★'.repeat(Math.min(h.stars, 5))}</span>` : ''}</span>
-            <button type="button" class="hc-status ${h.status}" data-id="${h.id}" title="לחיצה מחליפה סטטוס">${h.status === 'booked' ? '✅ הוזמן' : '💡 רעיון'}</button>
-          </div>
-          <div class="hc-nights">${h.night_start === h.night_end ? `לילה ${h.night_start}` : `לילות ${h.night_start}–${h.night_end}`}${block ? ` · ${esc(block.name)}` : ''} <small>(צ'ק-אאוט ביום ${checkout})</small></div>
-          ${state.canEdit && (h.price_total || h.note) ? `<div class="hc-details">${h.price_total ? fmt(h.price_total, curOf(state)) : ''}${h.price_total && h.note ? ' · ' : ''}${h.note ? esc(h.note) : ''}</div>` : ''}
-          ${over.length ? `<div class="hc-warn">⚠️ ${over.map((o) => `יש חפיפה עם "${esc(o.name)}"`)[0]}</div>` : ''}
-          <div class="hc-actions">
-            <a target="_blank" rel="noopener" href="${esc(TRIPMAKER.mapsSearchUrl(h.name + (block ? ' ' + block.name : '')))}">${HICON.pin} מפה</a>
-            <a target="_blank" rel="noopener" data-book="${h.id}" data-kind="${h.link ? 'custom_link' : 'booking_search'}" href="${esc(bookingUrl(state, h))}">${h.link ? `${HICON.link} להזמנה` : `${HICON.search} חיפוש בבוקינג`}</a>
-            <span class="hc-spacer"></span>
-            <button type="button" class="hc-edit" data-id="${h.id}">${HICON.pencil} עריכה</button>
-            <button type="button" class="hc-del" data-id="${h.id}" title="הסרת המלון" aria-label="הסרת המלון">${HICON.trash}</button>
-          </div>
-        </div>`;
+          <button type="button" class="hp-night ${h ? 'is-booked' : hasIdea ? 'is-idea' : 'is-gap'}" data-go="${seg ? seg.from : n}"
+            ${color ? `style="--c:${color}"` : ''} aria-label="לילה ${n}${d ? ` · ${d.wd} ${d.dm}` : ''} · ${h ? esc(h.name) : 'עוד אין מלון'}">
+            <span class="hn-top">${d ? d.wd : 'לילה'}</span>
+            <span class="hn-big">${d ? d.dm : n}</span>
+            <span class="hn-bar" aria-hidden="true"></span>
+          </button>`;
       };
+      // grouped under each destination, so a two-city trip reads as two stretches
+      const groups = [];
+      if (blocks.length > 1) {
+        for (const b of blocks) {
+          const from = Math.max(b.from, groups.length ? groups[groups.length - 1].to + 1 : 1);
+          const to = Math.min(Math.max(b.to, from), total);
+          if (from > total || from > to) continue;
+          groups.push({ name: b.name, from, to });
+        }
+        if (groups.length && groups[groups.length - 1].to < total) groups[groups.length - 1].to = total;
+      }
+      if (!groups.length) groups.push({ name: null, from: 1, to: total });
+      return `
+        <div class="hp-nights" role="group" aria-label="הלילות בטיול">
+          ${groups.map((g) => `
+            <div class="hn-group">
+              ${g.name ? `<div class="hn-area">${esc(g.name)}</div>` : ''}
+              <div class="hn-row">${Array.from({ length: g.to - g.from + 1 }, (_, i) => chip(g.from + i)).join('')}</div>
+            </div>`).join('')}
+        </div>`;
+    }
 
+    function dateCell(label, dayNum) {
+      const d = tripDay(state, dayNum - 1);
+      return `
+        <div class="std">
+          <small>${label}</small>
+          <b>${d ? `${d.wd} ${d.dm}` : `יום ${dayNum}`}</b>
+          <span><i style="background:${dayTint(dayNum)}"></i>יום ${dayNum}</span>
+        </div>`;
+    }
+
+    function ideaRow(h) {
+      return `
+        <div class="hp-idea" data-edit="${h.id}" role="button" tabindex="0">
+          <span class="hi-thumb">${h.photo ? `<img src="${esc(h.photo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '💡'}</span>
+          <span class="hi-text">
+            <b>${esc(h.name)}</b>
+            <small>${rangeWord(h.night_start, h.night_end)}${h.stars ? ` · <span class="hotel-stars">${'★'.repeat(Math.min(h.stars, 5))}</span>` : ''}${h.price_total && state.canEdit ? ` · ${fmt(h.price_total, curOf(state))}` : ''}</small>
+          </span>
+          ${state.canEdit ? `<button type="button" class="hi-book" data-booked="${h.id}">הוזמן ✓</button>` : ''}
+        </div>`;
+    }
+
+    function stayHtml(seg) {
+      const h = seg.hotel;
+      const color = hotelColor(state, h);
+      const block = blockOfNight(state, h.night_start);
+      const area = block ? block.name : state.trip.destination;
+      const photo = stayPhoto(state, h, area);
+      const nights = h.night_end - h.night_start + 1;
+      const over = overlapsOf(h);
+      const price = +h.price_total > 0 && state.canEdit
+        ? `<div class="st-money">${HP_ICON.tag}<b>${fmt(h.price_total, curOf(state))}</b> סה״כ${nights > 1 ? ` · ${fmt(h.price_total / nights, curOf(state))} ללילה` : ''}</div>` : '';
+      return `
+        <article class="hp-stay" id="hp-seg-${seg.from}" style="--c:${color}">
+          <div class="st-cover${h.photo ? '' : ' is-city'}">
+            ${photo ? `<img src="${esc(photo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
+            <span class="stc-status">${NC_ICON.check} הוזמן</span>
+            <span class="stc-nights">${nightsWord(nights)}</span>
+            <div class="stc-title">
+              <h3>${esc(h.name)}</h3>
+              <p>${h.stars ? `<span class="hotel-stars">${'★'.repeat(Math.min(h.stars, 5))}</span> · ` : ''}${esc(area || '')}</p>
+            </div>
+          </div>
+          <div class="st-body">
+          <div class="st-dates">
+            ${dateCell('צ׳ק-אין', h.night_start)}
+            <div class="std-mid" aria-hidden="true"><span>${NC_ICON.moon}${nights}</span></div>
+            ${dateCell('צ׳ק-אאוט', h.night_end + 1)}
+          </div>
+          ${price}
+          ${over.length ? `<div class="st-warn">⚠️ חופף ל"${esc(over[0].name)}" — כדאי לבדוק את הלילות</div>` : ''}
+          <div class="st-actions">
+            <a class="st-act" target="_blank" rel="noopener" href="${esc(TRIPMAKER.mapsSearchUrl(h.name + (area ? ' ' + area : '')))}">${HP_ICON.nav}<span>ניווט</span></a>
+            ${h.link
+              ? `<a class="st-act" target="_blank" rel="noopener" data-book="${h.id}" data-kind="custom_link" href="${esc(tpWrap(state, h, h.link))}">${HP_ICON.ticket}<span>ההזמנה</span></a>`
+              : `<a class="st-act" target="_blank" rel="noopener" data-book="${h.id}" data-kind="google_hotels" href="${esc(hotelSearchUrl(h.name))}">${NC_ICON.search}<span>מחירים</span></a>`}
+            ${h.ref ? `<button type="button" class="st-act" data-detail="${h.id}">${HP_ICON.info}<span>פרטים</span></button>` : ''}
+            ${state.canEdit ? `<button type="button" class="st-act" data-edit="${h.id}">${HICON.pencil}<span>עריכה</span></button>` : ''}
+          </div>
+          ${seg.ideas.length ? `<div class="st-alts"><div class="st-alts-t">💡 עוד אפשרויות שעלו</div>${seg.ideas.map(ideaRow).join('')}</div>` : ''}
+          </div>
+        </article>`;
+    }
+
+    function gapHtml(seg) {
+      const d = nightDay(state, seg.from);
+      const anchor = nightAnchor(state, seg.from);
+      const area = (anchor && anchor.area) || state.trip.destination || '';
+      const when = d ? `${d.wd} ${d.dm}` : '';
+      return `
+        <article class="hp-gap" id="hp-seg-${seg.from}" data-night="${seg.from}" style="--d:${dayTint(seg.from)}">
+          <div class="hg-head">
+            <span class="hg-moon">${NC_ICON.moon}</span>
+            <div class="hg-titles">
+              <h3>${rangeWord(seg.from, seg.to)}${when ? ` <small>· ${when}</small>` : ''}</h3>
+              <p>${area ? `${esc(area)} · ` : ''}עוד אין איפה לישון</p>
+            </div>
+          </div>
+          ${seg.ideas.length ? `<div class="hg-ideas">${seg.ideas.map(ideaRow).join('')}</div>` : ''}
+          ${anchor ? `
+            <div class="hg-sugg">${anchor.after
+              ? `היום מסתיים ב<b>${esc(anchor.after)}</b> — הכי קרובים לשם`
+              : `מלונות ב${esc(area)}`}</div>
+            <div class="nc-rail hg-rail">${'<div class="nc-skel"></div>'.repeat(3)}</div>` : ''}
+          ${state.canEdit ? `
+            <div class="hg-actions">
+              <button type="button" class="hg-have" data-add-from="${seg.from}" data-add-to="${seg.to}">${NC_ICON.check} כבר הזמנתי</button>
+              <a class="hg-search" target="_blank" rel="noopener" href="${esc(hotelSearchUrl(`מלונות ${area}`))}">${NC_ICON.search} חיפוש בגוגל</a>
+            </div>` : ''}
+        </article>`;
+    }
+
+    function render() {
+      const segs = hotelSegments(state);
       body.innerHTML = `
-        <div class="night-strip">${stripSegs.join('')}</div>
-        ${destRow}
-        ${coverageLine}
-        ${!state.hotels.length && !formState ? `
-          <div class="empty-day" style="padding:26px 12px">
-            עוד לא סגרתם איפה ישנים? 🛏️<br>
-            <small>הוסיפו מלון לכל קטע של הטיול — גם אם רק הזמנתם בראש.</small>
-          </div>` : ''}
-        ${booked.map(cardHtml).join('')}
-        ${ideas.length ? `<div class="hc-divider">💡 רעיונות שעוד מתלבטים עליהם</div>${ideas.map(cardHtml).join('')}` : ''}
-        <div id="hotel-form-slot"></div>
-        ${formState ? '' : `<button type="button" class="add-item-inline" id="hotel-add-btn">+ הוספת מלון</button>`}
-        ${state.canEdit ? '' : `<div class="mw-footnote">רוצים לערוך? רק משתתפי הטיול יכולים — בקשו קישור הזמנה מהמארגנים</div>`}
-      `;
+        <div class="tp-inner hp">
+          ${summaryHtml()}
+          ${nightsHtml(segs)}
+          <div class="hp-list">${segs.map((s) => (s.hotel ? stayHtml(s) : gapHtml(s))).join('')}</div>
+        </div>`;
+      wire(segs);
+    }
+    hotelsRender = render;
 
-      // strip interactions: empty run → open add form on that range; covered → scroll to card
-      body.querySelectorAll('.night-seg').forEach((seg) => {
-        seg.onclick = () => {
-          const hid = seg.dataset.hotel;
-          if (hid) {
-            body.querySelector(`.hotel-card[data-id="${hid}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          } else {
-            const n = +seg.dataset.night;
-            const run = uncoveredRuns(state).find((r) => n >= r.from && n <= r.to) || { from: n, to: n };
-            openForm(null, run.from, run.to);
-          }
+    function wire(segs) {
+      body.querySelectorAll('[data-go]').forEach((b) => {
+        b.onclick = () => {
+          const el = body.querySelector(`#hp-seg-${b.dataset.go}`);
+          if (!el) return;
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          el.classList.remove('hp-flash');
+          void el.offsetWidth;
+          el.classList.add('hp-flash');
         };
       });
-
-      body.querySelector('#hotel-add-btn')?.addEventListener('click', () => {
-        const run = uncoveredRuns(state)[0];
-        openForm(null, run ? run.from : 1, run ? run.to : nightCount(state));
+      const byId = (id) => state.hotels.find((x) => x.id === +id);
+      body.querySelectorAll('[data-edit]').forEach((el) => {
+        const open = (e) => {
+          if (e.target.closest('[data-booked]')) return;
+          const h = byId(el.dataset.edit);
+          if (h && state.canEdit) openStaySheet(ctx, h, h.night_start, h.night_end);
+        };
+        el.addEventListener('click', open);
+        el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(e); } });
       });
-
-      body.querySelectorAll('.hc-status').forEach((b) => {
+      body.querySelectorAll('[data-booked]').forEach((b) => {
         b.onclick = async () => {
-          const h = state.hotels.find((x) => x.id === +b.dataset.id);
+          const h = byId(b.dataset.booked);
+          if (!h) return;
           const headers = await ctx.ensureEdit();
           if (!headers) return;
+          b.disabled = true;
           try {
             const updated = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels/${h.id}`, {
-              method: 'PUT', headers,
-              body: JSON.stringify({ ...h, status: h.status === 'booked' ? 'idea' : 'booked' }),
+              method: 'PUT', headers, body: JSON.stringify({ ...h, status: 'booked' }),
             });
             Object.assign(h, updated);
+            TRIPMAKER.track('hotel_idea_booked', { trip_id: state.trip.id });
             render(); ctx.refresh();
-          } catch (e) { alert(e.message); }
+          } catch (e) { b.disabled = false; alert(e.message); }
         };
       });
-      body.querySelectorAll('.hc-edit').forEach((b) => {
+      body.querySelectorAll('[data-detail]').forEach((b) => {
         b.onclick = () => {
-          const h = state.hotels.find((x) => x.id === +b.dataset.id);
-          openForm(h, h.night_start, h.night_end);
+          const h = byId(b.dataset.detail);
+          if (h && h.ref) openHotelSheet(ctx, h.night_start, { id: h.ref, name: h.name, photo: h.photo, stars: h.stars });
         };
       });
-      body.querySelectorAll('.hc-del').forEach((b) => {
-        b.onclick = async () => {
-          if (!confirm('להסיר את המלון? (ההזמנה האמיתית לא תתבטל 😉)')) return;
-          const headers = await ctx.ensureEdit();
-          if (!headers) return;
-          try {
-            await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels/${b.dataset.id}`, { method: 'DELETE', headers });
-            state.hotels = state.hotels.filter((x) => x.id !== +b.dataset.id);
-            ctx.state.hotels = state.hotels;
-            render(); ctx.refresh();
-          } catch (e) { alert(e.message); }
-        };
+      body.querySelectorAll('[data-add-from]').forEach((b) => {
+        b.onclick = () => openStaySheet(ctx, null, +b.dataset.addFrom, +b.dataset.addTo);
       });
-
       // outbound booking clicks are the revenue funnel — count them from day one
       body.querySelectorAll('a[data-book]').forEach((a) => {
         a.addEventListener('click', () => {
-          const h = state.hotels.find((x) => x.id === +a.dataset.book);
+          const h = byId(a.dataset.book);
           TRIPMAKER.track('hotel_link_click', {
             trip_id: state.trip.id, kind: a.dataset.kind, affiliate: !!TP.marker,
             night_start: h && h.night_start, night_end: h && h.night_end,
@@ -425,153 +633,253 @@ const TripModals = (() => {
         });
       });
 
-      if (formState) renderForm();
-    }
-
-    function openForm(editing, from, to) {
-      formState = { editing, from, to };
-      render();
-      body.querySelector('#hotel-form-slot')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-
-    function renderForm() {
-      const slot = body.querySelector('#hotel-form-slot');
-      const h = formState.editing;
-      const cur = curOf(state);
-      const opts = (sel) => Array.from({ length: nightCount(state) }, (_, i) =>
-        `<option value="${i + 1}"${i + 1 === sel ? ' selected' : ''}>${nightLabel(i + 1)}</option>`).join('');
-      slot.innerHTML = `
-        <div class="inline-item-form glass" style="margin-top:14px">
-          <div class="form-grid">
-            <div class="field span-2"><label>שם המלון</label>
-              <input type="text" class="hf-name" maxlength="160" autocomplete="off"
-                placeholder="מלון, דירה, אכסניה — מה שסגרתם" value="${esc(h ? h.name : '')}">
-            </div>
-            <div class="field span-2"><label>אילו לילות?</label>
-              <div class="night-range">
-                <select class="hf-from">${opts(formState.from)}</select>
-                <span>עד</span>
-                <select class="hf-to">${opts(formState.to)}</select>
-              </div>
-            </div>
-            <div class="field span-2"><label>סטטוס</label>
-              <div class="seg hf-status">
-                <button type="button" data-v="booked" class="${!h || h.status === 'booked' ? 'active' : ''}">✅ הוזמן</button>
-                <button type="button" data-v="idea" class="${h && h.status === 'idea' ? 'active' : ''}">💡 רק רעיון</button>
-              </div>
-            </div>
-            <div class="field"><label>מחיר כולל (${sym(cur)}, לא חובה)</label>
-              <input type="number" min="0" step="1" class="hf-price" placeholder="לכל הלילות יחד" value="${h && h.price_total ? Math.round(+h.price_total) : ''}"></div>
-            <div class="field"><label>קישור להזמנה (לא חובה)</label>
-              <input type="url" class="hf-link" dir="ltr" placeholder="Booking, Airbnb, אתר המלון…" value="${esc(h && h.link ? h.link : '')}"></div>
-          </div>
-          <div class="form-error hf-err"></div>
-          <div style="display:flex;gap:8px">
-            <button type="button" class="btn btn-amber hf-save" style="flex:1;justify-content:center">שמירה</button>
-            <button type="button" class="btn btn-ghost hf-cancel">ביטול</button>
-          </div>
-        </div>`;
-
-      let picked = h ? { stars: h.stars, lat: h.lat, lon: h.lon } : {};
-      const nameInput = slot.querySelector('.hf-name');
-      attachHotelSuggest(nameInput, () => {
-        const block = blockOfNight(state, +slot.querySelector('.hf-from').value);
-        return destCoords(state, block && block.name);
-      }, (hp) => { picked = { stars: hp.stars ? +hp.stars : null, lat: hp.lat, lon: hp.lon }; });
-      nameInput.addEventListener('input', () => { picked = {}; });
-
-      slot.querySelectorAll('.hf-status button').forEach((b) => {
-        b.onclick = () => {
-          slot.querySelectorAll('.hf-status button').forEach((x) => x.classList.remove('active'));
-          b.classList.add('active');
-        };
-      });
-      slot.querySelector('.hf-cancel').onclick = () => { formState = null; render(); };
-      slot.querySelector('.hf-save').onclick = async (e) => {
-        const btn = e.currentTarget;
-        if (btn.disabled) return;
-        const name = nameInput.value.trim();
-        if (!name) { slot.querySelector('.hf-err').textContent = 'איך קוראים למלון?'; return; }
-        const from = +slot.querySelector('.hf-from').value;
-        const to = +slot.querySelector('.hf-to').value;
-        if (to < from) { slot.querySelector('.hf-err').textContent = 'טווח הלילות הפוך'; return; }
-        const headers = await ctx.ensureEdit();
-        if (!headers) return;
-        btn.disabled = true;
-        const payload = {
-          name, night_start: from, night_end: to,
-          status: slot.querySelector('.hf-status button.active').dataset.v,
-          price_total: slot.querySelector('.hf-price').value || null,
-          link: slot.querySelector('.hf-link').value.trim() || null,
-          // the notes field is gone from the form; carry any existing note
-          // through an edit rather than silently deleting what someone wrote
-          note: (h && h.note) || null,
-          stars: picked.stars ?? null, lat: picked.lat ?? null, lon: picked.lon ?? null,
-        };
-        try {
-          if (h) {
-            const updated = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels/${h.id}`, {
-              method: 'PUT', headers, body: JSON.stringify(payload),
-            });
-            Object.assign(h, updated);
-          } else {
-            const created = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels`, {
-              method: 'POST', headers, body: JSON.stringify(payload),
-            });
-            state.hotels.push(created);
-            state.hotels.sort((a, b) => a.night_start - b.night_start || a.id - b.id);
-          }
-          formState = null;
-          render(); ctx.refresh();
-        } catch (err) {
-          slot.querySelector('.hf-err').textContent = err.message;
-          btn.disabled = false;
+      // each open night fills its rail when it scrolls near — a two-week trip with
+      // eight open nights doesn't fire eight lookups the moment the page opens
+      const gaps = [...body.querySelectorAll('.hp-gap')];
+      const fill = async (card) => {
+        if (card.dataset.loaded) return;
+        card.dataset.loaded = '1';
+        const night = +card.dataset.night;
+        const rail = card.querySelector('.hg-rail');
+        const anchor = nightAnchor(state, night);
+        if (!rail || !anchor) return;
+        // kept per anchor for the visit: saving an idea repaints the page, and the
+        // repaint must not ask the provider again for the hotels it just showed
+        const key = `${anchor.lat.toFixed(3)},${anchor.lon.toFixed(3)}`;
+        let hotels = railCache.get(key);
+        if (!hotels) {
+          try {
+            hotels = await GEO.hotelsNear(anchor.lat, anchor.lon, { country: state.trip.country || null, limit: 12, radius: 4000 });
+            railCache.set(key, hotels || []);
+          } catch { hotels = []; /* upstream trouble — the card still offers "כבר הזמנתי" */ }
         }
+        const picked = pickForRail(hotels || []);
+        if (!picked.length) {
+          rail.outerHTML = '<div class="nc-empty">לא מצאנו מלונות בקרבת מקום — אפשר לחפש בגוגל או להוסיף ידנית</div>';
+          card.querySelector('.hg-sugg')?.remove();
+          return;
+        }
+        rail.innerHTML = railHtml(state, night, picked);
+        wireRail(ctx, night, picked, rail, { from: 'hotels_page', onSaved: () => render() });
       };
-    }
-
-    // OSM hotel suggestions near the chosen destination — free text stays first-class
-    function attachHotelSuggest(input, getCoords, onPick) {
-      const wrapEl = document.createElement('div');
-      wrapEl.className = 'autocomplete-wrap';
-      input.parentNode.insertBefore(wrapEl, input);
-      wrapEl.appendChild(input);
-      const list = document.createElement('div');
-      list.className = 'autocomplete-list glass';
-      wrapEl.appendChild(list);
-      let cache = null;
-      const show = async () => {
-        const coords = getCoords();
-        if (!coords) return;
-        if (!cache) cache = await GEO.hotelsNear(coords.lat, coords.lon).catch(() => []);
-        const q = input.value.trim();
-        const matches = cache.filter((x) => !q || x.name.toLowerCase().includes(q.toLowerCase())).slice(0, 6);
-        if (!matches.length) { list.classList.remove('open'); return; }
-        list.innerHTML = matches.map((m, i) => `
-          <button type="button" class="autocomplete-item" data-i="${i}">
-            <span class="ac-icon">🏨</span>
-            <span class="ac-name">${esc(m.name)}</span>
-            ${m.stars ? `<span class="ac-meta">${'★'.repeat(Math.min(+m.stars || 0, 5))}</span>` : ''}
-          </button>`).join('');
-        list.classList.add('open');
-        list.querySelectorAll('.autocomplete-item').forEach((b) => {
-          b.onclick = () => {
-            const m = matches[+b.dataset.i];
-            input.value = m.name;
-            onPick(m);
-            list.classList.remove('open');
-          };
-        });
-      };
-      input.addEventListener('focus', show);
-      input.addEventListener('input', show);
-      input.addEventListener('keydown', (e) => { if (e.key === 'Escape') list.classList.remove('open'); });
-      document.addEventListener('click', (e) => { if (!wrapEl.contains(e.target)) list.classList.remove('open'); });
+      if (!('IntersectionObserver' in window)) { gaps.forEach(fill); return; }
+      const io = new IntersectionObserver((entries, obs) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          obs.unobserve(e.target);
+          fill(e.target);
+        }
+      }, { rootMargin: '400px 0px' });
+      gaps.forEach((g) => io.observe(g));
     }
 
     render();
-    // arriving from a night card's "כבר הזמנתי" — open straight on that night
-    if (opts.addNight) openForm(null, opts.addNight, opts.addNight);
+    TRIPMAKER.track('hotels_page_open', {
+      trip_id: state.trip.id, nights: nightCount(state),
+      covered: Object.keys(nightCoverage(state)).length, ideas: state.hotels.filter((h) => h.status === 'idea').length,
+    });
+  }
+
+  // ---- the stay sheet: add or edit one stay ----
+
+  function openStaySheet(ctx, h, from, to) {
+    const { state } = ctx;
+    if (typeof TripPages === 'undefined') return;
+    const total = nightCount(state);
+    let sel = { from: Math.min(Math.max(from, 1), total), to: Math.min(Math.max(to, from), total) };
+    let picking = false; // true after a first tap: the next tap closes the range
+    let picked = h ? { stars: h.stars, lat: h.lat, lon: h.lon, photo: h.photo || null, ref: h.ref || null } : {};
+    const cur = curOf(state);
+    const cover = nightCoverage(state);
+
+    const chips = () => Array.from({ length: total }, (_, i) => {
+      const n = i + 1;
+      const d = nightDay(state, n);
+      const other = cover[n] && (!h || cover[n].id !== h.id) ? cover[n] : null;
+      const cls = [
+        'he-night',
+        n >= sel.from && n <= sel.to ? 'on' : '',
+        n === sel.from ? 'first' : '', n === sel.to ? 'last' : '',
+        other ? 'taken' : '',
+      ].filter(Boolean).join(' ');
+      return `<button type="button" class="${cls}" data-n="${n}" aria-pressed="${n >= sel.from && n <= sel.to}"
+        ${other ? `title="כבר יש מלון ללילה הזה: ${esc(other.name)}"` : ''}>
+        <small>${d ? d.wd : 'לילה'}</small><b>${d ? d.dm : n}</b>${other ? '<i aria-hidden="true"></i>' : ''}</button>`;
+    }).join('');
+
+    const rangeText = () => {
+      const k = sel.to - sel.from + 1;
+      const ci = tripDay(state, sel.from - 1);
+      const co = tripDay(state, sel.to);
+      return `<b>${nightsWord(k)}</b>${ci && co ? ` · צ׳ק-אין ${ci.wd} ${ci.dm} · צ׳ק-אאוט ${co.wd} ${co.dm}` : ` · ${rangeWord(sel.from, sel.to)}`}`;
+    };
+
+    const html = `
+      <div class="he">
+        <label class="he-l" for="he-name">שם המקום</label>
+        <input type="text" id="he-name" class="hf-name" maxlength="160" autocomplete="off" enterkeyhint="done"
+          placeholder="מלון, דירה, אכסניה — מה שסגרתם" value="${esc(h ? h.name : '')}">
+        <div class="he-l">אילו לילות? <small>לחיצה על הראשון ואז על האחרון</small></div>
+        <div class="he-nights">${chips()}</div>
+        <p class="he-range">${rangeText()}</p>
+        <div class="he-l">סטטוס</div>
+        <div class="seg hf-status">
+          <button type="button" data-v="booked" class="${!h || h.status === 'booked' ? 'active' : ''}">✅ הוזמן</button>
+          <button type="button" data-v="idea" class="${h && h.status === 'idea' ? 'active' : ''}">💡 רק רעיון</button>
+        </div>
+        <div class="he-row">
+          <div><label class="he-l" for="he-price">מחיר כולל <small>${sym(cur)}, לא חובה</small></label>
+            <input type="number" id="he-price" class="hf-price" min="0" step="1" inputmode="numeric" placeholder="לכל הלילות יחד" value="${h && h.price_total ? Math.round(+h.price_total) : ''}"></div>
+          <div><label class="he-l" for="he-link">קישור להזמנה <small>לא חובה</small></label>
+            <input type="url" id="he-link" class="hf-link" dir="ltr" inputmode="url" placeholder="Booking, Airbnb…" value="${esc(h && h.link ? h.link : '')}"></div>
+        </div>
+        <div class="form-error hf-err"></div>
+        <div class="he-foot">
+          <button type="button" class="btn btn-amber hf-save">${h ? 'שמירת השינויים' : 'הוספה לטיול'}</button>
+          ${h ? `<button type="button" class="he-del">${HICON.trash}<span>הסרה</span></button>` : ''}
+        </div>
+      </div>`;
+
+    TripPages.sheet('hotel-stay-sheet', {
+      title: h ? 'עריכת מלון' : 'הוספת מלון',
+      sub: h ? '' : 'מה שסגרתם, או רעיון שעוד מתלבטים עליו',
+      cls: 'stay-card',
+      html,
+      onOpen: (box) => {
+        const nameInput = box.querySelector('.hf-name');
+        const nightsEl = box.querySelector('.he-nights');
+        const paint = () => {
+          nightsEl.innerHTML = chips();
+          box.querySelector('.he-range').innerHTML = rangeText();
+        };
+        nightsEl.addEventListener('click', (e) => {
+          const b = e.target.closest('[data-n]');
+          if (!b) return;
+          const n = +b.dataset.n;
+          if (picking && n >= sel.from) { sel.to = n; picking = false; } else { sel = { from: n, to: n }; picking = true; }
+          paint();
+        });
+        attachHotelSuggest(nameInput, () => {
+          const block = blockOfNight(state, sel.from);
+          return destCoords(state, block && block.name);
+        }, (hp) => {
+          picked = {
+            stars: hp.stars ? +hp.stars : null, lat: hp.lat, lon: hp.lon,
+            photo: hp.photo || hp.thumb || null, ref: hp.id || null,
+          };
+        });
+        nameInput.addEventListener('input', () => { picked = {}; });
+
+        box.querySelectorAll('.hf-status button').forEach((b) => {
+          b.onclick = () => {
+            box.querySelectorAll('.hf-status button').forEach((x) => x.classList.remove('active'));
+            b.classList.add('active');
+          };
+        });
+
+        const err = box.querySelector('.hf-err');
+        const done = () => TripPages.closeSheet(() => { hotelsRender?.(); ctx.refresh(); });
+
+        box.querySelector('.he-del')?.addEventListener('click', async () => {
+          if (!confirm('להסיר את המלון מהטיול? (ההזמנה האמיתית לא תתבטל 😉)')) return;
+          const headers = await ctx.ensureEdit();
+          if (!headers) return;
+          try {
+            await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels/${h.id}`, { method: 'DELETE', headers });
+            state.hotels = state.hotels.filter((x) => x.id !== h.id);
+            ctx.state.hotels = state.hotels;
+            done();
+          } catch (e) { err.textContent = e.message; }
+        });
+
+        box.querySelector('.hf-save').onclick = async (e) => {
+          const btn = e.currentTarget;
+          if (btn.disabled) return;
+          const name = nameInput.value.trim();
+          if (!name) { err.textContent = 'איך קוראים למקום?'; nameInput.focus(); return; }
+          const headers = await ctx.ensureEdit();
+          if (!headers) return;
+          btn.disabled = true;
+          const payload = {
+            name, night_start: sel.from, night_end: sel.to,
+            status: box.querySelector('.hf-status button.active').dataset.v,
+            price_total: box.querySelector('.hf-price').value || null,
+            link: box.querySelector('.hf-link').value.trim() || null,
+            // the notes field is gone from the form; carry any existing note
+            // through an edit rather than silently deleting what someone wrote
+            note: (h && h.note) || null,
+            stars: picked.stars ?? null, lat: picked.lat ?? null, lon: picked.lon ?? null,
+            photo: picked.photo ?? null, ref: picked.ref ?? null,
+          };
+          try {
+            if (h) {
+              const updated = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels/${h.id}`, {
+                method: 'PUT', headers, body: JSON.stringify(payload),
+              });
+              Object.assign(h, updated);
+            } else {
+              const created = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels`, {
+                method: 'POST', headers, body: JSON.stringify(payload),
+              });
+              state.hotels.push(created);
+              state.hotels.sort((a, b) => a.night_start - b.night_start || a.id - b.id);
+            }
+            TRIPMAKER.track(h ? 'hotel_edit' : 'hotel_add', { trip_id: state.trip.id, status: payload.status, from_suggest: !!payload.ref });
+            done();
+          } catch (ex) {
+            err.textContent = ex.message;
+            btn.disabled = false;
+          }
+        };
+      },
+    });
+  }
+
+  // OSM / provider hotel suggestions near the chosen destination — free text stays first-class
+  function attachHotelSuggest(input, getCoords, onPick) {
+    const wrapEl = document.createElement('div');
+    wrapEl.className = 'autocomplete-wrap';
+    input.parentNode.insertBefore(wrapEl, input);
+    wrapEl.appendChild(input);
+    const list = document.createElement('div');
+    list.className = 'autocomplete-list glass';
+    wrapEl.appendChild(list);
+    let cache = null;
+    let cacheKey = '';
+    const show = async () => {
+      const coords = getCoords();
+      if (!coords) return;
+      const key = `${coords.lat},${coords.lon}`;
+      if (!cache || cacheKey !== key) {
+        cacheKey = key;
+        cache = await GEO.hotelsNear(coords.lat, coords.lon).catch(() => []);
+      }
+      const q = input.value.trim();
+      const matches = cache.filter((x) => !q || x.name.toLowerCase().includes(q.toLowerCase())).slice(0, 6);
+      if (!matches.length || document.activeElement !== input) { list.classList.remove('open'); return; }
+      list.innerHTML = matches.map((m, i) => {
+        const img = m.thumb || m.photo;
+        return `
+        <button type="button" class="autocomplete-item" data-i="${i}">
+          <span class="ac-icon">${img ? `<img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith('🏨')">` : '🏨'}</span>
+          <span class="ac-name">${esc(m.name)}</span>
+          ${m.stars ? `<span class="ac-meta">${'★'.repeat(Math.min(+m.stars || 0, 5))}</span>` : ''}
+        </button>`;
+      }).join('');
+      list.classList.add('open');
+      list.querySelectorAll('.autocomplete-item').forEach((b) => {
+        b.onclick = () => {
+          const m = matches[+b.dataset.i];
+          input.value = m.name;
+          onPick(m);
+          list.classList.remove('open');
+        };
+      });
+    };
+    input.addEventListener('focus', show);
+    input.addEventListener('input', show);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Escape') list.classList.remove('open'); });
+    document.addEventListener('click', (e) => { if (!wrapEl.contains(e.target)) list.classList.remove('open'); });
   }
 
   // =================================================================
@@ -809,55 +1117,132 @@ const TripModals = (() => {
   // consistently praise and complain about, the facilities, and the times.
   function openHotelSheet(ctx, night, hotel) {
     const { state } = ctx;
-    const wrap = shell('hotel-sheet', esc(hotel.name), hotel.address ? esc(hotel.address) : 'פרטי המלון');
-    const body = wrap.querySelector('.mw-body');
-    wrap.querySelector('.mw-controls').innerHTML = '';
-    wrap.querySelector('h2').innerHTML = esc(hotel.name);
-    wrap.querySelector('.modal-sub').innerHTML = hotel.address ? esc(hotel.address) : `לילה ${night}`;
-
     const hero = hotel.photo || hotel.thumb;
     const scoreLine = hotel.rating != null
       ? `<span class="hs-score">${hotel.rating}</span>${hotel.reviewCount ? `<span class="hs-reviews">${hotel.reviewCount.toLocaleString('he-IL')} ביקורות</span>` : ''}`
       : '';
-    body.innerHTML = `
-      <div class="hs-hero">${hero ? `<img src="${esc(hero)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}</div>
-      <div class="hs-top">
-        ${hotel.stars ? `<span class="hotel-stars">${'★'.repeat(Math.min(+hotel.stars, 5))}</span>` : ''}
-        ${scoreLine}
-        ${hotel.distance != null ? `<span class="hs-dist">${hotel.distance < 1000 ? `${hotel.distance} מ'` : `${(hotel.distance / 1000).toFixed(1)} ק"מ`} מסוף היום</span>` : ''}
-      </div>
-      <a class="btn btn-amber hs-book" target="_blank" rel="noopener"
-         href="${esc(hotelSearchUrl(hotel.name))}" title="נפתח בגוגל, בחלון חדש">להזמנה ${TRIPMAKER.externalIcon}</a>
-      <div class="hs-loading">טוען פרטים…</div>`;
+    const html = `
+      <div class="hd">
+        <div class="hd-gallery">${hero ? `<img src="${esc(hero)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : `<span class="hd-noimg">${NC_ICON.photo}</span>`}</div>
+        <div class="hs-top">
+          ${hotel.stars ? `<span class="hotel-stars">${'★'.repeat(Math.min(+hotel.stars, 5))}</span>` : ''}
+          ${scoreLine}
+          ${hotel.distance != null ? `<span class="hs-dist">${hotel.distance < 1000 ? `${hotel.distance} מ'` : `${(hotel.distance / 1000).toFixed(1)} ק"מ`} מסוף היום</span>` : ''}
+        </div>
+        <div class="hs-loading">טוען פרטים…</div>
+        <div class="hd-foot">
+          <a class="btn btn-amber hs-book" target="_blank" rel="noopener"
+             href="${esc(hotelSearchUrl(hotel.name))}" title="נפתח בגוגל, בחלון חדש">מחירים והזמנה ${TRIPMAKER.externalIcon}</a>
+        </div>
+      </div>`;
 
-    body.querySelector('.hs-book')?.addEventListener('click', () => TRIPMAKER.track('hotel_book_click', {
-      trip_id: state.trip.id, night, provider: hotel.provider || null, from: 'hotel_sheet',
-    }));
-
-    GEO.hotelDetail(hotel.id).then((d) => {
-      if (!wrap.classList.contains('open')) return; // closed while we waited
-      const gallery = (d.images || []).slice(0, 6);
-      const cat = (d.categories || []).map((c) =>
-        `<div class="hs-cat"><span>${esc(catName(c.name))}</span><b>${c.rating.toFixed(1)}</b></div>`).join('');
-      body.querySelector('.hs-loading').outerHTML = `
-        ${gallery.length > 1 ? `<div class="hs-gallery">${gallery.slice(1).map((u) =>
-          `<img src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">`).join('')}</div>` : ''}
-        ${cat ? `<div class="hs-cats">${cat}</div>` : ''}
-        ${(d.pros || []).length ? `<div class="hs-sec"><h3>מה אהבו</h3><ul class="hs-pros">${
-          d.pros.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>` : ''}
-        ${(d.cons || []).length ? `<div class="hs-sec"><h3>מה פחות</h3><ul class="hs-cons">${
-          d.cons.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>` : ''}
-        ${(d.facilities || []).length ? `<div class="hs-sec"><h3>בבית המלון</h3><div class="hs-fac">${
-          d.facilities.map((f) => `<span>${esc(f)}</span>`).join('')}</div></div>` : ''}
-        ${d.checkin || d.checkout ? `<div class="hs-times">${
-          d.checkin ? `צ'ק-אין מ־${esc(hhmm(d.checkin))}` : ''}${d.checkin && d.checkout ? ' · ' : ''}${
-          d.checkout ? `צ'ק-אאוט עד ${esc(hhmm(d.checkout))}` : ''}</div>` : ''}`;
-    }).catch(() => {
-      const l = body.querySelector('.hs-loading');
-      if (l) l.textContent = 'לא הצלחנו לטעון פרטים נוספים';
+    TripPages.sheet('hotel-detail-sheet', {
+      title: esc(hotel.name),
+      sub: hotel.address ? esc(hotel.address) : `לילה ${night}`,
+      cls: 'hotel-detail-card',
+      html,
+      onOpen: (body, wrap) => {
+        body.querySelector('.hs-book')?.addEventListener('click', () => TRIPMAKER.track('hotel_book_click', {
+          trip_id: state.trip.id, night, provider: hotel.provider || null, from: 'hotel_sheet',
+        }));
+        GEO.hotelDetail(hotel.id).then((d) => {
+          if (!wrap.classList.contains('open') || !body.contains(body.querySelector('.hs-loading'))) return; // closed while we waited
+          // the gallery swipes sideways, the way every booking app shows a room
+          const gallery = [...new Set([hero, ...(d.images || [])].filter(Boolean))].slice(0, 8);
+          if (gallery.length > 1) {
+            body.querySelector('.hd-gallery').innerHTML = gallery.map((u) =>
+              `<img src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">`).join('');
+            body.querySelector('.hd-gallery').insertAdjacentHTML('afterend',
+              `<div class="hd-count">${gallery.length} תמונות · החליקו הצידה</div>`);
+          }
+          const cat = (d.categories || []).map((c) =>
+            `<div class="hs-cat"><span>${esc(catName(c.name))}</span><b>${c.rating.toFixed(1)}</b><i style="--w:${Math.min(Math.max(c.rating * 10, 0), 100)}%"></i></div>`).join('');
+          body.querySelector('.hs-loading').outerHTML = `
+            ${cat ? `<div class="hs-cats">${cat}</div>` : ''}
+            ${(d.pros || []).length ? `<div class="hs-sec"><h3>מה אהבו</h3><ul class="hs-pros">${
+              d.pros.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>` : ''}
+            ${(d.cons || []).length ? `<div class="hs-sec"><h3>מה פחות</h3><ul class="hs-cons">${
+              d.cons.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>` : ''}
+            ${(d.facilities || []).length ? `<div class="hs-sec"><h3>בבית המלון</h3><div class="hs-fac">${
+              d.facilities.map((f) => `<span>${esc(f)}</span>`).join('')}</div></div>` : ''}
+            ${d.checkin || d.checkout ? `<div class="hs-times">${
+              d.checkin ? `צ'ק-אין מ־${esc(hhmm(d.checkin))}` : ''}${d.checkin && d.checkout ? ' · ' : ''}${
+              d.checkout ? `צ'ק-אאוט עד ${esc(hhmm(d.checkout))}` : ''}</div>` : ''}`;
+        }).catch(() => {
+          const l = body.querySelector('.hs-loading');
+          if (l) l.textContent = 'לא הצלחנו לטעון פרטים נוספים';
+        });
+      },
     });
 
     TRIPMAKER.track('hotel_sheet_open', { trip_id: state.trip.id, night, provider: hotel.provider || null });
+  }
+
+  // A rail of suggestions just painted (a night card in the itinerary, or an open
+  // night on the hotels page): booking clicks are counted, the tile opens its sheet,
+  // and the bookmark turns a suggestion into an idea on the trip's hotel list.
+  function wireRail(ctx, night, picked, rail, { from, onSaved } = {}) {
+    const { state } = ctx;
+    loadPrices(state, night, picked, rail);
+
+    rail.querySelectorAll('[data-book-i]').forEach((a) => {
+      a.addEventListener('click', () => TRIPMAKER.track('hotel_book_click', {
+        trip_id: state.trip.id, night, rank: +a.dataset.bookI + 1,
+        provider: picked[+a.dataset.bookI].provider || null, from,
+      }));
+    });
+
+    // the tile itself opens the sheet; the controls inside it must not
+    const openSheet = (tile) => {
+      const h = picked[+tile.dataset.i];
+      if (h) openHotelSheet(ctx, night, h);
+    };
+    rail.querySelectorAll('.nc-hotel[data-detail]').forEach((tile) => {
+      tile.addEventListener('click', (e) => { if (!e.target.closest('.nc-save, a')) openSheet(tile); });
+      tile.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSheet(tile); }
+      });
+    });
+
+    // one tap turns a suggestion into an idea on the real hotel list — no
+    // retyping a name we already have; coordinates, stars and the photo come along
+    rail.querySelectorAll('[data-save-i]').forEach((b) => {
+      b.onclick = async () => {
+        const h = picked[+b.dataset.saveI];
+        if (b.disabled) return;
+        b.disabled = true;
+        // re-checked here too: the list can gain this hotel between paint and
+        // tap (the page, another device, a slow first tap)
+        if (alreadySaved(state, night, h.name)) {
+          b.classList.add('saved');
+          b.innerHTML = NC_ICON.check;
+          b.title = 'כבר ברשימת המלונות';
+          return;
+        }
+        const headers = await ctx.ensureEdit();
+        if (!headers) { b.disabled = false; return; }
+        try {
+          const created = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels`, {
+            method: 'POST', headers,
+            body: JSON.stringify({
+              name: h.name, night_start: night, night_end: night, status: 'idea',
+              stars: h.stars || null, lat: h.lat ?? null, lon: h.lon ?? null,
+              photo: h.photo || h.thumb || null, ref: h.id || null,
+            }),
+          });
+          state.hotels.push(created);
+          state.hotels.sort((a, c) => a.night_start - c.night_start || a.id - c.id);
+          b.classList.add('saved');
+          b.innerHTML = NC_ICON.check;
+          b.title = 'נשמר ברשימת המלונות';
+          TRIPMAKER.track('night_card_save_idea', { trip_id: state.trip.id, night, from });
+          onSaved?.(created);
+        } catch (e) {
+          b.disabled = false;
+          alert(e.message);
+        }
+      };
+    });
   }
 
   // Wires every night card the itinerary just painted. Safe to call after each
@@ -910,66 +1295,9 @@ const TripModals = (() => {
         provider: picked[0].provider || null, with_photo: picked.filter((h) => h.thumb || h.photo).length,
       });
 
-      loadPrices(state, night, picked, rail);
-
-      rail.querySelectorAll('[data-book-i]').forEach((a) => {
-        a.addEventListener('click', () => TRIPMAKER.track('hotel_book_click', {
-          trip_id: state.trip.id, night, rank: +a.dataset.bookI + 1,
-          provider: picked[+a.dataset.bookI].provider || null, from: 'night_card',
-        }));
-      });
-
-      // the tile itself opens the sheet; the controls inside it must not
-      const openSheet = (tile) => {
-        const h = picked[+tile.dataset.i];
-        if (h) openHotelSheet(ctx, night, h);
-      };
-      rail.querySelectorAll('.nc-hotel[data-detail]').forEach((tile) => {
-        tile.addEventListener('click', (e) => { if (!e.target.closest('.nc-save, a')) openSheet(tile); });
-        tile.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSheet(tile); }
-        });
-      });
-
-      // one tap turns a suggestion into an idea on the real hotel list — no
-      // retyping a name we already have, coordinates and stars included
-      rail.querySelectorAll('[data-save-i]').forEach((b) => {
-        b.onclick = async () => {
-          const h = picked[+b.dataset.saveI];
-          if (b.disabled) return;
-          b.disabled = true;
-          // re-checked here too: the list can gain this hotel between paint and
-          // tap (the modal, another device, a slow first tap)
-          if (alreadySaved(state, night, h.name)) {
-            b.classList.add('saved');
-            b.innerHTML = NC_ICON.check;
-            b.title = 'כבר ברשימת המלונות';
-            return;
-          }
-          const headers = await ctx.ensureEdit();
-          if (!headers) { b.disabled = false; return; }
-          try {
-            const created = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels`, {
-              method: 'POST', headers,
-              body: JSON.stringify({
-                name: h.name, night_start: night, night_end: night, status: 'idea',
-                stars: h.stars || null, lat: h.lat ?? null, lon: h.lon ?? null,
-              }),
-            });
-            state.hotels.push(created);
-            state.hotels.sort((a, c) => a.night_start - c.night_start || a.id - c.id);
-            b.classList.add('saved');
-            b.innerHTML = NC_ICON.check;
-            b.title = 'נשמר ברשימת המלונות';
-            TRIPMAKER.track('night_card_save_idea', { trip_id: state.trip.id, night });
-            // deliberately no ctx.refresh(): an idea changes nothing the itinerary
-            // draws, and a repaint here would wipe the tick the user just earned
-          } catch (e) {
-            b.disabled = false;
-            alert(e.message);
-          }
-        };
-      });
+      // deliberately no ctx.refresh() on save: an idea changes nothing the itinerary
+      // draws, and a repaint here would wipe the tick the user just earned
+      wireRail(ctx, night, picked, rail, { from: 'night_card' });
     };
 
     const cards = [...container.querySelectorAll('.night-card[data-night]')];
@@ -1493,6 +1821,16 @@ const TripModals = (() => {
           render(); ctx.refresh();
         } catch (ex) { err(ex.message); btn.disabled = false; }
       };
+      // The two fields aren't a <form>, so the keyboard's Enter / "Go" did nothing and the
+      // expense typed in stayed unsaved — the checklist's add row, right next door, saves on
+      // Enter, and a phone keyboard offers no other way out of the field.
+      if (qaAdd) body.querySelectorAll('.qa-amount, .qa-title').forEach((inp) => {
+        inp.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter' || e.isComposing) return;
+          e.preventDefault();
+          qaAdd.click();
+        });
+      });
 
       wireLists(cur, personal, isPersonal);
     }
@@ -1737,7 +2075,7 @@ const TripModals = (() => {
         };
       });
       body.querySelectorAll('[data-open-hotels]').forEach((b) => {
-        b.onclick = () => { history.back(); openHotels(ctx); }; // leave the page, open hotels on the trip
+        b.onclick = () => openHotels(ctx); // the hotels page takes the budget's place, tab to tab
       });
       // inline planned-cost editing (save on change/blur)
       body.querySelectorAll('.cost-input').forEach((inp) => {
@@ -2277,7 +2615,7 @@ const TripModals = (() => {
   }
 
   return {
-    openHotels, openBudget, closeBudget, openSettle, syncSettleButton, travelIcon, plannedTotals, plannedByDay,
+    initHotels, openHotels, openBudget, closeBudget, openSettle, syncSettleButton, travelIcon, plannedTotals, plannedByDay,
     budgetButtonState, heroChip, dayHotelLines, uncoveredRuns, fmt, curOf,
     nightCardHtml, mountNightCards, itemCostInfo, setItemPersonalCost, clearItemPersonalCost,
   };

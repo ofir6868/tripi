@@ -76,7 +76,7 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
       delete trip.invite_token; // the invite link is only revealed to participants
       delete trip.plan_state; // and so is the planning chat's memory — it holds what they told the AI
     }
-    const [items, hotels, budget, expenses, participants, settlements, momentRows] = await Promise.all([
+    const [items, hotels, budget, expenses, participants, settlements, momentRows, weatherWatch] = await Promise.all([
       pool.query('SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, time_label NULLS LAST, sort_order, id', [trip.id]),
       pool.query('SELECT * FROM trip_hotels WHERE trip_id = $1 ORDER BY night_start, id', [trip.id]),
       canEdit
@@ -104,6 +104,12 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
       canEdit
         ? pool.query('SELECT * FROM trip_moments WHERE trip_id = $1 ORDER BY starts_at, id', [trip.id])
         : Promise.resolve({ rows: [] }),
+      // the stops this traveller asked to be warned about (lib/weather-watch.js) — theirs
+      // alone, so it is per person, not per trip; an older database without the table
+      // answers an empty list rather than failing the page
+      canEdit && req.user
+        ? require('../lib/weather-watch').watchedItems(req.user.id, trip.id).catch(() => [])
+        : Promise.resolve([]),
     ]);
     // a participant opening the trip is a clock too: a moment whose window is open and
     // whose push nobody sent yet (the pinger is late, the host was asleep) goes out now —
@@ -125,6 +131,7 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
       settlements: canEdit ? settlements.rows : [],
       participants: participants.rows,
       moments: canEdit ? momentRows.rows : [],
+      weatherWatch,
     });
   } catch (err) {
     console.error(err);
@@ -653,6 +660,10 @@ function cleanHotel(body, trip) {
     price_total: moneyOrNull(body.price_total, 999999999),
     link,
     note: body.note ? String(body.note).slice(0, 300) : null,
+    // a stay picked from the suggestions keeps its picture and the provider's id,
+    // so the hotels page shows the real place and can open its details sheet
+    photo: body.photo && /^https:\/\//i.test(String(body.photo).trim()) ? String(body.photo).trim().slice(0, 600) : null,
+    ref: body.ref ? String(body.ref).trim().slice(0, 64) || null : null,
   };
 }
 
@@ -663,9 +674,9 @@ router.post('/api/trips/code/:code/hotels', authOptional, async (req, res) => {
     const h = cleanHotel(req.body || {}, trip);
     if (!h.name) return res.status(400).json({ error: 'חסר שם למלון' });
     const { rows } = await pool.query(
-      `INSERT INTO trip_hotels (trip_id, name, night_start, night_end, status, stars, lat, lon, price_total, link, note)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [trip.id, h.name, h.night_start, h.night_end, h.status, h.stars, h.lat, h.lon, h.price_total, h.link, h.note]
+      `INSERT INTO trip_hotels (trip_id, name, night_start, night_end, status, stars, lat, lon, price_total, link, note, photo, ref)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      [trip.id, h.name, h.night_start, h.night_end, h.status, h.stars, h.lat, h.lon, h.price_total, h.link, h.note, h.photo, h.ref]
     );
     res.json(rows[0]);
   } catch (err) {
@@ -682,10 +693,10 @@ router.put('/api/trips/code/:code/hotels/:hotelId', authOptional, async (req, re
     if (!h.name) return res.status(400).json({ error: 'חסר שם למלון' });
     const { rows } = await pool.query(
       `UPDATE trip_hotels SET name=$1, night_start=$2, night_end=$3, status=$4, stars=$5,
-         lat=$6, lon=$7, price_total=$8, link=$9, note=$10
-       WHERE id = $11 AND trip_id = $12 RETURNING *`,
+         lat=$6, lon=$7, price_total=$8, link=$9, note=$10, photo=$11, ref=$12
+       WHERE id = $13 AND trip_id = $14 RETURNING *`,
       [h.name, h.night_start, h.night_end, h.status, h.stars, h.lat, h.lon, h.price_total, h.link, h.note,
-       req.params.hotelId, trip.id]
+       h.photo, h.ref, req.params.hotelId, trip.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'המלון לא נמצא' });
     res.json(rows[0]);
@@ -856,10 +867,10 @@ router.post('/api/trips/code/:code/clone', authRequired, async (req, res) => {
       );
     }
     await client.query(
-      `INSERT INTO trip_hotels (trip_id, name, night_start, night_end, status, stars, lat, lon, price_total, link, note)
+      `INSERT INTO trip_hotels (trip_id, name, night_start, night_end, status, stars, lat, lon, price_total, link, note, photo, ref)
        SELECT $1, name, night_start, night_end, status, stars, lat, lon,
               CASE WHEN $3 THEN price_total ELSE NULL END, link,
-              CASE WHEN $3 THEN note ELSE NULL END
+              CASE WHEN $3 THEN note ELSE NULL END, photo, ref
        FROM trip_hotels WHERE trip_id = $2`,
       [t.rows[0].id, src.id, copyMoney]
     );

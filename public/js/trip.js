@@ -207,6 +207,7 @@
     const isAdmin = !!data.isAdmin; // admins edit any trip
     const canEdit = !!data.canEdit;
     let participants = data.participants || [];
+    let weatherWatched = new Set(data.weatherWatch || []); // stops this traveller asked us to watch
     editMode = canEdit; // participants edit inline — there's no separate mode to enter
 
     document.title = `${trip.title} · TRIP MAKER`;
@@ -461,6 +462,18 @@
       ensureEdit: () => ensureEditRights(),
       refresh: () => renderItinerary(),
       // group votes — the calendar's stop sheet casts them, its cards show the tally
+      // extreme-weather watch on a stop (lib/weather-watch.js) — participants only, and
+      // per person: the set is this traveller's own
+      weatherWatch: {
+        on: () => canEdit && !!TRIPMAKER.user,
+        has: (id) => weatherWatched.has(id),
+        set: async (id, on) => {
+          const r = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/items/${id}/weather-watch`, {
+            method: 'PUT', body: JSON.stringify({ on }),
+          });
+          weatherWatched = new Set(r.watched || []);
+        },
+      },
       votes: {
         on: () => votesOn,
         html: (it) => voteHtml(it),
@@ -1225,6 +1238,8 @@
     document.getElementById('docs-btn').style.display = privileged ? '' : 'none';
     document.getElementById('checklist-btn').style.display = privileged ? '' : 'none';
     document.getElementById('moments-btn').style.display = privileged ? '' : 'none';
+    // the hotels page (#hotels) — registered up front so a reload on it lands back on it
+    if (canEdit && trip.days >= 2) TripModals.initHotels(modalCtx);
     hotelsBtn.onclick = () => (canEdit ? TripModals.openHotels(modalCtx) : requireSignup());
     budgetBtn.onclick = () => (canEdit ? TripModals.openBudget(modalCtx) : requireSignup());
     settleBtn.onclick = () => (canEdit ? TripModals.openSettle(modalCtx) : requireSignup());
@@ -1266,7 +1281,7 @@
           nudgeSlot.appendChild(nudge);
           nudge.onclick = () => TripModals.openHotels(modalCtx);
         }
-        nudge.textContent = `😴 ${runs.map((r) => r.from === r.to ? `לילה ${r.from}` : `לילות ${r.from}–${r.to}`).join(', ')} עדיין בלי מלון ›`;
+        nudge.textContent = `😴 ${runs.map((r) => r.from === r.to ? `לילה ${r.from}` : `לילות \u2066${r.from}–${r.to}\u2069`).join(', ')} עדיין בלי מלון ›`;
       } else nudge?.remove();
     }
     updateAmbient();

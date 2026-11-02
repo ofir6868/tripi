@@ -3,7 +3,7 @@
 // these routes only validate input and shape the reply, so switching providers
 // (osm → liteapi → agoda …) never touches HTTP handling.
 //
-// Feeds the hotel-name autocomplete in the hotels modal (which reads name/stars)
+// Feeds the hotel-name autocomplete on the hotels page (which reads name/stars)
 // and the itinerary's night cards (photo, rating, distance, price, sheet).
 // Fields the active provider can't supply come back null or absent.
 const express = require('express');

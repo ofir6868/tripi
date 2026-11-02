@@ -48,6 +48,13 @@
   // actions write into (lib/plan-actions.js on the real server)
   let hotels = [];
   let budget = null;
+  const MOCK_HOTELS = [
+    { id: 'lp1', name: 'Hotel Artemide', stars: 4, rating: 9.1, reviewCount: 3120, distance: 380, price: 742, lat: 41.9009, lon: 12.4934, provider: 'liteapi', address: 'Via Nazionale 22, Roma', photo: U('photo-1566073771259-6a8506099945') },
+    { id: 'lp2', name: 'The Pantheon Iconic', stars: 5, rating: 9.4, reviewCount: 980, distance: 620, price: 1890, lat: 41.8986, lon: 12.4769, provider: 'liteapi', address: 'Via di Santa Chiara 4, Roma', photo: U('photo-1551882547-ff40c63fe5fa') },
+    { id: 'lp3', name: 'Hotel Campo de\' Fiori', stars: 4, rating: 8.7, reviewCount: 1544, distance: 910, price: 655, lat: 41.8957, lon: 12.4722, provider: 'liteapi', address: 'Via del Biscione 6, Roma', photo: U('photo-1582719478250-c89cae4dc85b') },
+    { id: 'lp4', name: 'Trastevere Suites', stars: 3, rating: 8.9, reviewCount: 610, distance: 1300, price: 430, lat: 41.8893, lon: 12.4699, provider: 'liteapi', address: 'Via della Lungaretta 90, Roma', photo: U('photo-1590490360182-c33d57733427') },
+    { id: 'lp5', name: 'Monti Boutique Rooms', stars: 3, rating: 9.0, reviewCount: 402, distance: 1500, price: 512, lat: 41.8955, lon: 12.4918, provider: 'liteapi', address: 'Via Urbana 11, Roma', photo: U('photo-1631049307264-da0ec9d70304') },
+  ];
   let hotelId = 500;
   const sideState = () => ({ hotels, budget, trip: { start_date: trip.start_date, end_date: trip.end_date } });
   // the same canned reading of an attached file both chats answer with: a booking
@@ -257,8 +264,10 @@
 
   const json = (status, body) => ({ status, body });
 
+  const weatherWatched = new Set();
   function handle(method, url, body) {
-    const p = new URL(url, 'http://x').pathname;
+    const u = new URL(url, 'http://x');
+    const p = u.pathname;
     body = body || {};
     if (p === '/api/me') return json(200, user);
     // referrals: two friends already in, one to go
@@ -375,7 +384,30 @@
     if (p === '/api/auth/providers') return json(200, { google: false });
     if (p === '/api/analytics/config') return json(200, {});
     if (p.startsWith('/api/push/')) return json(200, { key: null });
-    if (p === '/api/trips/suggested' || p === '/api/my-trips' || p.startsWith('/api/hotels')) return json(200, []);
+    // nearby hotels for the night cards and the hotels page: a handful of Roman hotels
+    // with photos, priced and with a detail sheet, the way LiteAPI answers in production
+    if (p === '/api/hotels/prices') {
+      const out = {};
+      for (const id of (u.searchParams.get('ids') || '').split(',')) {
+        const h = MOCK_HOTELS.find((x) => x.id === id);
+        if (h && h.price) out[id] = { amount: h.price, currency: 'ILS' };
+      }
+      return json(200, out);
+    }
+    if (p === '/api/hotels/detail') {
+      const h = MOCK_HOTELS.find((x) => x.id === u.searchParams.get('id'));
+      if (!h) return json(404, { error: 'no details' });
+      return json(200, {
+        images: [h.photo, ...MOCK_HOTELS.filter((x) => x !== h).slice(0, 4).map((x) => x.photo)],
+        categories: [{ name: 'Location', rating: 9.4 }, { name: 'Cleanliness', rating: 8.8 }, { name: 'Staff', rating: 9.1 }, { name: 'Value for money', rating: 8.2 }],
+        pros: ['Great location, walking distance to everything', 'Lovely rooftop breakfast'],
+        cons: ['Rooms are on the small side'],
+        facilities: ['Wi-Fi', 'מיזוג', 'ארוחת בוקר', 'קבלה 24/7', 'גג'],
+        checkin: '03:00 PM', checkout: '11:00 AM',
+      });
+    }
+    if (p === '/api/hotels') return json(200, MOCK_HOTELS.map(({ price, ...h }) => ({ ...h })));
+    if (p === '/api/trips/suggested' || p === '/api/my-trips') return json(200, []);
     // אהבתי, from the hero chip
     const lm = p.match(/^\/api\/trips\/(\d+)\/like$/);
     if (lm) {
@@ -437,7 +469,14 @@
         return json(200, {
           trip, items, isOwner: true, canEdit: true, isAdmin: false,
           hotels, budget, expenses, participants: [{ id: 1, name: user.name, is_owner: true }],
+          weatherWatch: [...weatherWatched],
         });
+      }
+      // the extreme-weather switch on a stop sheet — remembered for the session
+      const wwm = rest.match(/^\/items\/(\d+)\/weather-watch$/);
+      if (wwm && method === 'PUT') {
+        if (body && body.on) weatherWatched.add(+wwm[1]); else weatherWatched.delete(+wwm[1]);
+        return json(200, { ok: true, on: !!(body && body.on), watched: [...weatherWatched] });
       }
       // the model's category for a hand-added stop — a keyword guess here, and null
       // (the generic tile) for anything it cannot place, which is the path to preview
@@ -454,6 +493,23 @@
         return json(200, { stops });
       }
       if (rest === '/votes') return json(200, []);
+      // the hotels page: add, edit and remove a stay
+      if (rest === '/hotels' && method === 'POST') {
+        if (!String(body.name || '').trim()) return json(400, { error: 'חסר שם למלון' });
+        const h = { id: hotelId++, name: String(body.name).trim(), night_start: +body.night_start || 1, night_end: Math.max(+body.night_end || 1, +body.night_start || 1),
+          status: body.status === 'idea' ? 'idea' : 'booked', stars: body.stars || null, lat: body.lat ?? null, lon: body.lon ?? null,
+          price_total: body.price_total ? +body.price_total : null, link: body.link || null, note: body.note || null, photo: body.photo || null, ref: body.ref || null };
+        hotels.push(h);
+        return json(200, h);
+      }
+      const hm = rest.match(/^\/hotels\/(\d+)$/);
+      if (hm) {
+        const h = hotels.find((x) => x.id === +hm[1]);
+        if (method === 'DELETE') { hotels = hotels.filter((x) => x !== h); return json(200, { ok: true }); }
+        if (!h) return json(404, { error: 'המלון לא נמצא' });
+        Object.assign(h, { ...body, id: h.id, price_total: body.price_total ? +body.price_total : null, photo: body.photo || null, ref: body.ref || null });
+        return json(200, h);
+      }
       if (rest === '/expenses' && method === 'POST') {
         const title = String(body.title || '').slice(0, 160).trim();
         const amount = +body.amount;
