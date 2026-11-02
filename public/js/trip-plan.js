@@ -380,12 +380,17 @@ const TripPlan = (() => {
       if (left === 0) { TripPages.toast('ניצלתם את שלושת הקבצים להיום — אפשר לכתוב את הפרטים במילים'); return; }
       input.click();
     };
+    // a photo taken now — a printed ticket, a sign, a menu — joins the same queue
+    const snap = () => {
+      if (left === 0) { TripPages.toast('ניצלתם את שלושת הקבצים להיום — אפשר לכתוב את הפרטים במילים'); return; }
+      TripPages.snap((f) => pick([f]));
+    };
     if (btn) btn.onclick = open;
     input.onchange = () => { pick([...input.files]); input.value = ''; };
     paintBtn();
 
     return {
-      pick, setRemaining, open,
+      pick, setRemaining, open, snap,
       left: () => left,
       count: () => items.length,
       reading: () => items.some((it) => it.status === 'reading'),
@@ -724,6 +729,7 @@ const TripPlan = (() => {
       },
     });
     box.plus.onclick = () => ChatUI.plusMenu(box.plus, [
+      TripPages.canSnap ? { icon: ChatUI.ICON.camera, label: 'צילום', sub: attach.left() === 0 ? 'ניצלתם את שלושת הקבצים להיום' : 'כרטיס מודפס, שלט, תפריט — ישר מהמצלמה', disabled: attach.left() === 0, onClick: () => attach.snap() } : null,
       { icon: ChatUI.ICON.clip, label: 'צירוף מסמך', sub: attach.left() === 0 ? 'ניצלתם את שלושת הקבצים להיום' : 'כרטיס טיסה, אישור מלון, צילום מסך', disabled: attach.left() === 0, onClick: () => attach.open() },
       { icon: ChatUI.ICON.import, label: 'ייבוא תוכנית', sub: 'טקסט מ-AI אחר או מחבר — בונה או מתקן לפיו', onClick: () => ChatUI.importSheet(ctx, { onDone: imported }) },
       { icon: ChatUI.ICON.plug, label: 'חיבורים', sub: 'יומן, Gmail, Drive — לקריאה, באישורכם', onClick: () => ChatUI.connectorsSheet(ctx) },

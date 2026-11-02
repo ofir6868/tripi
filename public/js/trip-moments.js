@@ -400,6 +400,7 @@ const TripMoments = (() => {
               ${deviceDocs.map((x) => `<label class="mo-docpick"><input type="checkbox" name="doc" value="${esc(x.name)}"${chosen.has(x.name) ? ' checked' : ''}><span>${/^image\//.test(x.type || '') ? '🖼️' : /pdf/i.test(x.type || x.name) ? '📕' : '📄'} ${esc(x.name)}</span></label>`).join('')}
               ${[...chosen].filter((n) => !deviceDocs.some((x) => x.name === n)).map((n) => `<label class="mo-docpick is-missing"><input type="checkbox" name="doc" value="${esc(n)}" checked><span>📄 ${esc(n)} <small>לא במכשיר הזה</small></span></label>`).join('')}
               <label class="mo-docpick mo-docadd"><input type="file" id="mo-docfile" accept="image/*,application/pdf,.pdf" hidden><span>${ICON.plus} הוספת קובץ מהמכשיר</span></label>
+              ${TripPages.canSnap ? `<button type="button" class="mo-docpick mo-docadd mo-docsnap"><span>📷 צילום</span></button>` : ''}
             </div>
           </div>
           <div class="ds-actions"><button type="submit" class="btn btn-amber">${existing ? 'שמירה' : 'יצירת התזכורת'}</button><button type="button" class="btn btn-ghost mo-cancel">ביטול</button></div>
@@ -414,8 +415,7 @@ const TripMoments = (() => {
         form.elements.tz.onchange = () => { form.elements.tz_other.hidden = form.elements.tz.value !== '__other'; };
         body.querySelector('.mo-cancel').onclick = () => TripPages.closeSheet();
         body.querySelector('.mo-docadd').onclick = () => body.querySelector('#mo-docfile').click();
-        body.querySelector('#mo-docfile').onchange = async (e) => {
-          const f = e.target.files[0];
+        const addDoc = async (f) => {
           if (!f) return;
           const ok = await TripDocs.stash(ctx, f);
           const lab = document.createElement('label');
@@ -424,6 +424,9 @@ const TripMoments = (() => {
           body.querySelector('.mo-docadd').before(lab);
           TripPages.toast(ok ? 'הקובץ נשמר במכשיר ✓' : 'הקובץ כבר במסמכים', 'ok');
         };
+        body.querySelector('#mo-docfile').onchange = (e) => addDoc(e.target.files[0]);
+        const snapBtn = body.querySelector('.mo-docsnap');
+        if (snapBtn) snapBtn.onclick = () => TripPages.snap(addDoc);
         form.onsubmit = async (e) => {
           e.preventDefault();
           const f = form.elements;

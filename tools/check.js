@@ -37,6 +37,7 @@ const CHECKS = [
   'tools/api-budget-check.js',
   'tools/moments-check.js',
   'tools/trip-clock-check.js',
+  'tools/prompt-cache-check.js',
   'tools/github-oidc-check.js',
 ];
 for (const script of CHECKS) {

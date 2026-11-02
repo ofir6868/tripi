@@ -512,8 +512,36 @@ const TripPages = (() => {
     show(name);
   }
 
+  // The phone's camera, straight from a button: a file input with capture="environment"
+  // opens the back camera instead of the gallery (Android, iOS). It is offered only on a
+  // touch screen — on a laptop the same input is just a second file picker. Every shot
+  // gets a name of its own: iOS calls each one "image.jpg", and three chips with the same
+  // name in the chat (or three "image.jpg" in מסמכים) tell the traveller nothing.
+  const canSnap = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+  function snap(onFile) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.setAttribute('capture', 'environment');
+    input.hidden = true;
+    input.onchange = () => {
+      const f = input.files && input.files[0];
+      input.remove();
+      if (!f) return;
+      const d = new Date();
+      const two = (n) => String(n).padStart(2, '0');
+      const ext = (f.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+      const name = `צילום ${two(d.getDate())}.${two(d.getMonth() + 1)} ${two(d.getHours())}-${two(d.getMinutes())}-${two(d.getSeconds())}.${ext}`;
+      let named = f;
+      try { named = new File([f], name, { type: f.type || 'image/jpeg', lastModified: f.lastModified }); } catch { /* old WebView: keep its own name */ }
+      onFile(named);
+    };
+    document.body.appendChild(input);
+    input.click();
+  }
+
   return {
     register, open, close, dismiss, replace, move, activate: setActive, current: () => current,
-    openFromHash, initDock, badge, toast, sheet, closeSheet, veilDock, revealDock,
+    openFromHash, initDock, badge, toast, sheet, closeSheet, veilDock, revealDock, canSnap, snap,
   };
 })();
