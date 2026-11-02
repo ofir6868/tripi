@@ -1493,6 +1493,16 @@ const TripModals = (() => {
           render(); ctx.refresh();
         } catch (ex) { err(ex.message); btn.disabled = false; }
       };
+      // The two fields aren't a <form>, so the keyboard's Enter / "Go" did nothing and the
+      // expense typed in stayed unsaved — the checklist's add row, right next door, saves on
+      // Enter, and a phone keyboard offers no other way out of the field.
+      if (qaAdd) body.querySelectorAll('.qa-amount, .qa-title').forEach((inp) => {
+        inp.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter' || e.isComposing) return;
+          e.preventDefault();
+          qaAdd.click();
+        });
+      });
 
       wireLists(cur, personal, isPersonal);
     }
