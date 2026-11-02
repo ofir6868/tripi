@@ -343,7 +343,27 @@
     };
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { /* storage full — skip */ }
   }
-  function scheduleSave() { clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 600); }
+  function scheduleSave() { clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 600); emitState(); }
+
+  // Every change to the trip-in-the-making passes through scheduleSave, so this is
+  // where the wizard tells whoever is listening what the trip looks like now — the
+  // admin preview of the new creation flow (js/plan-magic.js) draws its live preview
+  // from it. Nobody listening costs one event.
+  function snapshot() {
+    return {
+      step: curStep,
+      destinations: destinations.map((d) => ({ ...d, cc: ccFor(d) || null })),
+      days: parseInt(daysSel.value, 10) || 1,
+      start: tripStart,
+      end: tripStart ? TRIPMAKER.isoDate(endDate()) : null,
+      interests: typeof selectedInterests !== 'undefined' ? [...selectedInterests] : [],
+      notes: document.getElementById('ai-notes').value.trim(),
+      title: titleInput.value.trim(),
+    };
+  }
+  function emitState() {
+    try { document.dispatchEvent(new CustomEvent('plan:state', { detail: snapshot() })); } catch { /* still initialising */ }
+  }
   function clearDraft() { clearTimeout(draftTimer); localStorage.removeItem(DRAFT_KEY); }
 
   // drafts exist only after REAL user interaction — programmatic pre-fills
@@ -507,7 +527,11 @@
   async function saveDraftTrip(payload, { plan_state = null, path = '' } = {}) {
     if (savingTrip) return;
     savingTrip = true;
+    let show = null;
     try {
+      // the admin preview's take-off plays while the trip is being created, and the
+      // page leaves when both are done — never before the trip exists
+      show = typeof PlanMagic !== 'undefined' && PlanMagic.active ? PlanMagic.launch(snapshot(), path) : null;
       const trip = await TRIPMAKER.api('/api/trips', {
         method: 'POST', body: JSON.stringify({ ...payload, draft: true, plan_state }),
       });
@@ -519,11 +543,13 @@
         days: payload.days || null, dates_picked: !!tripStart,
       });
       clearDraft();
+      if (show) await show.land(trip).catch(() => {});
       // the AI path lands in the conversation; the manual path asked for the opposite —
       // an empty trip to fill by hand — and gets the trip page itself
       location.href = '/trip/' + trip.share_code + (path === 'ai' ? '#plan' : '');
     } catch (e) {
       savingTrip = false;
+      if (show) show.abort();
       aiStatus.className = 'ai-status error';
       aiStatus.innerHTML = `⚠️ הטיול עוד לא נוצר (${TRIPMAKER.esc(e.message)}) ` +
         `<button type="button" class="btn btn-amber" id="retry-save">ניסיון נוסף</button>`;
@@ -699,6 +725,15 @@
   // the first thing on this page is a question with one box to answer it in — with a
   // mouse and nothing restored, the cursor is already there. Not on a phone: a
   // keyboard nobody asked for would cover the page before it was read.
+  // the handle the new creation flow (js/plan-magic.js) drives the wizard by: the same
+  // add a pick from the list does, and the same step change the buttons make
+  window.PlanWizard = {
+    snapshot,
+    add(d) { addDestination(d); if (d.lat == null) fillCoords(d); },
+    remove: removeDestination,
+    goStep,
+  };
+
   renderChips();
   if (FINE_POINTER && curStep === 1 && !destinations.length && draftBanner.hidden) destInput.focus({ preventScroll: true });
 })();
