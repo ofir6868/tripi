@@ -155,8 +155,10 @@ const TripNearby = (() => {
   }
 
   const navLinks = (p) => ({
-    gmaps: 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(p.name)
-      + '&destination_place_id=' + encodeURIComponent(p.id),
+    gmaps: p.source && p.source !== 'google'
+      ? `https://www.google.com/maps/dir/?api=1&destination=${p.lat}%2C${p.lon}`
+      : 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(p.name)
+        + '&destination_place_id=' + encodeURIComponent(p.id),
     waze: `https://waze.com/ul?ll=${p.lat}%2C${p.lon}&navigate=yes&zoom=17`,
   });
 
@@ -176,10 +178,126 @@ const TripNearby = (() => {
     const q = new URLSearchParams({ kind, lat: o.lat.toFixed(5), lon: o.lon.toFixed(5) });
     if (cuisine) q.set('cuisine', cuisine);
     const p = TRIPMAKER.api(`/api/trips/code/${encodeURIComponent(ctx.trip.share_code)}/nearby?${q}`)
-      .then((d) => d.places.map((x) => ({ ...x, dist: dist(o, x) })))
-      .catch((err) => { st.cache.delete(key); throw err; });
+      .then((d) => {
+        const list = d.places.map((x) => ({ ...x, dist: dist(o, x) }));
+        list.source = d.source || 'google'; // sights may come from Wikipedia when Google is closed
+        return list;
+      })
+      .catch(async (err) => {
+        // Google closed (503): restaurants come from OpenStreetMap, asked from the phone —
+        // the server answers sights from Wikipedia itself
+        if (err.status === 503 && kind !== 'sights') {
+          try { return fromOsm(kind, cuisine, await osmFood(o)); } catch { /* the original message says more */ }
+        }
+        st.cache.delete(key);
+        throw err;
+      });
     st.cache.set(key, p);
     return p;
+  }
+
+  // ---------------------------------------------------------------- when Google is closed
+  //
+  // The restaurants' free answer: OpenStreetMap, through Overpass. Asked from the browser
+  // and not the server, because every public Overpass mirror refuses datacenter addresses
+  // (lib/hotel-content.js, measured 2026-08-19) — a phone is not a datacenter. OSM knows a
+  // restaurant exists, its cuisine, its hours and often whether it is kosher (diet:kosher);
+  // it does not know how good it is, so the list is by distance and says so. One question
+  // per spot covers the general list, every cuisine chip and the kosher filter.
+  const OSM_MIRRORS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
+  // OSM's cuisine values → the Google types the chips already match on
+  const OSM_CUISINE = {
+    burger: 'hamburger_restaurant', bbq: 'barbecue_restaurant', barbecue: 'barbecue_restaurant',
+    steak_house: 'steak_house', steak: 'steak_house', fish: 'seafood_restaurant', seafood: 'seafood_restaurant',
+    coffee_shop: 'coffee_shop', breakfast: 'breakfast_restaurant', brunch: 'brunch_restaurant',
+    falafel: 'middle_eastern_restaurant', kebab: 'middle_eastern_restaurant', shawarma: 'middle_eastern_restaurant',
+    noodle: 'ramen_restaurant', ramen: 'ramen_restaurant',
+  };
+
+  function osmCard(el) {
+    const t = el.tags || {};
+    const lat = el.lat != null ? el.lat : el.center && el.center.lat;
+    const lon = el.lon != null ? el.lon : el.center && el.center.lon;
+    const types = String(t.cuisine || '').split(';').map((c) => c.trim().toLowerCase()).filter(Boolean)
+      .map((c) => OSM_CUISINE[c] || `${c}_restaurant`);
+    if (t.amenity === 'cafe') types.push('cafe');
+    if (t.amenity === 'fast_food') types.push('fast_food_restaurant');
+    if (/^(yes|only)$/.test(t['diet:vegan'] || '')) types.push('vegan_restaurant');
+    if (/^(yes|only)$/.test(t['diet:vegetarian'] || '') && /only/.test(t['diet:vegetarian'])) types.push('vegetarian_restaurant');
+    types.push('restaurant');
+    const name = t['name:he'] || t.name || '';
+    const kosher = /^(yes|only)$/.test(t['diet:kosher'] || '') ? 'osm' : K.mentionsKosher(name) ? 'name' : null;
+    const site = t.website || t['contact:website'] || null;
+    // a place someone bothered to describe well tends to be one people go to: the only
+    // quality hint OSM has, and only ever a nudge next to the distance
+    const care = (site ? 1 : 0) + (t.opening_hours ? 1 : 0) + (t.cuisine ? 1 : 0) + (t.wikidata ? 2 : 0);
+    return {
+      id: `osm:${el.type}/${el.id}`,
+      source: 'osm',
+      name,
+      type: '',
+      ptype: types[0],
+      types,
+      status: 'OPERATIONAL',
+      rating: null, count: 0, price: null,
+      lat, lon,
+      address: [t['addr:street'], t['addr:housenumber']].filter(Boolean).join(' '),
+      summary: '',
+      hours: null,
+      hoursText: t.opening_hours || '',
+      utc: null,
+      website: site && /^https?:\/\//i.test(site) ? site : null,
+      phone: t.phone || t['contact:phone'] || null,
+      maps: lat != null ? `https://www.google.com/maps/search/?api=1&query=${lat},${lon}` : null,
+      photos: [],
+      he: 0,
+      reviews: [],
+      kosher,
+      care,
+    };
+  }
+
+  function osmFood(o) {
+    const key = `osm|${o.lat.toFixed(3)},${o.lon.toFixed(3)}`;
+    if (st.cache.has(key)) return st.cache.get(key);
+    const q = `[out:json][timeout:15];nwr["amenity"~"^(restaurant|cafe|fast_food)$"]["name"](around:1500,${o.lat.toFixed(5)},${o.lon.toFixed(5)});out center tags 200;`;
+    const p = (async () => {
+      for (const url of OSM_MIRRORS) {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 16000);
+        try {
+          const r = await fetch(url, {
+            method: 'POST', signal: ctrl.signal,
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'data=' + encodeURIComponent(q),
+          });
+          if (!r.ok) continue;
+          const d = await r.json();
+          return (d.elements || []).map(osmCard).filter((x) => x.name && x.lat != null)
+            .map((x) => {
+              const m = dist(o, x);
+              return { ...x, dist: m, score: +(x.care * 0.15 - m / 1000).toFixed(4) };
+            });
+        } catch { /* the next mirror */ } finally { clearTimeout(timer); }
+      }
+      throw new Error('no answer from OpenStreetMap');
+    })().catch((err) => { st.cache.delete(key); throw err; });
+    st.cache.set(key, p);
+    return p;
+  }
+
+  function fromOsm(kind, cuisine, all) {
+    let list;
+    if (kind === 'kosher') list = all.filter((x) => x.kosher);
+    else if (cuisine) list = all.filter((x) => K.matches(cuisine, x.ptype, x.types));
+    else {
+      // the general list is "where to eat well", as with Google: fast food only if that is all there is
+      const sit = all.filter((x) => !x.types.includes('fast_food_restaurant'));
+      list = sit.length >= 5 ? sit : all;
+    }
+    list = list.slice();
+    list.source = 'osm';
+    return list;
   }
 
   // ---------------------------------------------------------------- painting
@@ -204,6 +322,7 @@ const TripNearby = (() => {
   function meta(p) {
     const bits = [];
     if (p.rating) bits.push(`<span class="nb-star">★ ${p.rating.toFixed(1)}</span> <span class="nb-dim">(${countText(p.count)})</span>`);
+    else if (p.views) bits.push(`<span class="nb-dim">${countText(p.views)} קוראים בחודש</span>`);
     const c = st.view === 'food' ? K.cuisineOf(p.ptype, p.types) : null;
     const type = c ? c.label : p.type;
     if (type) bits.push(esc(type));
@@ -231,8 +350,9 @@ const TripNearby = (() => {
       ${p.summary ? `<p class="nb-desc">${esc(p.summary)}</p>` : ''}
       <ul class="nb-facts">
         ${os || today ? `<li><b>שעות</b><span>${os ? `<span class="nb-b ${os.open ? 'ok' : 'shut'}">${esc(os.text)}</span> ` : ''}${today ? esc(today) : ''}</span></li>` : ''}
+        ${!os && !today && p.hoursText ? `<li><b>שעות</b><span dir="ltr">${esc(p.hoursText)}</span></li>` : ''}
         ${p.address ? `<li><b>כתובת</b><span>${esc(p.address)}</span></li>` : ''}
-        ${p.kosher ? `<li><b>כשרות</b><span>${esc({ name: 'מופיע בשם המקום', summary: 'מופיע בתיאור המקום', reviews: 'מוזכר בביקורות' }[p.kosher])} — כדאי לוודא תעודת כשרות במקום</span></li>` : ''}
+        ${p.kosher ? `<li><b>כשרות</b><span>${esc({ name: 'מופיע בשם המקום', summary: 'מופיע בתיאור המקום', reviews: 'מוזכר בביקורות', osm: 'מסומן ככשר ב-OpenStreetMap' }[p.kosher])} — כדאי לוודא תעודת כשרות במקום</span></li>` : ''}
       </ul>
       ${revs.length ? `<div class="nb-revs">${revs.map((r) => `
         <blockquote class="nb-rev">
@@ -241,10 +361,10 @@ const TripNearby = (() => {
         </blockquote>`).join('')}</div>` : ''}
       <div class="nb-links">
         ${p.maps ? `<a href="${esc(p.maps)}" target="_blank" rel="noopener">${ICON.gmaps} בגוגל מפות</a>` : ''}
-        ${p.website ? `<a href="${esc(p.website)}" target="_blank" rel="noopener">${ICON.globe} אתר</a>` : ''}
+        ${p.website ? `<a href="${esc(p.website)}" target="_blank" rel="noopener">${ICON.globe} ${p.source === 'wikipedia' ? 'בוויקיפדיה' : 'אתר'}</a>` : ''}
         ${p.phone ? `<a href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}" dir="ltr">${ICON.phone} ${esc(p.phone)}</a>` : ''}
       </div>
-      ${(p.photos || []).some((ph) => ph.credit) ? `<p class="nb-credit">📷 Google · ${esc(p.photos.map((ph) => ph.credit).filter(Boolean).slice(0, 2).join(', '))}</p>` : ''}`;
+      ${(p.photos || []).some((ph) => ph.credit) ? `<p class="nb-credit">📷 ${p.source === 'wikipedia' ? 'ויקיפדיה' : 'Google'} · ${esc(p.photos.map((ph) => ph.credit).filter(Boolean).slice(0, 2).join(', '))}</p>` : ''}`;
   }
 
   function card(p, i) {
@@ -349,7 +469,9 @@ const TripNearby = (() => {
           : `<button type="button" class="nb-more-btn" data-act="more">עוד ${rest.length} רעיונות באזור</button>`;
       }
     }
-    html += '<p class="nb-foot">דירוגים, שעות וביקורות מגוגל מפות. הדירוג מתחשב גם בכמות המדרגים — ובביקורות שנכתבו בעברית.</p>';
+    html += list && list.source === 'wikipedia'
+      ? '<p class="nb-foot">גוגל לא זמין כרגע, אז הרשימה מוויקיפדיה: מקומות שיש עליהם ערך, לפי כמה אנשים קראו עליהם בחודש האחרון. בלי דירוגים ושעות — כדאי לבדוק בגוגל מפות לפני שיוצאים.</p>'
+      : '<p class="nb-foot">דירוגים, שעות וביקורות מגוגל מפות. הדירוג מתחשב גם בכמות המדרגים — ובביקורות שנכתבו בעברית.</p>';
     inner.innerHTML = html;
   }
 
@@ -396,8 +518,11 @@ const TripNearby = (() => {
         if (waiting) html += '<p class="nb-foot">טוענים עוד…</p>';
       }
     }
+    const fromOsmList = (st.food[''] || []).source === 'osm';
     html += `<p class="nb-foot">${st.kosherOnly || (st.food[''] || []).some((p) => p.kosher)
-      ? 'סימון "כשר" לפי שם המקום, התיאור או ביקורות — הוא רמז ולא תעודה, כדאי לוודא במקום. ' : ''}דירוגים וביקורות מגוגל מפות; מקומות שישראלים כתבו עליהם בעברית עולים בדירוג.</p>`;
+      ? `סימון "כשר" לפי ${fromOsmList ? 'OpenStreetMap או שם המקום' : 'שם המקום, התיאור או ביקורות'} — הוא רמז ולא תעודה, כדאי לוודא במקום. ` : ''}${fromOsmList
+      ? 'גוגל לא זמין כרגע, אז המסעדות מ-OpenStreetMap — בלי דירוגים, לפי מרחק.'
+      : 'דירוגים וביקורות מגוגל מפות; מקומות שישראלים כתבו עליהם בעברית עולים בדירוג.'}</p>`;
     inner.innerHTML = html;
   }
 
