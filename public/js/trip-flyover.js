@@ -583,8 +583,11 @@ const TripFlyover = (() => {
       attributionControl: false,
       fadeDuration: 0,
       maxPitch: 75,
-      pixelRatio: Math.max(1, VIEW[aspect][0] / (box.clientWidth || VIEW[aspect][0])),
+      pixelRatio: viewRatio(box.clientWidth),
       canvasContextAttributes: { preserveDrawingBuffer: true, antialias: true },
+      // room to keep what preload() fetched along the whole route (the default keeps
+      // about one screen's worth, and the first tiles would be gone by the end)
+      maxTileCacheSize: 600,
     });
     satLoaded = false; satErrors = 0; fellBack = false;
     const groundSource = () => (ground === 's2' ? 's2' : 'sat');
@@ -606,6 +609,8 @@ const TripFlyover = (() => {
     });
   }
 
+  const viewRatio = (cssW) => clamp(Math.min(window.devicePixelRatio || 1, VIEW[aspect][0] / (cssW || VIEW[aspect][0])), 1, 2);
+
   // fit the frame to the stage at the aspect, and the composite to `size` pixels
   function sizeFrame(size) {
     const stage = $('.fly-stage');
@@ -623,7 +628,9 @@ const TripFlyover = (() => {
     lineK = Math.min(frame.clientWidth, frame.clientHeight) / 360 || 1;
     if (map) {
       map.resize();
-      map.setPixelRatio(Math.max(1, w / (frame.clientWidth || w)));
+      // a rendered film draws the map at the film's own pixels; watching draws it at
+      // the screen's (capped at 2 — 3× of a tilted 3D map is what made phones lag)
+      map.setPixelRatio(size ? Math.max(1, w / (frame.clientWidth || w)) : viewRatio(frame.clientWidth));
       scaleLines();
     }
   }
@@ -1250,30 +1257,55 @@ const TripFlyover = (() => {
     else renderSetup();
   }
 
-  // by the clock: the frame for the time that has passed, whatever the tiles are doing
+  // Walk the film once with the camera before it plays — a frame every ¾ s, each
+  // held until its tiles are in (or a moment passes) — so watching it is watching the
+  // ground, not the ground arriving. Tiles fetched here stay in the cache (see
+  // maxTileCacheSize in makeMap); on a second watch this is nearly instant.
+  async function preload() {
+    const n = run.film.frames.length;
+    const step = Math.round(FPS * 0.75);
+    for (let k = 0; k < n && run && !run.stopped; k += step) {
+      setStatus(`טוענים את המפה לאורך הדרך · ${Math.round((k / n) * 100)}%`);
+      setProgress(k / n);
+      applyFrame(k);
+      await settled(2500);
+    }
+    if (!run || run.stopped) return;
+    applyFrame(0);
+    await settled(3000);
+    setProgress(0);
+  }
+
+  // By the clock, like a video player: the frame for the time that has passed —
+  // except that the clock waits (up to 0.6 s at a time) while the view still has
+  // tiles coming, the way a player buffers, rather than play on over bare ground.
+  // The waiting has a budget (a quarter of the film): on a network that can't keep
+  // up, a film that plays with gaps beats one that never ends. How much it waited
+  // is reported (flyover_watched) — the only way to know what real phones see.
   async function realtime(record) {
     const n = run.film.frames.length;
-    if (record) {
-      // warm the tiles first, so the film is not of tiles arriving: the opening shot
-      // and every stop's close-up, once each, off camera
-      for (let i = 0; i < run.plan.stops.length && !run.stopped; i++) {
-        setStatus(`מכינים את המפה · ${i + 1}/${run.plan.stops.length}`);
-        const s = run.plan.stops[i];
-        map.jumpTo({ center: [s.lon, s.lat], zoom: closeZoom(), pitch: 52, bearing: 0 });
-        await settled(2000);
-      }
-      if (run.stopped) return;
-      applyFrame(0);
-      await settled(4000);
-      if (!startRecording()) record = false;
-    }
+    await preload();
+    if (!run || run.stopped) return;
+    if (record && !startRecording()) record = false;
     setStatus(record ? 'מקליטים — השאירו את המסך דלוק ואת הדף פתוח' : 'צפייה בלבד — שום דבר לא מוקלט');
     await new Promise((res) => {
-      const t0 = performance.now();
+      let clock = 0;        // film time, ms
+      let last = performance.now();
+      let waited = 0;       // how long the current stall has held the clock
+      let buffered = 0;     // all the waiting, this watch
+      const budget = (n / FPS) * 250; // ms: a quarter of the film's length
       const step = () => {
         if (!run || run.stopped) return res();
-        const k = Math.floor(((performance.now() - t0) / 1000) * FPS);
-        if (k >= n) return res();
+        const now = performance.now();
+        const dt = Math.min(now - last, 100); // a hidden tab or a long frame is not a jump
+        last = now;
+        const ready = map.areTilesLoaded();
+        if (ready || waited > 600 || buffered > budget) { clock += dt; if (ready) waited = 0; } else { waited += dt; buffered += dt; }
+        const k = Math.floor((clock / 1000) * FPS);
+        if (k >= n) {
+          TRIPMAKER.track?.('flyover_watched', { code: opts.trip.share_code, secs: Math.round(n / FPS), buffered_ms: Math.round(buffered), ground, record });
+          return res();
+        }
         if (k !== run.cur) applyFrame(k);
         setProgress(k / n);
         requestAnimationFrame(step);
