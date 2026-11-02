@@ -165,7 +165,7 @@ const TripPages = (() => {
         open(name);
       };
     });
-    document.getElementById('more-btn')?.addEventListener('click', openMore);
+    document.getElementById('more-btn')?.addEventListener('click', () => openMore());
   }
 
   // ---- the dock's arrival ----
@@ -444,17 +444,27 @@ const TripPages = (() => {
   // showing it: the budget tab, say, sits in the dock until the draft's save pill needs
   // the room, and then it lives here instead.
   //
-  // Twelve rows in one column read as a junk drawer, so they sit under three headings —
-  // the trip itself, the people and the money between them, and taking it elsewhere.
-  // A heading shows only when at least one of its rows is offered.
+  // Twelve rows in one column read as a junk drawer. The ones travellers actually reach
+  // for from here (by the clicks on this sheet: hotels, participants, who owes whom,
+  // and the budget when it's folded) stand on their own at the top, in that order; the
+  // rest wait one tap deeper, in a category row that opens in place — the trip's tools,
+  // and taking it elsewhere. A category with a single offered action shows that action
+  // itself rather than a folder of one, and an empty one doesn't show at all.
 
   const MORE_GROUPS = [
-    { id: 'trip', title: 'הטיול' },
-    { id: 'people', title: 'חברים וכסף' },
-    { id: 'share', title: 'שיתוף וייצוא' },
+    { id: 'trip', title: 'עוד בטיול',
+      ic: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36z"/></svg>' },
+    { id: 'share', title: 'שיתוף וייצוא',
+      ic: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/></svg>' },
   ];
 
   const MORE_ACTIONS = [
+    { id: 'hotels-btn', group: 'top', title: 'מלונות', desc: 'איפה ישנים — לילות, הזמנות ומחירים' },
+    { id: 'participants-btn', group: 'top', title: () => document.getElementById('participants-label')?.textContent || 'משתתפים', desc: 'מי מתכנן איתכם, וקישור ההזמנה' },
+    { id: 'settle-btn', group: 'top', title: 'חלוקת הוצאות',
+      desc: 'מי חייב למי — לפי התקציב המשותף בלבד' },
+    { id: 'budget-btn', group: 'top', title: 'תקציב', cls: (el) => (el.classList.contains('over') ? 'over' : el.classList.contains('warn') ? 'warn' : ''),
+      desc: () => { const l = document.getElementById('budget-label')?.textContent; return l && l !== 'תקציב' ? `${l} מהתקציב כבר מתוכנן` : 'כמה זה עולה — התקרה, ההוצאות והחלוקה'; } },
     // first, always: what still has to happen before the flight (trip-checklist.js
     // keeps the line under it current — done/total, and how many are on fire)
     { id: 'checklist-btn', group: 'trip', title: 'צ\'קליסט לטיול',
@@ -462,12 +472,6 @@ const TripPages = (() => {
     { id: 'moments-btn', group: 'trip', title: 'תזכורות',
       desc: () => (typeof TripMoments !== 'undefined' ? TripMoments.moreDesc() : 'כרטיסים, טיסות וצ׳ק-אין — התראה לפני, עם המסמך פתוח') },
     { id: 'map-open-btn', group: 'trip', title: 'מפת הטיול', desc: 'כל התחנות על מפה במסך מלא — יום אחרי יום, או כל הטיול יחד' },
-    { id: 'budget-btn', group: 'people', title: 'תקציב', cls: (el) => (el.classList.contains('over') ? 'over' : el.classList.contains('warn') ? 'warn' : ''),
-      desc: () => { const l = document.getElementById('budget-label')?.textContent; return l && l !== 'תקציב' ? `${l} מהתקציב כבר מתוכנן` : 'כמה זה עולה — התקרה, ההוצאות והחלוקה'; } },
-    { id: 'hotels-btn', group: 'trip', title: 'מלונות', desc: 'איפה ישנים — לילות, הזמנות ומחירים' },
-    { id: 'participants-btn', group: 'people', title: () => document.getElementById('participants-label')?.textContent || 'משתתפים', desc: 'מי מתכנן איתכם, וקישור ההזמנה' },
-    { id: 'settle-btn', group: 'people', title: 'חלוקת הוצאות',
-      desc: 'מי חייב למי — לפי התקציב המשותף בלבד' },
     { id: 'wa-share', group: 'share', title: 'שיתוף בוואטסאפ', desc: 'שולחים את המסלול לחברים' },
     { id: 'copy-link', group: 'share', title: 'העתקת קישור', desc: 'קישור למסלול, להדבקה בכל מקום' },
     { id: 'ics-btn', group: 'share', title: 'ייצוא ליומן', desc: 'קובץ ICS — גוגל קלנדר, אאוטלוק או יומן אפל' },
@@ -484,37 +488,61 @@ const TripPages = (() => {
     return isOffered(el) && getComputedStyle(el).display === 'none';
   }
 
-  function openMore() {
+  function moreRow(a) {
+    const src = document.getElementById(a.id);
+    const svg = src.querySelector('svg')?.cloneNode(true);
+    if (svg) svg.setAttribute('class', 'ic');
+    const t = typeof a.title === 'function' ? a.title() : a.title;
+    const d = typeof a.desc === 'function' ? a.desc() : a.desc;
+    const extra = [src.classList.contains('liked') ? 'liked' : '', a.cls ? a.cls(src) : ''].filter(Boolean).map((c) => ' ' + c).join('');
+    return `
+      <button type="button" class="more-row${extra}" data-for="${a.id}">
+        <span class="mr-ic">${svg ? svg.outerHTML : ''}</span>
+        <span class="mr-text"><b>${esc(t)}</b><small>${esc(d)}</small></span>
+        <span class="mr-chev" aria-hidden="true">‹</span>
+      </button>`;
+  }
+
+  const actionTitle = (a) => (typeof a.title === 'function' ? a.title() : a.title);
+
+  // `cat` null is the top level; a category id opens that category inside the same
+  // sheet — no history entry of its own, so back (or ✕) still closes the whole sheet
+  function openMore(cat = null) {
     const rows = MORE_ACTIONS.filter((a) => isFolded(document.getElementById(a.id)));
-    const rowHtml = (a) => {
-      const src = document.getElementById(a.id);
-      const svg = src.querySelector('svg')?.cloneNode(true);
-      if (svg) svg.setAttribute('class', 'ic');
-      const t = typeof a.title === 'function' ? a.title() : a.title;
-      const d = typeof a.desc === 'function' ? a.desc() : a.desc;
-      const extra = [src.classList.contains('liked') ? 'liked' : '', a.cls ? a.cls(src) : ''].filter(Boolean).map((c) => ' ' + c).join('');
-      return `
-        <button type="button" class="more-row${extra}" data-for="${a.id}">
-          <span class="mr-ic">${svg ? svg.outerHTML : ''}</span>
-          <span class="mr-text"><b>${esc(t)}</b><small>${esc(d)}</small></span>
-          <span class="mr-chev" aria-hidden="true">‹</span>
-        </button>`;
-    };
-    const html = MORE_GROUPS.map((g) => {
-      const mine = rows.filter((a) => a.group === g.id);
-      if (!mine.length) return '';
-      return `<section class="more-group">
-        <h4 class="more-group-title">${esc(g.title)}</h4>
-        <div class="more-list">${mine.map(rowHtml).join('')}</div>
-      </section>`;
-    }).join('');
+    const group = cat && MORE_GROUPS.find((g) => g.id === cat);
+    let html;
+    if (group) {
+      html = `
+        <button type="button" class="more-back" data-back>› כל הפעולות</button>
+        <div class="more-list">${rows.filter((a) => a.group === cat).map(moreRow).join('')}</div>`;
+    } else {
+      const top = rows.filter((a) => a.group === 'top').map(moreRow);
+      const cats = MORE_GROUPS.map((g) => {
+        const mine = rows.filter((a) => a.group === g.id);
+        if (!mine.length) return '';
+        if (mine.length === 1) return moreRow(mine[0]);
+        return `
+          <button type="button" class="more-row more-cat" data-cat="${g.id}">
+            <span class="mr-ic">${g.ic}</span>
+            <span class="mr-text"><b>${esc(g.title)}</b><small>${esc(mine.map(actionTitle).join(' · '))}</small></span>
+            <span class="mr-count">${mine.length}</span>
+            <span class="mr-chev" aria-hidden="true">‹</span>
+          </button>`;
+      }).filter(Boolean);
+      html = `<div class="more-list">${top.join('')}</div>`
+        + (cats.length ? `<div class="more-list more-cats">${cats.join('')}</div>` : '');
+    }
     sheet('more-sheet', {
-      title: 'עוד פעולות',
+      title: group ? esc(group.title) : 'עוד פעולות',
       html,
       onOpen: (body) => {
-        body.querySelectorAll('.more-row').forEach((r) => {
+        body.querySelectorAll('.more-row[data-for]').forEach((r) => {
           r.onclick = () => closeSheet(() => document.getElementById(r.dataset.for)?.click());
         });
+        body.querySelectorAll('.more-row[data-cat]').forEach((r) => {
+          r.onclick = () => openMore(r.dataset.cat);
+        });
+        body.querySelector('[data-back]')?.addEventListener('click', () => openMore(null));
       },
     });
   }
