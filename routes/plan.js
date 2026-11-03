@@ -414,7 +414,7 @@ ${stepwise
 - done: כל הימים נדונו. הציעו להשלים את שאר התחנות אוטומטית (יש למטיילים כפתור לזה), או להמשיך לחקור.
 בכל שלב אפשר לחקור: כשהמטיילים שואלים "מה יש ב…", "מה כדאי", "איפה אוכלים" — ענו ב-text והראו 2-3 cards של מקומות אמיתיים (עם תמונות בצד שלנו). cards הן להצגה בלבד — הן לא תחנות; תחנה נכנסת רק דרך ops.
 
-מה אתם יכולים לשנות בעצמכם, בכל שלב: תחנות (ops — הוספה, הזזה ליום או לשעה אחרים, עריכה, מחיקה), תאריכי הטיול ואורכו (dates_set), מלונות, תקציב, ותזכורות לטלפון (actions). כשמטיילים מבקשים אחד מאלה — עושים אותו באותו תור, לא מסבירים שצריך לעשות אותו ולא שואלים שאלה שהתשובה עליה כבר כתובה כאן (תאריך היום, מספר הימים, מה יש במסלול). שינוי שאין לו פעולה כאן (שם הטיול, היעדים עצמם, משתתפים) — אומרים בפשטות שזה נעשה בדף הטיול.
+מה אתם יכולים לשנות בעצמכם, בכל שלב: תחנות (ops — הוספה, הזזה ליום או לשעה אחרים, עריכה, מחיקה), תאריכי הטיול ואורכו (dates_set), מלונות, תקציב, תזכורות לטלפון, ושם הטיול, התיאור והיעדים שלו (trip_update) (actions). כשמטיילים מבקשים אחד מאלה — עושים אותו באותו תור, לא מסבירים שצריך לעשות אותו ולא שואלים שאלה שהתשובה עליה כבר כתובה כאן (תאריך היום, מספר הימים, מה יש במסלול). שינוי שאין לו פעולה כאן (משתתפים, פרסום בגלריה) — אומרים בפשטות שזה נעשה בדף הטיול.
 כל פעולה שה-text אומר שנעשתה ("עדכנתי", "הוספתי", "קבעתי", "הזזתי") חייבת להופיע באותו תור ב-ops או ב-actions. facts הם הזיכרון שלכם ולא שינוי בטיול — "רשמתי" ב-facts לא מזיז שום דבר במסלול או בתאריכים.
 
 commit — כל תור שמחזיר ops או actions מחליט גם אם הם מתבצעים מיד או מוצעים:
@@ -428,7 +428,7 @@ suggestions: 0-3 תשובות קצרות (עד 5 מילים) שסביר שהמט
 areas: [] כשאין שינוי בחלוקה; אחרת החלוקה המלאה. day_from/day_to בין 1 ל-${trip.days}.
 flights: [] בכל שלב שאינו flights, וגם ב-flights ברגע שהכרטיס כבר מולא — ממלאים אותו פעם אחת, והתיקונים של המטיילים בכרטיס גוברים על כל הצעה שלכם.
 
-חוקי ops (כמו בעורך המסלולים): add חייב title קצר בעברית, note טיפ פרקטי קצר בעברית, time_label בפורמט HH:MM (או null כשלא ידוע), day_number בין 1 ל-${trip.days}; place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan") ורק למקום אמיתי וספציפי — לתחנה כללית או לטיסה החזירו null; cost הערכה לאדם בש"ח (מספר שלם) או null; category מתוך: ${ai.AI_CATEGORIES.join(', ')}${multiArea ? `; area מתוך: ${areaNames.join(', ')}` : `; area תמיד "${areaNames[0] || trip.destination}"`}. update/delete חייבים id של תחנה קיימת מהמסלול למטה, וב-update null בכל שדה שלא משתנה. אל תיגעו בתחנות שהמטיילים לא ביקשו לשנות. כל מקום ב-ops או ב-cards חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו.
+חוקי ops (כמו בעורך המסלולים): add חייב title קצר בעברית, note טיפ פרקטי קצר בעברית, time_label בפורמט HH:MM (או null כשלא ידוע), day_number בין 1 ל-${trip.days}; place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan") ורק למקום אמיתי וספציפי — לתחנה כללית או לטיסה החזירו null; cost הערכה לאדם בש"ח (מספר שלם) או null; category מתוך: ${ai.STOP_CATEGORIES.join(', ')} (מלון או לינה — רק hotel_add, לעולם לא תחנה)${multiArea ? `; area מתוך: ${areaNames.join(', ')}` : `; area תמיד "${areaNames[0] || trip.destination}"`}. update/delete חייבים id של תחנה קיימת מהמסלול למטה, וב-update null בכל שדה שלא משתנה. אל תיגעו בתחנות שהמטיילים לא ביקשו לשנות. כל מקום ב-ops או ב-cards חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו.
 ${actions.PROMPT_RULES(trip.days)}
 ${clock.PROMPT_RULES}
 ${attachments.PROMPT_RULES}
@@ -445,6 +445,7 @@ ${aiTools.promptRules({ services })}`;
 
   const user =
 `הטיול: "${trip.title}" — ${ai.destDescFull(dests) || trip.destination}, ${trip.days} ימים${dates}.
+תיאור הטיול: ${trip.description || '(אין)'}
 ${clock.promptBlock(trip, { tz })}
 ${tripPrefsBlock(state, { facts: false })}שלב נוכחי: ${state.stage}.
 מה שכבר הוסכם (facts):
@@ -455,7 +456,7 @@ ${pending}
 המסלול הנוכחי (כל שורה: #מזהה | יום | שעה | [קטגוריה] כותרת | מקום):
 ${itineraryLines(items, multiArea, trip)}
 עומס (תחנות ליום): ${perDay.map((c, i) => `${i + 1}:${c}`).join(' ')}
-${actions.contextLines(side && side.hotels, side && side.budget)}
+${actions.contextLines(side && side.hotels, side && side.budget, side)}
 הצעה ממתינה: ${pendingProposal || '(אין)'}
 
 השיחה האחרונה:
@@ -552,8 +553,12 @@ async function planTurn({ trip, items, state, side, history, message, pendingPro
   });
   const { cards } = await ai.verifyRecCards((raw.cards || []).slice(0, 3), { dests, areaNames });
   const text = String(raw.text || '').trim().slice(0, 1200);
-  const ops = verified.ops || [];
-  const acts = actions.cleanActions(raw.actions, trip, side && side.hotels);
+  // a hotel the model filed as a stop goes to the hotels page instead (lib/plan-actions.js)
+  const lodged = actions.lodgingToHotels(verified.ops || [], actions.cleanActions(raw.actions, trip, side && side.hotels), {
+    trip, items, hotels: side && side.hotels,
+  });
+  const ops = lodged.ops;
+  const acts = await actions.locateHotels(lodged.actions, trip, items);
   // The text and the card must tell the same story. A turn that says "עדכנתי" over a
   // card still waiting for a tap left the traveller sure it was done when it wasn't —
   // the model's own words decide: a change it reports as made is made (with an undo).
@@ -585,7 +590,8 @@ async function planTurn({ trip, items, state, side, history, message, pendingPro
     actions: acts,
     // a turn that writes nothing has nothing to decide; one that does, does as it said —
     // and one whose text reports the change as done is committed whatever it flagged
-    commit: !!raw.commit || (writes && claimsDone),
+    // — except a new name for the trip, which always waits for a tap
+    commit: !actions.needsApproval(acts) && (!!raw.commit || (writes && claimsDone)),
     // what it looked up on the way — shown under the answer, kept on the row
     tools: progress ? progress.summary() : [],
   };
@@ -682,6 +688,13 @@ async function writeProposal(client, trip, items, payload, state = null) {
   const { r, a } = await ai.applyOpsAndActions(client, trip, items, payload.ops || [], payload.actions || []);
   const changed = r.added + r.updated + r.removed + a.count > 0;
   if (a.calendar && state) moveCalendar(state, a.calendar);
+  // a place the trip no longer visits takes its block of the area split with it; the
+  // split is re-proposed by the chat when the days no longer add up
+  if (a.moved && state && state.areas.length) {
+    const gone = new Set(a.moved.removed);
+    const kept = state.areas.filter((b) => !gone.has(b.area));
+    if (kept.length !== state.areas.length) state.areas = [];
+  }
   return {
     sideChanged: a.count > 0,
     calendar: a.calendar,

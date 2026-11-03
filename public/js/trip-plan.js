@@ -30,6 +30,8 @@ const TripPlan = (() => {
     hotel: { em: '🏨', label: 'מלון' }, hotel_delete: { em: '🏨', label: 'הסרת מלון' }, budget: { em: '💰', label: 'תקציב' }, dates: { em: '📅', label: 'תאריכים' },
     // a timed push with the document a tap away (lib/moments.js)
     moment: { em: '⏰', label: 'תזכורת' },
+    // the trip's own name, description and destinations
+    trip: { em: '🧭', label: 'פרטי הטיול' },
   };
   const FILL_CHIP = '✨ להשלים את שאר הימים אוטומטית';
   const QUIPS = [
@@ -417,7 +419,7 @@ const TripPlan = (() => {
     const reasons = skipped.map((x) => `<div class="pc-note">${esc(x.title ? x.title + ' — ' : '')}${esc(x.reason || '')}</div>`).join('');
     const a = p.applied || {};
     const onlyAlready = done && a.already && !(a.added || a.updated || a.removed || a.actions);
-    const side = changes.some((c) => ['hotel', 'hotel_delete', 'budget', 'dates', 'moment'].includes(c.kind));
+    const side = changes.some((c) => ['hotel', 'hotel_delete', 'budget', 'dates', 'moment', 'trip'].includes(c.kind));
     const where = side ? 'בטיול' : 'במסלול';
     const head = {
       pending: `שינויים מוצעים ${where}`, deciding: `שינויים מוצעים ${where}`, applied: `שינויים שבוצעו ${where}`,

@@ -38,6 +38,7 @@ const CHECKS = [
   'tools/moments-check.js',
   'tools/trip-clock-check.js',
   'tools/prompt-cache-check.js',
+  'tools/trip-details-check.js',
   'tools/github-oidc-check.js',
   'tools/flyover-check.js',
   'tools/weather-watch-check.js',

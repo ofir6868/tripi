@@ -533,6 +533,21 @@
         return json(200, { stops });
       }
       if (rest === '/votes') return json(200, []);
+      // a lodging stop moved to the hotels page (routes/trips.js …/to-hotel): this stop
+      // and every lodging stop of the same name become one stay idea
+      const thm = rest.match(/^\/items\/(\d+)\/to-hotel$/);
+      if (thm && method === 'POST') {
+        const it = items.find((x) => x.id === +thm[1]);
+        if (!it) return json(404, { error: 'התחנה לא נמצאה' });
+        const name = String(it.title).replace(/^(צ['׳]?ק[\s-]?(אין|אאוט)|לינה|חזרה)\s*(ב|ל|מ)?-?\s*/, '').trim() || it.title;
+        const same = items.filter((x) => x.category === 'לינה' && x.title.includes(name));
+        const nights = same.map((x) => Math.min(x.day_number, trip.days - 1));
+        const h = { id: hotelId++, name, night_start: Math.min(...nights), night_end: Math.max(...nights), status: 'idea', stars: null,
+          lat: it.lat ?? null, lon: it.lon ?? null, price_total: null, link: null, note: it.note || null, photo: null, ref: null };
+        hotels.push(h);
+        items = items.filter((x) => !same.includes(x));
+        return json(200, { hotel: h, removed: same.map((x) => x.id), hotels });
+      }
       // the hotels page: add, edit and remove a stay
       if (rest === '/hotels' && method === 'POST') {
         if (!String(body.name || '').trim()) return json(400, { error: 'חסר שם למלון' });

@@ -34,6 +34,7 @@ const TripMap = (() => {
   let base = null;          // the big map's tile layers — see mountBase
   let pinLayer = null;      // numbered markers (above the route)
   let routeLayer = null;    // the walking-order line
+  let lodgeLayer = null;    // where each day ends: the night's hotel, and the dashed walk to it
   let youLayer = null;      // the traveller's own position (locate)
   let shotLayer = null;     // the day's own pictures, where they were taken (trip-day-photos.js)
   let ctx = null;
@@ -169,6 +170,76 @@ const TripMap = (() => {
     return d >= 1 && d <= ctx.trip.days ? d : 0;
   };
   const numInDay = (it) => dayStops(it.day_number).findIndex((s) => s.id === it.id) + 1;
+
+  // ---- the overnight point ----
+  //
+  // A hotel is never a stop (it lives on the hotels page, with its nights and its price);
+  // the map draws it on its own as the place the day ends — night N is slept after day N.
+  // A house-shaped pin, not a photo bubble, so it never reads as one more stop, joined to
+  // the day's last stop by a thin dashed walk. A tap opens the hotel's card.
+  const nightHotel = (day) => (ctx && ctx.state && typeof TripModals !== 'undefined' && TripModals.nightHotel
+    && day >= 1 && day < ctx.trip.days ? TripModals.nightHotel(ctx.state, day) : null);
+  const placedHotel = (h) => h && h.lat != null && h.lon != null;
+  // what the map shows: the selected day's night, or (overview) every night's stay once
+  const curLodging = () => {
+    const days = selectedDay ? [selectedDay] : Array.from({ length: ctx.trip.days }, (_, i) => i + 1);
+    const out = [];
+    for (const d of days) {
+      const h = nightHotel(d);
+      if (!placedHotel(h)) continue;
+      const seen = out.find((x) => x.hotel.id === h.id);
+      if (seen) seen.nights.push(d); else out.push({ hotel: h, day: d, nights: [d] });
+    }
+    return out;
+  };
+  const LODGE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18v-5h18v5"/><path d="M3 13V6"/><path d="M7 13v-3h4v3"/></svg>';
+  const lodgeIcon = (l, small) => L.divIcon({
+    className: 'map-lodge-wrap' + (small ? ' map-lodge-small' : '') + (l.hotel.status === 'idea' ? ' is-idea' : ''),
+    html: `<span class="map-lodge" style="--pin:${dayColor(l.day)}">
+        <span class="ml-roof"></span>
+        <span class="ml-body">${LODGE_SVG}</span>
+        <span class="ml-label"><b>${l.nights.length > 1 ? `לילות ${l.nights[0]}–${l.nights[l.nights.length - 1]}` : `לילה ${l.day}`}</b>${esc(l.hotel.name)}</span>
+      </span>`,
+    iconSize: [small ? 30 : 38, small ? 34 : 44],
+    iconAnchor: [small ? 15 : 19, small ? 34 : 44],
+  });
+  function drawLodging(stops) {
+    lodgeLayer.clearLayers();
+    const lodging = curLodging();
+    for (const l of lodging) {
+      const at = [+l.hotel.lat, +l.hotel.lon];
+      // the walk home from the last stop of each day it ends
+      for (const d of l.nights) {
+        const last = stops.filter((s) => s.day_number === d).pop();
+        if (last && kmApart({ lat: last.lat, lon: last.lon }, { lat: at[0], lon: at[1] }) < 60) {
+          lodgeLayer.addLayer(L.polyline([[last.lat, last.lon], at], {
+            className: 'route-home', color: dayColor(d), weight: selectedDay ? 3 : 2, opacity: .9,
+            dashArray: '1 8', lineCap: 'round', interactive: false,
+          }));
+        }
+      }
+      const m = L.marker(at, {
+        icon: lodgeIcon(l, !selectedDay), title: '', keyboard: true, riseOnHover: true, zIndexOffset: -100,
+        alt: `לינה, לילה ${l.day}: ${l.hotel.name}`,
+      });
+      m.on('click', () => openLodging(l.day));
+      lodgeLayer.addLayer(m);
+    }
+    return lodging.map((l) => [+l.hotel.lat, +l.hotel.lon]);
+  }
+  function openLodging(night) {
+    if (!ctx.openHotel) return;
+    TRIPMAKER.track?.('overnight_open', { trip_id: ctx.trip.id, night, from: 'map' });
+    // the full page steps back out first (a history entry of its own); the hotels page
+    // opens once it has, so the two never fight over the same back step
+    if (fullscreen && history.state && history.state.tripmakerMap) {
+      window.addEventListener('popstate', () => setTimeout(() => ctx.openHotel(night), 0), { once: true });
+      closeFull();
+      return;
+    }
+    if (fullscreen) closeFull();
+    ctx.openHotel(night);
+  }
 
   // ---- basemaps ----
 
@@ -320,6 +391,7 @@ const TripMap = (() => {
     base = { tile: null, overlays: [] };
     applyStyle(mapStyle, false);
     routeLayer = L.featureGroup().addTo(map);
+    lodgeLayer = L.featureGroup().addTo(map);
     pinLayer = L.featureGroup().addTo(map);
     youLayer = L.featureGroup().addTo(map);
     shotLayer = L.featureGroup().addTo(map);
@@ -344,6 +416,7 @@ const TripMap = (() => {
     on('map-btn-full', () => (fullscreen ? closeFull() : openFull()));
     on('map-open-pill', () => openFull());
     on('map-btn-fly', () => openFlyover());
+    on('map-fly-pill', () => openFlyover());
     document.addEventListener('keydown', (e) => {
       if (document.querySelector('#stop-modal.open')) return; // the sheet above the map has the keys
       if (e.key === 'Escape') {
@@ -541,9 +614,20 @@ const TripMap = (() => {
     const shots = dayShots();
     if (!selectedDay) { renderDayCards(strip); return; }
     const items = dayItems(selectedDay);
-    strip.hidden = !items.length && !shots;
-    if (!items.length) { strip.innerHTML = shots; wireShots(strip); return; }
+    const stay = nightHotel(selectedDay);
+    strip.hidden = !items.length && !stay && !shots;
+    if (!items.length && !stay) { strip.innerHTML = shots; wireShots(strip); return; }
     let n = 0;
+    // the day's last card is where it ends: the night's hotel, never one more stop
+    const lodgeCard = stay ? `<button type="button" class="map-stop map-lodge-card enter${stay.status === 'idea' ? ' is-idea' : ''}${placedHotel(stay) ? '' : ' unplaced'}" data-night="${selectedDay}"
+          style="animation-delay:${items.length * 40}ms;--day:${dayColor(selectedDay)}" title="לינה — לחיצה פותחת את כרטיס המלון">
+          <span class="ms-photo ms-lodge${stay.photo ? ' has-photo' : ''}" aria-hidden="true"><span class="ms-emoji">${LODGE_SVG}</span>${stay.photo ? `<img alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${esc(stay.photo)}" onerror="this.parentNode.classList.remove('has-photo');this.remove()">` : ''}</span>
+          <span class="ms-body">
+            <span class="ms-time">לינה · לילה ${selectedDay}</span>
+            <span class="ms-title">${esc(stay.name)}</span>
+            <span class="ms-cat">${stay.status === 'idea' ? 'רעיון, עוד לא הוזמן' : 'הוזמן'}</span>
+          </span>
+        </button>` : '';
     strip.innerHTML = items.map((it, i) => {
       const has = located(it);
       const num = has ? ++n : null;
@@ -559,9 +643,10 @@ const TripMap = (() => {
             ${it.category ? `<span class="ms-cat">${esc(it.category)}</span>` : ''}
           </span>
         </button>${leg}`;
-    }).join('') + shots;
+    }).join('') + lodgeCard + shots;
     wireShots(strip);
-    strip.querySelectorAll('.map-stop:not(.map-photos)').forEach((b) => {
+    strip.querySelector('.map-lodge-card')?.addEventListener('click', () => openLodging(selectedDay));
+    strip.querySelectorAll('.map-stop:not(.map-lodge-card):not(.map-photos)').forEach((b) => {
       b.onclick = () => {
         const id = +b.dataset.id;
         const it = items.find((x) => x.id === id);
@@ -602,7 +687,7 @@ const TripMap = (() => {
         const box = strip.getBoundingClientRect();
         let best = null;
         let bestD = Infinity;
-        strip.querySelectorAll('.map-stop:not(.unplaced):not(.map-photos)').forEach((c) => {
+        strip.querySelectorAll('.map-stop:not(.unplaced):not(.map-lodge-card):not(.map-photos)').forEach((c) => {
           const r = c.getBoundingClientRect();
           const d = Math.abs(r.right - (box.right - 12)); // RTL: the start is the right edge
           if (d < bestD) { bestD = d; best = c; }
@@ -853,12 +938,22 @@ const TripMap = (() => {
   function renderPins() {
     ensureMap();
     const stops = curStops();
-    const sig = selectedDay + '|' + stops.map((it) => `${it.id}:${it.lat},${it.lon}`).join(';');
+    const sig = selectedDay + '|' + stops.map((it) => `${it.id}:${it.lat},${it.lon}`).join(';')
+      + '|' + curLodging().map((l) => `${l.hotel.id}:${l.hotel.lat},${l.hotel.lon}:${l.hotel.status}:${l.nights.join(',')}`).join(';');
     if (sig === pinsSig) return;
     pinsSig = sig;
     pinLayer.clearLayers();
     routeLayer.clearLayers();
+    const lodged = drawLodging(stops);
     if (!stops.some((s) => s.id === activeId)) activeId = null;
+    if (!stops.length && lodged.length) {
+      // nothing to walk yet, but the night is known: the map opens on the bed
+      say('');
+      if (framed && !reduced()) map.flyTo(lodged[0], 14, { duration: .8 }); else map.setView(lodged[0], 14, { animate: false });
+      framed = true;
+      renderDetail();
+      return;
+    }
     if (!stops.length) {
       say(!selectedDay ? 'לתחנות של הטיול אין עדיין מיקום במפה'
         : dayItems(selectedDay).length ? `לתחנות של יום ${selectedDay} אין עדיין מיקום במפה` : `יום ${selectedDay} עדיין ריק`);
@@ -901,14 +996,17 @@ const TripMap = (() => {
       pinLayer.addLayer(m);
     });
     if (activeId != null) setActive(activeId, false); else renderDetail();
-    // the first frame cuts straight to the day; every later one flies there
+    // the first frame cuts straight to the day; every later one flies there — and a
+    // day's frame holds the bed it ends in, unless that is a whole other city
+    const near = lodged.filter((p) => latlngs.some((q) => kmApart({ lat: p[0], lon: p[1] }, { lat: q[0], lon: q[1] }) < 30));
     const fly = framed && !reduced();
-    if (latlngs.length === 1) {
-      if (fly) map.flyTo(latlngs[0], 15, { duration: .8 }); else map.setView(latlngs[0], 15, { animate: false });
+    const frame = [...latlngs, ...near];
+    if (frame.length === 1) {
+      if (fly) map.flyTo(frame[0], 15, { duration: .8 }); else map.setView(frame[0], 15, { animate: false });
     } else if (fly) {
-      map.flyToBounds(L.latLngBounds(latlngs), { ...framePad(), maxZoom: 16, duration: .8 });
+      map.flyToBounds(L.latLngBounds(frame), { ...framePad(), maxZoom: 16, duration: .8 });
     } else {
-      map.fitBounds(L.latLngBounds(latlngs), { ...framePad(), maxZoom: 16, animate: false });
+      map.fitBounds(L.latLngBounds(frame), { ...framePad(), maxZoom: 16, animate: false });
     }
     framed = true;
     // the real road, once the router answers (straight lines until then). It takes
@@ -1051,6 +1149,14 @@ const TripMap = (() => {
             <span class="mp-thumb${ph ? ' has-photo' : ''}" aria-hidden="true">${stopEmoji(it)}${ph ? `<img alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${esc(ph.url)}">` : ''}</span>
           </button>${leg}`;
       }).join('') : '';
+      const stay = open ? nightHotel(day) : null;
+      const lodgeRow = stay ? `<button type="button" class="mp-stop mp-lodge${stay.status === 'idea' ? ' is-idea' : ''}" data-night="${day}" title="לחיצה פותחת את כרטיס המלון">
+            <span class="mp-num mp-bed">${LODGE_SVG}</span>
+            <span class="mp-body">
+              <span class="mp-title">${esc(stay.name)}</span>
+              <span class="mp-meta"><span>לינה · לילה ${day}</span>${stay.status === 'idea' ? '<span>רעיון</span>' : ''}${placedHotel(stay) ? '' : '<span>אין מיקום</span>'}</span>
+            </span>
+          </button>` : '';
       return `<section class="mp-day${open ? ' open' : ''}${day === today ? ' is-today' : ''}" style="--day:${dayColor(day)}">
           <button type="button" class="mp-dayhead" data-day="${day}" aria-expanded="${open}">
             <span class="mp-daydot" aria-hidden="true"></span>
@@ -1058,7 +1164,7 @@ const TripMap = (() => {
             ${day === today ? '<span class="mp-today">היום</span>' : ''}
             <span class="mp-daycount">${its.length ? `${its.length} תחנות` : 'ריק'}</span>
           </button>
-          ${open ? `<div class="mp-stops">${rows || '<p class="mp-empty">אין עדיין תחנות ביום הזה</p>'}</div>${hasShots() ? TripDayPhotos.panelHtml(day) : ''}` : ''}
+          ${open ? `<div class="mp-stops">${rows || '<p class="mp-empty">אין עדיין תחנות ביום הזה</p>'}${lodgeRow}</div>${hasShots() ? TripDayPhotos.panelHtml(day) : ''}` : ''}
         </section>`;
     }).join('');
     box.innerHTML = `
@@ -1079,7 +1185,8 @@ const TripMap = (() => {
         selectDay(selectedDay === d && days > 1 ? 0 : d);
       };
     });
-    box.querySelectorAll('.mp-stop').forEach((b) => {
+    box.querySelectorAll('.mp-lodge').forEach((b) => { b.onclick = () => openLodging(+b.dataset.night); });
+    box.querySelectorAll('.mp-stop:not(.mp-lodge)').forEach((b) => {
       const id = +b.dataset.id;
       b.onclick = () => {
         const it = ctx.items().find((x) => x.id === id);
@@ -1148,6 +1255,8 @@ const TripMap = (() => {
   function syncFlyButton() {
     const b = $('map-btn-fly');
     if (b) b.hidden = !(fullscreen && narrow() && flyoverEligible());
+    const pill = $('map-fly-pill');
+    if (pill) pill.hidden = !flyoverEligible();
   }
 
   let flyLoading = null;
@@ -1224,6 +1333,7 @@ const TripMap = (() => {
         onChange: () => { renderStrip(); if (fullscreen) renderPanel(); },
       });
     }
+    syncFlyButton();
     $('map-btn-full')?.setAttribute('aria-label', 'מסך מלא');
     // the toolbar's "מפה" (and its row in "עוד" on a phone) — offered once there is a map
     const openBtn = $('map-open-btn');
@@ -1250,7 +1360,7 @@ const TripMap = (() => {
     const day = ctx.items().find((it) => it.area === d.name && it.lat != null)?.day_number;
     if (day) selectDay(day);
     else if (d.lat != null) {
-      pinLayer.clearLayers(); routeLayer.clearLayers(); pinsSig = null;
+      pinLayer.clearLayers(); routeLayer.clearLayers(); lodgeLayer.clearLayers(); pinsSig = null;
       renderDayChips(); renderStrip();
       map.setView([d.lat, d.lon], 12);
     }
@@ -1258,7 +1368,7 @@ const TripMap = (() => {
 
   // called from the renderItinerary funnel: add/edit/delete/drag all repaint pins
   function refresh() {
-    if (map && ctx) { renderDayChips(); renderPins(); renderStrip(); if (fullscreen) renderPanel(); }
+    if (map && ctx) { renderDayChips(); renderPins(); renderStrip(); if (fullscreen) renderPanel(); else syncFlyButton(); }
   }
 
   return { available, init, showDest, refresh, selectDay, mini, openFull, dayColor };

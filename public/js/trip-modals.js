@@ -113,6 +113,15 @@ const TripModals = (() => {
     return cover;
   }
 
+  // the hotel a night is slept in, as the itinerary and the map draw it: the booked
+  // stay, or — while nothing is booked — the idea saved for that night (an AI's pick
+  // lands as one), so the day still ends somewhere
+  function nightHotel(state, night) {
+    const booked = nightCoverage(state)[night];
+    if (booked) return booked;
+    return (state.hotels || []).find((h) => h.status === 'idea' && h.night_start <= night && night <= h.night_end) || null;
+  }
+
   function uncoveredRuns(state) {
     const cover = nightCoverage(state);
     const runs = [];
@@ -359,10 +368,45 @@ const TripModals = (() => {
     if (TripPages.current() === 'hotels') hotelsRender?.();
     else TripPages.open('hotels');
     if (opts.addNight && nightCount(state) > 0) {
-      const h = nightCoverage(state)[opts.addNight];
+      const h = nightHotel(state, opts.addNight);
       if (h) openStaySheet(ctx, h, h.night_start, h.night_end);
       else openStaySheet(ctx, null, opts.addNight, opts.addNight);
     }
+    // the overnight point in the itinerary or on the map: the page opens on that
+    // night's stay card, lit up for a moment so the eye finds it
+    if (opts.focusNight && nightCount(state) > 0) {
+      const seg = hotelSegments(state).find((x) => opts.focusNight >= x.from && opts.focusNight <= x.to);
+      let tries = 0;
+      const focus = () => {
+        const el = seg && document.getElementById(`hp-seg-${seg.from}`);
+        if (!el) { if (seg && ++tries < 20) requestAnimationFrame(focus); return; }
+        el.scrollIntoView({ behavior: 'auto', block: 'start' });
+        el.classList.remove('hp-flash');
+        void el.offsetWidth;
+        el.classList.add('hp-flash');
+      };
+      requestAnimationFrame(focus);
+    }
+  }
+
+  // a stay saved from outside the hotels page — a lodging card from the recommendations
+  // chat — goes where every hotel goes: an idea for its night on the hotels page, drawn
+  // in the itinerary and on the map as where that day ends. Never a stop.
+  async function saveStayIdea(state, { name, night, lat = null, lon = null, photo = null, headers = {} }) {
+    const last = nightCount(state);
+    if (last < 1) throw new Error('בטיול של יום אחד ישנים בבית');
+    const n = Math.min(Math.max(parseInt(night, 10) || 1, 1), last);
+    const key = String(name || '').trim().toLowerCase();
+    const dup = state.hotels.find((x) => x.night_start <= n && n <= x.night_end && String(x.name || '').trim().toLowerCase() === key);
+    if (dup) return { hotel: dup, night: n };
+    const row = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/hotels`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ name, night_start: n, night_end: n, status: 'idea', lat, lon, photo }),
+    });
+    state.hotels.push(row);
+    hotelsRender?.();
+    TRIPMAKER.track('hotel_idea_saved', { trip_id: state.trip.id, night: n, from: 'recs' });
+    return { hotel: row, night: n };
   }
 
   function renderHotelsPage(slots, ctx) {
@@ -943,23 +987,31 @@ const TripModals = (() => {
     return d ? { lat: +d.lat, lon: +d.lon, after: null, area: d.name || area } : null;
   }
 
-  // The slim, settled version: one line in the hotel's own colour. A solved
-  // night should take less room than an unsolved one, not more.
+  // Where the day ends: one line in the hotel's own colour, under the day's last stop —
+  // the hotel itself lives on the hotels page, and this is its overnight point in the
+  // itinerary (the map draws the same point, trip-map.js). A tap opens its card there.
+  // An idea (saved, not booked yet — what the AI adds) shows the same way, dashed.
   function bookedNightHtml(state, night, hotel) {
-    const color = hotelColor(state, hotel);
-    const dates = nightDates(state, hotel);
+    const idea = hotel.status === 'idea';
+    const color = idea ? 'var(--paper-dim)' : hotelColor(state, hotel);
+    const dates = nightDates(state, { night_start: night, night_end: night });
     const meta = [
-      dates ? `צ'ק-אין ${dm(dates.checkin)} · צ'ק-אאוט ${dm(dates.checkout)}` : null,
-      hotel.price_total && state.canEdit ? fmt(hotel.price_total, curOf(state)) : null,
+      `לילה ${night}`,
+      dates ? `${dm(dates.checkin)} ← ${dm(dates.checkout)}` : null,
+      // the stay's price once, on its first night — not the total again under every night
+      hotel.price_total && state.canEdit && !idea && night === hotel.night_start ? fmt(hotel.price_total, curOf(state)) : null,
     ].filter(Boolean).join(' · ');
+    const tap = state.canEdit;
     return `
-      <div class="night-booked" style="border-inline-start-color:${color}">
-        <span style="color:${color}">${NC_ICON.bed}</span>
+      <div class="night-booked${idea ? ' is-idea' : ''}${tap ? ' is-tap' : ''}" style="border-inline-start-color:${color}"
+        ${tap ? `data-hotel-card="${night}" role="button" tabindex="0" aria-label="לינה בלילה ${night}: ${esc(hotel.name)} — פתיחת כרטיס המלון"` : ''}>
+        <span class="nb-ic" style="color:${color}">${hotel.photo
+          ? `<img src="${esc(hotel.photo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}${NC_ICON.bed}</span>
         <div class="nb-text">
-          <div class="nb-name">לילה ${night} · ${esc(hotel.name)}</div>
-          ${meta ? `<div class="nb-meta">${meta}</div>` : ''}
+          <div class="nb-name"><span class="nb-kind">לינה</span>${esc(hotel.name)}${idea ? '<span class="nb-idea">רעיון</span>' : ''}</div>
+          <div class="nb-meta">${meta}</div>
         </div>
-        ${state.canEdit ? `<button type="button" class="nb-edit" data-open-night="${night}">שינוי</button>` : ''}
+        ${tap ? '<span class="nb-chev" aria-hidden="true">‹</span>' : ''}
       </div>`;
   }
 
@@ -969,7 +1021,7 @@ const TripModals = (() => {
   // free day the itinerary shows the AI's picks for the day instead (trip-dayrecs.js)
   function nightCardHtml(state, night, { suggest = true } = {}) {
     if (night < 1 || night > nightCount(state)) return '';
-    const booked = nightCoverage(state)[night];
+    const booked = nightHotel(state, night);
     if (booked) return bookedNightHtml(state, night, booked);
     if (!suggest) return '';
 
@@ -1252,6 +1304,14 @@ const TripModals = (() => {
 
     container.querySelectorAll('[data-open-night]').forEach((b) => {
       b.onclick = () => openHotels(ctx, { addNight: +b.dataset.openNight });
+    });
+    container.querySelectorAll('[data-hotel-card]').forEach((el) => {
+      const go = () => {
+        TRIPMAKER.track('overnight_open', { trip_id: state.trip.id, night: +el.dataset.hotelCard, from: 'itinerary' });
+        openHotels(ctx, { focusNight: +el.dataset.hotelCard });
+      };
+      el.onclick = go;
+      el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
     });
 
     container.querySelectorAll('[data-toggle-night]').forEach((b) => {
@@ -2186,8 +2246,8 @@ const TripModals = (() => {
       if (h.night_end === day - 1) lines.push({ cls: 'checkout', html: `🧳 צ'ק-אאוט · ${esc(h.name)}` });
     }
     for (const h of bookedHotels(state)) {
+      // a middle night needs no header line: the overnight point under the day says it
       if (h.night_start === day) lines.push({ cls: 'checkin', html: `🏨 צ'ק-אין · ${esc(h.name)}`, link: h.link });
-      else if (h.night_start < day && day <= h.night_end) lines.push({ cls: 'stay', html: `🏨 ${esc(h.name)}` });
     }
     return lines;
   }
@@ -2618,5 +2678,6 @@ const TripModals = (() => {
     initHotels, openHotels, openBudget, closeBudget, openSettle, syncSettleButton, travelIcon, plannedTotals, plannedByDay,
     budgetButtonState, heroChip, dayHotelLines, uncoveredRuns, fmt, curOf,
     nightCardHtml, mountNightCards, itemCostInfo, setItemPersonalCost, clearItemPersonalCost,
+    nightHotel, saveStayIdea, nightCount,
   };
 })();
