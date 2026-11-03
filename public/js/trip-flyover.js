@@ -27,13 +27,13 @@
 // not be in the video. Hebrew is drawn by the canvas itself (RTL).
 //
 // Sources, keyless like the 2D map (PLAYBOOK §2):
-//   · the ground: Sentinel-2 cloudless **2016** by EOX — one mosaic at every zoom, so
-//     no colour seams across a tilted frame and no popping when the zoom level
-//     changes. Only the 2016 (and 2017) layers are CC BY 4.0; 2018+ are CC BY-NC-SA,
-//     which a commercial app may not use without buying EOX's licence — don't "upgrade"
-//     the year without that. It is 10 m imagery: soft up close, so Esri World Imagery
-//     stays for streets (crisp, but a different picture per zoom). "אוטומטי" picks by
-//     the trip: mostly walks → Esri, drives/hikes/flights → Sentinel (groundFor).
+//   · the ground, by default both (applyGround): from space down to a region,
+//     Sentinel-2 cloudless **2016** by EOX — one mosaic at every zoom, so no colour
+//     seams across the turning globe and no popping as the camera dives; then, as the
+//     zoom passes ~10, a dissolve into Esri World Imagery, sharp at street level where
+//     Sentinel's 10 m pixels are mush. Only EOX's 2016 (and 2017) layers are CC BY;
+//     2018+ are CC BY-NC-SA, which a commercial app may not use without buying EOX's
+//     licence — don't "upgrade" the year without that.
 //   · relief: the Terrarium elevation tiles AWS hosts as open data.
 //   · roads: OSRM on routing.openstreetmap.de (FOSSGIS) — foot for short hops, car
 //     for the rest, one request per run of legs; a leg it can't route is a straight
@@ -66,12 +66,14 @@ const TripFlyover = (() => {
   const CREDIT = {
     s2: 'Imagery: Sentinel-2 cloudless by EOX (Copernicus data 2016) · Terrain: AWS Terrain Tiles',
     esri: 'Imagery © Esri · Terrain: AWS Terrain Tiles',
+    auto: 'Imagery © Esri, Sentinel-2 cloudless by EOX (Copernicus data 2016) · Terrain: AWS Terrain Tiles',
     osm: 'Map © OpenStreetMap contributors · Terrain: AWS Terrain Tiles',
   };
   // what the viewer plays at, and what a rendered film is made at (WebCodecs)
   const VIEW = { wide: [1280, 720], tall: [720, 1280] };
   const FILM = { wide: [1920, 1080], tall: [1080, 1920] };
   const FPS = 30;
+  const PITCH = 34;               // the camera's tilt: mostly from above, enough to read the relief
   const EXAG = 1.25;              // terrain exaggeration — the altitude readout divides it back out
   const MAX_STOPS = 45;           // past this the video samples the stops — a 90-stop film is a chore
   const MATCH_M = 300;            // how near the timeline must come for a stop to count as reached
@@ -108,8 +110,7 @@ const TripFlyover = (() => {
   let cx = null;
   let raf = 0;
   let aspect = 'tall';
-  let imagery = 'auto';  // what the traveller picked: 'auto' | 's2' | 'esri'
-  let ground = 'esri';   // what is on the map now: 's2' | 'esri'
+  let ground = 'auto';   // the imagery: 'auto' (Sentinel far, Esri near) | 's2' | 'esri'
   let pathMode = 'road'; // 'road' | 'line' | 'none' | 'timeline'
   let scope = 0;         // 0 = the whole trip, else one day
   let timeline = null;   // { points: [[t, lat, lon]], at, files }
@@ -127,11 +128,11 @@ const TripFlyover = (() => {
     try {
       const p = JSON.parse(localStorage.getItem(PREF_KEY) || '{}');
       if (p.aspect === 'wide' || p.aspect === 'tall') aspect = p.aspect;
-      if (['auto', 's2', 'esri'].includes(p.imagery)) imagery = p.imagery;
+      if (['auto', 's2', 'esri'].includes(p.imagery)) ground = p.imagery;
     } catch { /* defaults */ }
   }
   function savePrefs() {
-    try { localStorage.setItem(PREF_KEY, JSON.stringify({ aspect, imagery })); } catch { /* fine */ }
+    try { localStorage.setItem(PREF_KEY, JSON.stringify({ aspect, imagery: ground })); } catch { /* fine */ }
   }
 
   // ---------------------------------------------------------------- timeline files
@@ -505,9 +506,9 @@ const TripFlyover = (() => {
         { id: 'bg', type: 'background', paint: { 'background-color': '#33402f' } }, // ground-ish, for a tile that never came
         // the fallback sits hidden under the imagery — a hidden layer's tiles are never fetched
         { id: 'osm', type: 'raster', source: 'osm', layout: show(false), paint: { 'raster-fade-duration': 0 } },
-        { id: 's2', type: 'raster', source: 's2', layout: show(ground === 's2'), paint: raster },
-        { id: 'sat', type: 'raster', source: 'sat', layout: show(ground === 'esri'), paint: raster },
-        { id: 'labels', type: 'raster', source: 'labels', layout: show(ground === 'esri'), paint: { 'raster-opacity': 0.8, 'raster-fade-duration': 0 } },
+        { id: 's2', type: 'raster', source: 's2', layout: show(ground !== 'esri'), paint: raster },
+        { id: 'sat', type: 'raster', source: 'sat', layout: show(ground !== 's2'), paint: raster },
+        { id: 'labels', type: 'raster', source: 'labels', layout: show(ground !== 's2'), paint: { 'raster-opacity': 0.8, 'raster-fade-duration': 0 } },
         // the whole way, faint, so the eye knows where the line is going
         { id: 'ghost', type: 'line', source: 'ghost', layout: round,
           paint: { 'line-color': '#ffffff', 'line-opacity': 0.35, 'line-width': 1.4, 'line-dasharray': [2, 2] } },
@@ -527,9 +528,14 @@ const TripFlyover = (() => {
           paint: { 'circle-radius': 3.6, 'circle-color': ['get', 'color'], 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5, 'circle-pitch-alignment': 'map' } },
       ],
       terrain: { source: 'dem', exaggeration: EXAG },
+      // the film opens on the whole Earth: a globe in space that becomes flat ground as
+      // the camera comes down (MapLibre turns globe into Mercator by itself, ~zoom 12)
+      projection: { type: 'globe' },
       sky: {
         'sky-color': '#6f9fd8', 'horizon-color': '#f3e2cf', 'fog-color': '#e9eef4',
-        'sky-horizon-blend': 0.5, 'horizon-fog-blend': 0.55, 'fog-ground-blend': 0.35, 'atmosphere-blend': 0.8,
+        'sky-horizon-blend': 0.5, 'horizon-fog-blend': 0.55, 'fog-ground-blend': 0.35,
+        // the blue halo around the planet from space, gone by the time we're over a region
+        'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 8, 0.4],
       },
     };
   }
@@ -546,29 +552,31 @@ const TripFlyover = (() => {
     WIDTHS.forEach(([layer, prop, v]) => map.setPaintProperty(layer, prop, v * lineK));
   }
 
-  // 'auto': a trip that stays inside one city (its stops within ~20 km) is about
-  // streets seen up close, where Esri is sharp and Sentinel is mush; a trip that
-  // drives, hikes across valleys or flies is about the land, where one seamless
-  // mosaic looks like a film.
-  function groundFor(stops) {
-    if (imagery !== 'auto') return imagery;
-    if (stops.length < 2) return 'esri';
-    const lon = stops.map((s) => s.lon);
-    const lat = stops.map((s) => s.lat);
-    const span = metres([Math.min(...lon), Math.min(...lat)], [Math.max(...lon), Math.max(...lat)]);
-    return span < 20000 ? 'esri' : 's2';
+  // The ground. 'auto' is both: Sentinel-2 from space down to a region (one mosaic, so
+  // no seams while the globe turns and the camera dives), crossfading by zoom into
+  // Esri's sharp aerial photos for the streets and the stops — Sentinel's 10 m pixels
+  // are mush up close. The fade follows the camera's zoom, so it is a dissolve during
+  // the dive, never a pop. 's2' / 'esri' are one of the two all the way.
+  function applyGround() {
+    if (!map || fellBack) return;
+    const vis = (l, on) => map.setLayoutProperty(l, 'visibility', on ? 'visible' : 'none');
+    const fade = (z0, z1, top) => ['interpolate', ['linear'], ['zoom'], z0, 0, z1, top];
+    vis('s2', ground !== 'esri');
+    vis('sat', ground !== 's2');
+    vis('labels', ground !== 's2');
+    map.setLayerZoomRange('s2', 0, ground === 'auto' ? 12.5 : 24);   // not fetched where Esri covers it
+    map.setLayerZoomRange('sat', ground === 'auto' ? 8.5 : 0, 24);
+    map.setPaintProperty('sat', 'raster-opacity', ground === 'auto' ? fade(9, 11, 1) : 1);
+    map.setPaintProperty('labels', 'raster-opacity', ground === 'auto' ? fade(10.5, 12, 0.75) : 0.8);
+    satLoaded = false; satErrors = 0;
   }
   function setGround(which) {
     if (which === ground) return;
     ground = which;
-    if (!map || fellBack) return;
-    map.setLayoutProperty('s2', 'visibility', which === 's2' ? 'visible' : 'none');
-    map.setLayoutProperty('sat', 'visibility', which === 'esri' ? 'visible' : 'none');
-    map.setLayoutProperty('labels', 'visibility', which === 'esri' ? 'visible' : 'none');
-    satLoaded = false; satErrors = 0;
+    applyGround();
   }
   const credit = () => CREDIT[fellBack ? 'osm' : ground];
-  const closeZoom = () => (ground === 's2' && !fellBack ? 13.7 : 15.2); // the close-up at a stop
+  const closeZoom = () => (ground === 's2' && !fellBack ? 13.5 : 14.8); // the close-up at a stop
 
   function makeMap() {
     const box = $('.fly-map');
@@ -590,11 +598,19 @@ const TripFlyover = (() => {
       maxTileCacheSize: 600,
     });
     satLoaded = false; satErrors = 0; fellBack = false;
+    terrainOn = true;
     const groundSource = () => (ground === 's2' ? 's2' : 'sat');
     map.on('sourcedata', (e) => { if (e.sourceId === groundSource() && e.tile) satLoaded = true; });
     map.on('error', (e) => {
       if (e.sourceId !== groundSource() || satLoaded || fellBack) return;
       if (++satErrors === 4) {
+        if (ground === 'auto') {
+          // Esri is down: Sentinel carries the whole film (soft up close, but ground)
+          console.warn('trip-flyover: Esri imagery is failing — Sentinel-2 all the way down');
+          ground = 's2';
+          applyGround();
+          return;
+        }
         console.warn(`trip-flyover: ${ground === 's2' ? 'EOX Sentinel-2' : 'Esri'} imagery is failing — falling back to OpenStreetMap streets`);
         // a layer swap, not setTiles: reloading a raster source under terrain throws in MapLibre 5
         ['s2', 'sat', 'labels'].forEach((l) => map.setLayoutProperty(l, 'visibility', 'none'));
@@ -604,7 +620,7 @@ const TripFlyover = (() => {
     });
     map.on('render', onMapRender);
     return new Promise((res, rej) => {
-      map.once('load', () => { scaleLines(); res(); });
+      map.once('load', () => { applyGround(); scaleLines(); res(); });
       setTimeout(() => rej(new Error('load timeout')), 20000);
     });
   }
@@ -637,7 +653,11 @@ const TripFlyover = (() => {
 
   // Every tile for this camera drawn: 'idle' fires after a render with nothing left
   // to load. The repaint makes sure a render happens even when the camera stood still.
-  function settled(cap = 8000) {
+  async function settled(cap = 8000) {
+    await settledOnce(cap);
+    if (terrainMoved) { terrainMoved = false; await settledOnce(cap); }
+  }
+  function settledOnce(cap) {
     return new Promise((res) => {
       let done = false;
       const fin = () => { if (done) return; done = true; clearTimeout(timer); map.off('idle', fin); res(); };
@@ -656,14 +676,30 @@ const TripFlyover = (() => {
   // or climbs, instead of rushing at the end (what flyTo does for the same reason).
   const along = (z0, z1, z, u) => (Math.abs(z1 - z0) < 0.05 ? smooth(u) : (2 ** (z0 - z) - 1) / (2 ** (z0 - z1) - 1));
 
+  // The camera that shows all of `points`, worked out in flat Mercator by hand:
+  // cameraForBounds on the globe projection lands far too close (plan-magic.js hit
+  // the same), and the film's close-ups are flat anyway by the zooms it fits at.
   function fitOf(points, padFrac = 0.16) {
-    const b = new maplibregl.LngLatBounds();
-    points.forEach((p) => b.extend(p));
     const frame = $('.fly-frame');
-    const pad = Math.min(frame.clientWidth, frame.clientHeight) * padFrac;
-    let cam = null;
-    try { cam = map.cameraForBounds(b, { padding: pad }); } catch { cam = null; }
-    return { center: b.getCenter().toArray(), zoom: cam && Number.isFinite(cam.zoom) ? cam.zoom : 10 };
+    const W = frame.clientWidth || 360;
+    const H = frame.clientHeight || 640;
+    const pad = Math.min(W, H) * padFrac;
+    const mx = (lon) => (lon + 180) / 360;
+    const my = (lat) => { const r = Math.sin(clamp(lat, -85, 85) * rad); return 0.5 - Math.log((1 + r) / (1 - r)) / (4 * Math.PI); };
+    const xs = points.map((p) => mx(p[0]));
+    const ys = points.map((p) => my(p[1]));
+    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    const cxm = (x0 + x1) / 2;
+    const cym = (y0 + y1) / 2;
+    const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * cym))) / rad;
+    const zx = Math.log2((W - 2 * pad) / (Math.max(x1 - x0, 1e-9) * 512));
+    const zy = Math.log2((H - 2 * pad) / (Math.max(y1 - y0, 1e-9) * 512));
+    return { center: [cxm * 360 - 180, lat], zoom: clamp(Math.min(zx, zy), 1, 18) };
+  }
+  // the zoom at which the whole Earth fills ~90% of the frame's width
+  function earthZoom() {
+    const frame = $('.fly-frame');
+    return clamp(Math.log2((0.9 * (frame.clientWidth || 360) * Math.PI) / 512), 0, 3);
   }
 
   // The whole film as one frame per 1/30 s: camera and what is on screen. Lengths
@@ -674,7 +710,9 @@ const TripFlyover = (() => {
     const Zs = closeZoom();             // the close-up at a stop
     const all = fitOf(plan.legs.flatMap((l) => l || []).concat(plan.stops.map(P)));
     all.zoom = Math.min(all.zoom, Zs - 0.6);
-    const zStart = clamp(Math.min(all.zoom - 2.6, 6.5), 1.5, 8);
+    const zStart = earthZoom();
+    const first = P(plan.stops[0]);
+    const space = [first[0] - 75, first[1] * 0.35]; // where the globe starts turning from
     const per = clamp(62 / n, 1.7, 6.5);
     const weight = { foot: 1, car: 1.3, fly: 1.6 };
     const segs = [];
@@ -684,7 +722,7 @@ const TripFlyover = (() => {
       segs.push({ kind, f0: f, f1: f + len, ...extra });
       f += len;
     };
-    add('intro', 6);
+    add('intro', 7.5);
     plan.stops.forEach((s, i) => {
       if (i) add('leg', per * 0.6 * weight[plan.kinds[i]], { i, newDay: !scope && s.day_number !== plan.stops[i - 1].day_number });
       add('stop', Math.max(1.2, per * 0.4) + (i === n - 1 ? 0.5 : 0), { i });
@@ -703,13 +741,13 @@ const TripFlyover = (() => {
         const u = len > 1 ? q / (len - 1) : 1;
         const fr = { si, u, c: null, z: 0, p: 0, b: 0, leg: null, d: 0, km };
         if (seg.kind === 'intro') {
-          // hang over the whole trip under the title, then dive to the first stop,
-          // tilting up and turning in the second half
-          const v = smooth((u - 0.22) / 0.78);
+          // the whole Earth under the title, turning until the trip's corner of it
+          // faces us; then the dive down to the first stop, tilting in the last part
+          const v = smooth((u - 0.3) / 0.7);
           fr.z = lerp(zStart, Zs, v);
-          fr.c = lerpLL(all.center, P(plan.stops[0]), along(zStart, Zs, fr.z, v));
-          const tilt = smooth((v - 0.45) / 0.55);
-          fr.p = 52 * tilt;
+          fr.c = lerpLL(space, first, smooth(u / 0.5));
+          const tilt = smooth((v - 0.55) / 0.45);
+          fr.p = PITCH * tilt;
           b = target = -20 * tilt;
         } else if (seg.kind === 'leg') {
           const i = seg.i;
@@ -724,7 +762,7 @@ const TripFlyover = (() => {
           // the centre leaves the marker for the middle of the leg as the camera pulls out
           fr.c = lerpLL(m, lerpLL(lf.center, m, 0.5), w * (kind === 'foot' ? 0.35 : 1));
           // low enough that a valley's walls don't hide the road (higher pitch, more wall)
-          fr.p = kind === 'fly' ? lerp(52, 32, w) : kind === 'car' ? 52 + 6 * w : 52;
+          fr.p = kind === 'fly' ? lerp(PITCH, 18, w) : kind === 'car' ? PITCH + 6 * w : PITCH;
           const brg = kind === 'fly' ? bearing(plan.legs[i][0], plan.legs[i][plan.legs[i].length - 1]) : bearingAt(plan, i, d);
           if (brg != null) target = b + turn(b, brg);
           fr.leg = i; fr.d = d; fr.km = km + d;
@@ -732,7 +770,7 @@ const TripFlyover = (() => {
         } else if (seg.kind === 'stop') {
           fr.c = P(plan.stops[seg.i]);
           fr.z = Zs + 0.3 * bump(u);
-          fr.p = 52 + 3 * bump(u);
+          fr.p = PITCH + 3 * bump(u);
           target = hold + 18 * u; // a slow turn around the stop
           fr.km = km;
         } else {
@@ -740,7 +778,7 @@ const TripFlyover = (() => {
           const v = smooth(u * 1.25);
           fr.z = lerp(Zs, all.zoom, v);
           fr.c = lerpLL(P(plan.stops[n - 1]), all.center, along(Zs, all.zoom, fr.z, v));
-          fr.p = lerp(52, 46, v);
+          fr.p = lerp(PITCH, 26, v);
           target = hold + 30 * u;
           fr.km = km;
         }
@@ -758,12 +796,24 @@ const TripFlyover = (() => {
     return { type: 'Feature', properties: { color: opts.dayColor(plan.stops[i].day_number), kind: plan.kinds[i] === 'foot' ? 'foot' : 'ride' }, geometry: { type: 'LineString', coordinates: coords } };
   }
 
+  // Relief only below space: on the whole globe the DEM's coarse tiles fray the
+  // planet's rim into a ring of smeared ground, and from up there no mountain shows.
+  let terrainOn = true;
+  let terrainMoved = false;
+  function terrain(on) {
+    if (on === terrainOn || !map) return;
+    terrainOn = on;
+    map.setTerrain(on ? { source: 'dem', exaggeration: EXAG } : null);
+    terrainMoved = true; // the first draw after the switch can still show the old ground
+  }
+
   // move the camera and the drawn line to frame `k`
   function applyFrame(k) {
     const { plan, film } = run;
     const fr = film.frames[k];
     const seg = film.segs[fr.si];
     run.cur = k;
+    terrain(fr.z >= 5);
     map.jumpTo({ center: fr.c, zoom: fr.z, pitch: fr.p, bearing: fr.b });
     // legs before this one are done; this one is drawn up to the marker
     const done = seg.kind === 'leg' ? seg.i - 1 : seg.kind === 'stop' ? seg.i : seg.kind === 'outro' ? plan.stops.length - 1 : 0;
@@ -1153,6 +1203,28 @@ const TripFlyover = (() => {
     cx.fillRect(0, 0, W, H);
   }
 
+  // What is behind the map: on the globe, MapLibre leaves space transparent — without
+  // this the last frame's ground would stay there, smeared around the planet. Deep
+  // blue-black with a scatter of stars (fixed, so they don't crawl between frames).
+  let stars = null;
+  function space(W, H, k) {
+    cx.fillStyle = '#03060b';
+    cx.fillRect(0, 0, W, H);
+    if (!map || map.getZoom() > 6) return;
+    if (!stars) {
+      let seed = 7;
+      const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+      stars = Array.from({ length: 160 }, () => [rnd(), rnd(), rnd()]);
+    }
+    cx.save();
+    cx.globalAlpha = clamp((6 - map.getZoom()) / 2, 0, 1);
+    stars.forEach(([x, y, m]) => {
+      cx.fillStyle = `rgba(255,255,255,${0.25 + m * 0.6})`;
+      cx.fillRect(x * W, y * H, (0.6 + m * 1.4) * k, (0.6 + m * 1.4) * k);
+    });
+    cx.restore();
+  }
+
   // Draw the map as it is now and everything over it, for frame `run.cur` (or the
   // bare map with the watermark when nothing is playing).
   function composite() {
@@ -1160,6 +1232,7 @@ const TripFlyover = (() => {
     const W = comp.width;
     const H = comp.height;
     const k = Math.min(W, H) / 720;
+    space(W, H, k);
     try { cx.drawImage(map.getCanvas(), 0, 0, W, H); } catch { return; }
     grade(W, H);
     if (!run || run.cur == null) { watermark(k); return; }
@@ -1219,7 +1292,6 @@ const TripFlyover = (() => {
     const plan = await buildPlan();
     if (plan.stops.length < 2) { renderSetup('צריך לפחות שתי תחנות עם מיקום כדי לטוס ביניהן'); return null; }
     if (!root || !map) return null;
-    setGround(groundFor(plan.stops));
     const film = buildFrames(plan);
     map.getSource('ghost').setData({ type: 'FeatureCollection', features: plan.drawLine ? plan.legs.filter(Boolean).map((l) => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: l } })) : [] });
     return { plan, film, nums: stopNumbers(plan), cur: null, stopped: false, offline: false };
@@ -1237,7 +1309,7 @@ const TripFlyover = (() => {
       if (!r || run.stopped) { run = null; if (r) renderSetup(); return; }
       run = r;
       renderPlaying(how, r.plan.note);
-      TRIPMAKER.track?.(`flyover_${how}`, { code: opts.trip.share_code, stops: r.plan.stops.length, path: r.plan.mode, aspect, imagery, ground, secs: Math.round(r.film.frames.length / FPS) });
+      TRIPMAKER.track?.(`flyover_${how}`, { code: opts.trip.share_code, stops: r.plan.stops.length, path: r.plan.mode, aspect, ground, secs: Math.round(r.film.frames.length / FPS) });
       if (how === 'film') await renderFilm();
       else await realtime(how === 'live');
     } catch (e) {
@@ -1534,8 +1606,8 @@ const TripFlyover = (() => {
       </div>
       <div class="fly-group">
         <div class="fly-label">הקרקע</div>
-        ${seg('imagery', imagery, [['auto', 'אוטומטי'], ['s2', 'אחיד'], ['esri', 'חד']], 'תמונת הקרקע')}
-        <p class="fly-fine">${{ auto: 'טיול בתוך עיר מקבל צילום חד מקרוב; טיול של נסיעות, טבע וטיסות מקבל פסיפס אחיד וקולנועי.', s2: 'Sentinel‑2: אותו צבע בכל גובה, בלי תפרים — מראה קולנועי, רך מקרוב.', esri: 'Esri: חד מקרוב, אבל הצבעים מתחלפים בין גבהים.' }[imagery]}</p>
+        ${seg('imagery', ground, [['auto', 'אוטומטי'], ['s2', 'אחיד'], ['esri', 'חד']], 'תמונת הקרקע')}
+        <p class="fly-fine">${{ auto: 'מהחלל ועד האזור בפסיפס לוויין אחיד, ומקרוב בצילום אוויר חד — המעבר ביניהם רך, תוך כדי הצלילה.', s2: 'Sentinel‑2 כל הדרך: אותו צבע בכל גובה — רך מקרוב.', esri: 'Esri כל הדרך: חד מקרוב, אבל הצבעים מתחלפים בין גבהים.' }[ground]}</p>
       </div>
       <details class="fly-tl"${tl ? '' : ''}>
         <summary>${tl ? '✓ ציר הזמן מיובא' : '📍 ייבוא ציר הזמן מ-Google Maps'}</summary>
@@ -1553,7 +1625,7 @@ const TripFlyover = (() => {
           <p class="fly-tl-note" role="status"></p>
         </div>
       </details>`;
-    panel.querySelector('.fly-scope').onchange = (e) => { scope = +e.target.value; setGround(groundFor(scopeStops())); overview(); };
+    panel.querySelector('.fly-scope').onchange = (e) => { scope = +e.target.value; overview(); };
     panel.querySelectorAll('input[name="path"]').forEach((r) => { r.onchange = () => { pathMode = r.value; }; });
     panel.querySelector('.fly-file input').onchange = (e) => { if (e.target.files.length) importFiles(e.target.files); };
     const del = panel.querySelector('.fly-tl-del');
@@ -1569,7 +1641,7 @@ const TripFlyover = (() => {
       b.onclick = () => { aspect = b.dataset.aspect; root.dataset.aspect = aspect; savePrefs(); sizeFrame(); overview(); renderSetup(); };
     });
     panel.querySelectorAll('[data-imagery]').forEach((b) => {
-      b.onclick = () => { imagery = b.dataset.imagery; setGround(groundFor(scopeStops())); savePrefs(); renderSetup(); };
+      b.onclick = () => { setGround(b.dataset.imagery); savePrefs(); renderSetup(); };
     });
     panel.querySelector('.fly-play').onclick = () => play('play');
     panel.querySelector('.fly-rec')?.addEventListener('click', () => play(film ? 'film' : 'live'));
@@ -1622,6 +1694,7 @@ const TripFlyover = (() => {
   // the still behind the panel: the stops from above, tilted
   function overview() {
     if (!map || run) return;
+    terrain(true);
     const stops = scopeStops();
     if (!stops.length) return;
     const fitted = fitOf(stops.map(P));
@@ -1633,7 +1706,6 @@ const TripFlyover = (() => {
     opts = o;
     scope = 0;
     loadPrefs();
-    ground = groundFor(scopeStops());
     timeline = loadStoredTimeline();
     if (pathMode === 'timeline' && !timeline) pathMode = 'road';
     const css = getComputedStyle(document.body);

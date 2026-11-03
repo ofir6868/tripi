@@ -649,8 +649,11 @@ html.map-full-open, html.map-full-open body { overflow: hidden; }
    On a wide screen the itinerary sits in a glass panel on the right (RTL start),
    the day strip shrinks to the space beside it, and the stop panel moves next to
    the controls on the left. A phone keeps the strip and the bottom sheet. */
-.map-open-pill {
+.map-pills {
   position: absolute; z-index: 1100; left: 50%; bottom: 12px; transform: translateX(-50%);
+  display: flex; gap: 8px; max-width: calc(100% - 24px);
+}
+.map-open-pill {
   display: inline-flex; align-items: center; gap: 7px; padding: 8px 15px; border-radius: 999px;
   border: 1px solid rgba(255, 180, 95, .45); background: rgba(10, 21, 18, .82); color: var(--paper);
   -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
@@ -659,9 +662,14 @@ html.map-full-open, html.map-full-open body { overflow: hidden; }
 }
 .map-open-pill svg { width: 15px; height: 15px; fill: none; stroke: var(--amber); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .map-open-pill:hover { background: rgba(10, 21, 18, .95); }
-.map-open-pill:active { transform: translateX(-50%) scale(.96); }
+.map-open-pill:active { transform: scale(.96); }
+.map-open-pill[hidden] { display: none; }
+/* the 3D film: the warm one of the two, so it reads as the treat */
+.map-fly-pill { background: linear-gradient(135deg, rgba(255, 180, 95, .95), rgba(240, 140, 70, .95)); color: #241302; border-color: transparent; }
+.map-fly-pill svg { stroke: #241302; }
+.map-fly-pill:hover { background: linear-gradient(135deg, #ffb45f, #f08c46); }
 .map-open-pill:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
-.map-card:not(.map-live) .map-open-pill, .map-card.map-full .map-open-pill { display: none; }
+.map-card:not(.map-live) .map-pills, .map-card.map-full .map-pills { display: none; }
 /* the pill takes the bottom centre — the destination chip moves out of its way */
 .map-card.map-live:not(.map-full) .map-caption { display: none; }
 .map-btn-fly { color: var(--amber); border-color: rgba(255, 180, 95, .45); }

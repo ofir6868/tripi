@@ -342,6 +342,7 @@ const TripMap = (() => {
     on('map-btn-full', () => (fullscreen ? closeFull() : openFull()));
     on('map-open-pill', () => openFull());
     on('map-btn-fly', () => openFlyover());
+    on('map-fly-pill', () => openFlyover());
     document.addEventListener('keydown', (e) => {
       if (document.querySelector('#stop-modal.open')) return; // the sheet above the map has the keys
       if (e.key === 'Escape') {
@@ -1133,6 +1134,8 @@ const TripMap = (() => {
   function syncFlyButton() {
     const b = $('map-btn-fly');
     if (b) b.hidden = !(fullscreen && narrow() && flyoverEligible());
+    const pill = $('map-fly-pill');
+    if (pill) pill.hidden = !flyoverEligible();
   }
 
   let flyLoading = null;
@@ -1202,6 +1205,7 @@ const TripMap = (() => {
     renderDayChips();
     renderPins();
     renderStrip();
+    syncFlyButton();
     $('map-btn-full')?.setAttribute('aria-label', 'מסך מלא');
     // the toolbar's "מפה" (and its row in "עוד" on a phone) — offered once there is a map
     const openBtn = $('map-open-btn');
@@ -1236,7 +1240,7 @@ const TripMap = (() => {
 
   // called from the renderItinerary funnel: add/edit/delete/drag all repaint pins
   function refresh() {
-    if (map && ctx) { renderDayChips(); renderPins(); renderStrip(); if (fullscreen) renderPanel(); }
+    if (map && ctx) { renderDayChips(); renderPins(); renderStrip(); if (fullscreen) renderPanel(); else syncFlyButton(); }
   }
 
   return { available, init, showDest, refresh, selectDay, mini, openFull, dayColor };
