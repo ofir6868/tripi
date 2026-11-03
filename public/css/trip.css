@@ -1784,9 +1784,11 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
 .hi-text small { color: var(--paper-dim); font-size: .76rem; }
 .hi-book {
   flex: none; min-height: 38px; padding: 0 13px; border-radius: 999px; cursor: pointer;
-  background: rgba(143, 216, 196, .12); border: 1px solid rgba(143, 216, 196, .45); color: var(--mint);
-  font: 700 .8rem var(--font-body);
+  /* an action, not a status chip (2026-11-03: a mint "הוזמן ✓" read as "already booked") */
+  background: var(--amber); border: 0; color: #241302;
+  font: 800 .82rem var(--font-body); box-shadow: 0 4px 12px -4px rgba(255, 180, 95, .55);
 }
+.hi-book:active { transform: scale(.97); }
 
 /* an open night */
 .hp-gap {

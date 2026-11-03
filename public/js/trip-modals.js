@@ -536,7 +536,7 @@ const TripModals = (() => {
             <b>${esc(h.name)}</b>
             <small>${rangeWord(h.night_start, h.night_end)}${h.stars ? ` · <span class="hotel-stars">${'★'.repeat(Math.min(h.stars, 5))}</span>` : ''}${h.price_total && state.canEdit ? ` · ${fmt(h.price_total, curOf(state))}` : ''}</small>
           </span>
-          ${state.canEdit ? `<button type="button" class="hi-book" data-booked="${h.id}">הוזמן ✓</button>` : ''}
+          ${state.canEdit ? `<button type="button" class="hi-book" data-booked="${h.id}" aria-label="סימון ${esc(h.name)} כמלון שהזמנתם">הזמנתי</button>` : ''}
         </div>`;
     }
 
