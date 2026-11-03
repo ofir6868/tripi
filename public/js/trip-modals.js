@@ -324,9 +324,12 @@ const TripModals = (() => {
     const segs = [];
     for (let n = 1; n <= nightCount(state); n++) {
       const h = cover[n] || null;
+      // an open night is split by the idea saved for it: the AI's picks for a 22-night
+      // trip are a stay each, not one "nights 1–22, nowhere to sleep" heap (2026-11-03)
+      const idea = h ? null : nightHotel(state, n);
       const last = segs[segs.length - 1];
-      if (last && last.hotel === h && last.to === n - 1) { last.to = n; continue; }
-      segs.push({ hotel: h, from: n, to: n, ideas: [] });
+      if (last && last.hotel === h && last.idea === idea && last.to === n - 1) { last.to = n; continue; }
+      segs.push({ hotel: h, idea, from: n, to: n, ideas: [] });
     }
     for (const idea of state.hotels.filter((x) => x.status === 'idea')) {
       const seg = segs.find((s) => idea.night_start >= s.from && idea.night_start <= s.to) || segs[segs.length - 1];
@@ -590,7 +593,7 @@ const TripModals = (() => {
             <span class="hg-moon">${NC_ICON.moon}</span>
             <div class="hg-titles">
               <h3>${rangeWord(seg.from, seg.to)}${when ? ` <small>· ${when}</small>` : ''}</h3>
-              <p>${area ? `${esc(area)} · ` : ''}עוד אין איפה לישון</p>
+              <p>${area ? `${esc(area)} · ` : ''}${seg.idea ? 'יש רעיון — עוד לא הוזמן' : 'עוד אין איפה לישון'}</p>
             </div>
           </div>
           ${seg.ideas.length ? `<div class="hg-ideas">${seg.ideas.map(ideaRow).join('')}</div>` : ''}
