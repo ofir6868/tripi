@@ -714,6 +714,65 @@ const TripNearby = (() => {
     const main = document.querySelector('#trip-layout main');
     const anchor = document.getElementById('checklist-widget') || document.getElementById('days-container');
     main.insertBefore(el, anchor);
+    gallery(el, day);
+  }
+
+  // Behind the banner's left side, the day's own places, one after another, faded into
+  // the glass so the words and buttons stay the thing you read. The pictures are the ones
+  // the itinerary's cards already show (trip-photos.js, one cached answer for the whole
+  // trip), so this costs no lookup of its own; a day with none wears its area's photo.
+  const GAL_MAX = 6;
+  const GAL_EVERY_MS = 5200;
+  let galTimer = null;
+
+  async function gallery(el, day) {
+    clearInterval(galTimer);
+    const urls = [];
+    const stops = (ctx.state.items || []).filter((it) => it.day_number === day && it.category !== 'נסיעה');
+    const data = await TripPhotos.load(ctx.trip.share_code).catch(() => null);
+    if (!el.isConnected) return;
+    for (const s of stops) {
+      const p = data && data.stops && data.stops[s.id];
+      if (p && p.url && !urls.includes(p.url)) urls.push(p.url);
+      if (urls.length >= GAL_MAX) break;
+    }
+    if (urls.length < 2 && typeof DEST_PHOTOS !== 'undefined') {
+      const area = ctx.defaultArea(day) || ctx.trip.destination;
+      const dests = Array.isArray(ctx.trip.destinations) ? ctx.trip.destinations : [];
+      const hit = DEST_PHOTOS.find(dests.find((d) => d && d.name === area) || { name: area });
+      if (hit) urls.push(DEST_PHOTOS.img(hit.id, 640));
+    }
+    if (!urls.length) return;
+
+    const gal = document.createElement('div');
+    gal.className = 'nb-gal';
+    gal.setAttribute('aria-hidden', 'true');
+    el.prepend(gal);
+    el.classList.add('has-gal');
+    const frames = [];
+    urls.forEach((url, i) => {
+      const img = new Image();
+      img.alt = '';
+      img.decoding = 'async';
+      img.referrerPolicy = 'no-referrer';
+      img.onload = () => {
+        frames.push(img);
+        if (frames.length === 1) img.classList.add('on');
+      };
+      img.onerror = () => img.remove();
+      img.src = url;
+      gal.appendChild(img);
+      if (i === 0) img.fetchPriority = 'low';
+    });
+    if (urls.length < 2 || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    let at = 0;
+    galTimer = setInterval(() => {
+      if (!el.isConnected) { clearInterval(galTimer); return; }
+      if (document.hidden || frames.length < 2) return;
+      frames[at].classList.remove('on');
+      at = (at + 1) % frames.length;
+      frames[at].classList.add('on');
+    }, GAL_EVERY_MS);
   }
 
   // Registered for every participant of a saved trip: on a trip day it shows the banner
