@@ -139,9 +139,12 @@ const TripChecklist = (() => {
   }
 
   // ---- mutations (optimistic where a tap should feel instant) ----
-  async function toggle(it) {
+  async function toggle(it, fromWidget) {
     const next = !it.done;
     it.done = next;
+    if (CORE_KEYS.includes(it.key)) {
+      if (next && fromWidget) linger(it.id); else unlinger(it.id);
+    }
     if (it.scope === 'shared') { it.done_by = next ? me() : null; it.done_by_name = next ? myName() : null; }
     painters.forEach((fn) => fn());
     try {
@@ -152,6 +155,7 @@ const TripChecklist = (() => {
       TRIPMAKER.track?.('checklist_tick', { code: ctx.trip.share_code, done: next, scope: it.scope, key: it.key || null });
     } catch (e) {
       it.done = !next;
+      unlinger(it.id);
       painters.forEach((fn) => fn());
       TripPages.toast(e.message || 'השינוי לא נשמר');
     }
@@ -206,11 +210,19 @@ const TripChecklist = (() => {
     // copying the one they are reading): whatever list was here belongs to the old one
     data = null;
     painters.clear();
+    lingering.forEach((t) => clearTimeout(t));
+    lingering.clear();
     const host = document.getElementById('checklist-widget');
+    widgetHost = host;
     if (!host || !ctx.canEdit || !TRIPMAKER.user) return;
     host.hidden = false;
     host.innerHTML = widgetSkeleton();
-    const paint = () => { host.innerHTML = widgetHtml(); wireWidget(host); };
+    const paint = () => {
+      host.innerHTML = widgetHtml();
+      host.classList.toggle('is-compact', !!host.querySelector('.clw-head.is-all'));
+      wireWidget(host);
+    };
+    widgetPaint = paint;
     painters.add(paint);
     (async () => {
       let snap = prefetched ? await prefetched : null;
@@ -220,6 +232,75 @@ const TripChecklist = (() => {
       ensureTop();
     })();
   }
+
+  // A headline item ticked here stays on screen for a beat (long enough to see the tick
+  // land, or to take it back), then slides out and the widget closes up behind it. Once
+  // all three are done the widget folds down to a single slim bar: the title says so and
+  // the only thing left is the way into the full list. Items that were already done when
+  // the page opened are simply not there — the widget is what is still left to do.
+  const LINGER_MS = 1100;
+  const SLIDE_MS = 280;
+  const CLOSE_MS = 340;
+  const lingering = new Map(); // item id -> timer, while a fresh tick is still on screen
+  let widgetHost = null;
+  let widgetPaint = null;
+  const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function linger(id) {
+    clearTimeout(lingering.get(id));
+    lingering.set(id, setTimeout(() => leave(id), LINGER_MS));
+  }
+  function unlinger(id) {
+    clearTimeout(lingering.get(id));
+    lingering.delete(id);
+  }
+
+  // repaint, letting the widget's height glide from what it was to what it is now
+  function paintGliding() {
+    const host = widgetHost;
+    if (!host || !widgetPaint) return;
+    if (reducedMotion() || host.hidden || !host.offsetParent) { widgetPaint(); return; }
+    const from = host.getBoundingClientRect().height;
+    widgetPaint();
+    const to = host.getBoundingClientRect().height;
+    if (Math.abs(from - to) < 1) return;
+    host.style.height = from + 'px';
+    host.style.overflow = 'hidden';
+    void host.offsetHeight;
+    host.style.transition = `height ${CLOSE_MS}ms cubic-bezier(.2,.8,.2,1)`;
+    host.style.height = to + 'px';
+    const done = () => { host.style.height = ''; host.style.overflow = ''; host.style.transition = ''; };
+    host.addEventListener('transitionend', function te(e) { if (e.target === host) { host.removeEventListener('transitionend', te); done(); } });
+    setTimeout(done, CLOSE_MS + 80);
+  }
+
+  function leave(id) {
+    if (!lingering.has(id)) return;
+    const it = items().find((x) => x.id === id);
+    const host = widgetHost;
+    const tile = host && host.querySelector(`.clw-tile[data-id="${id}"]`);
+    const finish = () => { lingering.delete(id); paintGliding(); };
+    if (!it || !it.done || !tile || reducedMotion() || !host.offsetParent) { lingering.delete(id); if (widgetPaint) widgetPaint(); return; }
+    // the last one out folds the whole widget, so it only needs to slide; any other
+    // tile also closes the gap it leaves (stacked on a phone; side by side the rest
+    // simply take up the row)
+    const remaining = [...host.querySelectorAll('.clw-tile')].filter((t) => t !== tile && !t.classList.contains('is-done')).length;
+    const stacked = matchMedia('(max-width: 640px)').matches;
+    tile.classList.add('is-leaving');
+    setTimeout(() => {
+      if (!lingering.has(id)) return; // taken back mid-slide
+      if (!remaining || !stacked) { finish(); return; }
+      const cur = host.querySelector(`.clw-tile[data-id="${id}"]`);
+      if (!cur) { finish(); return; }
+      cur.style.height = cur.getBoundingClientRect().height + 'px';
+      void cur.offsetHeight;
+      cur.classList.add('is-closing');
+      setTimeout(finish, CLOSE_MS);
+    }, SLIDE_MS);
+  }
+
+  // the headline items the widget still shows: what is not done, plus a tick still lingering
+  const shownInWidget = (it) => it && (!it.done || lingering.has(it.id));
 
   function widgetSkeleton() {
     return `<div class="clw-head"><div class="clw-title">✅ שלושת הדברים שחייבים לפני הטיול</div></div>
@@ -250,29 +331,50 @@ const TripChecklist = (() => {
     const p = progress(core);
     const full = progress(liveItems());
     const st = data.meta.top_status;
-    const thirdTile = top && st !== 'pending'
-      ? tileHtml(top, 'top')
+    const topReady = top && st !== 'pending';
+    const thirdTile = topReady
+      ? (shownInWidget(top) ? tileHtml(top, 'top') : '')
       : st === 'failed'
         ? `<div class="clw-tile kind-top is-failed"><span class="clw-ai">${ICON.spark}</span><div class="clw-text"><b>לא הצלחנו לבחור הפעם</b><small>ה-AI לא ענה — אפשר לנסות שוב</small></div><button type="button" class="clw-retry btn btn-ghost">${ICON.refresh} שוב</button></div>`
         : `<div class="clw-tile kind-top is-skl"><span class="clw-ai pulse">${ICON.spark}</span><div class="clw-text"><b>ה-AI בוחר את הדבר השלישי…</b><small>מה שהכי חשוב דווקא ליעד הזה</small></div></div>`;
+    const tiles = [
+      shownInWidget(esim) ? tileHtml(esim, 'esim') : '',
+      shownInWidget(ins) ? tileHtml(ins, 'insurance') : '',
+      thirdTile,
+    ].filter(Boolean);
+    // what is still open, counting a third item the AI has not picked yet
+    const left = core.filter((it) => !it.done).length + (topReady ? 0 : 1);
+    const allDone = !tiles.length;
+    const title = left >= 3 ? 'שלושת הדברים שחייבים לפני הטיול'
+      : left === 2 ? 'עוד שני דברים שחייבים לפני הטיול'
+        : left === 1 ? 'נשאר עוד דבר אחד לפני הטיול'
+          : 'הדברים החשובים מסודרים';
+    const foot = full.total > 3
+      ? `<button type="button" class="clw-foot" id="clw-foot"><span class="clw-bar"><i style="--w:${Math.round(100 * full.done / full.total)}%"></i></span><span>${full.done}/${full.total} ברשימה המלאה</span>${ICON.chev}</button>`
+      : `<button type="button" class="clw-foot muted" id="clw-foot">${ICON.spark}<span>${allDone ? 'עכשיו הרשימה המלאה — מסמכים, הזמנות מראש ואריזה' : 'הרשימה המלאה — מסמכים, הזמנות מראש, אריזה ועוד — נבנית בלחיצה'}</span>${ICON.chev}</button>`;
+    if (allDone) {
+      return `
+      <div class="clw-head is-all">
+        <div class="clw-title">✅ ${title}
+          <span class="clw-count all">${ICON.check}${core.length}/${core.length} בוצעו</span></div>
+      </div>
+      ${foot}`;
+    }
     return `
       <div class="clw-head">
-        <div class="clw-title">✅ שלושת הדברים שחייבים לפני הטיול
-          <span class="clw-count${p.done === core.length && core.length ? ' all' : ''}">${p.done}/${core.length || 3}</span></div>
+        <div class="clw-title">✅ ${title}
+          <span class="clw-count${p.done ? ' some' : ''}">${p.done}/${core.length || 3}</span></div>
         <button type="button" class="clw-open" id="clw-open">הצ'קליסט המלא ${ICON.chev}</button>
       </div>
-      <div class="clw-tiles">
-        ${esim ? tileHtml(esim, 'esim') : ''}
-        ${ins ? tileHtml(ins, 'insurance') : ''}
-        ${thirdTile}
+      <div class="clw-tiles" style="--n:${tiles.length}">
+        ${tiles.join('')}
       </div>
-      ${full.total > 3 ? `<button type="button" class="clw-foot" id="clw-foot"><span class="clw-bar"><i style="--w:${Math.round(100 * full.done / full.total)}%"></i></span><span>${full.done}/${full.total} ברשימה המלאה</span>${ICON.chev}</button>`
-        : `<button type="button" class="clw-foot muted" id="clw-foot">${ICON.spark}<span>הרשימה המלאה — מסמכים, הזמנות מראש, אריזה ועוד — נבנית בלחיצה</span>${ICON.chev}</button>`}`;
+      ${foot}`;
   }
 
   function wireWidget(host) {
     host.querySelectorAll('.cl-check').forEach((b) => {
-      b.onclick = () => { const it = items().find((x) => x.id === +b.dataset.id); if (it) toggle(it); };
+      b.onclick = () => { const it = items().find((x) => x.id === +b.dataset.id); if (it) toggle(it, true); };
     });
     const open = () => TripPages.open('checklist');
     host.querySelector('#clw-open')?.addEventListener('click', open);

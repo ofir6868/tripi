@@ -3664,13 +3664,14 @@ body.budget-open { overflow: hidden; }
   font-size: .76rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; font-variant-numeric: tabular-nums;
   background: rgba(255, 180, 95, .14); color: var(--amber); border: 1px solid rgba(255, 180, 95, .3);
 }
-.clw-count.all { background: rgba(143, 216, 196, .16); color: var(--mint); border-color: rgba(143, 216, 196, .4); }
+.clw-count.all { background: rgba(143, 216, 196, .16); color: var(--mint); border-color: rgba(143, 216, 196, .4); display: inline-flex; align-items: center; gap: 4px; animation: clPop .35s ease; }
+.clw-count.all svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 .clw-open {
   display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; cursor: pointer;
   color: var(--amber); font: inherit; font-weight: 700; font-size: .86rem; padding: 4px 0;
 }
 .clw-open .ic, .clw-foot .ic { width: 16px; height: 16px; }
-.clw-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.clw-tiles { display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); gap: 10px; }
 .clw-tile {
   position: relative; display: flex; align-items: flex-start; gap: 10px; padding: 12px 12px 10px; min-height: 96px;
   border-radius: 16px; border: 1px solid var(--glass-border); background: var(--glass);
@@ -3683,6 +3684,21 @@ body.budget-open { overflow: hidden; }
 .clw-tile.kind-esim { --tile-c: #7fd3f7; }
 .clw-tile.kind-insurance { --tile-c: #c9a7ff; }
 .clw-tile.kind-top { --tile-c: var(--amber); }
+/* a fresh tick slides out toward the reading end, then (stacked) closes the gap it left */
+.clw-tile.is-leaving {
+  transform: translateX(-112%); opacity: 0; pointer-events: none;
+  transition: transform .28s cubic-bezier(.5,0,.75,0), opacity .28s ease;
+}
+.clw-tile.is-closing {
+  height: 0 !important; min-height: 0; padding-top: 0; padding-bottom: 0; border-width: 0; margin-bottom: -8px; overflow: hidden;
+  transition: height .34s cubic-bezier(.2,.8,.2,1), padding .34s cubic-bezier(.2,.8,.2,1), margin .34s cubic-bezier(.2,.8,.2,1);
+}
+.clw-tiles { overflow-x: clip; }
+/* all three done: one slim bar — the new title, and the way into the full list */
+.cl-widget.is-compact { padding: 10px 14px; }
+.cl-widget.is-compact .clw-head { margin-bottom: 8px; }
+.cl-widget.is-compact .clw-title { font-size: .88rem; }
+.cl-widget.is-compact .clw-foot { margin-top: 0; padding: 7px 10px; }
 .clw-tile.is-done { background: rgba(143, 216, 196, .08); border-color: rgba(143, 216, 196, .35); --tile-c: var(--mint); }
 .clw-tile.is-done .clw-text b { text-decoration: line-through; color: var(--paper-dim); }
 .clw-tile.is-done .clw-text small { display: none; }
@@ -3728,6 +3744,12 @@ body.budget-open { overflow: hidden; }
   .clw-text small { -webkit-line-clamp: 1; }
   .clw-link { bottom: auto; top: 50%; transform: translateY(-50%); }
   .clw-retry { bottom: auto; top: 50%; transform: translateY(-50%); }
+  .cl-widget.is-compact { padding: 9px 12px; }
+  .cl-widget.is-compact .clw-head { margin-bottom: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .clw-tile.is-leaving, .clw-tile.is-closing { transition: none; }
+  .clw-count.all { animation: none; }
 }
 
 /* ---- page ---- */
