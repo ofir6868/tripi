@@ -887,6 +887,10 @@ const PlanMagic = (() => {
         burstFrom(chips.lastElementChild, { n: 10, spread: 60 });
       }
     }).observe(chips, { childList: true });
+    // on a phone the credit line lives at the foot of the page: over the globe it sat
+    // right under the header, on top of the view it was crediting
+    const foot = document.querySelector('.site-footer');
+    if (foot) foot.insertAdjacentHTML('beforeend', '<div class="mg-credit-foot" dir="ltr">Relief © Mapzen/AWS · Imagery © Esri · Photos Unsplash</div>');
     Globe.init(stage.querySelector('.mg-globe'));
   }
 
