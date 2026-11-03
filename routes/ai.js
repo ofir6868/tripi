@@ -45,6 +45,12 @@ const COMBINE_REGIONS_FROM_DAYS = 10;
 // rule: how long each area is worth is the model's judgement, never a fixed ratio
 const MAX_REGIONS = 6;
 const AI_CATEGORIES = ['אטרקציה', 'אוכל', 'טבע', 'ים', 'תרבות', 'קניות', 'לינה', 'נוף', 'חיי לילה', 'נסיעה', 'היסטוריה', 'אמנות', 'עיר'];
+// what the model may file a NEW stop under: everything but lodging. A hotel is the hotels
+// page's (nights, price, the suggestions near the day's end), and the itinerary and the
+// map draw it there on their own as the place the day ends — as a stop it was a hotel
+// with no nights, counted nowhere (2026-11). "לינה" stays valid on a stop a traveller
+// made by hand, and on the ones already in trips.
+const STOP_CATEGORIES = AI_CATEGORIES.filter((c) => c !== 'לינה');
 // cost estimates arrive as loose model output — keep only positive, sane integers
 const cleanCost = (v) => (Number.isFinite(+v) && +v > 0 ? Math.min(Math.round(+v), 999999999) : null);
 // the model sometimes writes the STRING "null" where it means no place — on 2026-08-23
@@ -1153,7 +1159,8 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
       'place_query הוא שם המקום באנגלית כפי שמחפשים בגוגל מפות, ותמיד חייב לכלול גם את שם העיר וגם את שם המדינה (למשל "Sensoji Temple, Asakusa, Tokyo, Japan" ולא סתם "Sensoji Temple") — כדי שגוגל מפות לא יטעה למקום דומה במדינה אחרת; ' +
       'time_label בפורמט HH:MM; ' +
       'cost הוא הערכת עלות ריאלית לאדם בשקלים חדשים (מספר שלם): כרטיס כניסה, ארוחה ממוצעת או מחיר נסיעה — לתחנה חינמית (רחוב, פארק, נוף, שוק בלי קנייה) החזר null. ' +
-      'גוון בין קטגוריות והימנע מתחנות גנריות.',
+      'גוון בין קטגוריות והימנע מתחנות גנריות. ' +
+      'לינה אינה תחנה: אל תוסיף צ\'ק-אין, צ\'ק-אאוט, "חזרה למלון" או מלון כתחנה — המלונות מנוהלים בנפרד, והאפליקציה מציגה את מקום הלינה בסוף כל יום בעצמה.',
     user: userMsg,
     schemaName: 'itinerary',
     maxTokens: 10000,
@@ -1178,7 +1185,7 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
               title: { type: 'string' },
               note: { type: 'string' },
               place_query: { type: 'string' },
-              category: { type: 'string', enum: AI_CATEGORIES },
+              category: { type: 'string', enum: STOP_CATEGORIES },
               area: { type: 'string' },
               cost: { type: ['integer', 'null'] },
             },
@@ -1198,6 +1205,9 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
   // hard-enforce the block's day range and area regardless of what the model wrote
   const cleaned = items
     .filter((it) => it && it.title && it.day_number >= from && it.day_number <= to)
+    // the schema already leaves lodging out; a model that slips one through anyway
+    // does not get a hotel-as-a-stop into the trip
+    .filter((it) => it.category !== 'לינה')
     .map((it) => {
       const q = cleanPlaceQuery(it.place_query, 90);
       return {
@@ -1831,7 +1841,7 @@ async function aiEditOpsRaw({ title, destText, dests, days, items, prompt, descr
       'add חייב title קצר בעברית; note טיפ פרקטי קצר בעברית; time_label בפורמט HH:MM; ' +
       'place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan"), ורק למקום אמיתי וספציפי שניתן למצוא בגוגל מפות — לתחנה כללית (כמו "ארוחת ערב" בלי מקום מוגדר) החזר null; ' +
       'cost הוא הערכת עלות לאדם במטבע התקציב (מספר שלם) — מלא אותו בהוספת תחנה עם עלות אופיינית, והחזר null לתחנה חינמית או כשאין שינוי; ' +
-      `category מתוך: ${AI_CATEGORIES.join(', ')}` +
+      `category מתוך: ${STOP_CATEGORIES.join(', ')} (לינה אינה תחנה — מלונות מנוהלים בדף המלונות, ואין להוסיף צ'ק-אין או "חזרה למלון")` +
       (areaNames.length > 1 ? `; area מתוך: ${areaNames.join(', ')}.` : '.'),
     user: userMsg + (fixNote || ''),
     schemaName: 'trip_edit',
@@ -2173,6 +2183,9 @@ router.post('/api/trips/code/:code/ai-edit', authOptional, async (req, res) => {
     });
     if (!result) return res.status(503).json({ error: 'ה-AI לא הצליח לעבד את הבקשה — נסו שוב עוד רגע' });
     quota.spend(); // the model call is the budgeted resource
+    // hotels are outside this editor's reach (they live on the hotels page): a lodging
+    // stop it added anyway is left out rather than written as a stop
+    result.ops = actions.lodgingToHotels(result.ops || [], [], { trip, items }).ops;
 
     await client.query('BEGIN');
     const { added, updated, removed, undoOps } = await applyEditOps(client, trip, items, result.ops, { area, from, to });
@@ -2281,7 +2294,7 @@ function recsSystemPrompt({ trip, dests, items, edit = false, prefs = null, side
 עריכת המסלול (ops): המטיילים אפשרו לכם לשנות את המסלול בעצמכם, וכל שינוי שתציעו מוצג להם ככרטיס לאישור לפני שהוא נכנס.
 - ops חוזר לא ריק אך ורק כשהבקשה היא במפורש לשנות את המסלול: "תוסיף את זה ליום 3", "תוריד את המוזיאון", "תזיז את השוק לבוקר", "תחליף את הארוחה במשהו אחר", "תכניס לי יום שלם ב…". כל שאלה אחרת — מה יש, מה כדאי, איפה אוכלים, טיפים, "תכננו לי יום" בלי בקשה להכניס — היא המלצה: ops ריק, ו-cards כרגיל.
 - כשמציעים שינוי: text מנוסח כהצעה ("אני מציע להוסיף… מאשרים?") ובלי cards כפולים של אותם מקומות.
-- add: title קצר בעברית, note טיפ פרקטי קצר, time_label בפורמט HH:MM או null, day_number בין 1 ל-${trip.days}, place_query באנגלית עם עיר ומדינה רק למקום אמיתי (אחרת null), cost הערכה לאדם בש"ח או null, category מתוך: ${AI_CATEGORIES.join(', ')}, area מתוך: ${areaNames.map((a) => `"${a}"`).join(', ')}.
+- add: title קצר בעברית, note טיפ פרקטי קצר, time_label בפורמט HH:MM או null, day_number בין 1 ל-${trip.days}, place_query באנגלית עם עיר ומדינה רק למקום אמיתי (אחרת null), cost הערכה לאדם בש"ח או null, category מתוך: ${STOP_CATEGORIES.join(', ')} (מלון — רק hotel_add, ראו למטה), area מתוך: ${areaNames.map((a) => `"${a}"`).join(', ')}.
 - update/delete: id של תחנה קיימת מהמסלול למעלה; ב-update null בכל שדה שלא משתנה. לא נוגעים בתחנות שלא התבקשו.
 - כל מה שכתוב ב-text שאתם עושים חייב להופיע באותו תור ב-ops או ב-actions — אחרת לא קרה כלום בטיול. כשבקשה דורשת משהו שאין לו פעולה כאן, אמרו זאת בפשטות ואמרו איך עושים את זה ידנית בדף.
 ${actions.PROMPT_RULES(trip.days)}
@@ -2406,20 +2419,27 @@ async function tripRecs({ trip, items, message, history, edit = false, prefs = n
     dropped,
     tools: progress ? progress.summary() : [],
   };
-  if (edit && Array.isArray(raw.ops) && raw.ops.length) {
-    const verified = await verifyEditOps({ ops: raw.ops.slice(0, 20) }, {
-      items, dests, destText: trip.destination, title: trip.title, ph,
+  if (edit) {
+    let ops = [];
+    if (Array.isArray(raw.ops) && raw.ops.length) {
+      const verified = await verifyEditOps({ ops: raw.ops.slice(0, 20) }, {
+        items, dests, destText: trip.destination, title: trip.title, ph,
+      });
+      ops = verified.ops;
+    }
+    // a hotel the model filed as a stop goes to the hotels page instead (lib/plan-actions.js)
+    const lodged = actions.lodgingToHotels(ops, actions.cleanActions(raw.actions, trip, side && side.hotels), {
+      trip, items, hotels: side && side.hotels,
     });
-    if (verified.ops.length) {
+    ops = lodged.ops;
+    if (ops.length) {
       const byId = new Map(items.map((it) => [it.id, it]));
-      out.ops = verified.ops;
-      out.changes = verified.ops.map((op) => describeRecOp(op, byId));
+      out.ops = ops;
+      out.changes = ops.map((op) => describeRecOp(op, byId));
       // a proposal that repeats its own places as cards is the same thing twice
       out.cards = [];
     }
-  }
-  if (edit) {
-    const acts = actions.cleanActions(raw.actions, trip, side && side.hotels);
+    const acts = await actions.locateHotels(lodged.actions, trip, items);
     if (acts.length) {
       out.actions = acts;
       out.changes = [...(out.changes || []), ...acts.map((a) => actions.describeAction(a, side && side.hotels, side && side.budget))];
@@ -2742,6 +2762,7 @@ module.exports.cleanTime = cleanTime;
 module.exports.cleanPlaceQuery = cleanPlaceQuery;
 module.exports.cleanCost = cleanCost;
 module.exports.AI_CATEGORIES = AI_CATEGORIES;
+module.exports.STOP_CATEGORIES = STOP_CATEGORIES;
 module.exports.AI_MODEL_STRONG = AI_MODEL_STRONG;
 module.exports.AI_MODEL_WEAK = AI_MODEL_WEAK;
 // routes/trips.js runs this after a publish-to-gallery toggle — fire-and-forget

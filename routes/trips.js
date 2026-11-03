@@ -9,6 +9,7 @@ const { rateLimiter, codeMissLimit, CODE_MISS_ERROR } = require('../lib/rate-lim
 const { notifyTripAsync } = require('../lib/push');
 const { verifyPlaces } = require('../lib/places');
 const draftNudge = require('../lib/draft-nudge');
+const planActions = require('../lib/plan-actions');
 
 const router = express.Router();
 
@@ -510,6 +511,69 @@ router.delete('/api/trips/code/:code/items/:itemId', authOptional, async (req, r
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+// ---- a lodging stop becomes the hotel it always was ----
+// Trips built before 2026-11 carry the AI's hotels as stops ("צ'ק-אין במלון X" on day 1,
+// "לינה ב-X" on day 2). Not converted behind anyone's back — a traveller may have put one
+// there on purpose — but one tap on the stop's sheet moves it: every lodging stop of the
+// same hotel goes, and one stay takes their nights on the hotels page (an idea, a tap
+// from "booked"), where the itinerary and the map draw it as the place each day ends.
+// The same rules the AI's turns pass through (lib/plan-actions.js lodgingToHotels).
+router.post('/api/trips/code/:code/items/:itemId/to-hotel', authOptional, async (req, res) => {
+  let client = null;
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    if (trip.days < 2) return res.status(400).json({ error: 'בטיול של יום אחד אין לילות' });
+    const { rows: items } = await pool.query('SELECT * FROM trip_items WHERE trip_id = $1 ORDER BY day_number, sort_order, id', [trip.id]);
+    const it = items.find((x) => x.id === +req.params.itemId);
+    if (!it) return res.status(404).json({ error: 'התחנה לא נמצאה' });
+    const asOp = (x) => ({
+      action: 'add', category: 'לינה', title: x.title, day_number: x.day_number, place_query: x.place_query,
+      lat: x.lat, lon: x.lon, note: x.note, _id: x.id,
+    });
+    const hotels = await planActions.loadHotels(pool, trip.id);
+    // which hotel this stop is: the same rules decide whether another lodging stop is it too
+    const mine = planActions.lodgingToHotels([asOp(it)], [], { trip, hotels: [], quiet: true }).actions[0];
+    if (!mine) return res.status(422).json({ error: 'לא מצאתי בתחנה הזו שם של מלון — אפשר להוסיף אותו בדף המלונות ולמחוק את התחנה' });
+    const key = (n) => String(n || '').trim().replace(/^(?:ה?מלון|hotel)\s+/i, '').toLowerCase();
+    const same = items.filter((x) => x.id === it.id || (x.category === 'לינה' && (() => {
+      const a = planActions.lodgingToHotels([asOp(x)], [], { trip, hotels: [], quiet: true }).actions[0];
+      return a && key(a.name) === key(mine.name);
+    })()));
+    const { actions: acts } = planActions.lodgingToHotels(same.map(asOp), [], { trip, hotels });
+    // a nameless "חזרה למלון" inside the stay is the same bed — it goes with it
+    const span = acts[0] || mine;
+    for (const x of items) {
+      if (x.category !== 'לינה' || same.includes(x)) continue;
+      const named = planActions.lodgingToHotels([asOp(x)], [], { trip: { days: 999 }, hotels: [], quiet: true }).actions.length;
+      if (!named && x.day_number >= span.night_start && x.day_number <= span.night_end + 1) same.push(x);
+    }
+    client = await pool.connect();
+    await client.query('BEGIN');
+    let hotel = null;
+    for (const a of acts) {
+      const h = cleanHotel(a, trip);
+      const { rows } = await client.query(
+        `INSERT INTO trip_hotels (trip_id, name, night_start, night_end, status, lat, lon, note)
+         VALUES ($1,$2,$3,$4,'idea',$5,$6,$7) RETURNING *`,
+        [trip.id, h.name, h.night_start, h.night_end, h.lat, h.lon, h.note]
+      );
+      hotel = rows[0];
+    }
+    const ids = same.map((x) => x.id);
+    await client.query('DELETE FROM trip_items WHERE trip_id = $1 AND id = ANY($2::int[])', [trip.id, ids]);
+    await client.query('COMMIT');
+    pingEdit(req, trip);
+    res.json({ hotel, removed: ids, hotels: await planActions.loadHotels(pool, trip.id) });
+  } catch (err) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  } finally {
+    if (client) client.release();
   }
 });
 

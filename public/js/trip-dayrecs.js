@@ -380,6 +380,14 @@ const TripDayRecs = (() => {
     try {
       // the rows stay after the day stops being free, so the other two are still there
       sticky.add(day);
+      // a hotel pick is a stay for that night, never a stop (trip-modals.js saveStayIdea)
+      if (c.cat === 'לינה' && TripModals.nightCount(ctx.state) > 0) {
+        await TripModals.saveStayIdea(ctx.state, { name: c.title, night: day, lat: c.lat, lon: c.lon });
+        raw.added = true;
+        ctx.rerender();
+        TripPages.toast('נשמר במלונות כרעיון ללילה הזה ✓', 'ok');
+        return;
+      }
       await ctx.addItem({
         day_number: day, title: c.title, category: c.cat, area: c.area, note: c.blurb,
         time_label: c.time || null, place_query: c.place_query || `${c.title}, ${c.area}`,

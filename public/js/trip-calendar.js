@@ -643,9 +643,27 @@ const TripCalendar = (() => {
       ${it.place_query || photo ? '<div class="stop-gallery"></div>' : ''}
       ${hasMap ? `<a class="btn btn-ghost sm-maps" target="_blank" rel="noopener"
         href="${esc(TRIPMAKER.mapsSearchUrl(it.place_query || `${it.lat},${it.lon}`, it.google_place_id))}">פתיחה בגוגל מפות ›</a>` : ''}
+      ${ctx.canEdit && it.category === 'לינה' && ctx.stopToHotel && ctx.trip.days >= 2 ? `
+        <div class="sm-lodge">
+          <p>מלון הוא לא תחנה: בדף המלונות יש לו לילות, מחיר והצעות קרובות, והמסלול והמפה מציגים אותו כנקודת הלינה בסוף היום.</p>
+          <button type="button" class="btn btn-ghost sm-to-hotel">🏨 <span>העברה לדף המלונות</span></button>
+        </div>` : ''}
       ${ctx.canEdit ? `<button type="button" class="btn btn-amber sm-edit">${icPencil}<span>עריכת התחנה</span></button>` : ''}`;
 
     if (miniMap) TripMap.mini(body.querySelector('#stop-mini-map'), it);
+    const toHotel = body.querySelector('.sm-to-hotel');
+    if (toHotel) {
+      toHotel.onclick = async () => {
+        if (toHotel.disabled) return;
+        toHotel.disabled = true;
+        try {
+          await ctx.stopToHotel(it, () => closeStop(true));
+        } catch (err) {
+          toHotel.disabled = false;
+          alert(err.message);
+        }
+      };
+    }
     wireWeatherWatch(ctx, it, body);
 
     const gal = body.querySelector('.stop-gallery');

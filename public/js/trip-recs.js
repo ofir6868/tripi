@@ -566,8 +566,16 @@ const TripRecs = (() => {
       return;
     }
     openWhen(ctx, cards, async (day, why) => {
+      let stays = 0;
       try {
         for (const c of cards) {
+          // a hotel is never a stop: it is saved as an idea for that night on the hotels
+          // page, and the itinerary and the map show it as where the day ends
+          if (c.cat === 'לינה' && typeof TripModals !== 'undefined' && TripModals.nightCount(ctx.state) > 0) {
+            await TripModals.saveStayIdea(ctx.state, { name: c.title, night: day, lat: c.lat, lon: c.lon });
+            stays++;
+            continue;
+          }
           await ctx.addItem({
             day_number: day, title: c.title, category: c.cat, area: c.area, note: c.blurb,
             time_label: c.time || null, place_query: c.place_query || `${c.title}, ${c.area}`,
@@ -579,8 +587,11 @@ const TripRecs = (() => {
         TripPages.toast('ההוספה נכשלה — נסו שוב');
         return;
       }
+      if (stays) ctx.applySide?.({ hotels: ctx.state.hotels });
       onAdded(day);
-      TripPages.toast(`${cards.length > 1 ? 'נוספו' : 'נוסף'} ליום ${day}${why ? ' — ' + why : ''} ✓`, 'ok');
+      TripPages.toast(stays === cards.length
+        ? `נשמר במלונות כרעיון ללילה ${Math.min(day, TripModals.nightCount(ctx.state))} ✓`
+        : `${cards.length > 1 ? 'נוספו' : 'נוסף'} ליום ${day}${why ? ' — ' + why : ''} ✓`, 'ok');
       TRIPMAKER.track?.('recs_add', { code: ctx.trip.share_code, count: cards.length, auto: !!why });
     });
   }

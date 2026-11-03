@@ -331,7 +331,11 @@
           </div>
           <!-- the full page's itinerary, beside the map (trip-map.js renderPanel; wide screens) -->
           <div class="map-panel" id="map-panel" role="region" aria-label="המסלול לצד המפה" hidden></div>
-          <button type="button" class="map-open-pill" id="map-open-pill"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>פתיחת המפה המלאה</button>
+          <!-- the preview's way out: the full map, and (a trip that has started) its 3D film -->
+          <div class="map-pills">
+            <button type="button" class="map-open-pill" id="map-open-pill"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>פתיחת המפה המלאה</button>
+            <button type="button" class="map-open-pill map-fly-pill" id="map-fly-pill" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="m17 10 5-3v10l-5-3"/></svg>לעוף מעל הטיול</button>
+          </div>
           <div class="map-layers" id="map-layers" role="menu" aria-label="סגנון המפה" hidden></div>
           <div class="map-note" id="map-note" role="status" hidden></div>
           <div class="map-detail" id="map-detail" role="region" aria-label="פרטי התחנה שנבחרה" hidden></div>

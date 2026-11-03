@@ -464,6 +464,63 @@
 @keyframes map-ph-bounce { 0% { transform: scale(1); } 55% { transform: translateY(-9px) scale(1.28); } 100% { transform: translateY(-6px) scale(1.22); } }
 @keyframes map-ph-ring { 0% { transform: scale(.8); opacity: .9; } 80%, 100% { transform: scale(1.5); opacity: 0; } }
 
+/* the overnight point (trip-map.js drawLodging): where the day ends — the night's
+   hotel as a little house in night blue, not a photo bubble, so it never reads as one
+   more stop; its name stays out on a single day, and a dashed walk joins it to the
+   day's last stop. An idea (not booked yet) is drawn dashed. */
+.map-lodge-wrap { background: none; border: 0; }
+.map-lodge {
+  position: relative; display: block; width: 38px; height: 44px; cursor: pointer;
+  transform-origin: 50% 100%; animation: map-ph-pop .55s cubic-bezier(.2, .9, .3, 1.35) .35s backwards;
+  transition: transform .2s ease;
+}
+.ml-body {
+  position: absolute; left: 3px; top: 11px; width: 32px; height: 26px; border-radius: 4px 4px 9px 9px;
+  display: grid; place-items: center; background: #24315c; color: #fff;
+  border: 2px solid #fff; box-shadow: 0 0 0 2px var(--pin), 0 6px 14px rgba(0, 0, 0, .45);
+}
+.ml-body svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.ml-roof {
+  position: absolute; left: 50%; top: 1px; width: 26px; height: 26px; margin-left: -13px;
+  background: #24315c; border: 2px solid #fff; border-radius: 4px; transform: rotate(45deg) scale(.82);
+  box-shadow: 0 0 0 2px var(--pin);
+}
+.map-lodge::after {
+  content: ''; position: absolute; left: 50%; top: 36px; width: 8px; height: 8px; margin-left: -4px;
+  background: #fff; transform: rotate(45deg); border-radius: 0 0 2px 0; box-shadow: 2px 2px 0 1px var(--pin); z-index: -1;
+}
+.ml-label {
+  position: absolute; top: 47px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 6px; align-items: center; max-width: 200px; padding: 4px 10px; border-radius: 999px;
+  background: rgba(16, 24, 48, .94); color: #fff; border: 1px solid color-mix(in srgb, var(--pin) 55%, transparent);
+  font-family: var(--font-body); font-size: .74rem; font-weight: 700; white-space: nowrap; direction: rtl;
+  overflow: hidden; text-overflow: ellipsis; box-shadow: 0 6px 18px rgba(0, 0, 0, .4); pointer-events: none;
+}
+.ml-label b { color: #b9c8ff; font-weight: 600; }
+.map-lodge-wrap.is-idea .ml-body, .map-lodge-wrap.is-idea .ml-roof { border-style: dashed; background: #3a4566; }
+.map-lodge-wrap:hover .map-lodge, .map-lodge-wrap:focus-visible .map-lodge { transform: translateY(-3px) scale(1.08); }
+.map-lodge-wrap:focus-visible { outline: none; }
+.map-lodge-wrap:focus-visible .ml-body { outline: 2px solid var(--mint); outline-offset: 3px; }
+.map-lodge-small .map-lodge { width: 30px; height: 34px; }
+.map-lodge-small .ml-body { left: 2px; top: 8px; width: 26px; height: 20px; }
+.map-lodge-small .ml-body svg { width: 14px; height: 14px; }
+.map-lodge-small .ml-roof { width: 20px; height: 20px; margin-left: -10px; }
+.map-lodge-small .map-lodge::after { top: 27px; width: 7px; height: 7px; margin-left: -3.5px; }
+.map-lodge-small .ml-label { top: 36px; opacity: 0; transition: opacity .18s ease; }
+.map-lodge-small:hover .ml-label, .map-lodge-small:focus-visible .ml-label { opacity: 1; }
+.route-home { animation: route-fade 1.2s ease .9s backwards; }
+/* the strip's last card and the panel's last row: where the day ends */
+.map-lodge-card .ms-photo.ms-lodge { background: #24315c; color: #fff; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--day, var(--amber)) 70%, transparent); }
+.map-lodge-card .ms-lodge svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.map-lodge-card .ms-time { color: #b9c8ff; }
+.map-lodge-card.is-idea { border-style: dashed; }
+.map-lodge-card.unplaced { opacity: .85; }
+.map-lodge-card.unplaced .ms-photo { filter: none; opacity: 1; }
+.mp-lodge { border-top: 1px dashed var(--glass-border); border-radius: 0 0 12px 12px; margin-top: 4px; }
+.mp-lodge .mp-bed { background: #24315c; color: #fff; }
+.mp-lodge .mp-bed svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.mp-lodge.is-idea .mp-bed { background: #3a4566; }
+
 /* the stop strip under the canvas: number · hour · name, the road between cards.
    A card selects its pin; a second tap opens the stop. In RTL the first stop sits
    on the right, so the row reads in walking order. */
@@ -649,8 +706,11 @@ html.map-full-open, html.map-full-open body { overflow: hidden; }
    On a wide screen the itinerary sits in a glass panel on the right (RTL start),
    the day strip shrinks to the space beside it, and the stop panel moves next to
    the controls on the left. A phone keeps the strip and the bottom sheet. */
-.map-open-pill {
+.map-pills {
   position: absolute; z-index: 1100; left: 50%; bottom: 12px; transform: translateX(-50%);
+  display: flex; gap: 8px; max-width: calc(100% - 24px);
+}
+.map-open-pill {
   display: inline-flex; align-items: center; gap: 7px; padding: 8px 15px; border-radius: 999px;
   border: 1px solid rgba(255, 180, 95, .45); background: rgba(10, 21, 18, .82); color: var(--paper);
   -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
@@ -659,9 +719,14 @@ html.map-full-open, html.map-full-open body { overflow: hidden; }
 }
 .map-open-pill svg { width: 15px; height: 15px; fill: none; stroke: var(--amber); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .map-open-pill:hover { background: rgba(10, 21, 18, .95); }
-.map-open-pill:active { transform: translateX(-50%) scale(.96); }
+.map-open-pill:active { transform: scale(.96); }
+.map-open-pill[hidden] { display: none; }
+/* the 3D film: the warm one of the two, so it reads as the treat */
+.map-fly-pill { background: linear-gradient(135deg, rgba(255, 180, 95, .95), rgba(240, 140, 70, .95)); color: #241302; border-color: transparent; }
+.map-fly-pill svg { stroke: #241302; }
+.map-fly-pill:hover { background: linear-gradient(135deg, #ffb45f, #f08c46); }
 .map-open-pill:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
-.map-card:not(.map-live) .map-open-pill, .map-card.map-full .map-open-pill { display: none; }
+.map-card:not(.map-live) .map-pills, .map-card.map-full .map-pills { display: none; }
 /* the pill takes the bottom centre — the destination chip moves out of its way */
 .map-card.map-live:not(.map-full) .map-caption { display: none; }
 .map-btn-fly { color: var(--amber); border-color: rgba(255, 180, 95, .45); }
@@ -1492,8 +1557,32 @@ body:has(.join-banner) { padding-bottom: 92px; }@media print {
   border-inline-start-width: 3px; border-inline-start-style: solid;
   display: flex; align-items: center; gap: 10px;
 }
-.nb-text { min-width: 0; }
-.nb-name { font-weight: 600; font-size: .88rem; }
+/* a lodging stop's sheet: the way out to the hotels page */
+.sm-lodge {
+  margin: 14px 0 4px; padding: 12px 14px; border-radius: var(--radius-sm);
+  border: 1px dashed var(--glass-border); background: rgba(6, 13, 11, .25);
+}
+.sm-lodge p { margin: 0 0 10px; color: var(--paper-dim); font-size: .86rem; line-height: 1.5; }
+.sm-lodge .btn { width: 100%; justify-content: center; }
+
+/* the day's overnight point: a tap opens the hotel's card on the hotels page */
+.night-booked.is-tap { cursor: pointer; min-height: 52px; transition: background .15s ease; -webkit-tap-highlight-color: transparent; }
+.night-booked.is-tap:hover, .night-booked.is-tap:focus-visible { background: rgba(6, 13, 11, .48); }
+.night-booked.is-tap:active { transform: scale(.99); }
+.night-booked.is-idea { border-style: dashed; border-inline-start-style: dashed; background: rgba(6, 13, 11, .18); }
+.nb-ic {
+  position: relative; flex: none; width: 34px; height: 34px; border-radius: 10px; overflow: hidden;
+  display: grid; place-items: center; background: rgba(255, 255, 255, .06);
+}
+.nb-ic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.nb-text { min-width: 0; flex: 1; }
+.nb-name { font-weight: 600; font-size: .88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-kind { color: var(--paper-dim); font-weight: 400; font-size: .76rem; margin-inline-end: 6px; }
+.nb-idea {
+  margin-inline-start: 6px; padding: 1px 7px; border-radius: 99px; font-size: .7rem; font-weight: 600;
+  border: 1px dashed currentColor; color: var(--paper-dim); vertical-align: 1px;
+}
+.nb-chev { flex: none; color: var(--paper-dim); font-size: 1.2rem; line-height: 1; padding-inline-start: 4px; }
 .nb-meta { color: var(--paper-dim); font-size: .78rem; font-weight: 300; margin-top: 2px; }
 .nb-edit {
   margin-inline-start: auto; flex: none; background: none; border: none; cursor: pointer;

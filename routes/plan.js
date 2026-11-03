@@ -428,7 +428,7 @@ suggestions: 0-3 תשובות קצרות (עד 5 מילים) שסביר שהמט
 areas: [] כשאין שינוי בחלוקה; אחרת החלוקה המלאה. day_from/day_to בין 1 ל-${trip.days}.
 flights: [] בכל שלב שאינו flights, וגם ב-flights ברגע שהכרטיס כבר מולא — ממלאים אותו פעם אחת, והתיקונים של המטיילים בכרטיס גוברים על כל הצעה שלכם.
 
-חוקי ops (כמו בעורך המסלולים): add חייב title קצר בעברית, note טיפ פרקטי קצר בעברית, time_label בפורמט HH:MM (או null כשלא ידוע), day_number בין 1 ל-${trip.days}; place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan") ורק למקום אמיתי וספציפי — לתחנה כללית או לטיסה החזירו null; cost הערכה לאדם בש"ח (מספר שלם) או null; category מתוך: ${ai.AI_CATEGORIES.join(', ')}${multiArea ? `; area מתוך: ${areaNames.join(', ')}` : `; area תמיד "${areaNames[0] || trip.destination}"`}. update/delete חייבים id של תחנה קיימת מהמסלול למטה, וב-update null בכל שדה שלא משתנה. אל תיגעו בתחנות שהמטיילים לא ביקשו לשנות. כל מקום ב-ops או ב-cards חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו.
+חוקי ops (כמו בעורך המסלולים): add חייב title קצר בעברית, note טיפ פרקטי קצר בעברית, time_label בפורמט HH:MM (או null כשלא ידוע), day_number בין 1 ל-${trip.days}; place_query באנגלית וכולל תמיד עיר ומדינה (למשל "Nishiki Market, Kyoto, Japan") ורק למקום אמיתי וספציפי — לתחנה כללית או לטיסה החזירו null; cost הערכה לאדם בש"ח (מספר שלם) או null; category מתוך: ${ai.STOP_CATEGORIES.join(', ')} (מלון או לינה — רק hotel_add, לעולם לא תחנה)${multiArea ? `; area מתוך: ${areaNames.join(', ')}` : `; area תמיד "${areaNames[0] || trip.destination}"`}. update/delete חייבים id של תחנה קיימת מהמסלול למטה, וב-update null בכל שדה שלא משתנה. אל תיגעו בתחנות שהמטיילים לא ביקשו לשנות. כל מקום ב-ops או ב-cards חייב להיות מקום שקיים באמת ושאתם בטוחים בשמו.
 ${actions.PROMPT_RULES(trip.days)}
 ${clock.PROMPT_RULES}
 ${attachments.PROMPT_RULES}
@@ -553,8 +553,12 @@ async function planTurn({ trip, items, state, side, history, message, pendingPro
   });
   const { cards } = await ai.verifyRecCards((raw.cards || []).slice(0, 3), { dests, areaNames });
   const text = String(raw.text || '').trim().slice(0, 1200);
-  const ops = verified.ops || [];
-  const acts = actions.cleanActions(raw.actions, trip, side && side.hotels);
+  // a hotel the model filed as a stop goes to the hotels page instead (lib/plan-actions.js)
+  const lodged = actions.lodgingToHotels(verified.ops || [], actions.cleanActions(raw.actions, trip, side && side.hotels), {
+    trip, items, hotels: side && side.hotels,
+  });
+  const ops = lodged.ops;
+  const acts = await actions.locateHotels(lodged.actions, trip, items);
   // The text and the card must tell the same story. A turn that says "עדכנתי" over a
   // card still waiting for a tap left the traveller sure it was done when it wasn't —
   // the model's own words decide: a change it reports as made is made (with an undo).
