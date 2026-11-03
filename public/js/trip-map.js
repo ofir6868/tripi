@@ -373,6 +373,22 @@ const TripMap = (() => {
 
   // ---- the map itself ----
 
+  // the tiles' licences ask for their credit on the map; it is kept, folded to a
+  // small "i" in the corner (trip.css) that opens on a tap, instead of a text strip
+  function compactAttribution(ctrl) {
+    const el = ctrl.getContainer();
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('aria-label', 'קרדיטים למפה');
+    const toggle = (e) => {
+      if (e.target.closest('a')) return;
+      el.classList.toggle('is-open');
+    };
+    el.addEventListener('click', toggle);
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); } });
+    return ctrl;
+  }
+
   function ensureMap() {
     if (map) return map;
     const el = $('trip-map');
@@ -386,8 +402,8 @@ const TripMap = (() => {
       wheelPxPerZoomLevel: 120,
     });
     // the attribution sits bottom-left, under the controls, so the bottom-right
-    // corner stays free for the destination chip
-    L.control.attribution({ position: 'bottomleft', prefix: false }).addTo(map);
+    // corner stays free for the destination chip — folded to a small "i"
+    compactAttribution(L.control.attribution({ position: 'bottomleft', prefix: false }).addTo(map));
     base = { tile: null, overlays: [] };
     applyStyle(mapStyle, false);
     routeLayer = L.featureGroup().addTo(map);
@@ -1304,7 +1320,7 @@ const TripMap = (() => {
       zoomControl: false, attributionControl: false, dragging: false, scrollWheelZoom: false,
       doubleClickZoom: false, boxZoom: false, keyboard: false, touchZoom: false, tapHold: false,
     });
-    L.control.attribution({ position: 'bottomleft', prefix: false }).addTo(m);
+    compactAttribution(L.control.attribution({ position: 'bottomleft', prefix: false }).addTo(m));
     mountBase(m, mapStyle, { tile: null, overlays: [] });
     L.marker([it.lat, it.lon], { icon: photoIcon(it, ctx ? numInDay(it) || '' : '', 0, false, true), interactive: false, keyboard: false }).addTo(m);
     m.setView([it.lat, it.lon], 15);

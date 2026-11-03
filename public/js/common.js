@@ -221,14 +221,15 @@ const TRIPMAKER = {
   openLightbox(url, { caption = '', link = '' } = {}) {
     const box = document.createElement('div');
     box.className = 'lightbox';
+    // folded to a small "i" under the photo; a tap opens the line itself
     const cap = caption
-      ? `<p class="lightbox-cap">${link && /^https:\/\//.test(link)
+      ? `<p class="lightbox-cap"><span class="credit-i" role="button" tabindex="0" aria-label="קרדיט לתמונה">i</span><span class="lightbox-cap-text">${link && /^https:\/\//.test(link)
         ? `<a href="${TRIPMAKER.esc(link)}" target="_blank" rel="noopener">📷 ${TRIPMAKER.esc(caption)}</a>`
-        : `📷 ${TRIPMAKER.esc(caption)}`}</p>`
+        : `📷 ${TRIPMAKER.esc(caption)}`}</span></p>`
       : '';
     box.innerHTML = `<img src="${String(url).replace(/"/g, '')}" alt="">${cap}`;
     // the credit link opens its page; anywhere else closes the photo
-    box.querySelector('.lightbox-cap a')?.addEventListener('click', (e) => e.stopPropagation());
+    box.querySelector('.lightbox-cap')?.addEventListener('click', (e) => e.stopPropagation());
     box.onclick = () => box.remove();
     document.addEventListener('keydown', function esc(e) {
       if (e.key === 'Escape') { box.remove(); document.removeEventListener('keydown', esc); }
@@ -824,3 +825,30 @@ async function checkSystemAnnouncement() {
     requestAnimationFrame(() => wrap.classList.add('open'));
   } catch { /* announcements never block the page */ }
 }
+
+// ---- photo and map credits, folded to a small "i" ----
+// The sources' licences ask for their credit beside the photo or map; it is kept,
+// but as a round "i" (.credit-i, style.css) whose text opens on a tap. Capture
+// phase, so the tap never also reaches the photo under it (next photo, lightbox).
+(() => {
+  const closeAll = (except) => document.querySelectorAll('.credit-i.is-open').forEach((b) => { if (b !== except) b.classList.remove('is-open'); });
+  const toggle = (b) => {
+    closeAll(b);
+    b.classList.toggle('is-open');
+    b.closest('.lightbox-cap')?.classList.toggle('is-open', b.classList.contains('is-open'));
+  };
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest?.('.credit-i');
+    if (!b) { if (!e.target.closest?.('.lightbox-cap')) closeAll(); return; }
+    e.preventDefault();
+    e.stopPropagation();
+    toggle(b);
+  }, true);
+  document.addEventListener('keydown', (e) => {
+    const b = e.target.closest?.('.credit-i');
+    if (!b || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    toggle(b);
+  }, true);
+})();

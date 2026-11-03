@@ -364,7 +364,7 @@ const TripNearby = (() => {
         ${p.website ? `<a href="${esc(p.website)}" target="_blank" rel="noopener">${ICON.globe} ${p.source === 'wikipedia' ? 'בוויקיפדיה' : 'אתר'}</a>` : ''}
         ${p.phone ? `<a href="tel:${esc(p.phone.replace(/[^\d+]/g, ''))}" dir="ltr">${ICON.phone} ${esc(p.phone)}</a>` : ''}
       </div>
-      ${(p.photos || []).some((ph) => ph.credit) ? `<p class="nb-credit">📷 ${p.source === 'wikipedia' ? 'ויקיפדיה' : 'Google'} · ${esc(p.photos.map((ph) => ph.credit).filter(Boolean).slice(0, 2).join(', '))}</p>` : ''}`;
+      ${(p.photos || []).some((ph) => ph.credit) ? `<p class="nb-credit"><span class="credit-i" role="button" tabindex="0" aria-label="קרדיט לתמונות" data-credit="📷 ${p.source === 'wikipedia' ? 'Wikipedia' : 'Google'} · ${esc(p.photos.map((ph) => ph.credit).filter(Boolean).slice(0, 2).join(', '))}">i</span></p>` : ''}`;
   }
 
   function card(p, i) {

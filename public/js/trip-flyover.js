@@ -1156,7 +1156,9 @@ const TripFlyover = (() => {
     cx.restore();
   }
 
-  function watermark(k) {
+  // `creditA`: the map/imagery credit's opacity. It rides only on the closing card,
+  // like a film's end credits, instead of over every frame of the trip
+  function watermark(k, creditA = 0) {
     const W = comp.width;
     const H = comp.height;
     cx.save();
@@ -1175,7 +1177,8 @@ const TripFlyover = (() => {
     cx.textAlign = 'right';
     cx.font = `700 ${17 * k}px ${fonts.body}`;
     cx.fillText(`${opts.trip.emoji || ''} ${opts.trip.title || ''}`.trim(), W - 24 * k, 22 * k);
-    // attribution, as small as it may be and still be read
+    if (creditA <= 0) { cx.restore(); return; }
+    cx.globalAlpha = creditA;
     cx.direction = 'ltr';
     cx.textAlign = 'center';
     cx.textBaseline = 'bottom';
@@ -1265,7 +1268,7 @@ const TripFlyover = (() => {
       if (a > 0) hud(a, fr, seg, plan);
       if (seg.newDay) chapter(t, dur, plan.stops[seg.i]);
     }
-    watermark(k);
+    watermark(k, seg.kind === 'outro' ? clamp((t - 1.4) / 0.8, 0, 1) : 0);
     if (seg.kind === 'intro') introTitle(t, plan);
     if (seg.kind === 'outro') outroCard(t, plan, film);
   }

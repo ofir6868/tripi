@@ -425,7 +425,7 @@ const PlanMagic = (() => {
       <div class="mg-flatphoto"></div>
       <div class="mg-globe"></div>
       <div class="mg-vignette"></div>
-      <div class="mg-credit">Relief © Mapzen/AWS · Imagery © Esri · Photos Unsplash</div>`;
+`;
     document.body.prepend(stage);
     return stage;
   }
@@ -887,10 +887,9 @@ const PlanMagic = (() => {
         burstFrom(chips.lastElementChild, { n: 10, spread: 60 });
       }
     }).observe(chips, { childList: true });
-    // on a phone the credit line lives at the foot of the page: over the globe it sat
-    // right under the header, on top of the view it was crediting
+    // the globe's credits are a small "i" at the foot of the page, not a line over the view
     const foot = document.querySelector('.site-footer');
-    if (foot) foot.insertAdjacentHTML('beforeend', '<div class="mg-credit-foot" dir="ltr">Relief © Mapzen/AWS · Imagery © Esri · Photos Unsplash</div>');
+    if (foot) foot.insertAdjacentHTML('beforeend', '<span class="credit-i mg-credit-i" role="button" tabindex="0" aria-label="קרדיטים למפה ולתמונות" data-credit="Relief © Mapzen/AWS · Imagery © Esri · Photos Unsplash">i</span>');
     Globe.init(stage.querySelector('.mg-globe'));
   }
 

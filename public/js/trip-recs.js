@@ -110,7 +110,7 @@ const TripRecs = (() => {
           <img src="${esc(c.photos[0])}" alt="" loading="lazy" onerror="this.style.opacity=0">
           ${c.photos.length > 1 ? `<span class="rec-dots">${c.photos.map((_, k) => `<i${k === 0 ? ' class="on"' : ''}></i>`).join('')}</span>` : ''}
           <span class="rec-cat">${em} ${esc(c.cat)}</span>
-          ${c.credit ? `<span class="rec-credit">${esc(c.credit)}</span>` : ''}
+          ${c.credit ? `<span class="credit-i rec-credit" role="button" tabindex="0" aria-label="קרדיט לתמונה" data-credit="${esc(c.credit)}">i</span>` : ''}
         </div>
         <div class="rec-body">
           <h4 class="rec-title">${esc(c.title)}</h4>

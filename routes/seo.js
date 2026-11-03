@@ -21,6 +21,7 @@ router.get('/sitemap.xml', (_req, res) => {
 router.get('/terms', (_req, res) => send(res, legal.renderTerms()));
 router.get('/privacy', (_req, res) => send(res, legal.renderPrivacy()));
 router.get('/accessibility', (_req, res) => send(res, legal.renderAccessibility()));
+router.get('/credits', (_req, res) => send(res, legal.renderCredits()));
 
 router.get('/destinations', (_req, res) => send(res, seo.renderHub()));
 

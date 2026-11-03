@@ -62,10 +62,6 @@ html.magic-on .wizard-progress { display: none; }
     linear-gradient(to right, rgba(4, 10, 9, .6) 0%, transparent 30%),
     linear-gradient(to bottom, rgba(4, 10, 9, .55) 0%, transparent 18%, transparent 80%, rgba(4, 10, 9, .7) 100%);
 }
-.mg-credit {
-  position: absolute; left: 50%; transform: translateX(-50%); bottom: 10px; white-space: nowrap; font-size: 10px; letter-spacing: .02em;
-  color: rgba(245, 239, 227, .45); direction: ltr;
-}
 
 /* pins on the globe */
 .mg-pin { position: relative; width: 0; height: 0; --c: #ffb45f; }
@@ -508,8 +504,6 @@ html.mg-launching .mg-switch { opacity: 0; transition: opacity .6s ease; }
     background:
       linear-gradient(to bottom, rgba(4, 10, 9, .5) 0%, transparent 16%, transparent 36%, rgba(4, 10, 9, .8) 58%, rgba(4, 10, 9, .96) 75%);
   }
-  .mg-credit { display: none; }
-  .mg-credit-foot { display: block; }
   html.magic-on .wizard-shell { padding-top: calc(98px + env(safe-area-inset-top)); }
   html.magic-on .wizard-shell > h1 { font-size: 1.85rem; text-align: center; }
   html.magic-on .wizard-shell > .page-sub { text-align: center; font-size: .92rem; margin: 6px 0 0; }
@@ -581,10 +575,14 @@ html.magic-on .draft-waiting {
 }
 html.magic-on .draft-banner #draft-banner-text { color: var(--paper); line-height: 1.45; }
 html.magic-on .draft-banner .btn-ghost { color: var(--paper); border-color: rgba(255, 255, 255, .3); background: rgba(255, 255, 255, .06); }
-.mg-credit-foot { display: none; margin-top: 10px; font-size: 10px; color: rgba(245, 239, 227, .45); }
 /* the plane hovers clear of the step it marks, never on top of its number */
 @media (max-width: 999px) {
   .mg-pp-plane { top: -24px; width: 22px; height: 22px; }
   .mg-progress { margin-top: 26px; }
   html.magic-on .draft-banner { margin: 14px 0 0; }
 }
+
+/* the globe's credits: one small "i" beside the footer line, the text on a tap */
+.mg-credit-i { position: static; margin-inline-start: 8px; vertical-align: middle; }
+html.magic-on .site-footer { position: relative; }
+.mg-credit-i.is-open::after { left: 16px; right: 16px; bottom: 100%; width: auto; max-width: none; text-align: center; }
