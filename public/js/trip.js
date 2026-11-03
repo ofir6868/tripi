@@ -106,6 +106,18 @@
   let nearbyAutoTried = false; // the in-trip screen opens by itself at most once per page load
   let canEditHeaders = null; // truthy = edit calls allowed (auth rides on the JWT)
   let printHooks = null;     // the window-level print pair of whichever trip is open
+  // the AI sent the trip somewhere else while a chat was open: the trip is read again
+  // once the traveller is back on the itinerary (the map, the weather and the hotels'
+  // switcher are built by load(), and rebuilding them under an open chat would lose it)
+  let reloadOwed = false;
+  window.addEventListener('popstate', () => {
+    if (!reloadOwed) return;
+    setTimeout(() => {
+      if (!reloadOwed || TripPages.current()) return;
+      reloadOwed = false;
+      loadTripInPlace(code).catch(() => location.reload());
+    }, 450); // after the page's slide-out
+  });
 
   function forgetInvite() {
     inviteToken = null;
@@ -210,23 +222,30 @@
     let weatherWatched = new Set(data.weatherWatch || []); // stops this traveller asked us to watch
     editMode = canEdit; // participants edit inline — there's no separate mode to enter
 
-    document.title = `${trip.title} · TRIP MAKER`;
-    if (trip.cover_image) {
-      document.getElementById('trip-cover').style.backgroundImage = `url('${trip.cover_image.replace(/'/g, '')}')`;
+    // the hero's name, flags and cover — painted again when the AI renames the trip or
+    // sends it somewhere else (applySide below)
+    function paintHero() {
+      document.title = `${trip.title} · TRIP MAKER`;
+      if (trip.cover_image) {
+        document.getElementById('trip-cover').style.backgroundImage = `url('${trip.cover_image.replace(/'/g, '')}')`;
+      }
+      // flags render per-platform (emoji mobile / SVG desktop) from the trip's
+      // destination countries — never baked into the stored title text
+      const tripFlags = [...new Set(
+        (Array.isArray(trip.destinations) ? trip.destinations : [])
+          .concat(trip.country ? [{ country: trip.country }] : [])
+          .map((d) => d.cc || COUNTRIES.ccByName(d.country || d.name))
+          .filter(Boolean)
+      )].map((cc) => COUNTRIES.flagHtml(cc)).join(' ');
+      document.getElementById('trip-title').innerHTML =
+        `${trip.emoji || '🧭'} ${TRIPMAKER.esc(trip.title)}${tripFlags ? ' ' + tripFlags : ''}`;
+      const destChip = document.getElementById('dest-chip');
+      if (destChip) destChip.innerHTML = `<span class="dot">●</span> ${TRIPMAKER.esc(TRIPMAKER.destLine(trip))}`;
     }
-    // flags render per-platform (emoji mobile / SVG desktop) from the trip's
-    // destination countries — never baked into the stored title text
-    const tripFlags = [...new Set(
-      (Array.isArray(trip.destinations) ? trip.destinations : [])
-        .concat(trip.country ? [{ country: trip.country }] : [])
-        .map((d) => d.cc || COUNTRIES.ccByName(d.country || d.name))
-        .filter(Boolean)
-    )].map((cc) => COUNTRIES.flagHtml(cc)).join(' ');
-    document.getElementById('trip-title').innerHTML =
-      `${trip.emoji || '🧭'} ${TRIPMAKER.esc(trip.title)}${tripFlags ? ' ' + tripFlags : ''}`;
+    paintHero();
 
     const meta = [];
-    meta.push(`<span class="chip"><span class="dot">●</span> ${TRIPMAKER.esc(TRIPMAKER.destLine(trip))}</span>`);
+    meta.push(`<span class="chip" id="dest-chip"><span class="dot">●</span> ${TRIPMAKER.esc(TRIPMAKER.destLine(trip))}</span>`);
     meta.push(`<span class="chip" id="days-chip"><span class="dot">●</span> ${trip.days} ימים</span>`);
     // the dates chip goes in between, added by renderDateChip() once edit rights are
     // known — with no dates on the trip it's a badge that sets them, not a chip
@@ -1324,6 +1343,22 @@
         if (Array.isArray(side.moments) && typeof TripMoments !== 'undefined') TripMoments.refresh(side.moments);
         if ('budget' in side) state.budget = side.budget || null;
         const t = side.trip || {};
+        // the trip's own details (lib/plan-actions.js trip_update): the name, the
+        // description and the destinations repaint here. A new set of places also moves
+        // the map, the weather and the hotels' switcher, which load() builds once — so
+        // the page reloads the trip in place when the chat is closed, not under it.
+        if (typeof t.title === 'string' && t.title && t.title !== trip.title) { trip.title = t.title; paintHero(); }
+        if ('description' in t && (t.description || null) !== (trip.description || null)) { trip.description = t.description || null; renderDesc(); }
+        if (Array.isArray(t.destinations) && JSON.stringify(t.destinations) !== JSON.stringify(trip.destinations || [])) {
+          trip.destinations = t.destinations;
+          trip.destination = t.destination || trip.destination;
+          trip.country = t.country ?? trip.country;
+          if (t.cover_image) trip.cover_image = t.cover_image;
+          tripDests.splice(0, tripDests.length, ...t.destinations.filter((d) => d && d.name));
+          pageCtx.dests = tripDests.map((d) => d.name);
+          paintHero();
+          reloadOwed = true;
+        }
         // the AI may change the trip's length too (dates_set with an end date): the day
         // count every day loop reads is this same object, so the itinerary repaints with
         // the new days and the hero chip follows

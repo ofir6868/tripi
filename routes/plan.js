@@ -414,7 +414,7 @@ ${stepwise
 - done: כל הימים נדונו. הציעו להשלים את שאר התחנות אוטומטית (יש למטיילים כפתור לזה), או להמשיך לחקור.
 בכל שלב אפשר לחקור: כשהמטיילים שואלים "מה יש ב…", "מה כדאי", "איפה אוכלים" — ענו ב-text והראו 2-3 cards של מקומות אמיתיים (עם תמונות בצד שלנו). cards הן להצגה בלבד — הן לא תחנות; תחנה נכנסת רק דרך ops.
 
-מה אתם יכולים לשנות בעצמכם, בכל שלב: תחנות (ops — הוספה, הזזה ליום או לשעה אחרים, עריכה, מחיקה), תאריכי הטיול ואורכו (dates_set), מלונות, תקציב, ותזכורות לטלפון (actions). כשמטיילים מבקשים אחד מאלה — עושים אותו באותו תור, לא מסבירים שצריך לעשות אותו ולא שואלים שאלה שהתשובה עליה כבר כתובה כאן (תאריך היום, מספר הימים, מה יש במסלול). שינוי שאין לו פעולה כאן (שם הטיול, היעדים עצמם, משתתפים) — אומרים בפשטות שזה נעשה בדף הטיול.
+מה אתם יכולים לשנות בעצמכם, בכל שלב: תחנות (ops — הוספה, הזזה ליום או לשעה אחרים, עריכה, מחיקה), תאריכי הטיול ואורכו (dates_set), מלונות, תקציב, תזכורות לטלפון, ושם הטיול, התיאור והיעדים שלו (trip_update) (actions). כשמטיילים מבקשים אחד מאלה — עושים אותו באותו תור, לא מסבירים שצריך לעשות אותו ולא שואלים שאלה שהתשובה עליה כבר כתובה כאן (תאריך היום, מספר הימים, מה יש במסלול). שינוי שאין לו פעולה כאן (משתתפים, פרסום בגלריה) — אומרים בפשטות שזה נעשה בדף הטיול.
 כל פעולה שה-text אומר שנעשתה ("עדכנתי", "הוספתי", "קבעתי", "הזזתי") חייבת להופיע באותו תור ב-ops או ב-actions. facts הם הזיכרון שלכם ולא שינוי בטיול — "רשמתי" ב-facts לא מזיז שום דבר במסלול או בתאריכים.
 
 commit — כל תור שמחזיר ops או actions מחליט גם אם הם מתבצעים מיד או מוצעים:
@@ -445,6 +445,7 @@ ${aiTools.promptRules({ services })}`;
 
   const user =
 `הטיול: "${trip.title}" — ${ai.destDescFull(dests) || trip.destination}, ${trip.days} ימים${dates}.
+תיאור הטיול: ${trip.description || '(אין)'}
 ${clock.promptBlock(trip, { tz })}
 ${tripPrefsBlock(state, { facts: false })}שלב נוכחי: ${state.stage}.
 מה שכבר הוסכם (facts):
@@ -455,7 +456,7 @@ ${pending}
 המסלול הנוכחי (כל שורה: #מזהה | יום | שעה | [קטגוריה] כותרת | מקום):
 ${itineraryLines(items, multiArea, trip)}
 עומס (תחנות ליום): ${perDay.map((c, i) => `${i + 1}:${c}`).join(' ')}
-${actions.contextLines(side && side.hotels, side && side.budget)}
+${actions.contextLines(side && side.hotels, side && side.budget, side)}
 הצעה ממתינה: ${pendingProposal || '(אין)'}
 
 השיחה האחרונה:
@@ -585,7 +586,8 @@ async function planTurn({ trip, items, state, side, history, message, pendingPro
     actions: acts,
     // a turn that writes nothing has nothing to decide; one that does, does as it said —
     // and one whose text reports the change as done is committed whatever it flagged
-    commit: !!raw.commit || (writes && claimsDone),
+    // — except a new name for the trip, which always waits for a tap
+    commit: !actions.needsApproval(acts) && (!!raw.commit || (writes && claimsDone)),
     // what it looked up on the way — shown under the answer, kept on the row
     tools: progress ? progress.summary() : [],
   };
@@ -682,6 +684,13 @@ async function writeProposal(client, trip, items, payload, state = null) {
   const { r, a } = await ai.applyOpsAndActions(client, trip, items, payload.ops || [], payload.actions || []);
   const changed = r.added + r.updated + r.removed + a.count > 0;
   if (a.calendar && state) moveCalendar(state, a.calendar);
+  // a place the trip no longer visits takes its block of the area split with it; the
+  // split is re-proposed by the chat when the days no longer add up
+  if (a.moved && state && state.areas.length) {
+    const gone = new Set(a.moved.removed);
+    const kept = state.areas.filter((b) => !gone.has(b.area));
+    if (kept.length !== state.areas.length) state.areas = [];
+  }
   return {
     sideChanged: a.count > 0,
     calendar: a.calendar,

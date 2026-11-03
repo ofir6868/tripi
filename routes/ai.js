@@ -659,6 +659,17 @@ function validateCoverChoice(chosenName, dests) {
   return COVER_OPTIONS[0].name;
 }
 
+// the trip went somewhere else: a landmark cover that no longer matches its places is
+// swapped by the same rule as at creation — a match for the new places, else the generic
+// road — with no model call. A generic or custom cover stays. → the new URL, or null.
+function coverForDests(currentUrl, dests) {
+  const cur = COVER_OPTIONS.find((c) => c.url === currentUrl);
+  if (!cur || !COVER_TAGS[cur.name]) return null;
+  const name = validateCoverChoice(cur.name, dests);
+  if (name === cur.name) return null;
+  return (COVER_OPTIONS.find((c) => c.name === name) || COVER_OPTIONS[0]).url;
+}
+
 async function aiTripMeta({ dests, from, to, interestList, freeText, answers, ph }) {
   const meta = await aiJson({
     system: 'אתה קופירייטר של טיולים. אתה מחזיר אך ורק JSON תקין לפי הסכמה.',
@@ -2293,9 +2304,9 @@ ${clock.PROMPT_RULES}
 ${aiTools.promptRules({ services })}${editRules}
 
 הטיול: "${trip.title}", ${trip.days} ימים${dates}. יעדים: ${destText}.
-המסלול הנוכחי:
+${edit ? `תיאור הטיול: ${trip.description || '(אין)'}\n` : ''}המסלול הנוכחי:
 ${itinerary}
-${tripPrefsBlock(prefs)}${edit ? `\n${actions.contextLines(side && side.hotels, side && side.budget)}` : ''}
+${tripPrefsBlock(prefs)}${edit ? `\n${actions.contextLines(side && side.hotels, side && side.budget, side)}` : ''}
 ${clock.promptBlock(trip, { tz })}`;
 }
 
@@ -2736,3 +2747,4 @@ module.exports.AI_MODEL_WEAK = AI_MODEL_WEAK;
 // routes/trips.js runs this after a publish-to-gallery toggle — fire-and-forget
 module.exports.proofreadPublicTripCopy = proofreadPublicTripCopy;
 module.exports.recsSystemPrompt = recsSystemPrompt;
+module.exports.coverForDests = coverForDests;

@@ -311,7 +311,9 @@ async function generateList(trip, ph, { force = false } = {}) {
   await generateTop(trip, ph, { force }).catch(() => false);
   const brief = await tripBrief(trip);
   const { rows: existing } = await pool.query(
-    `SELECT title FROM trip_checklist_items WHERE trip_id = $1 AND source <> 'ai'`, [trip.id]
+    // a forced rebuild drops the model's items below, so only the rest count as "already
+    // there"; a rebuild after a destination change keeps the ones somebody touched
+    `SELECT title FROM trip_checklist_items WHERE trip_id = $1${force ? " AND source <> 'ai'" : ''}`, [trip.id]
   );
   const raw = await ai.aiJson({
     system: `אתם היועצים של TRIP MAKER להכנות לטיול, וכותבים צ'קליסט מלא לטיול הזה. מטיילים מישראל, הכול בעברית.
@@ -611,4 +613,27 @@ router.post('/api/trips/code/:code/checklist/bulk', authOptional, async (req, re
   } catch (err) { serverError(res, err); }
 });
 
+// The trip went somewhere else (the AI changed its destinations — lib/plan-actions.js
+// trip_update, or undid that). What the model wrote for the old places is wrong for the
+// new ones: Visit Japan Web on a trip to Thailand. So, inside the caller's transaction:
+// the destination pick goes (it is about the old place, ticked or not), and so does every
+// model-written item nobody has touched; what people
+// added, ticked or took on stays; the eSIM link follows the new country; and the list's
+// status goes back to empty, so the next open builds it again — free, like a first list
+// (no meter, and no model call at all until someone actually looks).
+async function resetForDestinations(client, trip) {
+  const { rowCount } = await client.query('SELECT 1 FROM trip_checklists WHERE trip_id = $1', [trip.id]);
+  if (!rowCount) return false; // never opened: nothing was built for the old places
+  await client.query(
+    `DELETE FROM trip_checklist_items i
+     WHERE i.trip_id = $1 AND (i.key = 'top' OR (i.source = 'ai'
+       AND NOT i.done AND i.assignee_id IS NULL
+       AND NOT EXISTS (SELECT 1 FROM trip_checklist_ticks t WHERE t.item_id = i.id)))`, [trip.id]
+  );
+  await client.query(`UPDATE trip_checklist_items SET link = $2 WHERE trip_id = $1 AND key = 'esim' AND source = 'core'`, [trip.id, esimUrl(trip)]);
+  await client.query(`UPDATE trip_checklists SET status = 'empty', top_status = 'empty' WHERE trip_id = $1`, [trip.id]);
+  return true;
+}
+
 module.exports = router;
+module.exports.resetForDestinations = resetForDestinations;
