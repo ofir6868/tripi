@@ -69,6 +69,9 @@ async function tick(_req, res) {
   const results = await Promise.all([
     run('reminders', () => require('../lib/reminders').tick()),
     run('api-budget-sweep', () => require('../lib/api-budget').sweep()),
+    // the full schema + sweep pass that cold starts now skip once a deploy has run it
+    // (lib/db-bootstrap.js) — the daily tick keeps "every boot" sweeps close to continuous
+    run('schema', () => require('../lib/db-bootstrap').runFull()),
     // the backup is a no-op by design when the escrow is not configured — the same two
     // keys lib/rotation-backup.js checks before it starts its own timer
     run('rotation-backup', async () => {

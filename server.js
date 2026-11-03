@@ -48,11 +48,22 @@ app.use(express.json({ limit: '2mb' }));
 // index: false — the pages are served by routes/pages.js, which stamps their asset
 // URLs with the deploy's version (lib/asset-version). A directory index here would
 // hand out an unstamped index.html and quietly reopen the problem for the home page.
+const { VERSION: ASSET_VERSION } = require('./lib/asset-version');
 const IMG_DIR = path.join(__dirname, 'public', 'img') + path.sep;
 app.use(express.static(path.join(__dirname, 'public'), {
   index: false,
   setHeaders: (res, filePath) => {
-    if (/\.(css|js)$/i.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+    // …unless the URL names this deploy. A stamped URL (?v=<this commit>, written into
+    // every page by lib/asset-version) can only ever mean these exact bytes, so it gets
+    // the font rule instead: cached for a year, never revalidated, and served by
+    // Cloudflare's edge without waking a function at all. The revalidation it replaces
+    // was one trip to the function per script — thirty-odd on the trip page — and on a
+    // cold instance each of those waited for the database (api/index.js). A stamp from
+    // another deploy (an old page still open) keeps no-cache, so it can't pin stale bytes.
+    if (/\.(css|js)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', res.req && res.req.query && res.req.query.v === ASSET_VERSION
+        ? 'public, max-age=31536000, immutable' : 'no-cache');
+    }
     // The opposite rule for the fonts, and for the same reason the stylesheet needs
     // no-cache: what is in a font file never changes. A face is addressed by the
     // subset it carries (public/fonts/README.md), so replacing one means a new
