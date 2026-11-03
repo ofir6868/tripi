@@ -1,8 +1,8 @@
 /* ============================================================
    TRIP MAKER — the new creation flow (js/plan-magic.js)
-   An admin-only preview: every rule here is behind html.magic-on (set in plan.html's
-   head before the first paint) or on an element only that script creates, so the
-   classic wizard is untouched while it is off.
+   Every rule here is behind html.magic-on (set in plan.html's head before the first
+   paint) or on an element only that script creates; if the script cannot start it
+   takes the class off and the page falls back to the plain wizard.
 
    Layout: a globe fixed behind the page; on a wide screen the wizard is the right-hand
    column, the live preview card the left one, and the globe shows between them. On a
@@ -373,30 +373,12 @@ html.magic-on .interest-chip.selected .mg-ie { transform: scale(1.22); }
 }
 .mg-spark-emoji { width: auto; height: auto; background: none; box-shadow: none; font-size: 1.3rem; }
 
-/* ---------------------------------------------------------------- the admin switch */
-
-.mg-switch {
-  position: fixed; z-index: 60; inset-inline-end: 16px; bottom: calc(16px + env(safe-area-inset-bottom));
-  display: flex; align-items: center; gap: 9px; padding: 7px 10px 7px 14px;
-  border-radius: 999px; border: 1px solid rgba(255, 255, 255, .16);
-  background: rgba(10, 21, 18, .86); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-  color: var(--paper); font: 600 .84rem var(--font-body); cursor: pointer;
-  box-shadow: 0 12px 30px -12px rgba(0, 0, 0, .8);
-}
-.mg-switch:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
-.mg-switch-track { position: relative; width: 38px; height: 22px; border-radius: 999px; background: rgba(255, 255, 255, .18); transition: background .3s ease; flex: none; }
-.mg-switch-knob { position: absolute; top: 3px; right: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: right .3s cubic-bezier(.3, 1.6, .5, 1); box-shadow: 0 2px 6px rgba(0, 0, 0, .4); }
-.mg-switch[aria-checked="true"] .mg-switch-track { background: linear-gradient(135deg, var(--amber), var(--amber-deep)); }
-.mg-switch[aria-checked="true"] .mg-switch-knob { right: 19px; }
-.mg-switch-tag { font-size: .68rem; padding: 2px 7px; border-radius: 999px; background: rgba(143, 216, 196, .14); color: var(--mint); }
-
 /* ---------------------------------------------------------------- take-off */
 
 html.mg-launching { overflow: hidden; }
 html.mg-launching .page-shell,
 html.mg-launching .site-header,
-html.mg-launching .site-footer,
-html.mg-launching .mg-switch { opacity: 0; transition: opacity .6s ease; }
+html.mg-launching .site-footer { opacity: 0; transition: opacity .6s ease; }
 .mg-launch {
   position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 26px; padding: 24px; opacity: 0; pointer-events: none; transition: opacity .5s ease;
@@ -534,9 +516,6 @@ html.mg-launching .mg-switch { opacity: 0; transition: opacity .6s ease; }
   html.magic-on .interest-row { grid-template-columns: repeat(3, 1fr); gap: 8px; }
   html.magic-on .interest-chip { min-height: 84px; }
   .mg-postcard { flex-basis: 124px; height: 160px; }
-  .mg-switch { padding: 6px 8px 6px 11px; font-size: .78rem; }
-  .mg-switch-tag, .mg-switch-text { display: none; }
-  .mg-switch::after { content: '✨'; font-size: .95rem; }
   .mg-pass-grid { grid-template-columns: repeat(2, 1fr); row-gap: 10px; }
   .mg-pass-pt b { font-size: 1.7rem; }
 }

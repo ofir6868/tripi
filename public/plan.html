@@ -34,16 +34,10 @@
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="/css/plan.css">
   <link rel="stylesheet" href="/css/plan-magic.css">
-  <!-- The new creation flow is an admin-only preview for now, switched on per browser
-       from the page itself (js/plan-magic.js). Decided here, before the first paint, so
-       an admin who has it on never sees the old wizard flash first. Nothing here is a
-       permission: the flag only picks which skin the same wizard wears. -->
-  <script>
-    try {
-      var u = JSON.parse(localStorage.getItem('tripmaker_user') || 'null');
-      if (u && u.is_admin && localStorage.getItem('tripmaker_magic_create') === '1') document.documentElement.classList.add('magic-on');
-    } catch (e) { /* storage blocked: the classic wizard */ }
-  </script>
+  <!-- The creation flow is told as a journey (js/plan-magic.js) for everyone. The class
+       is set here, before the first paint, so the page never flashes the plain wizard
+       first; plan-magic.js takes it back off if it cannot start. -->
+  <script>document.documentElement.classList.add('magic-on');</script>
 </head>
 <body>
 
