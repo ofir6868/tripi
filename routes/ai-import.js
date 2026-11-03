@@ -83,8 +83,8 @@ function importPrompt({ trip, dests, items, mode, text, hotels }) {
 ${mode === 'rebuild'
     ? 'מצב: בנייה מחדש. המסלול הנוכחי נמחק כולו לפני שה-ops שלכם נכתבים — החזירו add לכל תחנה שבתוכנית, יום אחרי יום, בסדר הכרונולוגי של התוכנית, בלי update ובלי delete.'
     : 'מצב: תיקון. התאימו את המסלול הקיים (למטה, עם מזהים) לתוכנית: add לכל תחנה שבתוכנית וחסרה במסלול; update לתחנה שקיימת בשניהם אבל היום/השעה/השם/ההערה שונים (null בכל שדה שלא משתנה); delete לכל תחנה במסלול שאינה בתוכנית ולא קשורה אליה. תחנה זהה בשניהם — לא נוגעים. טיסות שכבר במסלול נשארות אלא אם התוכנית סותרת אותן.'}
-חוקי ops: title קצר בעברית (שם המקום כפי שמטייל ישראלי מכיר אותו); note — מה שהתוכנית אומרת על התחנה (טיפ, פרטים, הסתייגות), בעברית, עד 200 תווים, null כשאין; time_label HH:MM כשהתוכנית נותנת שעה או סדר ברור (בוקר≈09:00, צהריים≈13:00, ערב≈19:00), אחרת null; day_number בין 1 ל-${trip.days}; place_query באנגלית עם עיר ומדינה ("Nishiki Market, Kyoto, Japan") רק למקום אמיתי וספציפי, null לתחנה כללית ("בוקר חופשי", "נסיעה לדרום"); cost הערכה לאדם בש"ח כשהתוכנית נוקבת במחיר, אחרת null; category מתוך: ${ai.AI_CATEGORIES.join(', ')}${multiArea ? `; area מתוך: ${areaNames.join(', ')}` : `; area תמיד "${areaNames[0] || trip.destination}"`}. תחנת נסיעה (טיסה, רכבת, מעבר בין ערים) מקבלת category "נסיעה".
-כל מה שבתוכנית נכנס — גם מסעדות, גם "בוקר חופשי", גם לינה כתחנת "לינה" כשהתוכנית מציינת היכן ישנים. שום דבר שלא בתוכנית לא נכנס.
+חוקי ops: title קצר בעברית (שם המקום כפי שמטייל ישראלי מכיר אותו); note — מה שהתוכנית אומרת על התחנה (טיפ, פרטים, הסתייגות), בעברית, עד 200 תווים, null כשאין; time_label HH:MM כשהתוכנית נותנת שעה או סדר ברור (בוקר≈09:00, צהריים≈13:00, ערב≈19:00), אחרת null; day_number בין 1 ל-${trip.days}; place_query באנגלית עם עיר ומדינה ("Nishiki Market, Kyoto, Japan") רק למקום אמיתי וספציפי, null לתחנה כללית ("בוקר חופשי", "נסיעה לדרום"); cost הערכה לאדם בש"ח כשהתוכנית נוקבת במחיר, אחרת null; category מתוך: ${ai.STOP_CATEGORIES.join(', ')}${multiArea ? `; area מתוך: ${areaNames.join(', ')}` : `; area תמיד "${areaNames[0] || trip.destination}"`}. תחנת נסיעה (טיסה, רכבת, מעבר בין ערים) מקבלת category "נסיעה".
+כל מה שבתוכנית נכנס — גם מסעדות, גם "בוקר חופשי". איפה שהתוכנית מציינת היכן ישנים — hotel_add עם הלילות (status "booked" רק כשכתוב שהוזמן, אחרת "idea"), לעולם לא תחנה. שום דבר שלא בתוכנית לא נכנס.
 areas: אם התוכנית מחלקת את הימים לאזורים/ערים (למשל ימים 1-3 טוקיו, 4-6 קיוטו) — החזירו את החלוקה המלאה (רצף מ-1 עד ${trip.days}); אחרת [].
 facts: עד 10 עובדות קצרות מהתוכנית שחשוב לזכור (סגנון, תקציב, העדפות, החלטות) — לזיכרון של המתכנן.
 ignored: כל דבר בתוכנית שלא נכנס ולמה — ימים מעבר ל-${trip.days} (אלא אם החזרתם dates_set שמאריך את הטיול כך שיכיל אותם), יעד שאינו בטיול, פרט לא ברור. משפט לכל פריט. [] כשהכול נכנס.
@@ -141,7 +141,10 @@ router.post('/api/trips/code/:code/ai-import', authRequired, async (req, res) =>
     const ops = (Array.isArray(raw.ops) ? raw.ops : []).slice(0, OPS_CAP)
       .filter((op) => op && (mode === 'fix' || op.action === 'add'));
     const verified = await ai.verifyEditOps({ ops }, { items: base, dests, destText: trip.destination, title: trip.title, ph });
-    const acts = actions.cleanActions(raw.actions, trip, hotels);
+    // where the plan says they sleep is a hotel on the hotels page, not a stop (lib/plan-actions.js)
+    const lodged = actions.lodgingToHotels(verified.ops, actions.cleanActions(raw.actions, trip, hotels), { trip, items: base, hotels });
+    verified.ops = lodged.ops;
+    const acts = await actions.locateHotels(lodged.actions, trip, base);
     if (!verified.ops.length && !acts.length) {
       return res.status(422).json({ error: 'לא מצאתי בתוכנית תחנות שאפשר להכניס למסלול — ודאו שהיא מתארת ימים ומקומות' });
     }

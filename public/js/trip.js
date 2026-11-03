@@ -455,6 +455,23 @@
       bias: (it) => ({ lat: it?.lat ?? dests[0]?.lat, lon: it?.lon ?? dests[0]?.lon }),
       defaultArea: (day) => (multiDest() ? defaultAreaForDay(day) : tripDests[0]?.name || null),
       saveItem, addItem, deleteItem,
+      // a lodging stop (the AI's, from before hotels were the hotels page's alone) moves
+      // there: the server swaps every stop of that hotel for one stay, and the page opens
+      // on its card (routes/trips.js …/to-hotel)
+      stopToHotel: async (it, close) => {
+        const r = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/items/${it.id}/to-hotel`, {
+          method: 'POST', headers: canEditHeaders || {},
+        });
+        const gone = new Set(r.removed || []);
+        tripItems = tripItems.filter((x) => !gone.has(x.id));
+        if (Array.isArray(r.hotels)) state.hotels = r.hotels;
+        TRIPMAKER.track('lodging_stop_moved', { trip_id: trip.id, stops: gone.size });
+        renderItinerary();
+        updateAmbient();
+        close();
+        const night = r.hotel ? r.hotel.night_start : Math.min(Math.max(it.day_number, 1), trip.days - 1);
+        if (night && trip.days >= 2) TripModals.openHotels(modalCtx, { focusNight: night });
+      },
       // arrange mode (long-press drag) — the calendar views hand these to TripArrange
       arrangeCommit: applyArrangement, moveItemToDay: moveStopToDay,
       // the night panel rides along in the calendar's day view too, and it needs
@@ -1742,6 +1759,9 @@
             dayDate,
             state, canEdit: editMode, // the full-screen stop panel shows the stop's cost, as the sheet does
             initialDay: liveTripDay(),
+            // the overnight point on the map opens that night's hotel card (editors —
+            // the hotels page is theirs; a viewer sees the bed and its name)
+            openHotel: canEdit && trip.days >= 2 ? (night) => TripModals.openHotels(modalCtx, { focusNight: night }) : null,
           });
         } else {
           TripMap.showDest(d);
