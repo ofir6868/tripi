@@ -463,6 +463,8 @@ const TripPages = (() => {
     { id: 'participants-btn', group: 'top', title: () => document.getElementById('participants-label')?.textContent || 'משתתפים', desc: 'מי מתכנן איתכם, וקישור ההזמנה' },
     { id: 'settle-btn', group: 'top', title: 'חלוקת הוצאות',
       desc: 'מי חייב למי — לפי התקציב המשותף בלבד' },
+    // admins only (trip-tabs.js shows it): the tabs-and-panels preview, per browser
+    { id: 'tt-mode-btn', group: 'top', title: 'תצוגת טאבים ופאנלים', desc: 'ניסוי לאדמינים — הדף כטאבים ופאנלים נפתחים, בדפדפן הזה בלבד' },
     { id: 'budget-btn', group: 'top', title: 'תקציב', cls: (el) => (el.classList.contains('over') ? 'over' : el.classList.contains('warn') ? 'warn' : ''),
       desc: () => { const l = document.getElementById('budget-label')?.textContent; return l && l !== 'תקציב' ? `${l} מהתקציב כבר מתוכנן` : 'כמה זה עולה — התקרה, ההוצאות והחלוקה'; } },
     // first, always: what still has to happen before the flight (trip-checklist.js

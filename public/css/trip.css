@@ -4765,3 +4765,141 @@ html.dp-viewer-open, html.dp-viewer-open body { overflow: hidden; }
   .dpv-nav { display: none; }
   .dp-picker .dp-foot { margin-inline: -16px; padding-inline: 16px; }
 }
+
+/* ---------- the trip page as tabs and panels (admin preview, trip-tabs.js) ----------
+   Only ever under body.tt-on, which only an admin who flipped the switch gets. The dock
+   holds four places and the AI (מסלול · חברים · מלונות · תחבורה · ✨); everything else
+   it used to fold into "עוד" now lives inside a tab or behind the hero's gear. */
+body.tt-on .action-row > .action-btn:not(.tt-tab):not(#itinerary-btn):not(#recs-btn):not(#hotels-btn) { display: none !important; }
+body.tt-on .ab-sep { display: none; }
+body.tt-on #itinerary-btn { display: inline-flex; }
+body.tt-on #hotels-btn:not([style*="display: none"]) { display: inline-flex; }
+/* the side column is gone: the map and the weather are panels, the ticket lives in חברים */
+body.tt-on .trip-layout { grid-template-columns: minmax(0, 1fr); max-width: 820px; }
+body.tt-on .trip-side { display: none; }
+
+.trip-hero-inner { position: relative; }
+.tt-gear {
+  position: absolute; top: 0; inset-inline-end: 0;
+  width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
+  border: 1px solid var(--glass-border); color: var(--paper); cursor: pointer;
+  background: rgba(11, 24, 20, .5); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+}
+.tt-gear .ic { width: 21px; height: 21px; }
+.tt-gear:active { transform: scale(.94); }
+
+/* a panel: one button for a head, the summary line under the title, a chevron */
+.tt-rail { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 18px; }
+.tt-page { display: flex; flex-direction: column; gap: 12px; padding-bottom: 40px; }
+.tt-panel { border-radius: 20px; overflow: hidden; }
+.tt-panel:has(> .tt-body > [hidden]:only-child),
+.tt-panel:has(> .tt-body > [style*="display: none"]:only-child) { display: none; }
+.tt-head {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px;
+  border: 0; background: none; color: var(--paper); font: inherit; text-align: right; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tt-ic {
+  width: 38px; height: 38px; flex: none; border-radius: 12px; display: grid; place-items: center;
+  background: rgba(255, 180, 95, .12); color: var(--amber);
+}
+.tt-ic .ic { width: 20px; height: 20px; }
+.tt-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.tt-titles b { font-size: 1rem; }
+.tt-sum { color: var(--paper-dim); font-size: .8rem; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-chev { width: 20px; height: 20px; flex: none; color: var(--paper-dim); transition: transform .25s ease; }
+.tt-panel.is-open > .tt-head .tt-chev { transform: rotate(180deg); }
+.tt-body { display: none; padding: 0 14px 14px; }
+.tt-panel.is-open > .tt-body { display: block; animation: tt-in .25s ease both; }
+@keyframes tt-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .tt-panel.is-open > .tt-body { animation: none; } .tt-chev { transition: none; } }
+.tt-money.tt-warn .tt-ic, .tt-panel.tt-warn .tt-ic { background: rgba(255, 180, 95, .2); }
+.tt-panel.tt-over .tt-ic { background: rgba(255, 122, 110, .16); color: var(--danger); }
+
+/* a widget moved into a panel sheds its own card: the panel is the card now */
+.tt-wrap .tt-body > .glass, .tt-wrap .tt-body > .side-card, .tt-wrap .tt-body > .cl-widget {
+  margin: 0; padding: 0; border: 0; background: none; box-shadow: none;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.tt-wrap .tt-body > .cl-widget .clw-head,
+.tt-wrap .tt-body > #weather-card .weather-head .side-card-title { display: none; }
+.tt-wrap .tt-body > .map-card { border-radius: 16px; overflow: hidden; border: 1px solid var(--glass-border); }
+.tt-rail > .draft-card { margin: 0; }
+
+/* the days fold: a chevron on the header, the stops (and the hotel lines) fold away
+   and one line of what the day holds is left in their place */
+.tt-foldbar { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 6px; color: var(--paper-dim); font-size: .85rem; font-weight: 600; }
+.tt-foldall { border: 0; background: none; color: var(--mint); font: inherit; font-weight: 700; cursor: pointer; padding: 6px 2px; }
+body.tt-on .day-block { position: relative; }
+.tt-dayfold {
+  margin-inline-start: auto; width: 34px; height: 34px; flex: none; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer;
+  border: 1px solid var(--glass-border); background: var(--glass); color: var(--paper);
+}
+.tt-dayfold .tt-chev { color: inherit; transform: rotate(180deg); }
+.day-block.tt-folded .tt-dayfold .tt-chev { transform: none; }
+.tt-daysum { display: none; margin-top: 8px; color: var(--paper-dim); font-size: .86rem; cursor: pointer; }
+.day-block.tt-folded .tt-daysum { display: block; }
+.day-block.tt-folded > .timeline, .day-block.tt-folded > .day-hotels { display: none; }
+.day-block.tt-folded .day-route, .day-block.tt-folded .day-add-stop { display: none; }
+body.tt-on .day-block.tt-folded { padding-bottom: 6px; }
+
+/* the tabs' own content */
+.tt-note { color: var(--paper-dim); font-size: .9rem; line-height: 1.55; margin: 0 0 10px; }
+.tt-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.tt-btn { flex: 1 1 140px; justify-content: center; gap: 8px; }
+.tt-btn .ic { width: 18px; height: 18px; }
+.tt-crew { display: flex; flex-direction: column; gap: 8px; }
+.tt-person { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.tt-person em { font-style: normal; font-size: .74rem; color: var(--amber); font-weight: 700; margin-inline-start: 4px; }
+.tt-ava {
+  width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: linear-gradient(135deg, rgba(143, 216, 196, .35), rgba(143, 216, 196, .12));
+  border: 1px solid rgba(143, 216, 196, .4); font-size: .82rem; font-weight: 800; color: var(--mint);
+}
+.tt-meter { height: 10px; border-radius: 6px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.tt-meter i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--mint), #b8ead9); }
+.tt-meter.warn i { background: linear-gradient(90deg, var(--amber-deep), var(--amber)); }
+.tt-meter.over i { background: var(--danger); }
+.tt-meter-row { display: flex; justify-content: space-between; margin-top: 6px; font-size: .84rem; color: var(--paper-dim); }
+.tt-meter-row b { color: var(--paper); }
+.tt-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.tt-stats > div { padding: 10px 8px; border-radius: 14px; background: rgba(255, 255, 255, .04); border: 1px solid var(--glass-border); text-align: center; }
+.tt-stats b { display: block; font-size: 1rem; }
+.tt-stats small { color: var(--paper-dim); font-size: .72rem; }
+.tt-code { font-family: ui-monospace, monospace; font-size: 1.6rem; letter-spacing: .25em; color: var(--amber); text-align: center; padding: 6px 0; }
+.tt-legday + .tt-legday { margin-top: 12px; }
+.tt-legdate { display: block; font-size: .78rem; font-weight: 700; color: var(--mint); margin: 0 2px 6px; }
+.tt-leg {
+  display: flex; align-items: center; gap: 12px; width: 100%; margin-bottom: 6px; padding: 10px 12px;
+  border-radius: 14px; border: 1px solid var(--glass-border); background: rgba(255, 255, 255, .04);
+  color: var(--paper); font: inherit; text-align: right; cursor: pointer;
+}
+.tt-leg:active { background: var(--glass-strong); }
+.tt-leg-ic { font-size: 1.4rem; flex: none; width: 34px; text-align: center; }
+.tt-leg-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tt-leg-t b { font-size: .92rem; }
+.tt-leg-t small, .tt-leg-m small { color: var(--paper-dim); font-size: .76rem; }
+.tt-leg-m { display: flex; flex-direction: column; align-items: flex-end; flex: none; }
+.tt-leg-m b { color: var(--mint); font-size: .9rem; }
+@media (min-width: 641px) {
+  .tt-gear { width: 46px; height: 46px; }
+}
+@media print {
+  .tt-gear, .tt-foldbar, .tt-dayfold, .tt-daysum { display: none !important; }
+  .day-block.tt-folded > .timeline, .day-block.tt-folded > .day-hotels { display: block !important; }
+}
+/* the folded map keeps its size off to the side: Leaflet fitting the day's pins into a
+   box of 0×0 has no answer (NaN) — it stays laid out, invisible, and simply unfolds */
+.tt-panel[data-panel="map"] { position: relative; }
+.tt-panel[data-panel="map"]:not(.is-open) > .tt-body {
+  display: block; position: absolute; top: 0; inset-inline: 14px; height: 0; padding: 0;
+  overflow: hidden; visibility: hidden; pointer-events: none;
+}
+/* the day's fold button sits in the header's far corner, on the badge's line */
+body.tt-on .day-title { padding-inline-end: 44px; }
+body.tt-on .tt-dayfold { position: absolute; top: 0; inset-inline-end: 0; margin: 0; }
+/* a folded day takes its night with it — the hotel is still one tap away in מלונות */
+.day-block.tt-folded + .night-booked, .day-block.tt-folded + .night-card { display: none; }
+body.tt-on .tt-daysum { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.tt-on .day-block.tt-folded { margin-top: 14px; }

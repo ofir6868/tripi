@@ -1473,6 +1473,8 @@
       },
     });
     TripPages.openFromHash();
+    // admins can try the page as tabs and panels (trip-tabs.js); everyone else never sees it
+    if (typeof TripTabs !== 'undefined') TripTabs.init({ state, privileged, canEdit });
     // on a trip day the screen is the first thing the traveller sees — once per visit to
     // the page, not again when the page swaps in a copy of the trip
     if (nearbyOn && !nearbyAutoTried) { nearbyAutoTried = true; TripNearby.autoOpen(); }
