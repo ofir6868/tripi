@@ -264,11 +264,51 @@
 
   const json = (status, body) => ({ status, body });
 
+  // The day's pictures from Google Drive (routes/day-photos.js). MOCK_NO_DRIVE=1 plays the
+  // traveller whose Drive is not connected — the whole feature should then vanish. The
+  // thumbnails are Commons pictures standing in for the signed Drive links.
+  const WM = (f, w) => `https://upload.wikimedia.org/wikipedia/commons/thumb/${f}/${w}px-${f.split('/').pop()}`;
+  const DRIVE = [
+    { file_id: 'd1', name: 'IMG_2041.jpg', taken: '2026-10-12T09:41:00', lat: 41.8902, lon: 12.4922, f: 'd/de/Colosseo_2020.jpg' },
+    { file_id: 'd2', name: 'IMG_2047.jpg', taken: '2026-10-12T11:05:00', lat: 41.8925, lon: 12.4853, f: '6/62/Palatine_Hill_from_across_the_Circus_Maximus_April_2019.jpg' },
+    { file_id: 'd3', name: 'IMG_2060.jpg', taken: '2026-10-12T19:22:00', lat: 41.8894, lon: 12.4700, f: 'd/de/Santa_Maria_in_Trastevere_fountain.jpg' },
+    { file_id: 'd4', name: 'IMG_2063.jpg', taken: '2026-10-12T20:10:00', lat: null, lon: null, f: '0/0e/Mura_vaticane_-_ingresso_ai_Musei_00410.JPG' },
+    { file_id: 'd5', name: 'IMG_1990.jpg', taken: '2026-10-08T14:00:00', lat: null, lon: null, f: 'c/c7/Trevi_Fountain_-_Roma.jpg' },
+    { file_id: 'd6', name: 'IMG_2052.jpg', taken: '2026-10-12T13:30:00', lat: 41.8986, lon: 12.4769, f: '7/7b/Pantheon_%28Rome%29_-_Right_side_and_front.jpg' },
+  ].map((d) => ({ ...d, thumb: WM(d.f, 330), full: WM(d.f, 1280), link: 'https://drive.google.com/' }));
+  let dayPhotos = [
+    { id: 1, day: 1, mine: true, ...DRIVE[0] },
+    { id: 2, day: 1, mine: true, ...DRIVE[1] },
+    { id: 3, day: 1, mine: false, ...DRIVE[2], link: null },
+  ];
+  let dayPhotoId = 10;
+  function driveMock(method, p, u, body) {
+    const noDrive = !!process.env.MOCK_NO_DRIVE;
+    const dp = p.match(/^\/api\/trips\/code\/\d+\/day-photos(?:\/(\d+))?$/);
+    if (dp && method === 'GET') return json(200, noDrive ? { can_add: false, photos: [] } : { can_add: true, photos: dayPhotos });
+    if (dp && method === 'POST') {
+      const add = DRIVE.filter((d) => (body.files || []).includes(d.file_id) && !dayPhotos.some((x) => x.day === +body.day && x.file_id === d.file_id));
+      add.forEach((d) => dayPhotos.push({ id: dayPhotoId++, day: +body.day, mine: true, ...d }));
+      return json(200, { added: add.length, skipped: 0 });
+    }
+    if (dp && method === 'DELETE') { dayPhotos = dayPhotos.filter((x) => x.id !== +dp[1]); return json(200, { ok: true }); }
+    if (p === '/api/connectors/drive/photos') {
+      if (noDrive) return json(409, { error: 'Google Drive לא מחובר' });
+      const date = u.searchParams.get('date');
+      const q = (u.searchParams.get('q') || '').toLowerCase();
+      const hit = DRIVE.filter((d) => !q || d.name.toLowerCase().includes(q));
+      return json(200, { day: hit.filter((d) => d.taken.slice(0, 10) === date), recent: hit.filter((d) => d.taken.slice(0, 10) !== date), next: null });
+    }
+    return null;
+  }
+
   const weatherWatched = new Set();
   function handle(method, url, body) {
     const u = new URL(url, 'http://x');
     const p = u.pathname;
     body = body || {};
+    const drv = driveMock(method, p, u, body);
+    if (drv) return drv;
     if (p === '/api/me') return json(200, user);
     // referrals: two friends already in, one to go
     if (p === '/api/me/referral') return json(200, { code: 'demo123', link: 'https://tripmaker.co.il/?ref=demo123', referred: 2, needed: 3, bonus: false, multiplier: 2 });

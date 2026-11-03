@@ -35,6 +35,7 @@ const TripMap = (() => {
   let pinLayer = null;      // numbered markers (above the route)
   let routeLayer = null;    // the walking-order line
   let youLayer = null;      // the traveller's own position (locate)
+  let shotLayer = null;     // the day's own pictures, where they were taken (trip-day-photos.js)
   let ctx = null;
   let selectedDay = 1;      // 0 = every day at once (the overview)
   let activeId = null;      // the stop the strip has selected (its pin is lit)
@@ -321,6 +322,7 @@ const TripMap = (() => {
     routeLayer = L.featureGroup().addTo(map);
     pinLayer = L.featureGroup().addTo(map);
     youLayer = L.featureGroup().addTo(map);
+    shotLayer = L.featureGroup().addTo(map);
     map.on('click', closeLayers);
     map.on('dragstart', closeLayers);
     wireControls();
@@ -534,10 +536,13 @@ const TripMap = (() => {
   function renderStrip() {
     const strip = $('map-strip');
     if (!strip) return;
+    // the day's pictures from Drive: a card at the end of the strip, thumbnails on the
+    // map — both nothing at all unless Drive is on or the trip already has pictures
+    const shots = dayShots();
     if (!selectedDay) { renderDayCards(strip); return; }
     const items = dayItems(selectedDay);
-    strip.hidden = !items.length;
-    if (!items.length) { strip.innerHTML = ''; return; }
+    strip.hidden = !items.length && !shots;
+    if (!items.length) { strip.innerHTML = shots; wireShots(strip); return; }
     let n = 0;
     strip.innerHTML = items.map((it, i) => {
       const has = located(it);
@@ -554,8 +559,9 @@ const TripMap = (() => {
             ${it.category ? `<span class="ms-cat">${esc(it.category)}</span>` : ''}
           </span>
         </button>${leg}`;
-    }).join('');
-    strip.querySelectorAll('.map-stop').forEach((b) => {
+    }).join('') + shots;
+    wireShots(strip);
+    strip.querySelectorAll('.map-stop:not(.map-photos)').forEach((b) => {
       b.onclick = () => {
         const id = +b.dataset.id;
         const it = items.find((x) => x.id === id);
@@ -567,6 +573,14 @@ const TripMap = (() => {
     fillLegs();
     wireSwipe(strip);
   }
+
+  const hasShots = () => typeof TripDayPhotos !== 'undefined' && TripDayPhotos.active();
+  function dayShots() {
+    if (typeof TripDayPhotos === 'undefined') return '';
+    TripDayPhotos.drawPins(shotLayer, selectedDay);
+    return hasShots() ? TripDayPhotos.stripHtml(selectedDay) : '';
+  }
+  function wireShots(root) { if (hasShots()) TripDayPhotos.wire(root); }
 
   // Swiping the cards walks the map (the way map apps pair a carousel with pins): when
   // a swipe settles, the card at the start of the strip is selected and its pin comes
@@ -588,7 +602,7 @@ const TripMap = (() => {
         const box = strip.getBoundingClientRect();
         let best = null;
         let bestD = Infinity;
-        strip.querySelectorAll('.map-stop:not(.unplaced)').forEach((c) => {
+        strip.querySelectorAll('.map-stop:not(.unplaced):not(.map-photos)').forEach((c) => {
           const r = c.getBoundingClientRect();
           const d = Math.abs(r.right - (box.right - 12)); // RTL: the start is the right edge
           if (d < bestD) { bestD = d; best = c; }
@@ -1044,7 +1058,7 @@ const TripMap = (() => {
             ${day === today ? '<span class="mp-today">היום</span>' : ''}
             <span class="mp-daycount">${its.length ? `${its.length} תחנות` : 'ריק'}</span>
           </button>
-          ${open ? `<div class="mp-stops">${rows || '<p class="mp-empty">אין עדיין תחנות ביום הזה</p>'}</div>` : ''}
+          ${open ? `<div class="mp-stops">${rows || '<p class="mp-empty">אין עדיין תחנות ביום הזה</p>'}</div>${hasShots() ? TripDayPhotos.panelHtml(day) : ''}` : ''}
         </section>`;
     }).join('');
     box.innerHTML = `
@@ -1077,6 +1091,7 @@ const TripMap = (() => {
       b.onmouseenter = () => hoverPin(id, true);
       b.onmouseleave = () => hoverPin(id, false);
     });
+    wireShots(box);
     box.querySelectorAll('.mp-thumb img').forEach((img) => { img.onerror = () => { img.parentElement.classList.remove('has-photo'); img.remove(); }; });
     fillPanelLegs(box);
   }
@@ -1202,6 +1217,13 @@ const TripMap = (() => {
     renderDayChips();
     renderPins();
     renderStrip();
+    // the day's pictures from the traveller's Google Drive — silent unless Drive is on
+    if (typeof TripDayPhotos !== 'undefined' && c.trip.share_code) {
+      TripDayPhotos.init({
+        code: c.trip.share_code, canEdit: !!c.canEdit, dayDate: c.dayDate, dayColor,
+        onChange: () => { renderStrip(); if (fullscreen) renderPanel(); },
+      });
+    }
     $('map-btn-full')?.setAttribute('aria-label', 'מסך מלא');
     // the toolbar's "מפה" (and its row in "עוד" on a phone) — offered once there is a map
     const openBtn = $('map-open-btn');

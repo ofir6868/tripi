@@ -486,6 +486,24 @@ async function migrate(pool, log = console.log) {
   await pool.query(`ALTER TABLE trip_hotels ADD COLUMN IF NOT EXISTS photo TEXT`);
   await pool.query(`ALTER TABLE trip_hotels ADD COLUMN IF NOT EXISTS ref TEXT`);
 
+  log('Migration 34: a day keeps pictures — as Drive file ids, never as pictures...');
+  // routes/day-photos.js: the traveller picks pictures from their own Google Drive for a
+  // day of the trip. Drive stays the only copy and the source of truth — this row is a
+  // pointer (which file, whose Drive, which day), read through the owner's connector each
+  // time it is shown. A file gone from Drive takes its row with it the next time it is
+  // looked at; a Drive switched off hides its pictures and keeps the pointers.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS trip_day_photos (
+      id SERIAL PRIMARY KEY,
+      trip_id INT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+      day_number INT NOT NULL,
+      owner_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      file_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (trip_id, day_number, file_id)
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_day_photos_trip ON trip_day_photos(trip_id, day_number)`);
+
   log('Done.');
 }
 

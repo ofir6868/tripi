@@ -2,7 +2,7 @@
 // so fresh deploys are picked up but the last-viewed trips keep working offline.
 // Two caches: the precached shell (replaced wholesale on version bump) and a
 // runtime cache that is trimmed to a cap so it can't grow forever.
-const VERSION = 'v105'; // the wizard as a journey (plan-magic, dest-photos, plan-magic.css — admin preview) on top of v104
+const VERSION = 'v106'; // the day's pictures from Google Drive (trip-day-photos.js) on top of v105
 const SHELL = 'tripmaker-shell-' + VERSION;
 const RUNTIME = 'tripmaker-rt-' + VERSION;
 const RUNTIME_MAX = 120; // entries; oldest-in goes first
@@ -13,7 +13,7 @@ const STATIC = [
   '/css/seo.css', '/css/admin.css', '/css/plan-magic.css',
   '/js/wcag22.js', '/js/common.js', '/js/geo.js', '/js/home.js', '/js/trip.js',
   '/js/trip-pages.js', '/js/chat-ui.js', '/js/trip-recs.js', '/js/trip-dayrecs.js', '/js/trip-hours.js', '/js/travel-rules.js', '/js/trip-travel.js', '/js/trip-plan.js', '/js/nearby-kinds.js', '/js/trip-nearby.js', '/js/trip-photos.js', '/js/trip-docs.js', '/js/doc-classify.js', '/js/doc-text.js', '/js/moment-kinds.js', '/js/trip-moments.js', '/js/checklist-tags.js', '/js/trip-checklist.js',
-  '/js/trip-modals.js', '/js/trip-arrange.js', '/js/trip-calendar.js', '/js/trip-map.js',
+  '/js/trip-modals.js', '/js/trip-arrange.js', '/js/trip-calendar.js', '/js/trip-day-photos.js', '/js/trip-map.js',
   '/js/plan.js', '/js/plan-magic.js', '/js/dest-photos.js', '/js/admin.js', '/js/admin-google.js', '/js/my.js',
   '/js/countries.js', '/js/airports.js', '/js/destinations.js', '/js/popular.js', '/js/datepicker.js', '/js/push.js', '/js/webmcp.js', '/js/webmcp-tools.js',
   '/js/analytics.js',
@@ -73,6 +73,10 @@ self.addEventListener('fetch', (e) => {
     }
     return;
   }
+
+  // the day's pictures live in the traveller's Google Drive and nowhere else — not in
+  // our database and not on this phone (routes/day-photos.js) — so they never enter a cache
+  if (/^\/api\/(day-photos|connectors\/drive)\/|^\/api\/trips\/code\/[^/]+\/day-photos/.test(url.pathname)) return;
 
   // same-origin: network-first, fall back to cache (keeps last-viewed pages/trips offline)
   //
