@@ -306,7 +306,8 @@ const TripRecs = (() => {
         ? heroHtml(mainDest, interestsOf(ctx), locked)
         : msgHtml({ role: 'ai', html: WELCOME(mainDest, interestsOf(ctx)) }, -1))
         + (locked ? unlockCardHtml(ctx) : '')
-        + msgs.map((m, i) => msgHtml(m, i, la)).join('');
+        // a decision line is for the model's history only — the card already shows it
+        + msgs.map((m, i) => (m.quiet ? '' : msgHtml(m, i, la))).join('');
       thread.querySelectorAll('.chat-chip-q').forEach((b) => { b.onclick = () => send(b.textContent); });
       const chips = foot.querySelector('#chat-chips');
       if (chips) chips.hidden = empty;
@@ -326,7 +327,8 @@ const TripRecs = (() => {
 
     // the proposal card's buttons: the ops (or the recorded inverse) go to the server,
     // and the decision is written into the thread in the traveller's words, so the next
-    // question's history carries it
+    // question's history carries it — quietly: the card already says applied / rejected,
+    // and a bubble repeating it under the card was noise (2026-11-03)
     async function decide(id, decision, btn) {
       const m = msgs.find((x) => x.id === id);
       if (!m || !m.payload || busy) return;
@@ -348,11 +350,11 @@ const TripRecs = (() => {
           m.payload.undoActions = changed ? r.undo_actions : null;
           if (r.items) ctx.replaceItems(r.items);
           if (r.side) ctx.applySide?.(r.side);
-          msgs.push({ id: nextId++, role: 'user', text: `✓ אישרתי את השינויים${titles ? ': ' + titles : ''}` });
+          msgs.push({ id: nextId++, role: 'user', quiet: true, text: `✓ אישרתי את השינויים${titles ? ': ' + titles : ''}` });
           TripPages.toast('הטיול עודכן ✓', 'ok');
         } else if (decision === 'reject') {
           m.payload.decision = 'rejected';
-          msgs.push({ id: nextId++, role: 'user', text: `לא עכשיו — בלי ${titles || 'ההצעה הזו'}` });
+          msgs.push({ id: nextId++, role: 'user', quiet: true, text: `לא עכשיו — בלי ${titles || 'ההצעה הזו'}` });
         } else {
           const r = await TRIPMAKER.api(`${base}/undo`, { method: 'POST', body: JSON.stringify({ undo: m.payload.undo, undo_actions: m.payload.undoActions }) });
           m.payload.decision = 'undone';
