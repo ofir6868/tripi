@@ -4236,6 +4236,24 @@ body.budget-open { overflow: hidden; }
   border-color: rgba(255, 180, 95, .35);
   background: linear-gradient(135deg, rgba(255, 180, 95, .12), rgba(143, 216, 196, .06));
 }
+/* the day's places behind the banner's left side (trip-nearby.js gallery): a slow
+   crossfade with a slight drift, faded out toward the words on the right */
+.nb-banner.has-gal { position: relative; overflow: hidden; isolation: isolate; }
+.nb-banner.has-gal > :not(.nb-gal) { position: relative; z-index: 1; }
+.nb-gal {
+  position: absolute; inset-block: 0; left: 0; width: 62%; z-index: 0; pointer-events: none;
+  -webkit-mask-image: linear-gradient(to right, #000 0%, rgba(0, 0, 0, .75) 35%, transparent 100%);
+  mask-image: linear-gradient(to right, #000 0%, rgba(0, 0, 0, .75) 35%, transparent 100%);
+}
+.nb-gal img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  opacity: 0; transform: scale(1.08);
+  transition: opacity 1.8s ease, transform 7s ease-out;
+}
+.nb-gal img.on { opacity: .42; transform: scale(1); }
+.nb-banner.has-gal .nb-banner-txt b { text-shadow: 0 1px 8px rgba(0, 0, 0, .35); }
+@media (min-width: 720px) { .nb-gal { width: 46%; } }
+@media (prefers-reduced-motion: reduce) { .nb-gal img { transition: none; transform: none; } }
 .nb-banner-txt { flex: 1; min-width: 160px; display: flex; flex-direction: column; gap: 2px; }
 .nb-banner-txt b { font-size: 1rem; }
 .nb-banner-txt span { color: var(--paper-dim); font-size: .88rem; }
