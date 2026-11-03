@@ -1,5 +1,5 @@
-// The trip-creation wizard, told as a journey — the new creation flow, an admin-only
-// preview for now (switched on per browser from the pill at the foot of /plan).
+// The trip-creation wizard, told as a journey. It was an admin-only preview behind a
+// switch on /plan from 2026-11-02, and is everyone's since 2026-11-03.
 //
 // It is a SKIN, not a second wizard. plan.js still owns every answer, the draft, the
 // guest identity and the POST that creates the trip; this file only listens to the
@@ -23,7 +23,6 @@
 // sky: the flow loses the globe, never the wizard. Photos are the destination guides'
 // own (js/dest-photos.js), under the Unsplash licence.
 const PlanMagic = (() => {
-  const KEY = 'tripmaker_magic_create';
   const esc = (s) => TRIPMAKER.esc(s);
   const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const FINE = window.matchMedia('(pointer: fine)').matches;
@@ -36,8 +35,6 @@ const PlanMagic = (() => {
   const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
   const DOW = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
 
-  const isAdmin = () => !!(TRIPMAKER.user && TRIPMAKER.user.is_admin);
-  const wanted = () => { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } };
 
   let active = false;
   let st = null;    // the wizard's latest snapshot
@@ -866,7 +863,9 @@ const PlanMagic = (() => {
   // ================================================================ switching it on
 
   function activate() {
-    if (active || typeof PlanWizard === 'undefined') return;
+    if (active) return;
+    // no wizard to dress (plan.js failed): give the page back its plain layout
+    if (typeof PlanWizard === 'undefined') { document.documentElement.classList.remove('magic-on'); return; }
     active = true;
     document.documentElement.classList.add('magic-on');
     const stage = buildStage();
@@ -894,32 +893,9 @@ const PlanMagic = (() => {
     Globe.init(stage.querySelector('.mg-globe'));
   }
 
-  // the admin's switch: a pill at the foot of the page, on for this browser only
-  function mountSwitch() {
-    if (!isAdmin()) { document.documentElement.classList.remove('magic-on'); return; }
-    const on = wanted();
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'mg-switch';
-    b.setAttribute('role', 'switch');
-    b.setAttribute('aria-checked', on ? 'true' : 'false');
-    b.title = 'נראה רק למנהלים, ונשמר בדפדפן הזה';
-    b.innerHTML = `<span class="mg-switch-track"><span class="mg-switch-knob"></span></span>
-      <span class="mg-switch-text">חוויית היצירה החדשה</span><span class="mg-switch-tag">מנהלים</span>`;
-    b.onclick = () => {
-      const next = b.getAttribute('aria-checked') !== 'true';
-      try { if (next) localStorage.setItem(KEY, '1'); else localStorage.removeItem(KEY); } catch { /* no storage: this visit only */ }
-      TRIPMAKER.track?.('plan_magic_switch', { on: next });
-      b.setAttribute('aria-checked', next ? 'true' : 'false');
-      // switching on is live; switching off reloads into the plain wizard, answers kept
-      // by the draft autosave
-      if (next) activate(); else setTimeout(() => location.reload(), 220);
-    };
-    document.body.appendChild(b);
-    if (on) activate();
-  }
-
-  mountSwitch();
+  // the switch that kept this to admins is gone; the old flag means nothing now
+  try { localStorage.removeItem('tripmaker_magic_create'); } catch { /* no storage */ }
+  activate();
 
   return { get active() { return active; }, launch };
 })();
