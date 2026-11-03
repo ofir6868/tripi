@@ -231,14 +231,21 @@
       }
       // flags render per-platform (emoji mobile / SVG desktop) from the trip's
       // destination countries — never baked into the stored title text
-      const tripFlags = [...new Set(
+      // The flag stands in for the trip's emoji: one country leads with its flag (the
+      // right edge in RTL), several countries trail the name with their flags. The
+      // trip emoji only shows when no country could be resolved to a flag.
+      const ccs = [...new Set(
         (Array.isArray(trip.destinations) ? trip.destinations : [])
           .concat(trip.country ? [{ country: trip.country }] : [])
           .map((d) => d.cc || COUNTRIES.ccByName(d.country || d.name))
           .filter(Boolean)
-      )].map((cc) => COUNTRIES.flagHtml(cc)).join(' ');
+      )];
+      const tripFlags = ccs.map((cc) => COUNTRIES.flagHtml(cc)).join(' ');
+      const name = TRIPMAKER.esc(trip.title);
       document.getElementById('trip-title').innerHTML =
-        `${trip.emoji || '🧭'} ${TRIPMAKER.esc(trip.title)}${tripFlags ? ' ' + tripFlags : ''}`;
+        ccs.length === 1 ? `${tripFlags} ${name}`
+          : ccs.length > 1 ? `${name} ${tripFlags}`
+            : `${trip.emoji || '🧭'} ${name}`;
       const destChip = document.getElementById('dest-chip');
       if (destChip) destChip.innerHTML = `<span class="dot">●</span> ${TRIPMAKER.esc(TRIPMAKER.destLine(trip))}`;
     }
