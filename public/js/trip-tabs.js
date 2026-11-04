@@ -288,13 +288,23 @@ const TripTabs = (() => {
       btn.setAttribute('aria-label', `קיפול יום ${day}`);
       btn.innerHTML = IC.chev;
       title.appendChild(btn);
+      // a short date and a short route label keep the bar on one line on a phone
+      const dd = title.querySelector('.day-date');
+      const date = dayDate(day);
+      if (dd && date) dd.textContent = date.toLocaleDateString('he-IL', { weekday: 'short', day: 'numeric', month: 'short' });
+      const route = title.querySelector('.day-route');
+      if (route) route.innerHTML = `${TRIPMAKER.routeIcon}<span>ניווט</span>`;
+      // the whole bar folds the day — its links and buttons keep their own taps
+      title.addEventListener('click', (e) => {
+        if (e.target.closest('a, button, .day-cost')) return;
+        setDayFolded(block, !block.classList.contains('tt-folded')); syncFoldAll();
+      });
       const sum = document.createElement('div');
       sum.className = 'tt-daysum';
       sum.textContent = stops.length
         ? `${stops.length} ${stops.length === 1 ? 'תחנה' : 'תחנות'} · ${stops.slice(0, 3).map((s) => s.title.split(/[—–-]/)[0].trim()).join(' · ')}${stops.length > 3 ? '…' : ''}`
         : 'יום פנוי';
-      title.after(sum);
-      sum.onclick = () => { setDayFolded(block, false); syncFoldAll(); };
+      title.appendChild(sum); // inside the bar: a folded day is one card
       btn.onclick = (e) => { e.stopPropagation(); setDayFolded(block, !block.classList.contains('tt-folded')); syncFoldAll(); };
       const f = isFolded(mem, day, total);
       block.classList.toggle('tt-folded', f);

@@ -4897,8 +4897,44 @@ body.tt-on .day-block.tt-folded { padding-bottom: 6px; }
   overflow: hidden; visibility: hidden; pointer-events: none;
 }
 /* the day's fold button sits in the header's far corner, on the badge's line */
-body.tt-on .day-title { padding-inline-end: 44px; }
-body.tt-on .tt-dayfold { position: absolute; top: 0; inset-inline-end: 0; margin: 0; }
+/* the day's header, compact: one bar — badge, short date, cost, chevron — that folds the
+   day when tapped anywhere, and under it one quiet row of the day's tools (the route,
+   "+ תחנה") with the hotel line beside them. Nothing wraps into a third line. */
+body.tt-on .day-block { margin-top: 12px; }
+body.tt-on .day-title {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 8px;
+  padding: 8px 10px 8px 8px; border-radius: 16px; cursor: pointer;
+  background: var(--glass); border: 1px solid var(--glass-border);
+  font-size: 1rem; -webkit-tap-highlight-color: transparent;
+}
+body.tt-on .day-title .day-badge { padding: 4px 11px; font-size: .8rem; flex: none; }
+body.tt-on .day-title .day-date {
+  flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: .9rem; font-weight: 600; color: var(--paper);
+}
+body.tt-on .day-title .day-cost { padding: 2px 8px; font-size: .76rem; flex: none; }
+body.tt-on .day-title .day-weather { flex: none; font-size: .82rem; margin: 0; }
+body.tt-on .tt-dayfold { position: static; order: 3; width: 30px; height: 30px; margin: 0; flex: none; }
+body.tt-on .tt-dayfold .ic { width: 17px; height: 17px; }
+/* the line break between the bar and the tools row */
+body.tt-on .day-title::after { content: ''; order: 4; flex-basis: 100%; height: 0; }
+body.tt-on .day-title:not(:has(.day-route, .day-add-stop))::after { display: none; }
+body.tt-on .day-title .day-route,
+body.tt-on .day-title .day-add-stop {
+  order: 5; margin: 0; padding: 3px 10px; font-size: .74rem; gap: 4px;
+}
+body.tt-on .day-title .day-route .ic, body.tt-on .day-title .day-route svg { width: 13px; height: 13px; }
+body.tt-on .day-title .day-add-stop { margin-inline-start: auto; }
+body.tt-on .day-hotels { margin: 6px 10px 0; gap: 4px 12px; }
+body.tt-on .day-hotel { font-size: .78rem; }
+body.tt-on .tt-daysum {
+  order: 6; flex-basis: 100%; min-width: 0; margin: -2px 2px 0; font-family: var(--font-body);
+  font-size: .8rem; font-weight: 400; color: var(--paper-dim);
+}
+body.tt-on .day-block.tt-folded .day-title::after { display: none; }
+body.tt-on .timeline { margin-top: 10px; }
+.tt-foldbar { margin: 0 4px 2px; font-size: .78rem; }
+.tt-foldall { font-size: .8rem; padding: 4px 2px; }
 /* a folded day takes its night with it — the hotel is still one tap away in מלונות */
 .day-block.tt-folded + .night-booked, .day-block.tt-folded + .night-card { display: none; }
 body.tt-on .tt-daysum { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
