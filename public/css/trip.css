@@ -4766,8 +4766,8 @@ html.dp-viewer-open, html.dp-viewer-open body { overflow: hidden; }
   .dp-picker .dp-foot { margin-inline: -16px; padding-inline: 16px; }
 }
 
-/* ---------- the trip page as tabs and panels (admin preview, trip-tabs.js) ----------
-   Only ever under body.tt-on, which only an admin who flipped the switch gets. The dock
+/* ---------- the trip page as tabs and panels (trip-tabs.js) ----------
+   Only ever under body.tt-on, which trip-tabs.js sets once it loads. The dock
    holds four places and the AI (מסלול · חברים · מלונות · תחבורה · ✨); everything else
    it used to fold into "עוד" now lives inside a tab or behind the hero's gear. */
 body.tt-on .action-row > .action-btn:not(.tt-tab):not(#itinerary-btn):not(#recs-btn):not(#hotels-btn) { display: none !important; }
@@ -4939,3 +4939,35 @@ body.tt-on .timeline { margin-top: 10px; }
 .day-block.tt-folded + .night-booked, .day-block.tt-folded + .night-card { display: none; }
 body.tt-on .tt-daysum { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.tt-on .day-block.tt-folded { margin-top: 14px; }
+
+/* the days' row: the list / calendar switch, small and quiet, and "fold all" across from it */
+.tt-foldbar { gap: 10px; margin: 0 2px 4px; }
+body.tt-on .tt-foldbar .view-toggle { margin: 0; }
+body.tt-on .tt-foldbar .view-seg { width: auto; max-width: none; margin: 0; padding: 3px; }
+body.tt-on .tt-foldbar .view-seg button { padding: 5px 11px; font-size: .78rem; gap: 5px; }
+body.tt-on .tt-foldbar .view-seg button .ic { width: 13px; height: 13px; }
+body.tt-on .tt-foldbar .view-seg button.active {
+  background: var(--glass-strong); color: var(--paper); box-shadow: inset 0 0 0 1px var(--glass-border);
+}
+body.tt-on .tt-foldbar .view-seg button.active .ic { color: var(--mint); }
+.tt-foldall { margin-inline-start: auto; }
+/* the rail ends where the days begin — one gap, not two */
+body.tt-on .tt-rail { margin-bottom: 14px; }
+body.tt-on .trip-desc + .tt-rail { margin-top: 10px; }
+body.tt-on .action-btn.tt-act { display: inline-flex; }
+/* the draft's save card, as a banner at the head of the rail rather than a poster */
+body.tt-on .tt-rail > .draft-card {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 12px;
+  padding: 12px 14px; border-radius: 20px; text-align: start;
+}
+body.tt-on .tt-rail > .draft-card .side-card-title { grid-column: 1; margin: 0; font-size: 1rem; }
+body.tt-on .tt-rail > .draft-card .draft-card-sub { grid-column: 1; margin: 0; font-size: .78rem; line-height: 1.4; }
+body.tt-on .tt-rail > .draft-card #draft-finish-btn {
+  grid-column: 2; grid-row: 1 / span 2; width: auto !important; padding: 10px 14px; font-size: .88rem; white-space: nowrap;
+}
+/* a wide screen has the room: the day's bar and its tools share one line */
+@media (min-width: 641px) {
+  body.tt-on .day-title::after { display: none; }
+  body.tt-on .day-title .day-route, body.tt-on .day-title .day-add-stop { order: 2; }
+  body.tt-on .day-title .day-add-stop { margin-inline-start: 0; }
+}

@@ -1,11 +1,12 @@
-// The trip page as tabs and panels — an admin-only preview, per browser.
+// The trip page as tabs and panels — the trip page for everyone since 2026-11-04 (it was an
+// admin-only preview for a day before that).
 //
-// The idea being tried: the trip page stops being one long scroll with a toolbar of
-// fourteen actions, and becomes four places a traveller goes to, plus a gear.
+// The trip page is four places a traveller goes to, plus a gear, instead of one long
+// scroll with a toolbar of fourteen actions.
 //
 //   מסלול    the itinerary itself. What used to be loose widgets above and beside it
-//            (the pre-flight checklist, the weather, the map) become panels that fold
-//            to one summary line, and every day folds the same way.
+//            (the pre-flight checklist, the weather, the map) are panels that fold to
+//            one summary line, and every day folds the same way under one compact bar.
 //   חברים    who is coming, and the money between them: the budget, what was spent,
 //            who owes whom, and the invite. Money lives with the people it is split
 //            between, not in a tab of its own.
@@ -14,21 +15,20 @@
 //            (documents) and the reminders that ring before them.
 //   ✨       the AI keeps its tab (המלצות / תכנון), so it is never more than a tap away.
 //
-// The gear in the hero holds what is set once and left alone: publishing to the gallery,
-// export (PDF, calendar), copying the trip, and the way back to the classic page.
+// חברים, מלונות and תחבורה are for the trip's people; a gallery visitor's dock is the
+// itinerary and the AI. The gear in the hero holds what is set once or done rarely:
+// sharing, publishing to the gallery, export (PDF, calendar) and copying the trip.
 // "עוד" is gone: everything it held now has a place.
 //
 // Nothing here owns data or logic. The tabs are TripPages pages like every other one
 // (same history, same back gesture, same dock), and every action clicks the button
 // trip.js already wires — exactly as the "עוד" sheet does — so permissions, sign-up
-// walls and the modals behind them behave as they do on the classic page. With the
-// switch off this file only shows the switch, and only to admins.
+// walls and the modals behind them behave as they do on the classic page. If this file
+// fails to load, the page is the classic one: the toolbar and "עוד" are still there.
 const TripTabs = (() => {
-  const KEY = 'tm_trip_tabs';          // '1' = this browser sees the tabs preview
+  try { localStorage.removeItem('tm_trip_tabs'); } catch { /* the old preview switch means nothing now */ }
   const PANELS_KEY = 'tm_tt_panels';   // { panelId: true|false } — folded or open
   const esc = (s) => TRIPMAKER.esc(s);
-  const isAdmin = () => !!(TRIPMAKER.user && TRIPMAKER.user.is_admin);
-  const wanted = () => { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } };
   let ctx = null;
   let active = false;
 
@@ -45,7 +45,6 @@ const TripTabs = (() => {
     sun: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>',
     map: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg>',
     globe: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18"/></svg>',
-    swap: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
   };
 
   // ---------- panel memory ----------
@@ -236,8 +235,11 @@ const TripTabs = (() => {
       foldBar = document.createElement('div');
       foldBar.id = 'tt-foldbar';
       foldBar.className = 'tt-foldbar';
-      foldBar.innerHTML = '<span>הימים בטיול</span><button type="button" class="tt-foldall"></button>';
+      foldBar.innerHTML = '<button type="button" class="tt-foldall"></button>';
       days.parentNode.insertBefore(foldBar, days);
+      // the list / calendar switch rides the same row, small, instead of a bar of its own
+      const vt = document.getElementById('view-toggle');
+      if (vt) foldBar.prepend(vt);
       foldBar.querySelector('button').onclick = () => {
         const all = [...days.querySelectorAll('.day-block')];
         const anyOpen = all.some((b) => !b.classList.contains('tt-folded'));
@@ -267,7 +269,7 @@ const TripTabs = (() => {
     const days = document.getElementById('days-container');
     if (!btn || !days) return;
     const blocks = [...days.querySelectorAll('.day-block')];
-    document.getElementById('tt-foldbar').hidden = !blocks.length;
+    btn.hidden = !blocks.length; // the calendar has no days to fold
     btn.textContent = blocks.some((b) => !b.classList.contains('tt-folded')) ? 'כיווץ כל הימים' : 'פתיחת כל הימים';
   }
   function decorateDays() {
@@ -322,13 +324,15 @@ const TripTabs = (() => {
       set('weather', document.getElementById('weather-sub')?.textContent?.trim() || (first.length ? first.join(' · ') : 'התחזית לימי הטיול'));
     }
     const pins = ctx.state.items.filter((it) => it.lat != null).length || ctx.state.items.length;
-    set('map', `${pins} תחנות על המפה · יום אחרי יום`);
+    set('map', pins ? `${pins === 1 ? 'תחנה אחת' : `${pins} תחנות`} על המפה · יום אחרי יום` : 'התחנות יופיעו כאן כשיתווספו למסלול');
   }
 
   // ---------- the gear ----------
   function openSettings() {
     const rows = [
       { id: 'publish-toggle', ic: IC.globe, t: 'פרסום בגלריית הטיולים', d: () => (document.getElementById('publish-toggle')?.checked ? 'פורסם — מופיע בעמוד הבית' : 'לא מפורסם'), when: () => document.getElementById('publish-row')?.style.display !== 'none' },
+      { id: 'wa-share', t: 'שיתוף בוואטסאפ', d: 'שולחים את המסלול לחברים' },
+      { id: 'copy-link', ic: IC.share, t: 'העתקת קישור', d: 'קישור למסלול, להדבקה בכל מקום' },
       { id: 'checklist-btn', ic: IC.check, t: 'צ\'קליסט מלא', d: () => (typeof TripChecklist !== 'undefined' ? TripChecklist.moreDesc() : '') },
       { id: 'print-btn', t: 'PDF / הדפסה', d: 'המסלול המלא כמסמך' },
       { id: 'ics-btn', t: 'ייצוא ליומן', d: 'קובץ ICS — גוגל, אאוטלוק או אפל' },
@@ -341,23 +345,14 @@ const TripTabs = (() => {
         <span class="mr-text"><b>${esc(r.t)}</b><small>${esc(d || '')}</small></span><span class="mr-chev" aria-hidden="true">‹</span></button>`;
     };
     TripPages.sheet('tt-settings', {
-      title: 'הגדרות וכלים',
-      html: `<div class="more-list">${rows.map(row).join('')}</div>
-        <div class="more-list more-cats"><button type="button" class="more-row tt-classic" data-classic>
-          <span class="mr-ic">${IC.swap}</span><span class="mr-text"><b>חזרה לתצוגה הרגילה</b><small>תצוגת הטאבים היא ניסוי — רק אדמינים רואים אותה, ורק בדפדפן הזה</small></span></button></div>`,
+      title: 'שיתוף והגדרות',
+      html: `<div class="more-list">${rows.map(row).join('')}</div>`,
       onOpen: (body) => {
         body.querySelectorAll('.more-row[data-for]').forEach((r) => {
           r.onclick = () => TripPages.closeSheet(() => click(r.dataset.for));
         });
-        body.querySelector('[data-classic]').onclick = () => setWanted(false);
       },
     });
-  }
-
-  function setWanted(on) {
-    try { if (on) localStorage.setItem(KEY, '1'); else localStorage.removeItem(KEY); } catch { /* no storage */ }
-    location.hash = '';
-    location.reload();
   }
 
   // ---------- turning it on ----------
@@ -374,8 +369,9 @@ const TripTabs = (() => {
     return b;
   }
 
-  function turnOn() {
-    document.body.classList.add('tt-on');
+  // the dock — again whenever the page swaps trips: a visitor who copies the trip they
+  // were reading becomes its owner, and the owner's tabs arrive with it
+  function buildDock() {
     const row = document.getElementById('action-row');
     const it = document.getElementById('itinerary-btn');
     const recs = document.getElementById('recs-btn');
@@ -403,7 +399,16 @@ const TripTabs = (() => {
       order.push(tabButton('tt-transport-btn', 'transport', IC.transport, 'תחבורה'));
     }
     order.push(recs);
+    // a visitor's dock is the itinerary and the AI — and copying the trip, the one thing
+    // a gallery visitor came to do, rides there too instead of behind the gear
+    const clone = document.getElementById('clone-btn');
+    if (!privileged && clone && clone.style.display !== 'none') { clone.classList.add('tt-tab', 'tt-act'); order.push(clone); }
     for (const b of order.reverse()) if (b) row.prepend(b);
+  }
+
+  function turnOn() {
+    document.body.classList.add('tt-on');
+    buildDock();
 
     // the gear, in the hero's corner
     const hero = document.querySelector('.trip-hero-inner');
@@ -412,8 +417,8 @@ const TripTabs = (() => {
       g.type = 'button';
       g.id = 'tt-gear';
       g.className = 'tt-gear';
-      g.setAttribute('aria-label', 'הגדרות וכלים');
-      g.title = 'הגדרות וכלים';
+      g.setAttribute('aria-label', 'שיתוף והגדרות');
+      g.title = 'שיתוף והגדרות';
       g.innerHTML = IC.gear;
       g.onclick = openSettings;
       hero.appendChild(g);
@@ -426,13 +431,7 @@ const TripTabs = (() => {
   // trip.js calls this once the dock is wired (and again when the page swaps trips)
   function init(c) {
     ctx = c;
-    const sw = document.getElementById('tt-mode-btn');
-    if (sw) {
-      sw.style.display = isAdmin() && !wanted() ? '' : 'none';
-      sw.onclick = () => setWanted(true);
-    }
-    if (!isAdmin() || !wanted()) return;
-    if (!active) { active = true; turnOn(); } else refreshSums();
+    if (!active) { active = true; turnOn(); } else { buildDock(); refreshSums(); }
   }
 
   return { init, on: () => active };
