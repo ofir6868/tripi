@@ -243,6 +243,40 @@
   // the first place anyone returning looks (public/js/draft-nudge.js)
   DraftNudge.offer(box, { via: 'home' });
 
+  // someone with a trip ahead (or under way) came back for THAT trip, not for the
+  // pitch: it sits above the headline, one tap from its days. A draft is left to
+  // the nudge under the search box — that card already says where it stopped.
+  (async () => {
+    if (!TRIPMAKER.token || typeof TripWhen === 'undefined') return;
+    let trips;
+    try { trips = await TRIPMAKER.api('/api/my-trips'); } catch { return; }
+    const t = (trips || [])
+      .filter((x) => !x.is_draft)
+      .map((x) => Object.assign(x, { when: TripWhen.of(x) }))
+      .filter((x) => x.when.phase === 'now' || x.when.phase === 'next')
+      .sort((a, b) => (a.when.phase === 'now' ? -1 : 0) - (b.when.phase === 'now' ? -1 : 0) || a.when.start - b.when.start)[0];
+    const kicker = document.querySelector('.hero-kicker');
+    if (!t || !kicker) return;
+    const esc = TRIPMAKER.esc;
+    const w = t.when;
+    const now = w.phase === 'now';
+    const el = document.createElement('a');
+    el.className = 'next-trip glass' + (now ? ' is-now' : '');
+    el.href = '/trip/' + encodeURIComponent(t.share_code);
+    el.innerHTML = `
+      <span class="nt-thumb">${t.cover_image ? `<img src="${esc(t.cover_image)}" alt="" decoding="async" onerror="this.remove()">` : ''}<span aria-hidden="true">${esc(t.emoji || '🧭')}</span></span>
+      <span class="nt-text">
+        <small>${now ? '<i class="nt-dot" aria-hidden="true"></i>עכשיו בטיול' : 'הטיול הבא שלכם'}</small>
+        <b>${esc(t.title)}</b>
+        <span>${esc(t.destination || t.country || '')} · ${TripWhen.range(w)}</span>
+      </span>
+      <span class="nt-when"><b>${now ? w.dayNo : w.inDays}</b><small>${now ? `מתוך ${w.total}` : w.inDays === 1 ? 'יום' : 'ימים'}</small></span>`;
+    if (!now && w.inDays === 0) el.querySelector('.nt-when').innerHTML = '<b>🛫</b><small>היום</small>';
+    el.addEventListener('click', () => TRIPMAKER.trackNow?.('home_next_trip_click', { phase: w.phase }));
+    kicker.before(el);
+    TRIPMAKER.track?.('home_next_trip_shown', { phase: w.phase });
+  })();
+
   const INSPIRATION_SKELETON = `
     <div class="skl-row">
       <span class="skl skl-thumb"></span>

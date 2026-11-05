@@ -426,32 +426,30 @@ let authOnSuccess = null;
 
 function renderAuthModal() {
   const wrap = document.createElement('div');
-  wrap.className = 'modal-backdrop';
+  wrap.className = 'modal-backdrop auth-backdrop';
   wrap.id = 'auth-modal';
+  // On a phone this is a sheet from the bottom, thumb-high, and Google — one tap,
+  // no keyboard — comes before the form whenever the server offers it. The two
+  // modes are tabs at the top rather than a link under the legal text, so "I
+  // already have an account" is visible before anyone types into the wrong form.
+  const eye = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path class="eye-slash" d="M4 4l16 16"/></svg>';
   wrap.innerHTML = `
-    <div class="modal glass">
+    <div class="modal glass auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+      <div class="auth-grab" aria-hidden="true"></div>
       <button class="modal-close" aria-label="סגירה">✕</button>
+      <div class="auth-tabs" role="tablist" aria-label="סוג הכניסה">
+        <button type="button" role="tab" class="auth-tab" data-mode="login" id="auth-tab-login">התחברות</button>
+        <button type="button" role="tab" class="auth-tab" data-mode="register" id="auth-tab-register">הרשמה</button>
+        <span class="auth-tab-ink" aria-hidden="true"></span>
+      </div>
       <h2 id="auth-title">ברוכים השבים</h2>
       <p class="modal-sub" id="auth-sub">מתחברים וממשיכים לתכנן</p>
-      <form id="auth-form" class="ph-no-capture">
-        <div class="field" id="auth-name-field" style="display:none">
-          <label for="auth-name">שם מלא</label>
-          <input id="auth-name" type="text" autocomplete="name" placeholder="למשל: דנה לוי">
-        </div>
-        <div class="field">
-          <label for="auth-email">אימייל</label>
-          <input id="auth-email" type="email" autocomplete="email" required placeholder="you@example.com" dir="ltr" style="text-align:left">
-        </div>
-        <div class="field">
-          <label for="auth-password">סיסמה</label>
-          <input id="auth-password" type="password" autocomplete="current-password" required placeholder="לפחות 6 תווים" dir="ltr" style="text-align:left">
-        </div>
-        <div class="form-error" id="auth-error"></div>
-        <button class="btn btn-amber btn-lg" type="submit" style="width:100%;justify-content:center" id="auth-submit">התחברות</button>
-        <p class="auth-legal">בהרשמה ובהתחברות אתם מאשרים את <a href="/terms" target="_blank" rel="noopener">תנאי השימוש</a> ואת <a href="/privacy" target="_blank" rel="noopener">מדיניות הפרטיות</a>. מסירת הפרטים אינה חובה על פי חוק, אך בלעדיהם לא ניתן לפתוח חשבון.</p>
-      </form>
+      <ul class="auth-perks" id="auth-perks" hidden>
+        <li><span aria-hidden="true">📱</span>הטיולים שלכם בכל מכשיר</li>
+        <li><span aria-hidden="true">👥</span>מתכננים יחד עם חברים</li>
+        <li><span aria-hidden="true">✨</span>חינם, בלי כרטיס אשראי</li>
+      </ul>
       <div class="auth-google-wrap" id="auth-google-wrap" hidden>
-        <div class="auth-divider"><span>או</span></div>
         <a class="btn btn-google" id="auth-google" href="/api/auth/google">
           <svg class="google-g" viewBox="0 0 24 24" aria-hidden="true">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
@@ -459,35 +457,71 @@ function renderAuthModal() {
             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
           </svg>
-          המשך עם Google
+          <span id="auth-google-label">המשך עם Google</span>
         </a>
+        <div class="auth-divider"><span>או עם אימייל</span></div>
       </div>
-      <div class="switch-auth" id="auth-switch">
-        אין לכם חשבון? <a id="auth-toggle">הרשמה מהירה</a>
-      </div>
+      <form id="auth-form" class="ph-no-capture" novalidate>
+        <div class="field" id="auth-name-field" hidden>
+          <label for="auth-name">איך לקרוא לכם?</label>
+          <input id="auth-name" type="text" autocomplete="name" enterkeyhint="next" placeholder="למשל: דנה לוי" maxlength="80">
+        </div>
+        <div class="field">
+          <label for="auth-email">אימייל</label>
+          <input id="auth-email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" enterkeyhint="next" required placeholder="you@example.com" dir="ltr">
+        </div>
+        <div class="field">
+          <label for="auth-password">סיסמה</label>
+          <div class="auth-pass">
+            <input id="auth-password" type="password" autocomplete="current-password" enterkeyhint="go" required minlength="6" placeholder="לפחות 6 תווים" dir="ltr">
+            <button type="button" class="auth-eye" id="auth-eye" aria-label="הצגת הסיסמה" aria-pressed="false">${eye}</button>
+          </div>
+        </div>
+        <div class="form-error" id="auth-error" role="alert"></div>
+        <button class="btn btn-amber btn-lg auth-submit" type="submit" id="auth-submit"><span class="auth-spin" aria-hidden="true"></span><span id="auth-submit-label">התחברות</span></button>
+      </form>
+      <p class="auth-legal">בהרשמה ובהתחברות אתם מאשרים את <a href="/terms" target="_blank" rel="noopener">תנאי השימוש</a> ואת <a href="/privacy" target="_blank" rel="noopener">מדיניות הפרטיות</a>. מסירת הפרטים אינה חובה על פי חוק, אך בלעדיהם לא ניתן לפתוח חשבון.</p>
     </div>`;
   document.body.appendChild(wrap);
 
+  const pass = wrap.querySelector('#auth-password');
+  const eyeBtn = wrap.querySelector('#auth-eye');
+  eyeBtn.onclick = () => {
+    const show = pass.type === 'password';
+    pass.type = show ? 'text' : 'password';
+    eyeBtn.setAttribute('aria-pressed', String(show));
+    eyeBtn.setAttribute('aria-label', show ? 'הסתרת הסיסמה' : 'הצגת הסיסמה');
+    pass.focus({ preventScroll: true });
+  };
+
   const setMode = (mode) => {
     authMode = mode;
-    wrap.querySelector('#auth-name-field').style.display = mode === 'register' ? '' : 'none';
-    wrap.querySelector('#auth-title').textContent = mode === 'register' ? 'נעים להכיר!' : 'ברוכים השבים';
+    const reg = mode === 'register';
+    wrap.querySelector('.auth-modal').dataset.mode = mode;
+    wrap.querySelectorAll('.auth-tab').forEach((t) => {
+      const on = t.dataset.mode === mode;
+      t.classList.toggle('on', on);
+      t.setAttribute('aria-selected', String(on));
+    });
+    wrap.querySelector('#auth-name-field').hidden = !reg;
+    wrap.querySelector('#auth-perks').hidden = !reg;
+    wrap.querySelector('#auth-title').textContent = reg ? 'נעים להכיר!' : 'ברוכים השבים';
     // a guest is told what the account is for: whatever they planned stays theirs,
     // on the same row (sign-up) or moved into the account they already have (login)
     wrap.querySelector('#auth-sub').textContent = TRIPMAKER.isGuest()
-      ? (mode === 'register' ? 'חשבון חינם — והטיול שתכננתם נשאר שלכם, בכל מכשיר' : 'מתחברים — והטיול שתכננתם כאן עובר לחשבון שלכם')
-      : (mode === 'register' ? 'חשבון חינם — 20 שניות ואתם בפנים' : 'מתחברים וממשיכים לתכנן');
-    wrap.querySelector('#auth-submit').textContent = mode === 'register' ? 'יוצרים חשבון' : 'התחברות';
-    wrap.querySelector('#auth-switch').innerHTML = mode === 'register'
-      ? 'כבר יש חשבון? <a id="auth-toggle">התחברות</a>'
-      : 'אין לכם חשבון? <a id="auth-toggle">הרשמה מהירה</a>';
-    wrap.querySelector('#auth-toggle').onclick = () => setMode(mode === 'register' ? 'login' : 'register');
+      ? (reg ? 'חשבון חינם — והטיול שתכננתם נשאר שלכם, בכל מכשיר' : 'מתחברים — והטיול שתכננתם כאן עובר לחשבון שלכם')
+      : (reg ? 'חשבון חינם — 20 שניות ואתם בפנים' : 'מתחברים וממשיכים לתכנן');
+    wrap.querySelector('#auth-submit-label').textContent = reg ? 'יוצרים חשבון' : 'התחברות';
+    wrap.querySelector('#auth-google-label').textContent = reg ? 'הרשמה עם Google' : 'המשך עם Google';
+    // a password manager offers a saved password on login and a fresh one on sign-up
+    // only if the field says which it is
+    pass.autocomplete = reg ? 'new-password' : 'current-password';
     wrap.querySelector('#auth-error').textContent = '';
     // switching to login means they already had an account — a different story
     // from a stranger meeting the wall, so the outcome carries the final mode
     if (authWall) authWall.mode = mode;
   };
-  wrap.querySelector('#auth-toggle').onclick = () => setMode('register');
+  wrap.querySelectorAll('.auth-tab').forEach((t) => { t.onclick = () => setMode(t.dataset.mode); });
 
   // three ways out, one outcome: they met the wall and turned around
   const dismiss = (how) => { wrap.classList.remove('open'); authWallOutcome('signup_wall_dismissed', { how }); };
@@ -521,12 +555,18 @@ function renderAuthModal() {
     e.preventDefault();
     const submitBtn = wrap.querySelector('#auth-submit');
     if (submitBtn.disabled) return; // double-submit → one account, not two attempts
-    submitBtn.disabled = true;
     const errEl = wrap.querySelector('#auth-error');
     errEl.textContent = '';
-    const email = wrap.querySelector('#auth-email').value;
+    const email = wrap.querySelector('#auth-email').value.trim();
     const password = wrap.querySelector('#auth-password').value;
     const name = wrap.querySelector('#auth-name').value;
+    // said here, in words, before a round trip — the browser's own bubbles are
+    // English on half the phones that open this
+    const bad = (msg, id) => { errEl.textContent = msg; wrap.querySelector(id).focus(); shake(); };
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return bad('נראה שחסר משהו באימייל', '#auth-email');
+    if (password.length < 6) return bad('הסיסמה צריכה לפחות 6 תווים', '#auth-password');
+    submitBtn.disabled = true;
+    submitBtn.classList.add('busy');
     try {
       const path = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
       const body = authMode === 'register' ? { name, email, password } : { email, password };
@@ -538,10 +578,16 @@ function renderAuthModal() {
       else location.reload();
     } catch (err) {
       errEl.textContent = err.message;
+      shake();
     } finally {
       submitBtn.disabled = false;
+      submitBtn.classList.remove('busy');
     }
   });
+  const shake = () => {
+    const m = wrap.querySelector('.auth-modal');
+    m.classList.remove('shake'); void m.offsetWidth; m.classList.add('shake');
+  };
 
   window.setAuthMode = setMode;
 }
@@ -576,7 +622,13 @@ function openAuthModal(onSuccess, mode = 'login', reason = 'unspecified') {
   authWall = { reason, mode, at: Date.now() };
   TRIPMAKER.track('signup_wall_shown', { reason, mode, guest: TRIPMAKER.isGuest() });
   window.setAuthMode?.(mode);
-  document.getElementById('auth-modal').classList.add('open');
+  const wrap = document.getElementById('auth-modal');
+  wrap.classList.add('open');
+  // a desktop gets the cursor in the first field; a phone does not, or the
+  // keyboard would cover the sheet (and the Google button) before it is read
+  if (window.matchMedia?.('(hover: hover) and (pointer: fine)').matches) {
+    setTimeout(() => wrap.querySelector(mode === 'register' ? '#auth-name' : '#auth-email')?.focus(), 60);
+  }
 }
 
 // ---------- settings modal ----------

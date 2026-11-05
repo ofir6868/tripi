@@ -6,6 +6,8 @@
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.TripmakerMock = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
+  // switches for the node preview server; the in-browser demo has no process.env
+  const env = (k) => (typeof process !== 'undefined' && process.env ? process.env[k] : undefined);
   const U = (id, w = 1200) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=${w}&q=80`;
 
   const user = { id: 1, name: 'רגב כהן', email: 'demo@tripmaker.co.il', is_admin: false };
@@ -283,7 +285,7 @@
   ];
   let dayPhotoId = 10;
   function driveMock(method, p, u, body) {
-    const noDrive = !!process.env.MOCK_NO_DRIVE;
+    const noDrive = !!env('MOCK_NO_DRIVE');
     const dp = p.match(/^\/api\/trips\/code\/\d+\/day-photos(?:\/(\d+))?$/);
     if (dp && method === 'GET') return json(200, noDrive ? { can_add: false, photos: [] } : { can_add: true, photos: dayPhotos });
     if (dp && method === 'POST') {
@@ -300,6 +302,26 @@
       return json(200, { day: hit.filter((d) => d.taken.slice(0, 10) === date), recent: hit.filter((d) => d.taken.slice(0, 10) !== date), next: null });
     }
     return null;
+  }
+
+  const deletedTrips = new Set();
+  function myTrips() {
+    const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+    const t = (o) => ({ is_public: false, is_draft: false, is_mine: true, likes: 0, emoji: '🧭', created_at: '2026-08-01T10:00:00Z', ...o });
+    return [
+      t({ ...draft, is_mine: true, start_date: day(70), end_date: day(79) }),
+      t({ id: 11, share_code: '418265', title: 'ליסבון ופורטו', destination: 'ליסבון, פורטו', country: 'פורטוגל', days: 7,
+        start_date: day(-2), end_date: day(4), cover_image: U('photo-1555881400-74d7acaacd8b'), destinations: [{ name: 'ליסבון', cc: 'pt' }, { name: 'פורטו', cc: 'pt' }] }),
+      t({ id: 12, share_code: '553019', title: 'החגים בניו יורק', destination: 'ניו יורק', country: 'ארצות הברית', days: 6,
+        start_date: day(23), end_date: day(28), cover_image: U('photo-1496442226666-8d4d0e62e6e9'), destinations: [{ name: 'ניו יורק', cc: 'us' }] }),
+      t({ id: 13, share_code: '660412', title: 'טרק באנאפורנה', destination: 'פוקהרה', country: 'נפאל', days: 14, is_mine: false,
+        start_date: day(130), end_date: day(143), cover_image: U('photo-1544735716-392fe2489ffa'), destinations: [{ name: 'פוקהרה', cc: 'np' }] }),
+      t({ id: 14, share_code: '207731', title: 'סוף שבוע באתונה', destination: 'אתונה', country: 'יוון', days: 3,
+        start_date: null, end_date: null, cover_image: U('photo-1555993539-1732b0258235'), destinations: [{ name: 'אתונה', cc: 'gr' }] }),
+      t({ ...trip, is_mine: true }),
+      t({ id: 15, share_code: '390218', title: 'קיץ בדולומיטים', destination: 'קורטינה', country: 'איטליה', days: 8, is_mine: false,
+        start_date: '2026-07-04', end_date: '2026-07-11', cover_image: U('photo-1491555103944-7c647fd857e6'), destinations: [{ name: 'קורטינה', cc: 'it' }] }),
+    ];
   }
 
   const weatherWatched = new Set();
@@ -421,7 +443,8 @@
       return json(404, { error: 'mock: no plan route' });
     }
     if (p === '/api/trips/2' && method === 'PATCH') { Object.assign(draft, body); return json(200, draft); }
-    if (p === '/api/auth/providers') return json(200, { google: false });
+    // production has Google configured, so the preview shows the button where people see it
+    if (p === '/api/auth/providers') return json(200, { google: !env('MOCK_NO_GOOGLE') });
     if (p === '/api/analytics/config') return json(200, {});
     if (p.startsWith('/api/push/')) return json(200, { key: null });
     // nearby hotels for the night cards and the hotels page: a handful of Roman hotels
@@ -447,7 +470,12 @@
       });
     }
     if (p === '/api/hotels') return json(200, MOCK_HOTELS.map(({ price, ...h }) => ({ ...h })));
-    if (p === '/api/trips/suggested' || p === '/api/my-trips') return json(200, []);
+    if (p === '/api/trips/suggested') return json(200, []);
+    // /my: a traveller with a past, a present and a future — dates are relative to
+    // today so the page always has one of each (MOCK_MY_EMPTY=1 shows the empty state)
+    if (p === '/api/my-trips') return json(200, env('MOCK_MY_EMPTY') ? [] : myTrips().filter((t) => !deletedTrips.has(t.id)));
+    const dt = p.match(/^\/api\/trips\/(\d+)$/);
+    if (dt && method === 'DELETE') { deletedTrips.add(+dt[1]); return json(200, { ok: true }); }
     // אהבתי, from the hero chip
     const lm = p.match(/^\/api\/trips\/(\d+)\/like$/);
     if (lm) {

@@ -26,21 +26,21 @@
 </head>
 <body>
 
-  <div class="page-shell" style="width:min(1120px,calc(100% - 32px))">
-    <h1>הטיולים <span style="color:var(--amber)">שלי</span> 🧳</h1>
-    <p class="page-sub">המסלולים שיצרתם והטיולים שהצטרפתם אליהם, במקום אחד</p>
-    <div id="my-wrap">
-      <div class="my-grid" id="my-grid">
-        <span class="skl skl-tripcard"></span><span class="skl skl-tripcard"></span><span class="skl skl-tripcard"></span>
+  <main class="page-shell my-shell">
+    <header class="my-head">
+      <h1>הטיולים <span>שלי</span></h1>
+      <p class="my-sub" id="my-sub">המסלולים שיצרתם והטיולים שהצטרפתם אליהם, במקום אחד</p>
+    </header>
+    <div id="my-wrap" aria-busy="true">
+      <!-- the shapes the page lands in: the next trip, then rows -->
+      <div class="my-next my-next-skl"><span class="skl"></span></div>
+      <div class="mt-list">
+        <div class="mt-row mt-row-skl"><span class="skl mt-thumb"></span><span class="mt-skl-lines"><span class="skl"></span><span class="skl"></span></span></div>
+        <div class="mt-row mt-row-skl"><span class="skl mt-thumb"></span><span class="mt-skl-lines"><span class="skl"></span><span class="skl"></span></span></div>
+        <div class="mt-row mt-row-skl"><span class="skl mt-thumb"></span><span class="mt-skl-lines"><span class="skl"></span><span class="skl"></span></span></div>
       </div>
     </div>
-    <div class="empty-state glass" id="empty" style="display:none;border-radius:var(--radius)">
-      <div class="big">🗺️</div>
-      <h2 style="font-family:var(--font-display);margin-bottom:8px">עוד אין כאן טיולים</h2>
-      <p>הטיול הראשון שלכם במרחק שלושה צעדים קטנים.</p>
-      <a class="btn btn-amber btn-lg" href="/plan" style="margin-top:18px">+ מתכננים טיול ראשון</a>
-    </div>
-  </div>
+  </main>
 
   <footer class="site-footer">
     <nav class="seo-footer-links">
@@ -56,8 +56,10 @@
   <script defer src="/js/common.js"></script>
   <script defer src="/js/analytics.js"></script>
   <script defer src="/js/geo.js"></script>
+  <script defer src="/js/countries.js"></script>
   <script defer src="/js/webmcp.js"></script>
   <script defer src="/js/webmcp-tools.js"></script>
+  <script defer src="/js/trip-when.js"></script>
   <script defer src="/js/my.js"></script>
 </body>
 </html>

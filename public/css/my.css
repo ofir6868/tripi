@@ -18,43 +18,191 @@
    ============================================================ */
 
 /* ---------- my trips ---------- */
+/* Phone first: the trip that matters now is one big card with its countdown, and
+   every other trip is a 76px row — seven trips fit on one screen instead of seven.
+   Wider screens get the rows in two columns and the card laid out sideways. */
 
-.my-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 18px; }
-.tc-code-chip {
-  position: absolute; bottom: 14px; left: 14px; z-index: 3;
-  font-size: .8rem; font-weight: 800; letter-spacing: .14em; direction: ltr;
-  padding: 5px 11px; border-radius: 999px; color: var(--amber);
-  background: rgba(10, 21, 18, .6); border: 1px solid rgba(255, 180, 95, .35);
-}
-.tc-delete {
-  /* sits next to the emoji badge (top-right) so it never covers the days chip on the left */
-  position: absolute; top: 14px; right: 66px; z-index: 3; width: 36px; height: 36px;
-  border-radius: 12px; border: 1px solid var(--glass-border); cursor: pointer;
-  background: rgba(10, 21, 18, .72); color: var(--paper-dim);
-  display: grid; place-items: center; padding: 0;
-  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-  transition: color .18s ease, border-color .18s ease, background .18s ease, transform .18s ease;
-}
-.tc-delete svg { width: 18px; height: 18px; display: block; }
-.tc-delete:hover {
-  color: var(--danger); border-color: rgba(233, 106, 106, .5);
-  background: rgba(233, 106, 106, .14); transform: translateY(-1px);
-}
-.tc-delete:active { transform: translateY(0) scale(.94); }
-.tc-delete:disabled { opacity: .5; cursor: wait; }
+.my-shell { width: min(1040px, calc(100% - 32px)); padding-top: calc(104px + env(safe-area-inset-top)); }
+.my-head h1 { font-family: var(--font-display); font-size: clamp(1.9rem, 6vw, 2.8rem); line-height: 1.1; }
+.my-head h1 span { color: var(--amber); }
+.my-sub { color: var(--paper-dim); font-weight: 400; margin: 6px 0 22px; font-size: .98rem; }
 
-/* participant (not owner) badge on my-trips cards — sits under the days chip (top-left) */
-.tc-role {
-  position: absolute; top: 52px; left: 14px; z-index: 2;
-  font-size: .72rem; font-weight: 700; color: var(--mint);
-  background: rgba(10, 21, 18, .75); border: 1px solid rgba(143, 216, 196, .45);
-  border-radius: 999px; padding: 3px 10px;
+/* ---- the next trip ---- */
+.my-next {
+  position: relative; display: block; overflow: hidden; isolation: isolate;
+  border-radius: 26px; min-height: 330px; margin-bottom: 30px;
+  color: var(--paper); text-decoration: none;
+  background: radial-gradient(120% 90% at 80% 0%, #2a4a40, var(--ink-2) 70%);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 26px 60px -24px rgba(0, 0, 0, .75), inset 0 1px 0 var(--glass-highlight);
+  animation: rise .5s cubic-bezier(.2, .8, .3, 1) both;
+  -webkit-tap-highlight-color: transparent;
 }
+.my-next:active { transform: scale(.99); }
+.mn-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2;
+  animation: kenburns 24s ease-out both alternate; }
+.mn-emoji { position: absolute; inset: 0; display: grid; place-items: center; font-size: 5rem; z-index: -3; opacity: .5; }
+.mn-shade { position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(180deg, rgba(6, 12, 10, .1) 0%, rgba(6, 12, 10, .05) 30%, rgba(6, 12, 10, .72) 64%, rgba(6, 12, 10, .94) 100%); }
+.mn-count {
+  position: absolute; top: 16px; left: 16px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-width: 84px; padding: 10px 12px 9px; border-radius: 20px;
+  background: rgba(10, 21, 18, .62); border: 1px solid rgba(255, 180, 95, .45);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+.mn-count b { font-family: var(--font-display); font-weight: 400; font-size: 2.3rem; line-height: 1; color: var(--amber); }
+.mn-count small { font-size: .72rem; font-weight: 700; color: var(--paper-dim); margin-top: 4px; white-space: nowrap; }
+.my-next.is-now .mn-count { border-color: rgba(143, 216, 196, .55); }
+.my-next.is-now .mn-count b { color: var(--mint); }
+.mn-body { position: absolute; inset-inline: 0; bottom: 0; padding: 20px 20px 18px; }
+.mn-eyebrow { display: inline-flex; align-items: center; gap: 7px; font-size: .8rem; font-weight: 800;
+  letter-spacing: .04em; color: var(--amber); margin-bottom: 4px; }
+.my-next.is-now .mn-eyebrow { color: var(--mint); }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--mint); animation: dot-glow 1.8s ease-in-out infinite; }
+.mn-title { font-family: var(--font-display); font-weight: 400; font-size: clamp(1.6rem, 6.4vw, 2.2rem); line-height: 1.15;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, .5); }
+.mn-meta { margin-top: 6px; color: var(--paper-dim); font-size: .95rem; font-weight: 600; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.mn-flags, .mt-flags { display: inline-flex; gap: 3px; margin-inline-end: 4px; }
+.mn-flags .flag-img, .mt-flags .flag-img { width: 18px; height: 13px; border-radius: 2px; object-fit: cover; }
+.mn-progress { display: flex; gap: 4px; margin-top: 14px; }
+.mn-progress i { flex: 1; height: 5px; border-radius: 999px; background: rgba(255, 255, 255, .18); }
+.mn-progress i.past { background: var(--mint); opacity: .7; }
+.mn-progress i.today { background: #fff; box-shadow: 0 0 12px rgba(143, 216, 196, .9); }
+.mn-cta {
+  display: inline-flex; align-items: center; gap: 8px; margin-top: 16px;
+  padding: 11px 18px; border-radius: 999px; font-weight: 800; font-size: .95rem;
+  background: linear-gradient(135deg, var(--amber), var(--amber-deep)); color: #241302;
+  box-shadow: 0 10px 24px -10px rgba(232, 133, 58, .8);
+}
+.my-next.is-now .mn-cta { background: linear-gradient(135deg, #a6ead7, #6cc3aa); box-shadow: 0 10px 24px -10px rgba(108, 195, 170, .8); }
+.mn-tag { position: absolute; top: 18px; right: 16px; }
+.my-next-skl { min-height: 330px; animation: none; }
+.my-next-skl .skl { position: absolute; inset: 0; border-radius: 0; }
 
-/* /my section split: drafts ("בתכנון") above the finished trips */
-.my-sec { font-family: var(--font-display); font-size: 1.25rem; margin: 26px 0 14px; }
-.my-sec:first-child { margin-top: 0; }
-.my-sec-hint { color: var(--paper-dim); font-weight: 300; padding: 6px 2px 18px; }
+/* ---- sections and rows ---- */
+.mt-sec { margin-bottom: 26px; animation: rise .5s cubic-bezier(.2, .8, .3, 1) both; }
+.mt-sec:nth-of-type(2) { animation-delay: .06s; }
+.mt-sec:nth-of-type(3) { animation-delay: .12s; }
+.mt-sec-title { display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-weight: 400;
+  font-size: 1.2rem; margin: 0 2px 10px; }
+.mt-count { font-family: var(--font-body); font-size: .75rem; font-weight: 800; color: var(--paper-dim);
+  background: var(--glass-strong); border-radius: 999px; padding: 1px 9px; }
+.mt-sec-hint { color: var(--paper-dim); font-size: .88rem; margin: -4px 2px 10px; }
+.mt-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+
+.mt-row {
+  position: relative; display: flex; align-items: center;
+  border-radius: 18px; background: var(--glass); border: 1px solid var(--glass-border);
+  transition: background .18s ease, border-color .18s ease, opacity .25s ease, transform .25s ease;
+}
+.mt-row:hover { background: var(--glass-strong); border-color: rgba(255, 255, 255, .2); }
+.mt-row.leaving { opacity: 0; transform: translateX(30px) scale(.97); }
+.mt-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 9px; padding-inline-end: 4px;
+  color: inherit; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+.mt-link:active { opacity: .75; }
+.mt-thumb { position: relative; flex: none; width: 58px; height: 58px; border-radius: 14px; overflow: hidden;
+  background: linear-gradient(135deg, var(--ink-3), var(--ink-2)); display: grid; place-items: center; }
+.mt-thumb.sm { width: 44px; height: 44px; border-radius: 12px; }
+.mt-emoji { font-size: 1.5rem; }
+.mt-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.mt-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mt-title { font-weight: 800; font-size: 1.02rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mt-place { display: flex; align-items: center; color: var(--paper-dim); font-size: .86rem; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mt-when { color: var(--paper-dim); font-size: .8rem; font-weight: 400; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mt-chip { flex: none; font-size: .74rem; font-weight: 800; border-radius: 999px; padding: 4px 9px; white-space: nowrap;
+  border: 1px solid transparent; }
+.mt-chip.next { color: var(--amber); background: rgba(255, 180, 95, .12); border-color: rgba(255, 180, 95, .3); }
+.mt-chip.now { color: var(--mint); background: rgba(143, 216, 196, .12); border-color: rgba(143, 216, 196, .35); }
+.mt-chip.draft { color: var(--paper); background: var(--glass-strong); border-color: var(--glass-border); }
+.mt-chip.past, .mt-chip.undated { color: var(--paper-dim); background: transparent; border-color: var(--glass-border); font-weight: 600; }
+.mt-place .mt-tag { flex: none; margin-inline-end: 6px; }
+.mt-tag { display: inline-block; vertical-align: 2px; font-size: .68rem; font-weight: 800; border-radius: 999px; padding: 1px 7px; }
+.mt-tag.shared { color: var(--mint); background: rgba(10, 21, 18, .7); border: 1px solid rgba(143, 216, 196, .45); }
+.mt-more { flex: none; width: 40px; height: 52px; display: grid; place-items: center; margin-inline-end: 4px;
+  border: 0; border-radius: 12px; background: transparent; color: var(--paper-dim); cursor: pointer; }
+.mt-more svg { width: 20px; height: 20px; fill: currentColor; }
+.mt-more:hover, .mt-more:focus-visible { background: var(--glass-strong); color: var(--paper); }
+/* a trip that happened: the photo fades a little, the words stay readable */
+.mt-row.past .mt-img { filter: saturate(.55) brightness(.85); }
+
+.mt-row-skl { height: 78px; padding: 9px; gap: 12px; }
+.mt-row-skl .mt-thumb { display: block; }
+.mt-skl-lines { flex: 1; display: grid; gap: 8px; }
+.mt-skl-lines .skl { height: 12px; width: 60%; }
+.mt-skl-lines .skl + .skl { width: 38%; }
+
+.my-new {
+  display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 6px;
+  padding: 16px; border-radius: 18px; border: 1.5px dashed rgba(255, 180, 95, .4);
+  color: var(--amber); font-weight: 800; text-decoration: none; transition: background .18s ease;
+}
+.my-new span { font-size: 1.3rem; line-height: 1; }
+.my-new:hover { background: rgba(255, 180, 95, .07); }
+
+/* ---- the ⋯ sheet ---- */
+.mt-sheet-back {
+  position: fixed; inset: 0; z-index: 340; display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(5, 10, 8, 0); transition: background .2s ease;
+}
+.mt-sheet-back.open { background: rgba(5, 10, 8, .6); }
+.mt-sheet {
+  width: min(460px, 100%); border-radius: 24px 24px 0 0; padding: 10px 14px calc(14px + env(safe-area-inset-bottom));
+  background: rgba(16, 32, 27, .97); transform: translateY(100%); transition: transform .22s cubic-bezier(.2, .9, .3, 1);
+}
+.mt-sheet-back.open .mt-sheet { transform: none; }
+.mt-sheet-grab { width: 44px; height: 4px; border-radius: 999px; background: rgba(255, 255, 255, .25); margin: 0 auto 12px; }
+.mt-sheet-head { display: flex; align-items: center; gap: 12px; padding: 4px 6px 12px; border-bottom: 1px solid var(--glass-border); margin-bottom: 6px; }
+.mt-sheet-head b { display: block; font-size: 1.05rem; }
+.mt-sheet-head small { color: var(--paper-dim); font-size: .85rem; }
+.mt-act {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 0 10px;
+  border: 0; border-radius: 14px; background: transparent; color: var(--paper);
+  font: 600 1rem var(--font-body); text-align: start; text-decoration: none; cursor: pointer;
+}
+.mt-act > span:first-child, .mt-act .wa-icon { width: 26px; flex: none; text-align: center; font-size: 1.1rem; color: var(--paper-dim); }
+.mt-act .wa-icon { height: 20px; color: #25d366; }
+.mt-act b { margin-inline-start: auto; color: var(--amber); letter-spacing: .12em; }
+.mt-act:hover, .mt-act:focus-visible { background: var(--glass-strong); }
+.mt-act.danger { color: var(--danger); }
+.mt-act.danger.armed { background: rgba(255, 122, 110, .14); font-weight: 800; }
+.mt-act.cancel { justify-content: center; margin-top: 6px; background: var(--glass); color: var(--paper-dim); }
+
+/* ---- signed out / empty ---- */
+.my-gate, .my-empty { text-align: center; padding: 34px 22px 28px; animation: rise .5s cubic-bezier(.2, .8, .3, 1) both; }
+.my-gate h2, .my-empty h2 { font-family: var(--font-display); font-weight: 400; font-size: 1.5rem; margin: 14px 0 8px; }
+.my-gate p, .my-empty p { color: var(--paper-dim); line-height: 1.55; max-width: 420px; margin: 0 auto 20px; }
+.my-gate-art { width: 92px; height: 92px; margin: 0 auto; border-radius: 50%; display: grid; place-items: center;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 180, 95, .3), rgba(255, 180, 95, .05) 70%);
+  border: 1px solid rgba(255, 180, 95, .35); font-size: 2.6rem; }
+.my-gate-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.my-gate-actions .btn { flex: 1 1 140px; justify-content: center; max-width: 220px; }
+.my-join { margin: 26px auto 0; max-width: 300px; padding-top: 20px; border-top: 1px solid var(--glass-border); text-align: start; }
+.my-join label { display: block; font-size: .9rem; font-weight: 700; color: var(--paper-dim); margin-bottom: 8px; text-align: center; }
+.my-join-row { display: flex; gap: 8px; }
+.my-join-row input {
+  flex: 1; min-width: 0; background: rgba(6, 13, 11, .55); border: 1px solid var(--glass-border); border-radius: var(--radius-sm);
+  color: var(--paper); font: 800 1.15rem var(--font-body); letter-spacing: .3em; text-align: center; padding: 10px; outline: none;
+}
+.my-join-row input:focus { border-color: var(--amber); box-shadow: 0 0 0 4px rgba(255, 180, 95, .12); }
+.my-join-row input::placeholder { letter-spacing: 0; font-weight: 400; font-size: .95rem; }
+.my-join .form-error { text-align: center; }
+
+@media (min-width: 760px) {
+  .my-next { min-height: 360px; display: grid; }
+  .mn-body { max-width: 62%; padding: 28px; }
+  .mn-count { top: 22px; left: 22px; min-width: 104px; padding: 14px; }
+  .mn-count b { font-size: 3rem; }
+  .mt-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .mt-sheet-back { align-items: center; }
+  .mt-sheet { border-radius: 22px; transform: translateY(16px) scale(.98); opacity: 0; transition: transform .2s ease, opacity .2s ease; }
+  .mt-sheet-back.open .mt-sheet { opacity: 1; }
+  .mt-sheet-grab { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .my-next, .mt-sec, .mn-img, .my-gate, .my-empty { animation: none; }
+}
 
 /* A guest's trips exist on a token in this browser and nowhere else (lib/guest.js).
    Said once, above the trips it is about, with the one action that changes it. */
@@ -64,3 +212,4 @@
   border: 1px solid rgba(255, 180, 95, .35);
 }
 .guest-note span { font-weight: 600; line-height: 1.5; }
+.nowrap { white-space: nowrap; }
