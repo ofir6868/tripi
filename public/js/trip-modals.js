@@ -1311,7 +1311,11 @@ const TripModals = (() => {
     gear: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
     plus: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>',
     wallet: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>',
+    receipt: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6"/><path d="M16 12h-6"/><path d="M13 16h-3"/></svg>',
+    swap: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg>',
   };
+  // the row a save just wrote — it lights up once on the next render, so the eye finds it
+  let mxFlashId = null;
 
   const isBudgetHash = () => location.hash === '#budget' || location.hash === '#budget-settings';
 
@@ -1627,7 +1631,7 @@ const TripModals = (() => {
             <div class="mx-empty-ic">${BICON.wallet}</div>
             <h3>עוד אין הוצאות</h3>
             <p>מי ששילם על משהו לכולם מוסיף אותו כאן: סכום, מי שילם, ועל מה. אנחנו כבר נחשב מי מעביר כמה למי.</p>
-            ${lonely ? '<p class="mx-hint">כדי לחלק צריך עוד אנשים בטיול — מזמינים אותם מ"חברים".</p>' : ''}
+            ${lonely ? '<p class="mx-hint">כדי לחלק צריך עוד אנשים בטיול — מזמינים אותם מ״חברים״.</p>' : ''}
           </div>`;
       } else if (!m.transfers.length) {
         settleHtml = '<div class="mx-even glass"><b>כולם מאוזנים 🎉</b><span>אף אחד לא חייב לאף אחד</span></div>';
@@ -1647,7 +1651,7 @@ const TripModals = (() => {
               </div>`;
             }).join('')}
           </div>
-          <p class="mx-foot-note">מינימום העברות — כל אחד מעביר לכל היותר פעם או פעמיים. כשהעברה בוצעה, לוחצים "הועבר".</p>`;
+          <p class="mx-foot-note">הכי מעט העברות שסוגרות את הכל. כשהכסף עבר, לוחצים ״הועבר״ — ומי חייב למי מתעדכן.</p>`;
       }
 
       // ---- the budget, only when somebody set one ----
@@ -1681,11 +1685,14 @@ const TripModals = (() => {
         if (diff === 1) return 'אתמול';
         return d.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
       };
+      const flashId = mxFlashId;
+      mxFlashId = null;
+      const flash = (e) => (flashId != null && +e.id === +flashId ? ' flash' : '');
       const rowHtml = (e) => {
         if (isPayment(e)) {
           return `
-            <button type="button" class="mx-row pay" data-id="${e.id}">
-              <span class="mx-row-ic" aria-hidden="true">⇄</span>
+            <button type="button" class="mx-row pay${flash(e)}" data-id="${e.id}">
+              <span class="mx-row-ic" aria-hidden="true">${BICON.swap}</span>
               <span class="mx-row-text"><b>החזר: ${esc(firstName(e.paid_by))} ← ${esc(firstName(e.paid_to))}</b><small>הכסף עבר ביניהם</small></span>
               <span class="mx-row-amt">${money(e.amount, cur)}</span>
             </button>`;
@@ -1702,8 +1709,8 @@ const TripModals = (() => {
           else mineLine = '<span class="mx-mine">לא בהוצאה</span>';
         }
         return `
-          <button type="button" class="mx-row" data-id="${e.id}">
-            <span class="mx-row-ic" aria-hidden="true">${e.category && e.category !== 'אחר' ? (CATS.find((c) => c.key === e.category) || {}).emoji || '🧾' : '🧾'}</span>
+          <button type="button" class="mx-row${flash(e)}" data-id="${e.id}">
+            <span class="mx-row-ic" aria-hidden="true">${(e.category && e.category !== 'אחר' && (CATS.find((c) => c.key === e.category) || {}).emoji) || BICON.receipt}</span>
             <span class="mx-row-text">
               <b>${esc(e.title || 'הוצאה')}</b>
               <small>שולם ע״י ${esc(firstName(e.paid_by))} · ${everyone ? 'מתחלק בין כולם' : `בין ${among.map(firstName).map(esc).join(', ')}`}</small>
@@ -1712,7 +1719,7 @@ const TripModals = (() => {
           </button>`;
       };
       const listHtml = rows.length ? `
-        <div class="mx-sec-head"><h3>הוצאות</h3><span>${m.count} · ${money(m.spent, cur)}${m.people.length ? ` · ≈ ${money(m.spent / Math.max(participantNames(state).length, 1), cur)} לאדם` : ''}</span></div>
+        <div class="mx-sec-head"><h3>הוצאות</h3><span>${m.count === 1 ? 'הוצאה אחת' : `${m.count} הוצאות`} · ${money(m.spent, cur)}${m.people.length ? ` · ≈ ${money(m.spent / Math.max(participantNames(state).length, 1), cur)} לאדם` : ''}</span></div>
         ${groups.map((g) => `
           <div class="mx-day">${esc(dayTitle(g.k))}</div>
           <div class="mx-list glass">${g.list.map(rowHtml).join('')}</div>`).join('')}` : '';
@@ -1720,11 +1727,11 @@ const TripModals = (() => {
       body.innerHTML = `
         <div class="mx">
           ${meHtml}
-          <div class="mx-sec-head"><h3>מי מעביר למי</h3>${m.transfers.length ? `<span>${m.transfers.length} ${m.transfers.length === 1 ? 'העברה' : 'העברות'}</span>` : ''}</div>
+          ${m.count ? `<div class="mx-sec-head"><h3>מי מעביר למי</h3>${m.transfers.length ? `<span>${m.transfers.length} ${m.transfers.length === 1 ? 'העברה' : 'העברות'}</span>` : ''}</div>` : ''}
           ${settleHtml}
           ${budgetHtml}
           ${listHtml}
-          ${cap ? '' : `<button type="button" class="mx-set-budget" data-act="settings">${BICON.wallet}<span>רוצים תקציב? אפשר להגדיר מספר ולראות את ההוצאות מולו (לא חובה)</span></button>`}
+          ${cap || !m.count ? '' : `<button type="button" class="mx-set-budget" data-act="settings">${BICON.wallet}<span>רוצים תקציב? אפשר להגדיר מספר ולראות את ההוצאות מולו (לא חובה)</span></button>`}
         </div>`;
 
       body.querySelectorAll('[data-act="settings"]').forEach((b) => { b.onclick = () => page.querySelector('.bp-settings-btn').click(); });
@@ -1738,7 +1745,17 @@ const TripModals = (() => {
         b.onclick = async () => {
           const t = m.transfers[+b.dataset.ix];
           if (!t || b.disabled) return;
-          if (!confirm(`לסמן שההעברה בוצעה?\n${t.from} ← ${t.to} · ${money(t.amount, cur)}`)) return;
+          // first tap arms the button in place ("לאשר?"), a second one records — no
+          // browser dialog, and a stray tap while scrolling changes nothing
+          if (!b.classList.contains('arm')) {
+            body.querySelectorAll('.mx-paid.arm').forEach((x) => { x.classList.remove('arm'); x.textContent = 'הועבר'; });
+            b.classList.add('arm');
+            b.textContent = 'לאשר?';
+            clearTimeout(b._disarm);
+            b._disarm = setTimeout(() => { b.classList.remove('arm'); b.textContent = 'הועבר'; }, 3500);
+            return;
+          }
+          clearTimeout(b._disarm);
           const headers = await ctx.ensureEdit();
           if (!headers) return;
           b.disabled = true;
@@ -1749,10 +1766,14 @@ const TripModals = (() => {
             });
             state.expenses = [row, ...(state.expenses || [])];
             TRIPMAKER.track('expense_settle', { trip_id: state.trip.id });
+            mxFlashId = row.id;
             render(); ctx.refresh();
+            if (typeof TripPages !== 'undefined') TripPages.toast(`✓ ההעברה נרשמה · ${money(t.amount, cur)}`, 'ok');
           } catch (ex) {
-            alert(ex.message || 'לא הצלחנו לשמור');
+            if (typeof TripPages !== 'undefined') TripPages.toast(ex.message || 'לא הצלחנו לשמור'); else alert(ex.message || 'לא הצלחנו לשמור');
             b.disabled = false;
+            b.classList.remove('arm');
+            b.textContent = 'הועבר';
           }
         };
       });
@@ -1835,7 +1856,7 @@ const TripModals = (() => {
           <div class="mx-chips mx-among">${names.map((n) => chip(n, among.has(keyOf(n)), 'data-among')).join('')}</div>`}
         <div class="form-error mx-err"></div>
         <div class="he-foot">
-          <button type="button" class="btn btn-amber mx-save">${e ? 'שמירה' : 'הוספה'}</button>
+          <button type="button" class="btn btn-amber hf-save mx-save">${e ? 'שמירה' : 'הוספה'}</button>
           ${e ? `<button type="button" class="he-del mx-del">${HICON.trash}<span>מחיקה</span></button>` : ''}
         </div>
       </div>`;
@@ -1875,8 +1896,13 @@ const TripModals = (() => {
           repaint('.mx-among', 'data-among', (x) => among.has(keyOf(x)));
           paintSplit();
         });
-        amtIn.addEventListener('input', paintSplit);
+        // the amount sits centred next to its symbol, the way a till shows it: the
+        // field is as wide as what is typed in it
+        const fit = () => { amtIn.style.width = `${Math.max(String(amtIn.value || amtIn.placeholder).length, 1) + 0.6}ch`; };
+        amtIn.addEventListener('input', () => { fit(); paintSplit(); });
+        fit();
         paintSplit();
+        box.querySelector('.mx-amount').addEventListener('click', (ev) => { if (ev.target !== amtIn) amtIn.focus(); });
         if (!e) setTimeout(() => amtIn.focus(), 60);
 
         const done = () => TripPages.closeSheet(() => { onDone?.(); ctx.refresh(); });
@@ -1920,11 +1946,13 @@ const TripModals = (() => {
                 method: 'PUT', headers, body: JSON.stringify(payload),
               });
               Object.assign(e, updated);
+              mxFlashId = e.id;
             } else {
               const created = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/expenses`, {
                 method: 'POST', headers, body: JSON.stringify(payload),
               });
               state.expenses = [created, ...(state.expenses || [])];
+              mxFlashId = created.id;
             }
             TRIPMAKER.track(e ? 'expense_edit' : 'expense_add', { trip_id: state.trip.id, split: payload.split_among ? payload.split_among.length : null });
             done();
