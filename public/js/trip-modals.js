@@ -1,5 +1,5 @@
-// Trip page modals: hotels ("איפה ישנים"), budget ("ניהול תקציב"), and settle
-// ("חלוקת הוצאות — מי חייב למי"). They operate on the trip.js state object:
+// Trip page modals: hotels ("איפה ישנים") and the money page ("מי חייב למי" — the
+// shared expenses, Splitwise-style, with an optional budget). They operate on the trip.js state object:
 // { trip, items, hotels, budget, expenses, participants, canEdit }.
 // ctx = { state, ensureEdit(), refresh() } — ensureEdit resolves edit headers (routing
 // invite holders through signup when needed) or null; refresh() re-renders the trip page.
@@ -65,33 +65,12 @@ const TripModals = (() => {
     return { total, byCat };
   }
 
-  function actualTotals(expenses) {
-    const byCat = Object.fromEntries(CATS.map((c) => [c.key, 0]));
-    let total = 0;
-    for (const e of expenses) {
-      const a = +e.amount;
-      if (!(a > 0)) continue;
-      byCat[CATS.some((c) => c.key === e.category) ? e.category : 'אחר'] += a;
-      total += a;
-    }
-    return { total, byCat };
-  }
-
   // activity money per day (stop estimates only — lodging reads on the night markers)
   function plannedByDay(state) {
     const byDay = {};
     for (const it of state.items) {
       const c = +it.cost;
       if (c > 0) byDay[it.day_number] = (byDay[it.day_number] || 0) + c;
-    }
-    return byDay;
-  }
-
-  function actualByDay(expenses) {
-    const byDay = {};
-    for (const e of expenses) {
-      const a = +e.amount;
-      if (a > 0 && e.day_number) byDay[e.day_number] = (byDay[e.day_number] || 0) + a;
     }
     return byDay;
   }
@@ -211,69 +190,6 @@ const TripModals = (() => {
     url += `&group_adults=${(state.budget && state.budget.travelers) || 2}&no_rooms=1&group_children=0`;
     url += `&selected_currency=${curOf(state)}`; // prices land in the same currency as the trip's budget
     return tpWrap(state, h, url);
-  }
-
-  // ---- modal shell ----
-  //
-  // Panels answer the phone's back gesture, the way the budget page and the stop
-  // sheet already do. Opening one pushes a history entry at the same URL, so back
-  // closes the panel instead of leaving the trip — and in an installed PWA, where
-  // back has nowhere else to go, the panel is no longer a dead end.
-
-  const modalStack = [];
-
-  window.addEventListener('popstate', () => {
-    // we left a modal's entry: close it, and any stacked above it, topmost first
-    while (modalStack.length) {
-      const id = modalStack[modalStack.length - 1];
-      if (history.state && history.state.tripmakerModal === id) break;
-      modalStack.pop();
-      document.getElementById(id)?.classList.remove('open');
-    }
-  });
-
-  // dismissing goes back one entry so the panel and the history stay in step;
-  // popstate is what actually hides it
-  function dismissModal(wrap) {
-    if (history.state && history.state.tripmakerModal === wrap.id) { history.back(); return; }
-    const i = modalStack.indexOf(wrap.id);
-    if (i >= 0) modalStack.splice(i, 1);
-    wrap.classList.remove('open');
-  }
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || !modalStack.length) return;
-    const top = document.getElementById(modalStack[modalStack.length - 1]);
-    if (top) dismissModal(top);
-  });
-
-  function shell(id, title, sub) {
-    let wrap = document.getElementById(id);
-    if (!wrap) {
-      wrap = document.createElement('div');
-      wrap.id = id;
-      wrap.className = 'modal-backdrop';
-      wrap.innerHTML = `
-        <div class="modal glass modal-wide">
-          <div class="mw-head">
-            <button class="modal-close" aria-label="סגירה">✕</button>
-            <h2>${title}</h2>
-            <p class="modal-sub">${sub}</p>
-            <div class="mw-controls"></div>
-          </div>
-          <div class="mw-body"></div>
-        </div>`;
-      document.body.appendChild(wrap);
-      wrap.querySelector('.modal-close').onclick = () => dismissModal(wrap);
-      wrap.addEventListener('click', (e) => { if (e.target === wrap) dismissModal(wrap); });
-    }
-    // re-opening an already-open panel must not stack a second history entry
-    if (!wrap.classList.contains('open')) {
-      wrap.classList.add('open');
-      modalStack.push(id);
-      history.pushState({ tripmakerModal: id }, '', location.href);
-    }
-    return wrap;
   }
 
   // =================================================================
@@ -1385,20 +1301,16 @@ const TripModals = (() => {
   //  sub-page, not an inline div.
   // =================================================================
 
-  const budgetView = { mode: 'shared', view: 'plan', filter: null, openDays: new Set(), showSettings: false, skippedSetup: false };
+
+  const budgetView = { showSettings: false };
   let budgetRender = null; // the open page's render(), so popstate can repaint it
 
   // stroke icons for the page — inherit currentColor like every .ic
   const BICON = {
     back: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
     gear: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
-    users: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
-    lock: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
-    chev: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>',
     plus: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>',
-    x: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
     wallet: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>',
-    bed: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg>',
   };
 
   const isBudgetHash = () => location.hash === '#budget' || location.hash === '#budget-settings';
@@ -1496,84 +1408,134 @@ const TripModals = (() => {
     if (personal.paid) delete personal.paid[itemId];
     return savePersonal(state, personal);
   }
-  function personalPlannedTotals(state) {
-    const byCat = Object.fromEntries(CATS.map((c) => [c.key, 0]));
-    let total = 0;
-    for (const p of loadPersonal(state).planned) {
-      const a = +p.amount;
-      if (!(a > 0)) continue;
-      byCat[CATS.some((c) => c.key === p.category) ? p.category : 'אחר'] += a;
-      total += a;
-    }
-    return { total, byCat };
-  }
-
-  // estimates that belong in this budget: shared reads item.cost, personal
-  // reads this browser's planned list. Actual spending is those same rows
-  // marked paid — never the estimate itself.
-  function plannedCostItems(state, isPersonal) {
-    if (isPersonal) {
-      return loadPersonal(state).planned.filter((p) => +p.amount > 0).map((p) => ({
-        item_id: p.item_id,
-        title: p.title,
-        amount: +p.amount,
-        category: CATS.some((c) => c.key === p.category) ? p.category : 'אחר',
-        day_number: p.day_number || null,
-      }));
-    }
-    return state.items.filter((it) => +it.cost > 0).map((it) => ({
-      item_id: it.id,
-      title: it.title,
-      amount: +it.cost,
-      category: budgetCatOf(it.category),
-      day_number: it.day_number,
-    }));
-  }
-  function paidItemIds(state, isPersonal, personal) {
-    if (isPersonal) {
-      return new Set(Object.keys(personal.paid || {}).filter((k) => personal.paid[k]).map(Number));
-    }
-    return new Set((state.expenses || []).filter((e) => e.item_id).map((e) => +e.item_id));
-  }
-  function extraExpensesOf(state, isPersonal, personal) {
-    const plannedIds = new Set(plannedCostItems(state, isPersonal).map((p) => p.item_id));
-    const list = isPersonal ? personal.expenses : (state.expenses || []);
-    return list.filter((e) => !e.item_id || !plannedIds.has(+e.item_id));
-  }
-  function actualBundle(state, isPersonal, personal) {
-    const planned = plannedCostItems(state, isPersonal);
-    const paid = paidItemIds(state, isPersonal, personal);
-    const extras = extraExpensesOf(state, isPersonal, personal);
-    const paidRows = planned.filter((p) => paid.has(p.item_id)).map((p) => ({
-      amount: p.amount, category: p.category, day_number: p.day_number,
-    }));
-    return { planned, paid, extras, totals: actualTotals([...extras, ...paidRows]) };
-  }
-
   function currentTripDay(state) {
     if (!state.trip.start_date) return null;
     const diff = Math.floor((Date.now() - new Date(state.trip.start_date).getTime()) / 86400000) + 1;
     return diff >= 1 && diff <= state.trip.days ? diff : null;
   }
 
-  const catOf = (key) => CATS.find((c) => c.key === key) || CATS[CATS.length - 1];
   const currencyOptions = (selected) => Object.keys(CURRENCIES)
     .map((c) => `<option value="${c}"${c === selected ? ' selected' : ''}>${CURRENCIES[c]} ${c}</option>`).join('');
+
+  // =================================================================
+  //  WHO OWES WHOM — the money math
+  //  Splitwise's model, nearly to the letter: an expense is an amount, who paid
+  //  it, and who it is split between (equally). A payment (paid_to set) is one
+  //  person handing another money back. Everyone's balance is what they paid
+  //  minus their shares, plus payments sent, minus payments received; the
+  //  transfers are the fewest that bring every balance to zero (biggest debtor
+  //  pays biggest creditor, repeat). The budget is a side note: the total of the
+  //  expenses against a number, when somebody set one.
+  // =================================================================
+
+  const keyOf = (name) => String(name || '').trim().toLowerCase();
+  const isPayment = (e) => !!String(e.paid_to || '').trim();
+  const firstName = (n) => String(n || '').trim().split(/\s+/)[0] || '?';
+  const initialsOf = (n) => String(n || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('') || '?';
+  // cents show only where a split leaves them: ₪150, but $33.33
+  function money(n, cur) {
+    const v = Math.round((+n || 0) * 100) / 100;
+    const whole = Math.abs(v - Math.round(v)) < 0.005;
+    return `${sym(cur)}${v.toLocaleString('he-IL', whole ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  // the trip's people: the participants first (owner on top), then anyone a row names
+  // who has since left the trip or whose name drifted — their money still counts
+  function moneyPeople(state) {
+    const byKey = new Map();
+    const add = (name) => { const n = String(name || '').trim(); if (n && !byKey.has(keyOf(n))) byKey.set(keyOf(n), n); };
+    for (const p of state.participants || []) add(p.name);
+    for (const e of state.expenses || []) {
+      add(e.paid_by); add(e.paid_to);
+      if (Array.isArray(e.split_among)) e.split_among.forEach(add);
+    }
+    return [...byKey.values()];
+  }
+  const participantNames = (state) => (state.participants || []).map((p) => String(p.name || '').trim()).filter(Boolean);
+
+  // who an expense is split between: its own list, or (old rows) everyone on the trip now
+  function splitOf(state, e) {
+    const list = Array.isArray(e.split_among) ? e.split_among.map((n) => String(n || '').trim()).filter(Boolean) : [];
+    return list.length ? list : participantNames(state);
+  }
+
+  // the signed-in traveller, by the name the participants list knows them by
+  function meName(state) {
+    const u = TRIPMAKER.user;
+    if (!u) return null;
+    const p = (state.participants || []).find((x) => +x.id === +u.id);
+    return String((p && p.name) || u.name || '').trim() || null;
+  }
+
+  function computeMoney(state) {
+    const people = moneyPeople(state);
+    const net = new Map(people.map((p) => [keyOf(p), 0]));
+    const paid = new Map(people.map((p) => [keyOf(p), 0]));
+    const owedShare = new Map(people.map((p) => [keyOf(p), 0]));
+    const bump = (m, name, d) => m.set(keyOf(name), (m.get(keyOf(name)) || 0) + d);
+    const rows = (state.expenses || []).filter((e) => +e.amount > 0 && String(e.paid_by || '').trim());
+    let spent = 0;
+    let count = 0;
+    for (const e of rows) {
+      const a = +e.amount;
+      if (isPayment(e)) { bump(net, e.paid_by, a); bump(net, e.paid_to, -a); continue; }
+      const among = splitOf(state, e);
+      if (!among.length) continue;
+      spent += a; count += 1;
+      bump(net, e.paid_by, a); bump(paid, e.paid_by, a);
+      for (const m of among) { bump(net, m, -a / among.length); bump(owedShare, m, a / among.length); }
+    }
+    // the old "שולם" marks (one debtor paid back their share of one expense) still count
+    const byId = new Map(rows.map((e) => [+e.id, e]));
+    for (const s of state.settlements || []) {
+      const e = byId.get(+s.expense_id);
+      if (!e || isPayment(e)) continue;
+      const among = splitOf(state, e);
+      const debtor = s.debtor_name || s.debtor_key;
+      if (!among.length || keyOf(debtor) === keyOf(e.paid_by) || !among.some((m) => keyOf(m) === keyOf(debtor))) continue;
+      bump(net, debtor, +e.amount / among.length);
+      bump(net, e.paid_by, -(+e.amount / among.length));
+    }
+
+    const nameOf = (k) => people.find((p) => keyOf(p) === k) || k;
+    const balances = [...net.entries()].map(([k, v]) => ({
+      name: nameOf(k), net: Math.round(v * 100) / 100, paid: paid.get(k) || 0, share: owedShare.get(k) || 0,
+    }));
+    const debtors = balances.filter((b) => b.net < -0.009).map((b) => ({ name: b.name, amt: -b.net })).sort((a, b) => b.amt - a.amt);
+    const creditors = balances.filter((b) => b.net > 0.009).map((b) => ({ name: b.name, amt: b.net })).sort((a, b) => b.amt - a.amt);
+    const transfers = [];
+    let i = 0;
+    let j = 0;
+    while (i < debtors.length && j < creditors.length) {
+      const pay = Math.min(debtors[i].amt, creditors[j].amt);
+      if (pay >= 0.01) transfers.push({ from: debtors[i].name, to: creditors[j].name, amount: Math.round(pay * 100) / 100 });
+      debtors[i].amt -= pay;
+      creditors[j].amt -= pay;
+      if (debtors[i].amt < 0.01) i += 1;
+      if (creditors[j].amt < 0.01) j += 1;
+    }
+    return { people, balances, transfers, spent, count };
+  }
+
+  // =================================================================
+  //  THE MONEY PAGE (#budget) — "מי חייב למי"
+  //  A full page like the other dock pages. Top: what you owe or are owed, then the
+  //  transfers that settle everything (one tap records one as done). Below: the
+  //  expenses, newest first; tapping one edits it. "הוספת הוצאה" is a sheet with
+  //  three things — how much, who paid, what for — and who it is split between,
+  //  everyone by default. The budget is optional and lives behind the gear.
+  // =================================================================
 
   function openBudget(ctx, opts = {}) {
     const { state } = ctx;
     if (!state.canEdit) return;
-    // callers (e.g. settle) can land straight on shared/actual without whatever
-    // mode the user last left the budget page in
-    if (opts.mode === 'shared' || opts.mode === 'personal') budgetView.mode = opts.mode;
-    if (opts.view === 'plan' || opts.view === 'actual') budgetView.view = opts.view;
     let page = document.getElementById('budget-page');
     if (!page) {
       page = document.createElement('section');
       page.id = 'budget-page';
       page.className = 'trip-page budget-page';
       page.hidden = true;
-      page.setAttribute('aria-label', 'תקציב');
+      page.setAttribute('aria-label', 'הוצאות');
       page.innerHTML = `
         <div class="tp-head">
           <button type="button" class="bp-back tp-back" aria-label="חזרה">${BICON.back}<span>חזרה</span></button>
@@ -1582,21 +1544,21 @@ const TripModals = (() => {
             <p class="tp-sub bp-sub"></p>
           </div>
           <div class="tp-tools">
-            <button type="button" class="btn btn-ghost bp-settings-btn" title="הגדרות תקציב" aria-label="הגדרות תקציב">${BICON.gear}<span>הגדרות</span></button>
+            <button type="button" class="btn btn-ghost bp-settings-btn" title="תקציב ומטבע" aria-label="תקציב ומטבע">${BICON.gear}<span>תקציב</span></button>
           </div>
         </div>
         <div class="tp-body">
           <div class="tp-inner bp-inner">
-            <div class="bp-controls"></div>
             <div class="bp-body"></div>
           </div>
-        </div>`;
+        </div>
+        <button type="button" class="btn btn-amber mx-fab">${BICON.plus}<span>הוספת הוצאה</span></button>`;
       document.body.appendChild(page);
       page.querySelector('.tp-back').onclick = () => history.back();
     }
     const body = page.querySelector('.bp-body');
-    const controls = page.querySelector('.bp-controls');
     const scroller = page.querySelector('.tp-body');
+    budgetRender = render;
 
     budgetView.showSettings = false;
     // opened from another dock page: swap that page for this one, the way the tabs swap
@@ -1612,619 +1574,378 @@ const TripModals = (() => {
       history.pushState(null, '', '#budget');
     }
 
-    const dToday = currentTripDay(state);
-    if (dToday && !budgetView.openDays.size) budgetView.openDays.add(dToday);
-
-    function openSettings() {
+    page.querySelector('.bp-settings-btn').onclick = () => {
       budgetView.showSettings = true;
       history.pushState(null, '', '#budget-settings');
       render();
       scroller.scrollTop = 0;
-    }
-    page.querySelector('.bp-settings-btn').onclick = openSettings;
+    };
+    page.querySelector('.mx-fab').onclick = () => openExpenseSheet(ctx, null, render);
 
     function render() {
       const cur = curOf(state);
-      const personal = loadPersonal(state);
-      const isPersonal = budgetView.mode === 'personal';
-      const isActual = budgetView.view === 'actual';
       const title = page.querySelector('.bp-title');
       const sub = page.querySelector('.bp-sub');
       const gear = page.querySelector('.bp-settings-btn');
-
+      const fab = page.querySelector('.mx-fab');
       if (budgetView.showSettings) {
-        title.textContent = 'הגדרות תקציב';
-        sub.textContent = isPersonal
-          ? 'התקציב האישי שלכם — נשמר בדפדפן הזה בלבד'
-          : 'תקרה, מטבע ומספר מטיילים — משותפים לכל המשתתפים';
+        title.textContent = 'תקציב ומטבע';
+        sub.textContent = 'לא חובה — אם יש מספר, ההוצאות נבדקות מולו';
         gear.hidden = true;
-        renderSettings(cur, personal, isPersonal);
+        fab.hidden = true;
+        renderSettings(cur);
         return;
       }
-      title.textContent = 'תקציב';
-      sub.textContent = isActual
-        ? (isPersonal
-          ? 'תחנות שתייחסתם לתקציב האישי — סמנו אם שולם. נשמר בדפדפן הזה בלבד'
-          : 'הערכות מהמסלול — סמנו אם שולם, והוצאות נוספות לכל המשתתפים')
-        : (isPersonal
-          ? 'החלק שלכם מהתכנון וההוצאות שלכם — נשמר בדפדפן הזה בלבד'
-          : 'הערכות לתחנות ולמלונות מול התקרה, וההוצאות בפועל — לכל המשתתפים');
+      title.textContent = 'מי חייב למי';
+      sub.textContent = 'מי שילם על מה, ומי מעביר כמה למי';
+      gear.hidden = false;
+      fab.hidden = false;
 
-      const planned = plannedTotals(state);
-      const travelers = (state.budget && state.budget.travelers) || 1;
-      const cap = isPersonal ? personal.total : (state.budget ? +state.budget.total || null : null);
-      const needsSetup = isPersonal
-        ? personal.total == null && !personal.expenses.length && !personal.planned.length
-        : !state.budget && !budgetView.skippedSetup;
-      gear.hidden = needsSetup;
+      const m = computeMoney(state);
+      const me = meName(state);
+      const meBal = me ? m.balances.find((b) => keyOf(b.name) === keyOf(me)) : null;
+      const cap = state.budget ? +state.budget.total || 0 : 0;
+      const rows = (state.expenses || []).filter((e) => +e.amount > 0);
+      const lonely = participantNames(state).length < 2;
 
-      controls.innerHTML = `
-        <div class="bp-switches">
-          <div class="seg seg-sm bm-view" role="tablist" aria-label="תצוגה">
-            <button type="button" data-v="plan" class="${!isActual ? 'active' : ''}">תכנון</button>
-            <button type="button" data-v="actual" class="${isActual ? 'active' : ''}">בפועל</button>
-          </div>
-          <div class="seg seg-sm seg-quiet bm-mode" role="tablist" aria-label="תקציב משותף או אישי">
-            <button type="button" data-v="shared" class="${!isPersonal ? 'active' : ''}">${BICON.users}<span>משותף</span></button>
-            <button type="button" data-v="personal" class="${isPersonal ? 'active' : ''}">${BICON.lock}<span>אישי</span></button>
-          </div>
-        </div>`;
-      controls.querySelectorAll('.bm-mode button').forEach((b) => {
-        b.onclick = () => { budgetView.mode = b.dataset.v; budgetView.filter = null; render(); };
-      });
-      controls.querySelectorAll('.bm-view button').forEach((b) => {
-        b.onclick = () => { budgetView.view = b.dataset.v; budgetView.filter = null; render(); };
-      });
+      // ---- you: the one line Splitwise opens with ----
+      let meHtml = '';
+      if (meBal && m.count) {
+        meHtml = meBal.net > 0.009
+          ? `<div class="mx-me owed"><small>בסך הכל</small><b>מגיע לך ${money(meBal.net, cur)}</b></div>`
+          : meBal.net < -0.009
+            ? `<div class="mx-me owes"><small>בסך הכל</small><b>עליך להעביר ${money(-meBal.net, cur)}</b></div>`
+            : '<div class="mx-me even"><small>בסך הכל</small><b>אצלך הכל סגור ✓</b></div>';
+      }
 
-      // ---- setup states ----
-      if (!isPersonal && needsSetup) {
-        body.innerHTML = `
-          <div class="bp-setup glass">
-            <div class="bp-setup-ic">${BICON.wallet}</div>
-            <h3>הגדרת תקציב לטיול</h3>
-            <p>קובעים תקרה ומספר מטיילים. ההערכות על התחנות והמלונות מסתכמות מולה, וההוצאות בפועל נרשמות תוך כדי הטיול.</p>
-            <div class="form-grid">
-              <div class="field span-2"><label>תקציב כולל</label>
-                <div class="money-field">
-                  <input type="number" min="0" inputmode="decimal" class="bs-total" placeholder="10,000">
-                  <select class="bs-cur" aria-label="מטבע">${currencyOptions('ILS')}</select>
-                </div>
-              </div>
-              <div class="field span-2"><label>מספר מטיילים</label>
-                <div class="stepper"><button type="button" class="step-btn bs-minus" aria-label="פחות">−</button>
-                <input type="number" class="bs-trav" value="2" min="1" max="50">
-                <button type="button" class="step-btn bs-plus" aria-label="יותר">+</button></div></div>
-            </div>
-            <div class="form-error bs-err"></div>
-            <button type="button" class="btn btn-amber bs-go">קביעת תקציב</button>
-            <button type="button" class="manual-link bs-skip">להמשיך בלי תקרה — רק לסכם הערכות</button>
+      // ---- the transfers that settle everything ----
+      const ava = (n) => `<span class="mx-ava" aria-hidden="true">${esc(initialsOf(n))}</span>`;
+      let settleHtml;
+      if (!m.count) {
+        settleHtml = `
+          <div class="mx-empty glass">
+            <div class="mx-empty-ic">${BICON.wallet}</div>
+            <h3>עוד אין הוצאות</h3>
+            <p>מי ששילם על משהו לכולם מוסיף אותו כאן: סכום, מי שילם, ועל מה. אנחנו כבר נחשב מי מעביר כמה למי.</p>
+            ${lonely ? '<p class="mx-hint">כדי לחלק צריך עוד אנשים בטיול — מזמינים אותם מ"חברים".</p>' : ''}
           </div>`;
-        const trav = body.querySelector('.bs-trav');
-        body.querySelector('.bs-minus').onclick = () => { trav.value = Math.max(+trav.value - 1, 1); };
-        body.querySelector('.bs-plus').onclick = () => { trav.value = Math.min(+trav.value + 1, 50); };
-        body.querySelector('.bs-skip').onclick = () => { budgetView.skippedSetup = true; render(); };
-        body.querySelector('.bs-go').onclick = async (e) => {
-          const btn = e.currentTarget; // currentTarget is null after an await
-          if (btn.disabled) return;
+      } else if (!m.transfers.length) {
+        settleHtml = '<div class="mx-even glass"><b>כולם מאוזנים 🎉</b><span>אף אחד לא חייב לאף אחד</span></div>';
+      } else {
+        settleHtml = `
+          <div class="mx-xfers glass">
+            ${m.transfers.map((t, ix) => {
+              const mine = me && (keyOf(t.from) === keyOf(me) || keyOf(t.to) === keyOf(me));
+              return `
+              <div class="mx-xfer${mine ? ' mine' : ''}">
+                <div class="mx-xfer-who">
+                  ${ava(t.from)}
+                  <span class="mx-xfer-text"><b>${esc(t.from)}</b><span class="mx-arrow" aria-label="מעביר/ה ל">←</span><b>${esc(t.to)}</b></span>
+                </div>
+                <span class="mx-xfer-amt">${money(t.amount, cur)}</span>
+                <button type="button" class="mx-paid" data-ix="${ix}">הועבר</button>
+              </div>`;
+            }).join('')}
+          </div>
+          <p class="mx-foot-note">מינימום העברות — כל אחד מעביר לכל היותר פעם או פעמיים. כשהעברה בוצעה, לוחצים "הועבר".</p>`;
+      }
+
+      // ---- the budget, only when somebody set one ----
+      let budgetHtml = '';
+      if (cap) {
+        const pct = Math.round((m.spent / cap) * 100);
+        const tone = m.spent > cap ? 'over' : pct >= 80 ? 'warn' : '';
+        budgetHtml = `
+          <button type="button" class="mx-budget glass ${tone}" data-act="settings">
+            <div class="mx-budget-row"><span>הוצאתם <b>${money(m.spent, cur)}</b> מתוך ${money(cap, cur)}</span><span class="mx-budget-pct">${pct}%</span></div>
+            <div class="mx-meter"><i style="width:${Math.min(100, pct)}%"></i></div>
+            <small>${m.spent > cap ? `חריגה של ${money(m.spent - cap, cur)}` : `נשארו ${money(cap - m.spent, cur)}`}</small>
+          </button>`;
+      }
+
+      // ---- the expenses, newest first, grouped by the day they were added ----
+      const dayKey = (e) => String(e.created_at || '').slice(0, 10);
+      const groups = [];
+      for (const e of rows) {
+        const k = dayKey(e);
+        const g = groups[groups.length - 1];
+        if (g && g.k === k) g.list.push(e); else groups.push({ k, list: [e] });
+      }
+      const dayTitle = (k) => {
+        if (!k) return '';
+        const d = new Date(k + 'T12:00:00');
+        if (Number.isNaN(d.getTime())) return '';
+        const today = new Date(); today.setHours(12, 0, 0, 0);
+        const diff = Math.round((today - d) / 86400000);
+        if (diff === 0) return 'היום';
+        if (diff === 1) return 'אתמול';
+        return d.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
+      };
+      const rowHtml = (e) => {
+        if (isPayment(e)) {
+          return `
+            <button type="button" class="mx-row pay" data-id="${e.id}">
+              <span class="mx-row-ic" aria-hidden="true">⇄</span>
+              <span class="mx-row-text"><b>החזר: ${esc(firstName(e.paid_by))} ← ${esc(firstName(e.paid_to))}</b><small>הכסף עבר ביניהם</small></span>
+              <span class="mx-row-amt">${money(e.amount, cur)}</span>
+            </button>`;
+        }
+        const among = splitOf(state, e);
+        const everyone = among.length >= participantNames(state).length;
+        let mineLine = '';
+        if (me) {
+          const iPaid = keyOf(e.paid_by) === keyOf(me);
+          const inIt = among.some((n) => keyOf(n) === keyOf(me));
+          const share = among.length ? +e.amount / among.length : 0;
+          if (iPaid) mineLine = `<span class="mx-mine owed">${inIt ? `הלווית ${money(+e.amount - share, cur)}` : `הלווית ${money(e.amount, cur)}`}</span>`;
+          else if (inIt) mineLine = `<span class="mx-mine owes">החלק שלך ${money(share, cur)}</span>`;
+          else mineLine = '<span class="mx-mine">לא בהוצאה</span>';
+        }
+        return `
+          <button type="button" class="mx-row" data-id="${e.id}">
+            <span class="mx-row-ic" aria-hidden="true">${e.category && e.category !== 'אחר' ? (CATS.find((c) => c.key === e.category) || {}).emoji || '🧾' : '🧾'}</span>
+            <span class="mx-row-text">
+              <b>${esc(e.title || 'הוצאה')}</b>
+              <small>שולם ע״י ${esc(firstName(e.paid_by))} · ${everyone ? 'מתחלק בין כולם' : `בין ${among.map(firstName).map(esc).join(', ')}`}</small>
+            </span>
+            <span class="mx-row-end"><span class="mx-row-amt">${money(e.amount, cur)}</span>${mineLine}</span>
+          </button>`;
+      };
+      const listHtml = rows.length ? `
+        <div class="mx-sec-head"><h3>הוצאות</h3><span>${m.count} · ${money(m.spent, cur)}${m.people.length ? ` · ≈ ${money(m.spent / Math.max(participantNames(state).length, 1), cur)} לאדם` : ''}</span></div>
+        ${groups.map((g) => `
+          <div class="mx-day">${esc(dayTitle(g.k))}</div>
+          <div class="mx-list glass">${g.list.map(rowHtml).join('')}</div>`).join('')}` : '';
+
+      body.innerHTML = `
+        <div class="mx">
+          ${meHtml}
+          <div class="mx-sec-head"><h3>מי מעביר למי</h3>${m.transfers.length ? `<span>${m.transfers.length} ${m.transfers.length === 1 ? 'העברה' : 'העברות'}</span>` : ''}</div>
+          ${settleHtml}
+          ${budgetHtml}
+          ${listHtml}
+          ${cap ? '' : `<button type="button" class="mx-set-budget" data-act="settings">${BICON.wallet}<span>רוצים תקציב? אפשר להגדיר מספר ולראות את ההוצאות מולו (לא חובה)</span></button>`}
+        </div>`;
+
+      body.querySelectorAll('[data-act="settings"]').forEach((b) => { b.onclick = () => page.querySelector('.bp-settings-btn').click(); });
+      body.querySelectorAll('.mx-row').forEach((b) => {
+        b.onclick = () => {
+          const e = (state.expenses || []).find((x) => +x.id === +b.dataset.id);
+          if (e) openExpenseSheet(ctx, e, render);
+        };
+      });
+      body.querySelectorAll('.mx-paid').forEach((b) => {
+        b.onclick = async () => {
+          const t = m.transfers[+b.dataset.ix];
+          if (!t || b.disabled) return;
+          if (!confirm(`לסמן שההעברה בוצעה?\n${t.from} ← ${t.to} · ${money(t.amount, cur)}`)) return;
           const headers = await ctx.ensureEdit();
           if (!headers) return;
-          btn.disabled = true;
+          b.disabled = true;
           try {
-            state.budget = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/budget`, {
-              method: 'PUT', headers,
-              body: JSON.stringify({
-                total: body.querySelector('.bs-total').value || null,
-                currency: body.querySelector('.bs-cur').value,
-                travelers: +trav.value,
-              }),
+            const row = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/expenses`, {
+              method: 'POST', headers,
+              body: JSON.stringify({ amount: t.amount, paid_by: t.from, paid_to: t.to, title: '' }),
             });
+            state.expenses = [row, ...(state.expenses || [])];
+            TRIPMAKER.track('expense_settle', { trip_id: state.trip.id });
             render(); ctx.refresh();
-          } catch (err) {
-            body.querySelector('.bs-err').textContent = err.message;
-            btn.disabled = false;
+          } catch (ex) {
+            alert(ex.message || 'לא הצלחנו לשמור');
+            b.disabled = false;
           }
         };
-        return;
-      }
-      if (isPersonal && needsSetup) {
-        body.innerHTML = `
-          <div class="bp-setup glass">
-            <div class="bp-setup-ic">${BICON.lock}</div>
-            <h3>תקציב אישי</h3>
-            <p>תקרה משלכם, לצד התקציב המשותף. נשמר בדפדפן הזה בלבד — רק אתם רואים אותו, והוא לא עובר למכשיר אחר.</p>
-            <div class="field"><label>התקציב שלי (${sym(cur)})</label><input type="number" min="0" inputmode="decimal" class="bp-total" placeholder="4,000"></div>
-            <div class="form-error bp-err"></div>
-            <button type="button" class="btn btn-amber bp-go">קביעת תקציב אישי</button>
-          </div>`;
-        body.querySelector('.bp-go').onclick = () => {
-          const v = +body.querySelector('.bp-total').value;
-          if (!(v > 0)) { body.querySelector('.bp-err').textContent = 'צריך סכום'; return; }
-          if (!savePersonal(state, { ...personal, total: v })) {
-            body.querySelector('.bp-err').textContent = 'הדפדפן חוסם שמירה מקומית — תקציב אישי לא זמין כאן';
-            return;
-          }
-          render();
-        };
-        return;
-      }
-
-      // ---- headline: the figure, the cap, and how the two compare ----
-      const bundle = actualBundle(state, isPersonal, personal);
-      const actual = bundle.totals;
-      const personalPlan = personalPlannedTotals(state);
-      const shareOf = (n) => n / Math.max(travelers, 1);
-      const plannedValue = isPersonal ? shareOf(planned.total) + personalPlan.total : planned.total;
-      const value = isActual ? actual.total : plannedValue;
-      const pct = cap ? value / cap : 0;
-      const tone = !cap ? '' : pct > 1 ? 'over' : pct >= 0.8 ? 'warn' : 'ok';
-      let status;
-      if (!cap) status = 'בלי תקרה';
-      else if (pct > 1) status = `חריגה של ${fmt(value - cap, cur)}`;
-      else status = `נשאר ${fmt(cap - value, cur)}`;
-      const perPerson = !isPersonal && travelers > 1 && value > 0
-        ? `<span>≈ ${fmt(value / travelers, cur)} לאדם · <button type="button" class="bs-link pp-edit">${travelers} מטיילים</button></span>`
-        : '';
-      const summaryHtml = `
-        <section class="bp-summary glass${tone ? ' ' + tone : ''}" aria-live="polite">
-          <div class="bs-row">
-            <span class="bs-label">${isActual ? 'הוצאות בפועל' : 'סה"כ מתוכנן'}</span>
-            ${cap ? `<span class="bs-pct">${Math.round(pct * 100)}%</span>` : ''}
-          </div>
-          <div class="bs-figure"><b>${fmt(value, cur)}</b>${cap ? `<span>מתוך ${fmt(cap, cur)}</span>` : ''}</div>
-          ${cap ? `<div class="bs-track"><span class="bs-fill" style="width:${Math.min(pct, 1) * 100}%"></span></div>` : ''}
-          <div class="bs-meta">
-            <span>${status}${!cap && !isPersonal ? ` · <button type="button" class="bs-link pp-edit">הגדרת תקרה</button>` : ''}</span>
-            ${perPerson}
-          </div>
-        </section>`;
-
-      // ---- categories: share of the total, tap one to filter the lists below ----
-      const catTotals = isActual
-        ? actual.byCat
-        : (isPersonal
-          ? Object.fromEntries(CATS.map((c) => [c.key, shareOf(planned.byCat[c.key] || 0) + (personalPlan.byCat[c.key] || 0)]))
-          : planned.byCat);
-      const catSum = Object.values(catTotals).reduce((a, b) => a + b, 0);
-      let catsHtml;
-      if (catSum > 0) {
-        catsHtml = `
-        <section class="bp-section">
-          <h3 class="bp-section-title">לפי קטגוריה
-            ${budgetView.filter ? `<button type="button" class="bp-chip clear-filter" title="ביטול הסינון">${esc(budgetView.filter)} ${BICON.x}</button>` : ''}
-          </h3>
-          <div class="bp-card">${CATS.map((c) => {
-            const v = catTotals[c.key] || 0;
-            if (!v) return '';
-            const share = v / catSum;
-            return `
-            <button type="button" class="bp-cat${budgetView.filter === c.key ? ' active' : ''}" data-cat="${c.key}" aria-pressed="${budgetView.filter === c.key}">
-              <span class="bc-emoji">${c.emoji}</span>
-              <span class="bc-main">
-                <span class="bc-head"><span class="bc-name">${c.key}</span><span class="bc-amount">${fmt(v, cur)}</span></span>
-                <span class="bc-track"><span class="bc-fill" style="width:${Math.max(Math.round(share * 100), 1)}%"></span></span>
-              </span>
-              <span class="bc-share">${Math.round(share * 100)}%</span>
-            </button>`;
-          }).join('')}</div>
-        </section>`;
-      } else if (isActual) {
-        catsHtml = '<p class="bp-note">תחנות עם הערכה מופיעות למטה. סמנו «שולם» אחרי ששילמתם — רק הן נספרות בפועל.</p>';
-      } else if (isPersonal) {
-        catsHtml = '<p class="bp-note">החלק שלכם מהתכנון המשותף יופיע כאן, וגם עלויות שתייחסו לתקציב האישי כשמוסיפים תחנה.</p>';
-      } else {
-        catsHtml = '<p class="bp-note">עוד אין הערכות. מוסיפים סכום לכל תחנה בפירוט הימים למטה, או דרך סימן המטבע ליד התחנה במסלול.</p>';
-      }
-
-      // ---- quick add (בפועל only) ----
-      const addHtml = isActual ? `
-        <section class="bp-section">
-          <h3 class="bp-section-title">הוספת הוצאה</h3>
-          <div class="bp-card bp-add">
-            <div class="ba-row">
-              <label class="ba-amount"><span>${sym(cur)}</span><input type="number" min="0" inputmode="decimal" class="qa-amount" placeholder="0" aria-label="סכום"></label>
-              <input type="text" class="qa-title" maxlength="160" placeholder="על מה? למשל: ארוחת ערב" aria-label="תיאור">
-            </div>
-            <div class="ba-row">
-              <select class="qa-cat" aria-label="קטגוריה">${CATS.map((c) => `<option value="${c.key}"${c.key === 'אחר' ? ' selected' : ''}>${c.emoji} ${c.key}</option>`).join('')}</select>
-              <select class="qa-day" aria-label="יום"><option value="">בלי יום</option>${Array.from({ length: state.trip.days }, (_, i) =>
-                `<option value="${i + 1}"${dToday === i + 1 ? ' selected' : ''}>יום ${i + 1}</option>`).join('')}</select>
-              <button type="button" class="btn btn-amber qa-add">${BICON.plus}<span>הוספה</span></button>
-            </div>
-            <div class="ba-hint qa-hint">${isPersonal ? 'הוצאה נוספת, מעבר לתחנות — נשמרת רק אצלכם' : 'הוצאה נוספת, מעבר לתחנות — נרשמת לכל המשתתפים'}</div>
-          </div>
-        </section>` : '';
-
-      const listHtml = isActual
-        ? actualPlanHtml(cur, personal, isPersonal, bundle)
-        : (isPersonal ? personalPlanListHtml(personal, cur) : dayAccordionHtml(cur));
-
-      body.innerHTML = `
-        ${summaryHtml}
-        ${catsHtml}
-        ${addHtml}
-        ${listHtml}
-        ${!state.canEdit && !isPersonal ? '<p class="bp-note">רק משתתפי הטיול עורכים את התקציב — בקשו קישור הזמנה מהמארגנים.</p>' : ''}
-      `;
-
-      // ---- wiring ----
-      body.querySelectorAll('.pp-edit').forEach((b) => { b.onclick = openSettings; });
-      body.querySelectorAll('.bp-cat').forEach((b) => {
-        b.onclick = () => { budgetView.filter = budgetView.filter === b.dataset.cat ? null : b.dataset.cat; render(); };
       });
-      body.querySelector('.clear-filter')?.addEventListener('click', () => { budgetView.filter = null; render(); });
-
-      const qaAdd = body.querySelector('.qa-add');
-      if (qaAdd) qaAdd.onclick = async (e) => {
-        const btn = e.currentTarget; // currentTarget is null after an await
-        const amount = +body.querySelector('.qa-amount').value;
-        const title = body.querySelector('.qa-title').value.trim();
-        const err = (m) => { body.querySelector('.qa-hint').innerHTML = `<span class="ba-err">${m}</span>`; };
-        if (!(amount > 0)) return err('חסר סכום');
-        if (!title) return err('על מה ההוצאה?');
-        const expense = {
-          title, amount,
-          category: body.querySelector('.qa-cat').value,
-          day_number: +body.querySelector('.qa-day').value || null,
-        };
-        if (isPersonal) {
-          personal.expenses.unshift({ ...expense, ts: Date.now() });
-          if (!savePersonal(state, personal)) return err('הדפדפן חוסם שמירה מקומית');
-          render();
-          return;
-        }
-        if (btn.disabled) return;
-        const headers = await ctx.ensureEdit();
-        if (!headers) return;
-        btn.disabled = true;
-        try {
-          const created = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/expenses`, {
-            method: 'POST', headers, body: JSON.stringify(expense),
-          });
-          state.expenses.unshift(created);
-          render(); ctx.refresh();
-        } catch (ex) { err(ex.message); btn.disabled = false; }
-      };
-      // The two fields aren't a <form>, so the keyboard's Enter / "Go" did nothing and the
-      // expense typed in stayed unsaved — the checklist's add row, right next door, saves on
-      // Enter, and a phone keyboard offers no other way out of the field.
-      if (qaAdd) body.querySelectorAll('.qa-amount, .qa-title').forEach((inp) => {
-        inp.addEventListener('keydown', (e) => {
-          if (e.key !== 'Enter' || e.isComposing) return;
-          e.preventDefault();
-          qaAdd.click();
-        });
-      });
-
-      wireLists(cur, personal, isPersonal);
     }
 
-    // settings sub-page: swaps the whole screen (back = history.back(), like the
-    // page itself) — holds the total+currency form and the reset action
-    function renderSettings(cur, personal, isPersonal) {
-      controls.innerHTML = '';
-      const resetSection = (hint) => `
-        <section class="bp-section bp-danger">
-          <h3 class="bp-section-title">איפוס</h3>
-          <div class="bp-card">
-            <p>${hint}</p>
-            <button type="button" class="btn btn-danger st-reset">איפוס תקציב</button>
-          </div>
-        </section>`;
-      const wireReset = (confirmMsg, doReset) => {
-        body.querySelector('.st-reset').onclick = async (e) => {
-          const btn = e.currentTarget;
-          if (btn.disabled || !confirm(confirmMsg)) return;
-          btn.disabled = true;
-          try { await doReset(); }
-          catch (err) { alert(err.message); btn.disabled = false; }
-        };
-      };
-
-      if (isPersonal) {
-        body.innerHTML = `
-          <section class="bp-section">
-            <div class="bp-card bp-form">
-              <div class="field"><label>התקציב האישי שלי (${sym(cur)})</label>
-                <input type="number" min="0" inputmode="decimal" class="st-ptotal" value="${personal.total || ''}" placeholder="בלי תקרה"></div>
-              <button type="button" class="btn btn-amber st-save">שמירה</button>
-            </div>
-          </section>
-          ${resetSection('מוחק את התקציב וההוצאות האישיות ששמורים בדפדפן הזה.')}`;
-        body.querySelector('.st-save').onclick = () => {
-          savePersonal(state, { ...personal, total: +body.querySelector('.st-ptotal').value || null });
-          history.back();
-        };
-        wireReset('לאפס את התקציב האישי? גם ההוצאות האישיות יימחקו', async () => {
-          try { localStorage.removeItem(personalKey(state)); } catch { /* private mode */ }
-          history.back();
-        });
-        return;
-      }
-
-      const b = state.budget || { total: null, currency: 'ILS', travelers: 2 };
+    function renderSettings(cur) {
+      const b = state.budget || {};
       body.innerHTML = `
-        <section class="bp-section">
-          <div class="bp-card bp-form">
-            <div class="form-grid">
-              <div class="field span-2"><label>תקציב כולל</label>
-                <div class="money-field">
-                  <input type="number" min="0" inputmode="decimal" class="st-total" value="${b.total ? Math.round(+b.total) : ''}" placeholder="בלי תקרה">
-                  <select class="st-cur" aria-label="מטבע">${currencyOptions(b.currency)}</select>
-                </div>
-              </div>
-              <div class="field span-2"><label>מספר מטיילים</label>
-                <div class="stepper"><button type="button" class="step-btn st-minus" aria-label="פחות">−</button>
-                <input type="number" class="st-trav" value="${b.travelers}" min="1" max="50">
-                <button type="button" class="step-btn st-plus" aria-label="יותר">+</button></div></div>
-            </div>
-            <div class="form-error st-err"></div>
-            <button type="button" class="btn btn-amber st-save">שמירת הגדרות</button>
+        <div class="mx-settings glass he">
+          <label class="he-l" for="mx-cap">תקציב לטיול <small>לא חובה</small></label>
+          <div class="money-field">
+            <input type="number" id="mx-cap" class="mx-cap" min="0" inputmode="decimal" placeholder="למשל 10,000" value="${b.total ? Math.round(+b.total) : ''}">
+            <select class="mx-cur" aria-label="מטבע">${currencyOptions(cur)}</select>
           </div>
-        </section>
-        ${resetSection('מוחק את התקרה, המטבע ומספר המטיילים לכל המשתתפים. ההערכות על התחנות וההוצאות נשארות.')}`;
-      const trav = body.querySelector('.st-trav');
-      body.querySelector('.st-minus').onclick = () => { trav.value = Math.max(+trav.value - 1, 1); };
-      body.querySelector('.st-plus').onclick = () => { trav.value = Math.min(+trav.value + 1, 50); };
-      body.querySelector('.st-save').onclick = async () => {
-        const newCur = body.querySelector('.st-cur').value;
-        if (state.budget && newCur !== state.budget.currency &&
-            !confirm('שימו לב: הסכומים לא יומרו, רק המטבע יתחלף. להמשיך?')) return;
+          <p class="mx-hint">כל ההוצאות שנרשמות נספרות מול המספר הזה. בלי מספר — פשוט לא מציגים תקציב.</p>
+          <div class="form-error mx-err"></div>
+          <button type="button" class="btn btn-amber mx-save-budget">שמירה</button>
+          ${b.total ? '<button type="button" class="manual-link mx-clear-budget">בלי תקציב</button>' : ''}
+        </div>`;
+      const err = body.querySelector('.mx-err');
+      const save = async (total) => {
         const headers = await ctx.ensureEdit();
         if (!headers) return;
         try {
           state.budget = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/budget`, {
             method: 'PUT', headers,
-            body: JSON.stringify({ total: body.querySelector('.st-total').value || null, currency: newCur, travelers: +trav.value }),
+            body: JSON.stringify({
+              total, currency: body.querySelector('.mx-cur').value,
+              travelers: (state.budget && state.budget.travelers) || Math.max(participantNames(state).length, 1),
+            }),
           });
           ctx.refresh();
           history.back();
-        } catch (e) { body.querySelector('.st-err').textContent = e.message; }
+        } catch (ex) { err.textContent = ex.message; }
       };
-      wireReset('לאפס את התקציב המשותף? התקרה, המטבע ומספר המטיילים יימחקו לכולם', async () => {
-        const headers = await ctx.ensureEdit();
-        if (!headers) return;
-        await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/budget`, { method: 'DELETE', headers });
-        state.budget = null;
-        budgetView.skippedSetup = false;
-        ctx.refresh();
-        history.back();
-      });
+      body.querySelector('.mx-save-budget').onclick = () => {
+        const v = body.querySelector('.mx-cap').value;
+        if (v !== '' && !(+v > 0)) { err.textContent = 'סכום לא תקין'; return; }
+        save(v === '' ? null : +v);
+      };
+      body.querySelector('.mx-clear-budget')?.addEventListener('click', () => save(null));
     }
 
-    // one expense line — the same row in the personal list and the day groups
-    function expenseRowHtml(e, cur, delAttr) {
-      return `
-        <div class="bd-item bd-exp">
-          <span class="bi-cat">${catOf(e.category).emoji}</span>
-          <span class="bi-title">${esc(e.title)}${e.paid_by ? ` <small>· ${esc(e.paid_by)}</small>` : ''}${e.day_number && delAttr.startsWith('data-i') ? ` <small>· יום ${e.day_number}</small>` : ''}</span>
-          <span class="bi-amount">${fmt(e.amount, cur)}</span>
-          ${delAttr ? `<button type="button" class="er-del" ${delAttr} aria-label="מחיקה">${BICON.x}</button>` : ''}
-        </div>`;
-    }
-
-    function personalPlanListHtml(personal, cur) {
-      const list = personal.planned.filter((e) => !budgetView.filter || e.category === budgetView.filter);
-      if (!list.length) {
-        return budgetView.filter ? ''
-          : '<p class="bp-note">עלויות שתייחסו לתקציב האישי יופיעו כאן. החלק שלכם מהתכנון המשותף כבר למעלה. משנים את הייחוס בעריכת התחנה.</p>';
-      }
-      return `
-        <section class="bp-section">
-          <h3 class="bp-section-title">מיוחס לתקציב האישי</h3>
-          <div class="bp-card bp-list">${list.map((e) => `
-            <div class="bd-item">
-              <span class="bi-cat">${catOf(e.category).emoji}</span>
-              <span class="bi-title">${esc(e.title)}${e.day_number ? ` <small>· יום ${e.day_number}</small>` : ''}</span>
-              <span class="bi-amount">${fmt(e.amount, cur)}</span>
-            </div>`).join('')}</div>
-          <p class="bp-note">נשמר רק אצלכם, בדפדפן הזה. זה תכנון — ב«בפועל» מסמנים אם שולם.</p>
-        </section>`;
-    }
-
-    function planPayRowHtml(p, cur, paidSet) {
-      const on = paidSet.has(p.item_id);
-      return `
-        <div class="bd-item bd-plan${on ? ' is-paid' : ''}">
-          <span class="bi-cat">${catOf(p.category).emoji}</span>
-          <span class="bi-title">${esc(p.title)}</span>
-          <span class="bi-amount">${fmt(p.amount, cur)}</span>
-          <div class="bd-pay" role="group" aria-label="האם שולם עבור ${esc(p.title)}">
-            <button type="button" class="pay-btn${on ? ' on' : ''}" data-item="${p.item_id}" data-paid="1">שולם</button>
-            <button type="button" class="pay-btn unpaid${!on ? ' on' : ''}" data-item="${p.item_id}" data-paid="0">לא שולם</button>
-          </div>
-        </div>`;
-    }
-
-    function actualPlanHtml(cur, personal, isPersonal, bundle) {
-      const { planned, paid, extras } = bundle;
-      const match = (cat) => !budgetView.filter || cat === budgetView.filter;
-      const items = planned.filter((p) => match(p.category));
-      const extraList = extras.filter((e) => match(e.category));
-      let planBlock;
-      if (!items.length) {
-        planBlock = '<p class="bp-note">עוד אין תחנות עם הערכה. מוסיפים עלות לתחנה ומשייכים אותה לתקציב — זה נכנס לתכנון, וכאן מסמנים אם שולם.</p>';
-      } else {
-        const days = [...new Set(items.map((p) => p.day_number || 0))].sort((a, b) => a - b);
-        planBlock = `
-          <section class="bp-section">
-            <h3 class="bp-section-title">מהמסלול <small>סמנו אם שולם</small></h3>
-            <div class="bp-card bp-list">${days.map((d) => {
-              const slice = items.filter((p) => (p.day_number || 0) === d);
-              return `<div class="bp-day-label">${d ? `יום ${d}` : 'בלי יום'}</div>
-                ${slice.map((p) => planPayRowHtml(p, cur, paid)).join('')}`;
-            }).join('')}</div>
-          </section>`;
-      }
-      const extraBlock = extraList.length ? `
-        <section class="bp-section">
-          <h3 class="bp-section-title">הוצאות נוספות</h3>
-          <div class="bp-card bp-list">${extraList.map((e) => expenseRowHtml(
-            e, cur,
-            isPersonal ? `data-i="${personal.expenses.indexOf(e)}"` : (state.canEdit ? `data-id="${e.id}"` : '')
-          )).join('')}</div>
-        </section>` : '';
-      return planBlock + extraBlock;
-    }
-
-    function dayAccordionHtml(cur) {
-      // each view owns its own rows: תכנון = estimates + booked hotels, בפועל = real expenses
-      const isActual = budgetView.view === 'actual';
-      const byDay = isActual ? actualByDay(state.expenses) : plannedByDay(state);
-      const blocks = destBlocks(state);
-      const rows = [];
-      const generalExp = isActual ? state.expenses.filter((e) => !e.day_number || e.day_number > state.trip.days) : [];
-      const delAttr = (e) => (state.canEdit ? `data-id="${e.id}"` : '');
-      for (let d = 1; d <= state.trip.days; d++) {
-        const items = isActual ? [] : state.items.filter((it) => it.day_number === d &&
-          (!budgetView.filter || budgetCatOf(it.category) === budgetView.filter));
-        const hotels = isActual ? [] : bookedHotels(state).filter((h) => h.night_start <= d && d <= h.night_end)
-          .filter(() => !budgetView.filter || budgetView.filter === 'לינה');
-        const exps = !isActual ? [] : state.expenses.filter((e) => e.day_number === d &&
-          (!budgetView.filter || e.category === budgetView.filter));
-        if (budgetView.filter && !items.length && !hotels.length && !exps.length) continue;
-        const block = blocks.find((b) => d >= b.from && d <= b.to);
-        const open = budgetView.openDays.has(d);
-        rows.push(`
-        <div class="bp-day${open ? ' open' : ''}${dToday === d ? ' today' : ''}" data-day="${d}">
-          <button type="button" class="bd-head" aria-expanded="${open}">
-            <span class="bd-chev">${BICON.chev}</span>
-            <span class="bd-title">יום ${d}${block ? `<small>${esc(block.name)}</small>` : ''}${dToday === d ? '<small class="bd-today">היום</small>' : ''}</span>
-            <span class="bd-total">${byDay[d] ? fmt(byDay[d], cur) : ''}</span>
-          </button>
-          ${open ? `<div class="bd-body">
-            ${items.map((it) => `
-              <div class="bd-item${it.category === 'נסיעה' ? ' travel' : ''}">
-                <span class="bi-time">${it.time_label ? esc(it.time_label) : ''}</span>
-                <span class="bi-title">${it.category === 'נסיעה' ? travelIcon(it) + ' ' : ''}${esc(it.title)}</span>
-                ${state.canEdit
-                  ? `<label class="bi-cost"><span>${sym(cur)}</span><input type="number" min="0" inputmode="decimal" class="cost-input" data-item="${it.id}" placeholder="הערכה" value="${it.cost ? Math.round(+it.cost) : ''}" title="עלות משוערת (${sym(cur)})"></label>`
-                  : `<span class="bi-amount${it.cost ? '' : ' muted'}">${it.cost ? fmt(it.cost, cur) : '—'}</span>`}
-              </div>`).join('')}
-            ${hotels.map((h) => {
-              const nights = h.night_end - h.night_start + 1;
-              return `<button type="button" class="bd-hotel" data-open-hotels>
-                ${BICON.bed}<span class="bh-name">${esc(h.name)}</span>
-                <span class="bh-meta">${nights === 1 ? 'לילה אחד' : nights + ' לילות'}${h.price_total ? ` · ${fmt(+h.price_total / nights, cur)} ללילה` : ''}</span>
-              </button>`;
-            }).join('')}
-            ${exps.map((e) => expenseRowHtml(e, cur, delAttr(e))).join('')}
-            ${!items.length && !hotels.length && !exps.length ? `<div class="bd-empty">${isActual ? 'אין הוצאות ביום הזה' : 'אין תחנות ביום הזה'}</div>` : ''}
-          </div>` : ''}
-        </div>`);
-      }
-      const generalList = generalExp.filter((e) => !budgetView.filter || e.category === budgetView.filter);
-      const generalHtml = generalList.length ? `
-        <div class="bp-day open">
-          <div class="bd-head static"><span class="bd-title">הוצאות כלליות<small>בלי יום</small></span>
-            <span class="bd-total">${fmt(generalList.reduce((a, e) => a + (+e.amount || 0), 0), cur)}</span></div>
-          <div class="bd-body">${generalList.map((e) => expenseRowHtml(e, cur, delAttr(e))).join('')}</div>
-        </div>` : '';
-      if (!rows.length && !generalHtml) return '';
-      return `
-        <section class="bp-section">
-          <h3 class="bp-section-title">${isActual ? 'הוצאות לפי ימים' : 'הערכות לפי ימים'}</h3>
-          <div class="bp-card bp-days">${rows.join('')}${generalHtml}</div>
-        </section>`;
-    }
-
-    function wireLists(cur, personal, isPersonal) {
-      body.querySelectorAll('.bd-head').forEach((h) => {
-        const day = +h.closest('.bp-day').dataset.day;
-        if (!day) return;
-        h.onclick = () => {
-          if (budgetView.openDays.has(day)) budgetView.openDays.delete(day);
-          else budgetView.openDays.add(day);
-          render();
-        };
-      });
-      body.querySelectorAll('[data-open-hotels]').forEach((b) => {
-        b.onclick = () => openHotels(ctx); // the hotels page takes the budget's place, tab to tab
-      });
-      // inline planned-cost editing (save on change/blur)
-      body.querySelectorAll('.cost-input').forEach((inp) => {
-        inp.onchange = async () => {
-          const headers = await ctx.ensureEdit();
-          if (!headers) return;
-          const it = state.items.find((x) => x.id === +inp.dataset.item);
-          try {
-            const updated = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/items/${it.id}`, {
-              method: 'PATCH', headers, body: JSON.stringify({ cost: inp.value || null }),
-            });
-            it.cost = updated.cost;
-            if (+updated.cost > 0) clearItemPersonalCost(state, it.id);
-            render(); ctx.refresh();
-          } catch (e) { alert(e.message); }
-        };
-      });
-      body.querySelectorAll('.er-del').forEach((b) => {
-        b.onclick = async () => {
-          if (isPersonal && b.dataset.i != null) {
-            personal.expenses.splice(+b.dataset.i, 1);
-            savePersonal(state, personal);
-            render();
-            return;
-          }
-          const headers = await ctx.ensureEdit();
-          if (!headers) return;
-          try {
-            await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/expenses/${b.dataset.id}`, { method: 'DELETE', headers });
-            state.expenses = state.expenses.filter((e) => e.id !== +b.dataset.id);
-            render(); ctx.refresh();
-          } catch (e) { alert(e.message); }
-        };
-      });
-      body.querySelectorAll('.pay-btn').forEach((b) => {
-        b.onclick = async () => {
-          const itemId = +b.dataset.item;
-          const wantPaid = b.dataset.paid === '1';
-          const already = paidItemIds(state, isPersonal, personal).has(itemId);
-          if (wantPaid === already) return;
-          if (isPersonal) {
-            personal.paid = personal.paid || {};
-            if (wantPaid) personal.paid[itemId] = true;
-            else delete personal.paid[itemId];
-            if (!savePersonal(state, personal)) { alert('הדפדפן חוסם שמירה מקומית'); return; }
-            render();
-            return;
-          }
-          const headers = await ctx.ensureEdit();
-          if (!headers) return;
-          const row = plannedCostItems(state, false).find((p) => p.item_id === itemId);
-          if (!row) return;
-          try {
-            if (wantPaid) {
-              const created = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/expenses`, {
-                method: 'POST', headers,
-                body: JSON.stringify({
-                  title: row.title, amount: row.amount, category: row.category,
-                  day_number: row.day_number, item_id: itemId,
-                }),
-              });
-              state.expenses.unshift(created);
-            } else {
-              const exp = state.expenses.find((e) => +e.item_id === itemId);
-              if (exp) {
-                await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/expenses/${exp.id}`, { method: 'DELETE', headers });
-                state.expenses = state.expenses.filter((e) => e.id !== exp.id);
-              }
-            }
-            render(); ctx.refresh();
-          } catch (e) { alert(e.message); }
-        };
-      });
-    }
-
-    budgetRender = render;
     render();
+    if (opts.add) openExpenseSheet(ctx, null, render);
+  }
+
+  // ---- add / edit one expense (or a recorded payment) ----
+  function openExpenseSheet(ctx, e, onDone) {
+    const { state } = ctx;
+    if (typeof TripPages === 'undefined') return;
+    const cur = curOf(state);
+    const payment = !!(e && isPayment(e));
+    const crew = participantNames(state);
+    // a row can name someone who has since left the trip — they stay pickable on it
+    const names = [...crew];
+    const addName = (n) => { const t = String(n || '').trim(); if (t && !names.some((x) => keyOf(x) === keyOf(t))) names.push(t); };
+    if (e) { addName(e.paid_by); addName(e.paid_to); if (Array.isArray(e.split_among)) e.split_among.forEach(addName); }
+    const me = meName(state);
+    let payer = e ? String(e.paid_by || '').trim() : (me && names.some((n) => keyOf(n) === keyOf(me)) ? names.find((n) => keyOf(n) === keyOf(me)) : names[0] || me || '');
+    let payee = payment ? String(e.paid_to).trim() : '';
+    let among = new Set((e && !payment ? splitOf(state, e) : names.filter((n) => crew.includes(n))).map(keyOf));
+    if (!e && !among.size) among = new Set(names.map(keyOf));
+
+    const chip = (n, on, attr) => `<button type="button" class="mx-chip${on ? ' on' : ''}" ${attr}="${esc(n)}" aria-pressed="${on}"><span class="mx-ava" aria-hidden="true">${esc(initialsOf(n))}</span><span>${esc(firstName(n))}</span></button>`;
+    const html = `
+      <div class="he mx-form">
+        <div class="mx-amount">
+          <span class="mx-amount-sym">${esc(sym(cur))}</span>
+          <input type="number" class="mx-amt" min="0" step="0.01" inputmode="decimal" placeholder="0" aria-label="סכום" value="${e ? +e.amount : ''}">
+        </div>
+        <div class="he-l">${payment ? 'מי העביר' : 'מי שילם'}</div>
+        <div class="mx-chips mx-payer">${names.map((n) => chip(n, keyOf(n) === keyOf(payer), 'data-payer')).join('')}</div>
+        ${payment ? `
+          <div class="he-l">למי</div>
+          <div class="mx-chips mx-payee">${names.map((n) => chip(n, keyOf(n) === keyOf(payee), 'data-payee')).join('')}</div>` : `
+          <label class="he-l" for="mx-what">על מה <small>לא חובה</small></label>
+          <input type="text" id="mx-what" class="mx-what" maxlength="160" autocomplete="off" enterkeyhint="done" placeholder="ארוחת ערב, מונית, כרטיסים…" value="${esc(e ? e.title || '' : '')}">
+          <div class="he-l">מתחלק בין <small class="mx-split-sum"></small></div>
+          <div class="mx-chips mx-among">${names.map((n) => chip(n, among.has(keyOf(n)), 'data-among')).join('')}</div>`}
+        <div class="form-error mx-err"></div>
+        <div class="he-foot">
+          <button type="button" class="btn btn-amber mx-save">${e ? 'שמירה' : 'הוספה'}</button>
+          ${e ? `<button type="button" class="he-del mx-del">${HICON.trash}<span>מחיקה</span></button>` : ''}
+        </div>
+      </div>`;
+
+    TripPages.sheet('expense-sheet', {
+      title: payment ? 'החזר' : e ? 'עריכת הוצאה' : 'הוצאה חדשה',
+      sub: payment ? '' : e ? '' : 'מתחלק שווה בשווה — מי חייב למי מתעדכן לבד',
+      cls: 'mx-sheet',
+      html,
+      onOpen: (box) => {
+        const amtIn = box.querySelector('.mx-amt');
+        const err = box.querySelector('.mx-err');
+        const paintSplit = () => {
+          const s = box.querySelector('.mx-split-sum');
+          if (!s) return;
+          const n = among.size;
+          const a = +amtIn.value;
+          s.textContent = n ? `${n === names.length ? 'כולם' : `${n} אנשים`}${a > 0 ? ` · ${money(a / n, cur)} לאחד` : ''}` : '';
+        };
+        const wireChips = (sel, attr, onPick) => {
+          box.querySelectorAll(`${sel} [${attr}]`).forEach((b) => {
+            b.onclick = () => { onPick(b.getAttribute(attr)); };
+          });
+        };
+        const repaint = (sel, attr, isOn) => {
+          box.querySelectorAll(`${sel} [${attr}]`).forEach((b) => {
+            const on = isOn(b.getAttribute(attr));
+            b.classList.toggle('on', on);
+            b.setAttribute('aria-pressed', on);
+          });
+        };
+        wireChips('.mx-payer', 'data-payer', (n) => { payer = n; repaint('.mx-payer', 'data-payer', (x) => keyOf(x) === keyOf(payer)); });
+        wireChips('.mx-payee', 'data-payee', (n) => { payee = n; repaint('.mx-payee', 'data-payee', (x) => keyOf(x) === keyOf(payee)); });
+        wireChips('.mx-among', 'data-among', (n) => {
+          const k = keyOf(n);
+          if (among.has(k)) among.delete(k); else among.add(k);
+          repaint('.mx-among', 'data-among', (x) => among.has(keyOf(x)));
+          paintSplit();
+        });
+        amtIn.addEventListener('input', paintSplit);
+        paintSplit();
+        if (!e) setTimeout(() => amtIn.focus(), 60);
+
+        const done = () => TripPages.closeSheet(() => { onDone?.(); ctx.refresh(); });
+
+        box.querySelector('.mx-del')?.addEventListener('click', async () => {
+          if (!confirm(payment ? 'למחוק את ההחזר?' : 'למחוק את ההוצאה?')) return;
+          const headers = await ctx.ensureEdit();
+          if (!headers) return;
+          try {
+            await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/expenses/${e.id}`, { method: 'DELETE', headers });
+            state.expenses = (state.expenses || []).filter((x) => x.id !== e.id);
+            state.settlements = (state.settlements || []).filter((s) => +s.expense_id !== +e.id);
+            done();
+          } catch (ex) { err.textContent = ex.message; }
+        });
+
+        box.querySelector('.mx-save').onclick = async (ev) => {
+          const btn = ev.currentTarget;
+          if (btn.disabled) return;
+          const amount = +amtIn.value;
+          if (!(amount > 0)) { err.textContent = 'כמה זה עלה?'; amtIn.focus(); return; }
+          if (!payer) { err.textContent = payment ? 'מי העביר?' : 'מי שילם?'; return; }
+          if (payment && (!payee || keyOf(payee) === keyOf(payer))) { err.textContent = 'למי הועבר הכסף?'; return; }
+          if (!payment && !among.size) { err.textContent = 'בין מי זה מתחלק?'; return; }
+          const headers = await ctx.ensureEdit();
+          if (!headers) return;
+          btn.disabled = true;
+          const payload = payment
+            ? { amount, paid_by: payer, paid_to: payee, title: '' }
+            : {
+              amount, paid_by: payer,
+              title: box.querySelector('.mx-what').value.trim(),
+              split_among: names.filter((n) => among.has(keyOf(n))),
+              category: e ? e.category : undefined,
+              day_number: e ? e.day_number : currentTripDay(state),
+              item_id: e ? e.item_id : undefined,
+            };
+          try {
+            if (e) {
+              const updated = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/expenses/${e.id}`, {
+                method: 'PUT', headers, body: JSON.stringify(payload),
+              });
+              Object.assign(e, updated);
+            } else {
+              const created = await TRIPMAKER.api(`/api/trips/code/${state.trip.share_code}/expenses`, {
+                method: 'POST', headers, body: JSON.stringify(payload),
+              });
+              state.expenses = [created, ...(state.expenses || [])];
+            }
+            TRIPMAKER.track(e ? 'expense_edit' : 'expense_add', { trip_id: state.trip.id, split: payload.split_among ? payload.split_among.length : null });
+            done();
+          } catch (ex) {
+            err.textContent = ex.message;
+            btn.disabled = false;
+          }
+        };
+      },
+    });
   }
 
   // ---- ambient state for the trip page (chips, buttons, day markers) ----
 
+  // the money button and the hero chip read the expenses — what was actually spent —
+  // against the budget when there is one. Stop estimates no longer count toward it.
   function budgetButtonState(state) {
-    const planned = plannedTotals(state);
     const cap = state.budget ? +state.budget.total || null : null;
-    if (!cap || !planned.total) return { label: 'תקציב', cls: '' };
-    const pct = planned.total / cap;
+    const spent = computeMoney(state).spent;
+    if (!cap || !spent) return { label: 'הוצאות', cls: '' };
+    const pct = spent / cap;
     return {
       label: `${Math.round(pct * 100)}%`,
       cls: pct > 1 ? 'over' : pct >= 0.8 ? 'warn' : '',
@@ -2233,13 +1954,11 @@ const TripModals = (() => {
 
   function heroChip(state) {
     if (!state.canEdit) return null;
-    const planned = plannedTotals(state);
-    if (!state.budget && !planned.total) return null;
+    const spent = computeMoney(state).spent;
     const cur = curOf(state);
     const cap = state.budget ? +state.budget.total || null : null;
-    return cap
-      ? `💰 ${fmt(planned.total, cur)} מתוך ${fmt(cap, cur)}`
-      : `💰 ${fmt(planned.total, cur)} מתוכנן`;
+    if (cap) return `💰 ${fmt(spent, cur)} מתוך ${fmt(cap, cur)}`;
+    return spent ? `💰 ${fmt(spent, cur)} הוצאות` : null;
   }
 
   // day header hotel marker lines: checkout first, then check-in / covered
@@ -2255,430 +1974,8 @@ const TripModals = (() => {
     return lines;
   }
 
-  // =================================================================
-  //  SETTLE — חלוקת הוצאות / מי חייב למי
-  //  Available throughout the trip for participants (not only on the last day).
-  //  Shared budget only: state.expenses (server) among trip participants.
-  //  Personal budget (localStorage) is never read here.
-  // =================================================================
-
-  function syncSettleButton(state) {
-    const btn = document.getElementById('settle-btn');
-    if (!btn || !state || !state.trip) return;
-    btn.classList.remove('is-locked');
-    btn.title = 'חלוקת הוצאות — מי חייב למי (תקציב משותף)';
-  }
-
-  // shared-budget group: trip participants, plus anyone named as paid_by on a
-  // shared expense (so a payer whose display name drifted still gets credit —
-  // and the expense isn't dropped as "missing")
-  function settlePeople(state) {
-    const byKey = new Map(); // lowercased → display name
-    const add = (name) => {
-      const n = String(name || '').trim();
-      if (!n) return;
-      const key = n.toLowerCase();
-      if (!byKey.has(key)) byKey.set(key, n);
-    };
-    for (const p of state.participants || []) add(p.name);
-    for (const e of state.expenses || []) add(e.paid_by);
-    return [...byKey.values()];
-  }
-
-  // shared expenses only (state.expenses) → per-expense cards + whole-trip rollup.
-  // personal budget is never read. settlements (שולם) clear a debtor's share so
-  // they no longer owe the payer for that expense.
-  function computeSettlement(state) {
-    const keyOf = (name) => String(name || '').trim().toLowerCase();
-    const all = (state.expenses || []).filter((e) => +e.amount > 0);
-    const skipped = all.filter((e) => !String(e.paid_by || '').trim());
-    const expenses = all.filter((e) => String(e.paid_by || '').trim());
-    const people = settlePeople(state);
-    const settled = new Set(
-      (state.settlements || []).map((s) => `${s.expense_id}:${keyOf(s.debtor_key || s.debtor_name)}`)
-    );
-    const isSettled = (expenseId, debtorName) => settled.has(`${expenseId}:${keyOf(debtorName)}`);
-
-    if (people.length < 2) {
-      return { people, cards: [], balances: [], transfers: [], skipped, total: 0, openTotal: 0, error: 'need_people' };
-    }
-    if (!expenses.length) {
-      return {
-        people, cards: [], balances: [], transfers: [], skipped, total: 0, openTotal: 0,
-        error: all.length ? 'no_payers' : 'no_expenses',
-      };
-    }
-
-    const n = people.length;
-    const total = expenses.reduce((s, e) => s + (+e.amount || 0), 0);
-    const cards = expenses.map((e) => {
-      const amount = +e.amount;
-      const share = amount / n;
-      const payerKey = keyOf(e.paid_by);
-      const payerName = people.find((p) => keyOf(p) === payerKey) || String(e.paid_by).trim();
-      const debtors = people
-        .filter((p) => keyOf(p) !== payerKey)
-        .map((name) => ({
-          name,
-          amount: share,
-          settled: isSettled(e.id, name),
-        }));
-      const openDebtors = debtors.filter((d) => !d.settled);
-      const refund = share * openDebtors.length;
-      return {
-        id: e.id,
-        title: e.title,
-        category: e.category || 'אחר',
-        amount,
-        share,
-        payerName,
-        refund,
-        debtors,
-        openDebtors,
-        day_number: e.day_number || null,
-        allSettled: debtors.length > 0 && openDebtors.length === 0,
-      };
-    });
-
-    // whole-trip rollup from *unsettled* shares only — settled marks clear the debt
-    const net = Object.fromEntries(people.map((p) => [keyOf(p), 0]));
-    const paid = Object.fromEntries(people.map((p) => [keyOf(p), 0]));
-    let openTotal = 0;
-    for (const e of expenses) {
-      const amount = +e.amount;
-      const share = amount / n;
-      const payerKey = keyOf(e.paid_by);
-      paid[payerKey] = (paid[payerKey] || 0) + amount;
-      for (const name of people) {
-        const dk = keyOf(name);
-        if (dk === payerKey) continue;
-        if (isSettled(e.id, name)) continue;
-        net[dk] -= share;
-        net[payerKey] = (net[payerKey] || 0) + share;
-        openTotal += share;
-      }
-    }
-
-    const balances = people.map((name) => {
-      const k = keyOf(name);
-      return { name, paid: paid[k] || 0, share: total / n, net: net[k] || 0 };
-    }).sort((a, b) => b.net - a.net);
-
-    const debtors = balances.filter((b) => b.net < -0.005).map((b) => ({ name: b.name, amt: -b.net }));
-    const creditors = balances.filter((b) => b.net > 0.005).map((b) => ({ name: b.name, amt: b.net }));
-    debtors.sort((a, b) => b.amt - a.amt);
-    creditors.sort((a, b) => b.amt - a.amt);
-    const transfers = [];
-    let i = 0;
-    let j = 0;
-    while (i < debtors.length && j < creditors.length) {
-      const pay = Math.min(debtors[i].amt, creditors[j].amt);
-      if (pay >= 0.005) {
-        transfers.push({ from: debtors[i].name, to: creditors[j].name, amount: pay });
-      }
-      debtors[i].amt -= pay;
-      creditors[j].amt -= pay;
-      if (debtors[i].amt < 0.005) i += 1;
-      if (creditors[j].amt < 0.005) j += 1;
-    }
-
-    return { people, cards, balances, transfers, skipped, total, openTotal, error: null };
-  }
-
-  const MONEY_IC = '<svg class="ic settle-money-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v10"/><path d="M9.5 9.2c.6-1 1.7-1.5 2.7-1.5 1.3 0 2.3.7 2.3 1.8s-.9 1.5-2.4 1.8-2.6.7-2.6 1.8 1.1 1.8 2.6 1.8c1.1 0 2.1-.5 2.7-1.4"/></svg>';
-
-  let settleView = 'by-expense'; // 'by-expense' | 'total'
-
-  function openSharedActualBudget(ctx) {
-    openBudget(ctx, { mode: 'shared', view: 'actual' });
-  }
-
-  function openSettle(ctx) {
-    const { state } = ctx;
-    if (!state.canEdit) return;
-    syncSettleButton(state);
-
-    const wrap = shell('settle-modal', 'חלוקת הוצאות', 'מי חייב למי — לפי התקציב המשותף בלבד');
-    const body = wrap.querySelector('.mw-body');
-    const controls = wrap.querySelector('.mw-controls');
-
-    const cur = curOf(state);
-
-    const openCards = new Set(); // expense ids expanded under their day
-    const catEmoji = (key) => (CATS.find((c) => c.key === key) || {}).emoji || '✨';
-
-    const dayLabel = (day) => {
-      if (!day) return { title: 'בלי יום', sub: 'הוצאות שלא שויכו ליום במסלול' };
-      let sub = '';
-      if (state.trip.start_date) {
-        const d = new Date(state.trip.start_date);
-        d.setDate(d.getDate() + day - 1);
-        sub = d.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
-      }
-      return { title: `יום ${day}`, sub };
-    };
-
-    function groupByDay(cards) {
-      const map = new Map();
-      for (const c of cards) {
-        const key = c.day_number >= 1 ? c.day_number : 0;
-        if (!map.has(key)) map.set(key, []);
-        map.get(key).push(c);
-      }
-      return [...map.entries()]
-        .sort((a, b) => {
-          if (a[0] === 0) return 1;
-          if (b[0] === 0) return -1;
-          return a[0] - b[0];
-        })
-        .map(([day, list]) => ({ day: day || null, cards: list, dayTotal: list.reduce((s, c) => s + c.amount, 0) }));
-    }
-
-    async function toggleSettled(expenseId, debtorName, currentlySettled) {
-      const headers = await ctx.ensureEdit();
-      if (!headers) return;
-      const code = state.trip.share_code;
-      try {
-        if (currentlySettled) {
-          await TRIPMAKER.api(
-            `/api/trips/code/${code}/expenses/${expenseId}/settlements?debtor=${encodeURIComponent(debtorName)}`,
-            { method: 'DELETE', headers }
-          );
-          state.settlements = (state.settlements || []).filter(
-            (s) => !(+s.expense_id === +expenseId && String(s.debtor_key || s.debtor_name).trim().toLowerCase() === debtorName.trim().toLowerCase())
-          );
-        } else {
-          const row = await TRIPMAKER.api(`/api/trips/code/${code}/expenses/${expenseId}/settlements`, {
-            method: 'POST', headers,
-            body: JSON.stringify({ debtor_name: debtorName }),
-          });
-          state.settlements = [...(state.settlements || []).filter(
-            (s) => !(+s.expense_id === +expenseId && String(s.debtor_key).toLowerCase() === String(row.debtor_key).toLowerCase())
-          ), row];
-        }
-        render();
-      } catch (e) {
-        alert(e.message || 'לא הצלחנו לעדכן');
-      }
-    }
-
-    function attractionRowHtml(c) {
-      const open = openCards.has(String(c.id));
-      const payerLine = c.allSettled
-        ? 'הכל הוחזר ✓'
-        : c.refund > 0.005
-          ? `להחזיר עוד ${fmt(c.refund, cur)}`
-          : 'מאוזן';
-      return `
-        <div class="settle-acc${open ? ' open' : ''}${c.allSettled ? ' all-settled' : ''}" data-id="${c.id}">
-          <button type="button" class="settle-acc-btn" aria-expanded="${open}">
-            <span class="sc-emoji" aria-hidden="true">${catEmoji(c.category)}</span>
-            <span class="settle-acc-text">
-              <b>${esc(c.title)}</b>
-              <small>${esc(c.payerName)} שילם · ${fmt(c.share, cur)} לכל אחד</small>
-            </span>
-            <span class="settle-acc-amt">${fmt(c.amount, cur)}</span>
-            <span class="settle-acc-chev" aria-hidden="true">${BICON.chev}</span>
-          </button>
-          <div class="settle-acc-panel"${open ? '' : ' hidden'}>
-            <div class="settle-card-body">
-              <p class="sc-paid"><b>${esc(c.payerName)}</b> שילם על הכל · משותף ${fmt(c.amount, cur)}</p>
-              <div class="sc-payer">
-                <div class="sb-who">
-                  <span class="sb-avatar">${esc((c.payerName.trim()[0] || '?').toUpperCase())}</span>
-                  <span class="sb-name">${esc(c.payerName)}</span>
-                </div>
-                <div class="sb-nums">
-                  <span class="sb-role">${c.allSettled ? 'הוחזר' : 'להחזיר'}</span>
-                  <span class="sb-net refund">${c.allSettled ? '✓' : fmt(c.refund, cur)}</span>
-                </div>
-              </div>
-              <div class="sc-debtors">
-                <div class="sc-debtors-label">${payerLine}</div>
-                ${c.debtors.map((d) => `
-                  <div class="sc-debtor${d.settled ? ' is-settled' : ''}">
-                    <span class="sd-name">${esc(d.name)}</span>
-                    <span class="sd-actions">
-                      ${d.settled
-                        ? `<span class="sd-amt settled">שולם ✓</span>
-                           <button type="button" class="settle-paid-btn undo" data-expense="${c.id}" data-debtor="${esc(d.name)}" data-settled="1">ביטול</button>`
-                        : `<span class="sd-amt owes">${MONEY_IC}<span>${fmt(d.amount, cur)}</span></span>
-                           <button type="button" class="settle-paid-btn" data-expense="${c.id}" data-debtor="${esc(d.name)}" data-settled="0">שולם</button>`}
-                    </span>
-                  </div>`).join('')}
-              </div>
-            </div>
-          </div>
-        </div>`;
-    }
-
-    function byDayHtml(result) {
-      const cardsByDay = groupByDay(result.cards);
-      return `
-      <div class="settle-days">
-        ${cardsByDay.map(({ day, cards, dayTotal }) => {
-          const lab = dayLabel(day);
-          return `
-            <section class="settle-day">
-              <header class="settle-day-head">
-                <div class="settle-day-titles">
-                  <h3 class="settle-day-title">${esc(lab.title)}</h3>
-                  ${lab.sub ? `<p class="settle-day-sub">${esc(lab.sub)}</p>` : ''}
-                </div>
-                <div class="settle-day-sum">
-                  <span class="settle-day-count">${cards.length} הוצאות</span>
-                  <span class="settle-day-amt">${fmt(dayTotal, cur)}</span>
-                </div>
-              </header>
-              <div class="settle-acc-list glass">${cards.map(attractionRowHtml).join('')}</div>
-            </section>`;
-        }).join('')}
-      </div>`;
-    }
-
-    function totalHtml(result) {
-      const balTone = (net) => (net > 0.5 ? 'owed' : net < -0.5 ? 'owes' : 'even');
-      const balBlock = (b) => {
-        if (Math.abs(b.net) < 0.5) {
-          return `<span class="sb-role even">מאוזן</span><span class="sb-net even">—</span>`;
-        }
-        if (b.net > 0) {
-          return `<span class="sb-role refund">להחזיר</span><span class="sb-net refund">${fmt(b.net, cur)}</span>`;
-        }
-        return `<span class="sb-role owes">נדרש להחזיר</span><span class="sb-net owes">${MONEY_IC}<span>${fmt(-b.net, cur)}</span></span>`;
-      };
-
-      return `
-        ${result.transfers.length ? `
-          <div class="settle-section">
-            <h3 class="bp-section-title">מי חייב למי · לכל הטיול</h3>
-            <div class="settle-transfers glass">
-              ${result.transfers.map((t) => `
-                <div class="settle-xfer">
-                  <div class="sx-text"><b>${esc(t.from)}</b> משלם ל־<b>${esc(t.to)}</b></div>
-                  <span class="sx-amt owes">${MONEY_IC}<span>${fmt(t.amount, cur)}</span></span>
-                </div>`).join('')}
-            </div>
-          </div>` : `
-          <div class="settle-even glass">
-            <h3>הכל מאוזן 🎉</h3>
-            <p>לפי ההחזרים שסומנו — אף אחד לא חייב לאף אחד.</p>
-          </div>`}
-
-        <div class="settle-section">
-          <h3 class="bp-section-title">מאזן כולל לפי משתתף</h3>
-          <div class="settle-balances glass">
-            ${result.balances.map((b) => `
-              <div class="settle-bal ${balTone(b.net)}">
-                <div class="sb-who">
-                  <span class="sb-avatar">${esc((b.name.trim()[0] || '?').toUpperCase())}</span>
-                  <div class="sb-meta">
-                    <span class="sb-name">${esc(b.name)}</span>
-                    <span class="sb-paid">שילם ${fmt(b.paid, cur)} · חלק ${fmt(b.share, cur)}</span>
-                  </div>
-                </div>
-                <div class="sb-nums">${balBlock(b)}</div>
-              </div>`).join('')}
-          </div>
-        </div>`;
-    }
-
-    function wireInteractions() {
-      body.querySelectorAll('.settle-acc-btn').forEach((btn) => {
-        btn.onclick = () => {
-          const id = String(btn.closest('.settle-acc')?.dataset.id || '');
-          if (!id) return;
-          if (openCards.has(id)) openCards.delete(id);
-          else openCards.add(id);
-          render();
-        };
-      });
-      body.querySelectorAll('.settle-paid-btn').forEach((btn) => {
-        btn.onclick = (e) => {
-          e.stopPropagation();
-          const expenseId = +btn.dataset.expense;
-          const debtor = btn.dataset.debtor;
-          const settled = btn.dataset.settled === '1';
-          if (!expenseId || !debtor) return;
-          btn.disabled = true;
-          toggleSettled(expenseId, debtor, settled);
-        };
-      });
-    }
-
-    function render() {
-      const result = computeSettlement(state);
-
-      if (result.error === 'need_people') {
-        controls.innerHTML = '';
-        body.innerHTML = `
-          <div class="settle-empty glass">
-            <div class="settle-locked-ic">${BICON.users}</div>
-            <h3>צריך לפחות שני משתתפים</h3>
-            <p>החלוקה היא בין משתתפי הטיול על התקציב המשותף. הזמינו מישהו לטיול כדי לחלק הוצאות.</p>
-          </div>`;
-        return;
-      }
-
-      if (result.error === 'no_expenses' || result.error === 'no_payers') {
-        controls.innerHTML = '';
-        body.innerHTML = `
-          <div class="settle-empty glass">
-            <div class="settle-locked-ic">${BICON.wallet}</div>
-            <h3>${result.error === 'no_payers' ? 'חסר מי שילם' : 'עוד אין הוצאות משותפות'}</h3>
-            <p>${result.error === 'no_payers'
-              ? 'יש הוצאות בתקציב המשותף, אבל בלי שם משלם — אי אפשר לחלק. מחקו והוסיפו מחדש כשאתם מחוברים, או סמנו שולם ממסך התקציב המשותף.'
-              : 'רשמו הוצאות בפועל בתקציב המשותף (מי שילם נשמר אוטומטית). תקציב אישי לא נכנס לחלוקה. אחר כך תחזרו לכאן ותקבלו מי חייב למי.'}</p>
-            <button type="button" class="btn btn-amber settle-to-budget">לתקציב המשותף</button>
-          </div>`;
-        body.querySelector('.settle-to-budget').onclick = () => {
-          dismissModal(wrap);
-          openSharedActualBudget(ctx);
-        };
-        return;
-      }
-
-      const byExpense = settleView === 'by-expense';
-      const skippedNote = result.skipped.length
-        ? `${result.skipped.length} הוצאות בלי משלם — לא נכנסו לחלוקה`
-        : '';
-
-      controls.innerHTML = `
-        <div class="seg seg-sm settle-seg" role="tablist" aria-label="תצוגת חלוקה">
-          <button type="button" data-v="by-expense" class="${byExpense ? 'active' : ''}" aria-selected="${byExpense}">לפי יום</button>
-          <button type="button" data-v="total" class="${!byExpense ? 'active' : ''}" aria-selected="${!byExpense}">כולל · כל הטיול</button>
-        </div>`;
-      controls.querySelectorAll('[data-v]').forEach((b) => {
-        b.onclick = () => { settleView = b.dataset.v; render(); };
-      });
-
-      body.innerHTML = `
-        <div class="settle-summary glass">
-          <div class="bs-row">
-            <span class="bs-label">סה״כ מהתקציב המשותף</span>
-            <span class="settle-count">${result.cards.length} הוצאות · ${result.people.length} משתתפים</span>
-          </div>
-          <div class="bs-figure"><b>${fmt(result.total, cur)}</b><span>≈ ${fmt(result.total / result.people.length, cur)} לאדם</span></div>
-          ${result.openTotal > 0.5
-            ? `<p class="settle-open">עדיין פתוח להחזר: <b>${fmt(result.openTotal, cur)}</b></p>`
-            : `<p class="settle-open ok">כל ההחזרים סומנו כשולמו ✓</p>`}
-          <p class="settle-note">${byExpense
-            ? 'לוחצים על אטרקציה לפירוט. ליד כל חייב — «שולם» מסמן שההחזר בוצע.'
-            : 'סיכום לכל הטיול אחרי סימוני «שולם» — מי עדיין חייב למי.'}</p>
-        </div>
-
-        ${byExpense ? byDayHtml(result) : totalHtml(result)}
-        ${skippedNote ? `<p class="settle-skipped">${esc(skippedNote)}</p>` : ''}
-        <p class="mw-footnote">רוצים לתקן משהו? עדכנו הוצאות בתקציב המשותף ופתחו שוב את החלוקה.</p>
-      `;
-      if (byExpense) wireInteractions();
-    }
-
-    render();
-  }
-
   return {
-    initHotels, openHotels, openBudget, closeBudget, openSettle, syncSettleButton, travelIcon, plannedTotals, plannedByDay,
+    initHotels, openHotels, openBudget, closeBudget, travelIcon, computeMoney, plannedTotals, plannedByDay,
     budgetButtonState, heroChip, dayHotelLines, uncoveredRuns, fmt, curOf,
     nightCardHtml, mountNightCards, itemCostInfo, setItemPersonalCost, clearItemPersonalCost,
     nightHotel, saveStayIdea, nightCount,

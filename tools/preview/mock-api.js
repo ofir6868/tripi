@@ -46,6 +46,19 @@
   ];
   let draftRecsAsked = false; // the pass the planning chat starts when the basics land
   let expenses = [];
+  // MOCK_CREW=1: the demo trip has three travellers and a few shared expenses, so the
+  // money page ("מי חייב למי") has something to split
+  const CREW = process.env.MOCK_CREW
+    ? [{ id: 1, name: user.name, is_owner: true }, { id: 2, name: 'נועה לוי', is_owner: false }, { id: 3, name: 'אורי בן דוד', is_owner: false }]
+    : [{ id: 1, name: user.name, is_owner: true }];
+  if (process.env.MOCK_CREW) {
+    const at = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+    expenses = [
+      { id: 903, title: 'ארוחת ערב בטרסטוורה', amount: 420, category: 'אחר', day_number: 2, paid_by: 'נועה לוי', paid_to: null, split_among: null, item_id: null, created_at: at(1) },
+      { id: 902, title: 'מונית מהשדה', amount: 180, category: 'אחר', day_number: 1, paid_by: user.name, paid_to: null, split_among: [user.name, 'אורי בן דוד'], item_id: null, created_at: at(26) },
+      { id: 901, title: 'כרטיסים לקולוסיאום', amount: 330, category: 'אחר', day_number: 1, paid_by: 'אורי בן דוד', paid_to: null, split_among: null, item_id: null, created_at: at(27) },
+    ];
+  }
   // the demo trip's hotels and budget frame — what the chats' hotel / budget / date
   // actions write into (lib/plan-actions.js on the real server)
   let hotels = [];
@@ -536,7 +549,7 @@
       if (!rest) {
         return json(200, {
           trip, items, isOwner: true, canEdit: true, isAdmin: false,
-          hotels, budget, expenses, participants: [{ id: 1, name: user.name, is_owner: true }],
+          hotels, budget, expenses, participants: CREW,
           weatherWatch: [...weatherWatched],
         });
       }
@@ -593,10 +606,13 @@
         Object.assign(h, { ...body, id: h.id, price_total: body.price_total ? +body.price_total : null, photo: body.photo || null, ref: body.ref || null });
         return json(200, h);
       }
+      if (rest === '/budget' && method === 'PUT') {
+        budget = { total: +body.total > 0 ? +body.total : null, currency: body.currency || 'ILS', travelers: +body.travelers || 2 };
+        return json(200, budget);
+      }
+      if (rest === '/budget' && method === 'DELETE') { budget = null; return json(200, { ok: true }); }
       if (rest === '/expenses' && method === 'POST') {
-        const title = String(body.title || '').slice(0, 160).trim();
         const amount = +body.amount;
-        if (!title) return json(400, { error: 'על מה הוצאתם? חסר תיאור' });
         if (!(amount > 0)) return json(400, { error: 'חסר סכום תקין' });
         const itemId = +body.item_id || null;
         if (itemId) {
@@ -604,8 +620,9 @@
           if (existing) return json(200, existing);
         }
         const e = {
-          id: expenseId++, title, amount, category: body.category || 'אחר',
-          day_number: +body.day_number || null, paid_by: user.name, item_id: itemId,
+          id: expenseId++, title: String(body.title || '').slice(0, 160).trim(), amount, category: body.category || 'אחר',
+          day_number: +body.day_number || null, paid_by: body.paid_by || user.name, paid_to: body.paid_to || null,
+          split_among: Array.isArray(body.split_among) && body.split_among.length ? body.split_among : null, item_id: itemId,
           created_at: new Date().toISOString(),
         };
         expenses.unshift(e);
@@ -615,6 +632,15 @@
       if (em && method === 'DELETE') {
         expenses = expenses.filter((e) => e.id !== +em[1]);
         return json(200, { ok: true });
+      }
+      if (em && method === 'PUT') {
+        const e = expenses.find((x) => x.id === +em[1]);
+        if (!e) return json(404, { error: 'ההוצאה לא נמצאה' });
+        Object.assign(e, {
+          title: String(body.title || '').trim(), amount: +body.amount, paid_by: body.paid_by || e.paid_by, paid_to: body.paid_to || null,
+          split_among: Array.isArray(body.split_among) && body.split_among.length ? body.split_among : null,
+        });
+        return json(200, e);
       }
       // the recommendations chat, canned: the demo has no model behind it
       if (rest === '/recs' && method === 'POST') {

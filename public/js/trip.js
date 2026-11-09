@@ -896,7 +896,6 @@
       renderDateChip();
       renderItinerary();
       wireIcsButton();
-      TripModals.syncSettleButton(state);
       if (currentDest) loadWeather(currentDest);
     }
 
@@ -1285,17 +1284,20 @@
     if (canEdit && trip.days >= 2) TripModals.initHotels(modalCtx);
     hotelsBtn.onclick = () => (canEdit ? TripModals.openHotels(modalCtx) : requireSignup());
     budgetBtn.onclick = () => (canEdit ? TripModals.openBudget(modalCtx) : requireSignup());
-    settleBtn.onclick = () => (canEdit ? TripModals.openSettle(modalCtx) : requireSignup());
-    TripModals.syncSettleButton(state);
+    // "מי חייב למי" is the money page itself; the add button (clicked from the friends
+    // tab) opens it with the new-expense sheet already up
+    settleBtn.onclick = () => (canEdit ? TripModals.openBudget(modalCtx) : requireSignup());
+    const expenseAddBtn = document.getElementById('expense-add-btn');
+    if (expenseAddBtn) expenseAddBtn.onclick = () => (canEdit ? TripModals.openBudget(modalCtx, { add: true }) : requireSignup());
 
     function updateAmbient() {
-      // the budget button doubles as the ambient alert: % of budget planned
+      // the money button doubles as the ambient alert: % of the budget already spent
       const st = TripModals.budgetButtonState(state);
       document.getElementById('budget-label').textContent = st.label;
       budgetBtn.classList.toggle('warn', st.cls === 'warn');
       budgetBtn.classList.toggle('over', st.cls === 'over');
 
-      // hero chip: planned vs cap, tap opens the modal
+      // hero chip: spent vs cap, tap opens the money page
       let chipEl = document.getElementById('budget-chip');
       const chipText = TripModals.heroChip(state);
       if (chipText) {
@@ -1400,7 +1402,6 @@
           renderItinerary();
         }
         updateAmbient();
-        TripModals.syncSettleButton(state);
       },
       // המלצות is the one place where copying the trip is not the end of the visit but
       // the start of it: the visitor asked the AI something and the answer was "this

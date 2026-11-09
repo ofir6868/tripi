@@ -133,8 +133,10 @@
       </button>
       <button class="action-btn" id="budget-btn" style="display:none">
         <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg></span>
-        <span class="ab-label" id="budget-label">תקציב</span>
+        <span class="ab-label" id="budget-label">הוצאות</span>
       </button>
+      <!-- the friends tab's "הוספת הוצאה" clicks this: the money page with the add sheet up -->
+      <button type="button" id="expense-add-btn" hidden aria-hidden="true" tabindex="-1"></button>
       <!-- secondary on phones: these live in the "עוד" sheet there -->
       <button class="action-btn secondary" id="hotels-btn" style="display:none">
         <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg></span>
@@ -144,7 +146,7 @@
         <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
         <span class="ab-label" id="participants-label">משתתפים</span>
       </button>
-      <button class="action-btn secondary" id="settle-btn" style="display:none" title="חלוקת הוצאות — מי חייב למי">
+      <button class="action-btn secondary" id="settle-btn" style="display:none" title="מי חייב למי — ההוצאות המשותפות">
         <span class="ab-ic"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3h4v4"/><path d="m21 3-7 7"/><path d="M7 21H3v-4"/><path d="m3 21 7-7"/><path d="M14 11h6"/><path d="M4 13h6"/></svg></span>
         <span class="ab-label">חלוקה</span>
       </button>

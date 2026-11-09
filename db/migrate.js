@@ -504,6 +504,14 @@ async function migrate(pool, log = console.log) {
     )`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_day_photos_trip ON trip_day_photos(trip_id, day_number)`);
 
+  log('Migration 35: expenses work like Splitwise — a payment between two people, and who shares each expense...');
+  // the money page is "who owes whom": an expense is an amount, who paid it and who it is
+  // split between (split_among, a JSON list of names — null on old rows means everyone on
+  // the trip). A row with paid_to is not an expense but a settle-up: paid_by handed paid_to
+  // the amount. The old per-expense settle marks (trip_expense_settlements) still count.
+  await pool.query(`ALTER TABLE trip_expenses ADD COLUMN IF NOT EXISTS paid_to TEXT`);
+  await pool.query(`ALTER TABLE trip_expenses ADD COLUMN IF NOT EXISTS split_among JSONB`);
+
   log('Done.');
 }
 

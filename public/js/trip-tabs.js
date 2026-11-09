@@ -7,8 +7,8 @@
 //   מסלול    the itinerary itself. What used to be loose widgets above and beside it
 //            (the pre-flight checklist, the weather, the map) are panels that fold to
 //            one summary line, and every day folds the same way under one compact bar.
-//   חברים    who is coming, and the money between them: the budget, what was spent,
-//            who owes whom, and the invite. Money lives with the people it is split
+//   חברים    who is coming, the money between them — who owes whom, Splitwise-style,
+//            with an optional budget — and the invite. Money lives with the people it is split
 //            between, not in a tab of its own.
 //   מלונות   the hotels page, unchanged — it already is a page of panels.
 //   תחבורה   every flight, train and drive in the trip in one list, with the tickets
@@ -114,12 +114,12 @@ const TripTabs = (() => {
   function renderFriends(slots) {
     const s = ctx.state;
     const people = s.participants || [];
-    const planned = TripModals.plannedTotals(s).total;
+    // the money: who owes whom first (the point of it), the budget only if someone set one
+    const mx = TripModals.computeMoney(s);
     const cap = s.budget ? +s.budget.total || 0 : 0;
-    const shared = (s.expenses || []).filter((e) => +e.amount > 0);
-    const spent = shared.reduce((a, e) => a + +e.amount, 0);
-    const pct = cap ? Math.min(100, Math.round((planned / cap) * 100)) : 0;
-    const tone = cap && planned > cap ? 'over' : cap && planned >= cap * 0.8 ? 'warn' : '';
+    const spent = mx.spent;
+    const pct = cap ? Math.min(100, Math.round((spent / cap) * 100)) : 0;
+    const tone = cap && spent > cap ? 'over' : cap && spent >= cap * 0.8 ? 'warn' : '';
 
     const crew = `
       <div class="tt-crew">
@@ -129,19 +129,20 @@ const TripTabs = (() => {
         <button type="button" class="btn btn-amber tt-btn" data-click="participants-btn">הזמנת חברים וניהול</button>
       </div>`;
 
+    const xfers = mx.transfers.slice(0, 3);
     const moneyBody = `
+      ${!mx.count
+        ? `<p class="tt-note">${people.length > 1 ? 'מי ששילם על משהו לכולם מוסיף אותו כאן — ואנחנו מחשבים מי מעביר כמה למי.' : 'כשיהיו עוד אנשים בטיול, מוסיפים כאן הוצאות ומקבלים מי חייב למי.'}</p>`
+        : xfers.length
+          ? `<div class="tt-xfers">${xfers.map((t) => `<div class="tt-xfer"><span><b>${esc(t.from.split(' ')[0])}</b> ← <b>${esc(t.to.split(' ')[0])}</b></span><b class="tt-xfer-amt">${money(t.amount)}</b></div>`).join('')}
+             ${mx.transfers.length > xfers.length ? `<p class="tt-note">ועוד ${mx.transfers.length - xfers.length}…</p>` : ''}</div>`
+          : '<p class="tt-note">כולם מאוזנים 🎉 אף אחד לא חייב לאף אחד</p>'}
       ${cap ? `
         <div class="tt-meter ${tone}"><i style="width:${pct}%"></i></div>
-        <div class="tt-meter-row"><span>מתוכנן <b>${money(planned)}</b></span><span>מתוך <b>${money(cap)}</b></span></div>`
-      : `<p class="tt-note">${planned ? `מתוכנן עד עכשיו <b>${money(planned)}</b> — עוד לא נקבעה תקרה` : 'עוד לא נקבע תקציב לטיול'}</p>`}
-      <div class="tt-stats">
-        <div><b>${money(spent)}</b><small>הוצאות משותפות</small></div>
-        <div><b>${shared.length}</b><small>${shared.length === 1 ? 'הוצאה' : 'הוצאות'}</small></div>
-        <div><b>${people.length ? money(Math.round(spent / people.length)) : '—'}</b><small>לאדם</small></div>
-      </div>
+        <div class="tt-meter-row"><span>הוצאתם <b>${money(spent)}</b></span><span>מתוך <b>${money(cap)}</b></span></div>` : ''}
       <div class="tt-actions">
-        <button type="button" class="btn btn-ghost tt-btn" data-click="budget-btn">${IC.wallet} תקציב והוצאות</button>
-        <button type="button" class="btn btn-ghost tt-btn" data-click="settle-btn">מי חייב למי</button>
+        <button type="button" class="btn btn-amber tt-btn" data-click="expense-add-btn">+ הוספת הוצאה</button>
+        <button type="button" class="btn btn-ghost tt-btn" data-click="budget-btn">${IC.wallet} ${mx.count ? `כל ההוצאות (${mx.count})` : 'מי חייב למי'}</button>
       </div>`;
 
     const code = s.trip.share_code;
@@ -154,7 +155,7 @@ const TripTabs = (() => {
 
     slots.body.innerHTML = `<div class="tp-inner tt-page">
       ${panelHtml({ id: 'crew', ic: IC.friends, title: 'מי בטיול', sum: people.length ? `${people.length} ${people.length === 1 ? 'מטייל' : 'מטיילים'} · ${esc(people.map((p) => p.name.split(' ')[0]).join(', '))}` : 'עוד אין משתתפים', body: crew, open: isOpen('crew', true) })}
-      ${panelHtml({ id: 'money', ic: IC.wallet, title: 'כסף', tone, sum: cap ? `${money(planned)} מתוך ${money(cap)} · ${pct}%` : planned ? `${money(planned)} מתוכנן` : 'בלי תקציב עדיין', body: moneyBody, open: isOpen('money', true) })}
+      ${panelHtml({ id: 'money', ic: IC.wallet, title: 'מי חייב למי', tone, sum: mx.transfers.length ? `${mx.transfers.length} ${mx.transfers.length === 1 ? 'העברה' : 'העברות'} לסגירה${cap ? ` · ${pct}% מהתקציב` : ''}` : mx.count ? `${money(spent)} · כולם מאוזנים${cap ? ` · ${pct}% מהתקציב` : ''}` : 'עוד אין הוצאות', body: moneyBody, open: isOpen('money', true) })}
       ${s.trip.is_draft ? '' : panelHtml({ id: 'share', ic: IC.share, title: 'שיתוף הטיול', sum: `קוד ${esc(code)} · וואטסאפ או קישור`, body: shareBody, open: isOpen('share', false) })}
     </div>`;
     wireBody(slots.body);
@@ -382,7 +383,7 @@ const TripTabs = (() => {
     if (privileged) {
       TripPages.register('friends', {
         title: '👥 חברים',
-        sub: 'מי נוסע, והכסף ביניכם — התקציב, ההוצאות ומי חייב למי',
+        sub: 'מי נוסע, ומי חייב למי',
         render: renderFriends,
       });
       TripPages.register('transport', {

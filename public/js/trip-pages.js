@@ -461,10 +461,10 @@ const TripPages = (() => {
   const MORE_ACTIONS = [
     { id: 'hotels-btn', group: 'top', title: 'מלונות', desc: 'איפה ישנים — לילות, הזמנות ומחירים' },
     { id: 'participants-btn', group: 'top', title: () => document.getElementById('participants-label')?.textContent || 'משתתפים', desc: 'מי מתכנן איתכם, וקישור ההזמנה' },
-    { id: 'settle-btn', group: 'top', title: 'חלוקת הוצאות',
-      desc: 'מי חייב למי — לפי התקציב המשותף בלבד' },
-    { id: 'budget-btn', group: 'top', title: 'תקציב', cls: (el) => (el.classList.contains('over') ? 'over' : el.classList.contains('warn') ? 'warn' : ''),
-      desc: () => { const l = document.getElementById('budget-label')?.textContent; return l && l !== 'תקציב' ? `${l} מהתקציב כבר מתוכנן` : 'כמה זה עולה — התקרה, ההוצאות והחלוקה'; } },
+    { id: 'settle-btn', group: 'top', title: 'מי חייב למי',
+      desc: 'מי שילם על מה, ומי מעביר כמה למי' },
+    { id: 'budget-btn', group: 'top', title: 'הוצאות', cls: (el) => (el.classList.contains('over') ? 'over' : el.classList.contains('warn') ? 'warn' : ''),
+      desc: () => { const l = document.getElementById('budget-label')?.textContent; return l && /%$/.test(l) ? `${l} מהתקציב כבר הוצא` : 'ההוצאות המשותפות, ותקציב אם רוצים'; } },
     // first, always: what still has to happen before the flight (trip-checklist.js
     // keeps the line under it current — done/total, and how many are on fire)
     { id: 'checklist-btn', group: 'trip', title: 'צ\'קליסט לטיול',

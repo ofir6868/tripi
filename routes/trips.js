@@ -84,7 +84,7 @@ router.get('/api/trips/code/:code', authOptional, async (req, res) => {
         ? pool.query('SELECT total, currency, travelers FROM trip_budgets WHERE trip_id = $1', [trip.id])
         : Promise.resolve({ rows: [] }),
       canEdit
-        ? pool.query('SELECT id, title, amount, category, day_number, paid_by, item_id, created_at FROM trip_expenses WHERE trip_id = $1 ORDER BY created_at DESC, id DESC', [trip.id])
+        ? pool.query(`SELECT ${EXPENSE_COLS} FROM trip_expenses WHERE trip_id = $1 ORDER BY created_at DESC, id DESC`, [trip.id])
         : Promise.resolve({ rows: [] }),
       canEdit ? pool.query(
         `SELECT u.id, u.name, (u.id = COALESCE($2, -1)) AS is_owner
@@ -666,6 +666,7 @@ router.put('/api/trips/code/:code/dates', authOptional, async (req, res) => {
 
 const BUDGET_CURRENCIES = ['ILS', 'USD', 'EUR', 'GBP', 'JPY', 'THB', 'CHF'];
 const EXPENSE_CATEGORIES = ['לינה', 'אוכל', 'נסיעות', 'אטרקציות', 'קניות', 'אחר'];
+const EXPENSE_COLS = 'id, title, amount, category, day_number, paid_by, paid_to, split_among, item_id, created_at';
 
 router.put('/api/trips/code/:code/budget', authOptional, async (req, res) => {
   try {
@@ -782,38 +783,96 @@ router.delete('/api/trips/code/:code/hotels/:hotelId', authOptional, async (req,
   }
 });
 
-// ---- expense log (actual spending, quick-add) ----
+// ---- expenses: who paid, and who it is split between (the "who owes whom" page) ----
+// An expense is an amount, the name of whoever paid it (picked from the participants;
+// the signed-in user when none is sent), an optional description, and the names it is
+// split between (null = everyone on the trip). A row with paid_to is a settle-up
+// payment: paid_by handed paid_to the amount. Names, not user ids, because the old
+// rows and the settle marks were always by name.
+
+const personName = (v) => String(v || '').trim().slice(0, 160);
+
+function cleanExpense(b, trip, user) {
+  const amount = Number.isFinite(+b.amount) ? Math.round(Math.min(+b.amount, 999999999) * 100) / 100 : NaN;
+  const paidBy = personName(b.paid_by) || personName(user && user.name) || null;
+  const paidTo = personName(b.paid_to) || null;
+  let split = null;
+  if (Array.isArray(b.split_among)) {
+    const seen = new Set();
+    split = b.split_among.map(personName).filter((n) => {
+      const k = n.toLowerCase();
+      if (!n || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    }).slice(0, 50);
+    if (!split.length) split = null;
+  }
+  const day = parseInt(b.day_number, 10);
+  return {
+    title: String(b.title || '').slice(0, 160).trim(),
+    amount,
+    category: EXPENSE_CATEGORIES.includes(b.category) ? b.category : 'אחר',
+    day_number: day >= 1 && day <= trip.days ? day : null,
+    paid_by: paidBy,
+    paid_to: paidTo,
+    split_among: paidTo ? null : split,
+  };
+}
+
+function expenseError(e) {
+  if (!(e.amount > 0)) return 'חסר סכום תקין';
+  if (!e.paid_by) return 'מי שילם?';
+  if (e.paid_to && e.paid_to.toLowerCase() === e.paid_by.toLowerCase()) return 'העברה צריכה שני אנשים שונים';
+  return null;
+}
 
 router.post('/api/trips/code/:code/expenses', authOptional, async (req, res) => {
   try {
     const trip = await tripWithEditAuth(req, res);
     if (!trip) return;
     const b = req.body || {};
-    const title = String(b.title || '').slice(0, 160).trim();
-    const amount = Number.isFinite(+b.amount) ? Math.min(+b.amount, 999999999) : NaN;
-    if (!title) return res.status(400).json({ error: 'על מה הוצאתם? חסר תיאור' });
-    if (!(amount > 0)) return res.status(400).json({ error: 'חסר סכום תקין' });
-    const day = parseInt(b.day_number, 10);
+    const e = cleanExpense(b, trip, req.user);
+    const bad = expenseError(e);
+    if (bad) return res.status(400).json({ error: bad });
     let itemId = parseInt(b.item_id, 10);
-    if (!(itemId > 0)) itemId = null;
+    if (!(itemId > 0) || e.paid_to) itemId = null;
     if (itemId) {
       const owned = await pool.query('SELECT id FROM trip_items WHERE id = $1 AND trip_id = $2', [itemId, trip.id]);
       if (!owned.rows[0]) return res.status(400).json({ error: 'התחנה לא נמצאה' });
       const existing = await pool.query(
-        'SELECT id, title, amount, category, day_number, paid_by, item_id, created_at FROM trip_expenses WHERE trip_id = $1 AND item_id = $2',
+        `SELECT ${EXPENSE_COLS} FROM trip_expenses WHERE trip_id = $1 AND item_id = $2`,
         [trip.id, itemId]
       );
       if (existing.rows[0]) return res.json(existing.rows[0]);
     }
     const { rows } = await pool.query(
-      `INSERT INTO trip_expenses (trip_id, title, amount, category, day_number, paid_by, item_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, title, amount, category, day_number, paid_by, item_id, created_at`,
-      [trip.id, title, amount,
-       EXPENSE_CATEGORIES.includes(b.category) ? b.category : 'אחר',
-       day >= 1 && day <= trip.days ? day : null,
-       req.user.name || null,
-       itemId]
+      `INSERT INTO trip_expenses (trip_id, title, amount, category, day_number, paid_by, paid_to, split_among, item_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ${EXPENSE_COLS}`,
+      [trip.id, e.title, e.amount, e.category, e.day_number, e.paid_by, e.paid_to,
+       e.split_among ? JSON.stringify(e.split_among) : null, itemId]
     );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'שגיאת שרת' });
+  }
+});
+
+router.put('/api/trips/code/:code/expenses/:expenseId', authOptional, async (req, res) => {
+  try {
+    const trip = await tripWithEditAuth(req, res);
+    if (!trip) return;
+    const e = cleanExpense(req.body || {}, trip, req.user);
+    const bad = expenseError(e);
+    if (bad) return res.status(400).json({ error: bad });
+    const { rows } = await pool.query(
+      `UPDATE trip_expenses SET title = $1, amount = $2, paid_by = $3, paid_to = $4, split_among = $5,
+         day_number = COALESCE($6, day_number)
+       WHERE id = $7 AND trip_id = $8 RETURNING ${EXPENSE_COLS}`,
+      [e.title, e.amount, e.paid_by, e.paid_to, e.split_among ? JSON.stringify(e.split_among) : null,
+       e.day_number, req.params.expenseId, trip.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'ההוצאה לא נמצאה' });
     res.json(rows[0]);
   } catch (err) {
     console.error(err);
