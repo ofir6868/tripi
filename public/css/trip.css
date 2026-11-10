@@ -4683,7 +4683,7 @@ html.fly-open, html.fly-open body { overflow: hidden; }
 
 .tp-sheet-card.day-photos-card { width: min(640px, 100%); }
 .tp-sheet-title svg, .dp-add svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
-.dp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
+.dph-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
 .dp-tile {
   position: relative; aspect-ratio: 1; padding: 0; border: 0; border-radius: 12px; overflow: hidden; cursor: pointer;
   background: var(--glass) center / 26px no-repeat;
@@ -4760,7 +4760,7 @@ html.dp-viewer-open, html.dp-viewer-open body { overflow: hidden; }
 .dpv-cap { padding: 10px 16px calc(14px + env(safe-area-inset-bottom)); text-align: center; color: var(--paper-dim); font-size: .84rem; }
 .dpv-cap b { color: var(--paper); }
 @media (max-width: 640px) {
-  .dp-grid { grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .dph-grid { grid-template-columns: repeat(3, 1fr); gap: 4px; }
   .dp-tile { border-radius: 8px; }
   .dpv-nav { display: none; }
   .dp-picker .dp-foot { margin-inline: -16px; padding-inline: 16px; }

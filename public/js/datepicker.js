@@ -36,6 +36,9 @@ const DATEPICKER = (() => {
   //   block at once. Without it the second click sets the return date (free range).
   // opts.maxDays  — free-range ceiling, matching the wizard's own cap.
   // opts.onChange({ start, end, days }) — ISO strings (end may be null mid-pick).
+  // opts.allowPast — let days before today be picked. Off everywhere today: a trip is
+  //   planned forward, and a calendar that pages back forever is where strangers got
+  //   lost (Nov 1: "previous month" pressed eight times before anyone found January).
   function create(host, opts = {}) {
     const fixedDays = opts.fixedDays || null;
     const maxDays = opts.maxDays || 60;
@@ -46,24 +49,77 @@ const DATEPICKER = (() => {
     let end = parse(opts.end);
     let hover = null;           // the day under the cursor while a range is half-picked
     let view = new Date((start || today).getFullYear(), (start || today).getMonth(), 1);
+    let floor = null;           // the first pickable day; null when the past is open
+    function setFloor() {
+      // a trip already under way keeps its own start reachable, so re-opening its dates
+      // doesn't strand the departure behind a wall
+      floor = opts.allowPast ? null : (start && start < today ? start : today);
+    }
+    setFloor();
+    const monthStart = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
+    const MONTHS_AHEAD = 18;    // how far the month jump reaches — a year and a half
 
     host.classList.add('dp');
     host.innerHTML = `
       <div class="dp-head">
-        <button type="button" class="dp-nav" data-step="-1" aria-label="החודש הקודם">${CHEV_PREV}</button>
-        <div class="dp-month" aria-live="polite"></div>
-        <button type="button" class="dp-nav" data-step="1" aria-label="החודש הבא">${CHEV_NEXT}</button>
+        <button type="button" class="dp-nav" data-step="-1" aria-label="החודש הקודם" title="החודש הקודם">${CHEV_PREV}</button>
+        <button type="button" class="dp-month" aria-live="polite" aria-expanded="false" title="קפיצה לחודש"></button>
+        <button type="button" class="dp-nav" data-step="1" aria-label="החודש הבא" title="החודש הבא">${CHEV_NEXT}</button>
       </div>
+      <div class="dp-months" hidden></div>
       <div class="dp-dow">${DOW.map((d) => `<span>${d}</span>`).join('')}</div>
       <div class="dp-grid"></div>`;
     const monthEl = host.querySelector('.dp-month');
+    const monthsEl = host.querySelector('.dp-months');
+    const dowEl = host.querySelector('.dp-dow');
     const grid = host.querySelector('.dp-grid');
+    const prevBtn = host.querySelector('.dp-nav[data-step="-1"]');
 
     host.querySelectorAll('.dp-nav').forEach((b) => {
       b.onclick = () => {
+        if (b.disabled) return;
+        closeMonths();
         view = new Date(view.getFullYear(), view.getMonth() + (+b.dataset.step), 1);
         renderMonth();
       };
+    });
+
+    // the month jump: a trip in March is one tap away, not five presses of an arrow.
+    // It replaces the day grid while open, so the panel never grows taller.
+    function openMonths() {
+      const first = monthStart(floor || today);
+      const cells = [];
+      let year = null;
+      for (let i = 0; i < MONTHS_AHEAD; i++) {
+        const m = new Date(first.getFullYear(), first.getMonth() + i, 1);
+        if (m.getFullYear() !== year) {
+          year = m.getFullYear();
+          cells.push(`<span class="dp-year">${year}</span>`);
+        }
+        const cur = m.getTime() === view.getTime();
+        cells.push(`<button type="button" class="dp-mo${cur ? ' is-current' : ''}" data-m="${iso(m)}"
+          aria-label="${m.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}">${m.toLocaleDateString('he-IL', { month: 'short' })}</button>`);
+      }
+      monthsEl.innerHTML = cells.join('');
+      monthsEl.hidden = false;
+      dowEl.hidden = true;
+      grid.hidden = true;
+      monthEl.setAttribute('aria-expanded', 'true');
+    }
+    function closeMonths() {
+      if (monthsEl.hidden) return;
+      monthsEl.hidden = true;
+      dowEl.hidden = false;
+      grid.hidden = false;
+      monthEl.setAttribute('aria-expanded', 'false');
+    }
+    monthEl.onclick = () => (monthsEl.hidden ? openMonths() : closeMonths());
+    monthsEl.addEventListener('click', (e) => {
+      const b = e.target.closest('.dp-mo');
+      if (!b) return;
+      view = parse(b.dataset.m);
+      closeMonths();
+      renderMonth();
     });
 
     // the range as it stands right now — including the one being dragged out, so the
@@ -91,7 +147,10 @@ const DATEPICKER = (() => {
     }
 
     function renderMonth() {
+      if (floor && view < monthStart(floor)) view = monthStart(floor);
       monthEl.textContent = view.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' });
+      // no way back past the first pickable month — the only live arrow is the right one
+      prevBtn.disabled = !!floor && view.getTime() <= monthStart(floor).getTime();
       const first = new Date(view.getFullYear(), view.getMonth(), 1);
       const total = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
       const cells = [];
@@ -100,8 +159,9 @@ const DATEPICKER = (() => {
       for (let n = 1; n <= total; n++) {
         const d = new Date(view.getFullYear(), view.getMonth(), n);
         const label = d.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' });
-        cells.push(`<button type="button" class="dp-day${sameDay(d, today) ? ' is-today' : ''}"
-          data-d="${iso(d)}" aria-label="${label}">${n}</button>`);
+        const past = !!floor && d < floor;
+        cells.push(`<button type="button" class="dp-day${sameDay(d, today) ? ' is-today' : ''}${past ? ' is-past' : ''}"
+          data-d="${iso(d)}" aria-label="${label}"${past ? ' disabled' : ''}>${n}</button>`);
       }
       grid.innerHTML = cells.join('');
       paint();
@@ -109,7 +169,7 @@ const DATEPICKER = (() => {
 
     grid.addEventListener('click', (e) => {
       const cell = e.target.closest('.dp-day');
-      if (!cell) return;
+      if (!cell || cell.disabled) return;
       const d = parse(cell.dataset.d);
       if (fixedDays) {
         start = d;
@@ -127,7 +187,7 @@ const DATEPICKER = (() => {
     grid.addEventListener('mouseover', (e) => {
       if (!start || end || fixedDays) return;
       const cell = e.target.closest('.dp-day');
-      if (!cell) return;
+      if (!cell || cell.disabled) return;
       hover = parse(cell.dataset.d);
       paint();
     });
@@ -152,6 +212,8 @@ const DATEPICKER = (() => {
         // it an end that disagrees with the length it asked for
         end = fixedDays && start ? addDays(start, fixedDays - 1) : parse(nextEnd);
         hover = null;
+        setFloor();
+        closeMonths();
         // re-opening lands on the chosen month, or on this one when there's nothing
         // chosen yet — never on whatever month was last browsed away to
         const anchor = start || today;

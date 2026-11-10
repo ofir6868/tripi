@@ -146,7 +146,7 @@ const TripDayPhotos = (() => {
       sub: `${esc(dayTitle(day).replace(/^יום \d+ · /, ''))} · ${count(list.length)} · מתוך Google Drive`,
       cls: 'day-photos-card',
       html: `
-        <div class="dp-grid">${list.map((p, i) => `
+        <div class="dph-grid">${list.map((p, i) => `
           <button type="button" class="dp-tile" data-i="${i}" aria-label="${esc(p.name || 'תמונה')}">
             <img alt="" loading="lazy" decoding="async" src="${esc(p.thumb)}" onerror="this.parentNode.classList.add('broken');this.remove()">
             ${clock(p) ? `<span class="dp-time" dir="ltr">${clock(p)}</span>` : ''}
@@ -230,8 +230,8 @@ const TripDayPhotos = (() => {
             return;
           }
           results.innerHTML = `
-            ${day0.length ? `<h4 class="dp-h">צולמו ביום הזה <small>${day0.length}</small></h4><div class="dp-grid">${day0.map(tile).join('')}</div>` : (isoOf(day) && !query ? '<p class="dp-hint">לא מצאנו ב-Drive תמונות שצולמו בתאריך הזה — הנה האחרונות שלכם.</p>' : '')}
-            ${rest.length ? `<h4 class="dp-h">${day0.length ? 'עוד מה-Drive' : 'אחרונות ב-Drive'}</h4><div class="dp-grid dp-rest">${rest.map(tile).join('')}</div>` : ''}
+            ${day0.length ? `<h4 class="dp-h">צולמו ביום הזה <small>${day0.length}</small></h4><div class="dph-grid">${day0.map(tile).join('')}</div>` : (isoOf(day) && !query ? '<p class="dp-hint">לא מצאנו ב-Drive תמונות שצולמו בתאריך הזה — הנה האחרונות שלכם.</p>' : '')}
+            ${rest.length ? `<h4 class="dp-h">${day0.length ? 'עוד מה-Drive' : 'אחרונות ב-Drive'}</h4><div class="dph-grid dp-rest">${rest.map(tile).join('')}</div>` : ''}
             ${next ? '<button type="button" class="btn btn-ghost dp-more">עוד תמונות</button>' : ''}`;
           wireTiles(results);
           const moreBtn = results.querySelector('.dp-more');
@@ -242,7 +242,7 @@ const TripDayPhotos = (() => {
                 const r2 = await fetchPage(true);
                 next = r2.next;
                 let grid = results.querySelector('.dp-rest');
-                if (!grid) { grid = document.createElement('div'); grid.className = 'dp-grid dp-rest'; moreBtn.before(grid); }
+                if (!grid) { grid = document.createElement('div'); grid.className = 'dph-grid dp-rest'; moreBtn.before(grid); }
                 grid.insertAdjacentHTML('beforeend', (r2.recent || []).map(tile).join(''));
                 wireTiles(grid);
                 if (next) moreBtn.disabled = false; else moreBtn.remove();
