@@ -113,11 +113,25 @@ app.use(require('./routes/pages'));
 // the live instance (DATABASE_URL may still name the deleted one), then bring the schema
 // up. Nothing here is allowed to reject: a database that is down must not stop the app
 // from answering — /api/health reports the truth and db-bootstrap keeps retrying.
+//
+// Started on first need, not when this module loads. On Vercel every cold instance loads
+// this file, and most of what a cold instance is woken for never touches the database: a
+// crawler on /, a script, an uptime check on /api/health. Starting the boot eagerly made
+// each of those open a connection — and the free Neon database bills compute for every
+// five minutes it is kept awake after a connection. On 2026-11-14 it had spent 80 of its
+// 100 monthly CU-hours by the 14th: awake around the clock. api/index.js now calls boot()
+// only for a request that needs the database, so a visit that doesn't, doesn't wake it.
 const { ensureDatabase } = require('./lib/db');
-const boot = ensureDatabase()
-  .catch((err) => console.error(`db: could not resolve an instance at boot (${err.message}) — bootstrap will keep retrying`))
-  .then(() => require('./lib/db-bootstrap').ensureSchema())
-  .catch((err) => console.error(`db-bootstrap: could not bring the schema up (${err.message})`));
+let booting = null;
+function boot() {
+  if (!booting) {
+    booting = ensureDatabase()
+      .catch((err) => console.error(`db: could not resolve an instance at boot (${err.message}) — bootstrap will keep retrying`))
+      .then(() => require('./lib/db-bootstrap').ensureSchema())
+      .catch((err) => console.error(`db-bootstrap: could not bring the schema up (${err.message})`));
+  }
+  return booting;
+}
 
 // The jobs that need a clock. Every one of them is a timer in this process, which is a
 // bargain that only holds on a host that keeps the process alive between requests.
@@ -153,7 +167,7 @@ function startBackgroundJobs() {
 // those edges and never a hole.
 if (require.main === module) {
   startBackgroundJobs();
-  boot.then(() => {
+  boot().then(() => {
     app.listen(PORT, () => console.log(`TRIP MAKER running on http://localhost:${PORT}`));
   });
 }

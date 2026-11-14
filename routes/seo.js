@@ -12,10 +12,16 @@ const router = express.Router();
 const DAY = 60 * 60 * 24;
 // these pages are cached for a day, which makes stamping their asset URLs matter more
 // than anywhere else: a day-old page must not ask for a day-old stylesheet
-const send = (res, html) => res.set('Cache-Control', `public, max-age=${DAY}`).type('html').send(stampAssets(html));
+//
+// Vercel-CDN-Cache-Control lets Vercel's own edge keep the page too, so a crawler walking
+// the destination pages is answered there instead of waking a function — and, for
+// /destinations/:slug, the database. Vercel drops that cache on every deploy, so a new
+// commit's asset stamps are never served from an old copy.
+const edge = (res) => res.set('Vercel-CDN-Cache-Control', `max-age=${DAY}`);
+const send = (res, html) => edge(res).set('Cache-Control', `public, max-age=${DAY}`).type('html').send(stampAssets(html));
 
 router.get('/sitemap.xml', (_req, res) => {
-  res.set('Cache-Control', `public, max-age=${DAY}`).type('application/xml').send(seo.renderSitemap());
+  edge(res).set('Cache-Control', `public, max-age=${DAY}`).type('application/xml').send(seo.renderSitemap());
 });
 
 router.get('/terms', (_req, res) => send(res, legal.renderTerms()));
