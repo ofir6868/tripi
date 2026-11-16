@@ -190,6 +190,8 @@
     is_public: false, is_draft: true, likes: 0, invite_token: 'demo-invite-token-2', created_at: '2026-09-01T10:00:00Z',
     plan_state: { mode: 'manual', stage: 'clarify', interests: ['אוכל ומסעדות', 'היסטוריה ותרבות'], notes: 'קצב רגוע', facts: [], pending: [], areas: [] },
   };
+  // MOCK_AUTOBUILD=1: the draft the wizard makes now — built the moment it opens (routes/plan.js)
+  if (process.env.MOCK_AUTOBUILD) draft.plan_state.autobuild = true;
   let draftItems = [];
   let planMsgs = [];
   let planNextId = 1;
@@ -354,6 +356,11 @@
       const rest = pm[1] || '';
       if (!draft.is_draft) return json(409, { error: 'הטיול כבר נשמר' });
       if (!rest && method === 'GET') {
+        if (!planMsgs.length && draft.plan_state.autobuild) {
+          Object.assign(draft.plan_state, { stage: 'choose', build: 'once', opened: true });
+          planMsg('ai', 'היי! מתכננים יחד את הטיול ליפן — 10 ימים. בונה לכם עכשיו מסלול מלא, יום אחרי יום — עוד רגע הוא מחכה בדף הטיול. אחר כך אפשר לשנות איתי כל דבר: להוסיף טיסות, להזיז ימים, להחליף מקומות.',
+            { suggestions: ['בבת אחת ✨'] });
+        }
         if (!planMsgs.length) {
           draft.plan_state.pending = [{ question: 'באיזה אזור להתמקד בעשרת הימים?', options: ['טוקיו והסביבה (טוקיו, ניקו)', 'קנסאי (קיוטו, אוסקה, נארה)', 'שניהם'], multi: false }];
           planMsg('ai', 'היי! מתכננים יחד את הטיול ליפן — 10 ימים. שאלה קטנה קודם: באיזה אזור להתמקד בעשרת הימים?',
@@ -449,6 +456,7 @@
         }
         draft.plan_state.stage = 'done';
         draft.plan_state.basics = true;
+        delete draft.plan_state.autobuild;
         draft.description = draft.description || 'עשרה ימים ביפן בקצב רגוע: טוקיו וניקו, ואז קיוטו עם נארה ואוסקה — מקדשים, שווקים ואוכל.';
         const m = planMsg('ai', fill ? 'השלמתי את שאר הימים.' : 'בניתי את הטיול — 20 תחנות על פני 10 ימים.', { built: { count: 20, fill } });
         return json(200, { items: draftItems, plan: draft.plan_state.areas.length ? draft.plan_state.areas : [{ area: 'טוקיו', from: 1, to: 5, cities: ['טוקיו'] }, { area: 'קיוטו', from: 6, to: 10, cities: ['קיוטו'] }], message: m, state: draft.plan_state, trip: { description: draft.description, emoji: draft.emoji, cover_image: draft.cover_image } });

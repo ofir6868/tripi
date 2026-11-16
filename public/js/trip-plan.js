@@ -1115,6 +1115,7 @@ const TripPlan = (() => {
       };
       flush();
       drainNext();
+      if (loaded && autobuildDue()) autobuild();
     }
 
     // the turn typed ahead goes out once the chat is free again — never while a card is
@@ -1267,8 +1268,8 @@ const TripPlan = (() => {
     // =================================================================
 
     let building = false;
-    async function build(fill) {
-      if (building) return;
+    async function build(fill, { auto = false } = {}) {
+      if (building) return false;
       building = true;
       const overlay = showOverlay(fill ? 'את שאר הימים' : 'את הטיול');
       const before = lastBuiltId();
@@ -1291,7 +1292,7 @@ const TripPlan = (() => {
         state = r.state;
         ctx.trip.plan_state = state;
         await promoteAreas(r.plan);
-        TRIPMAKER.track?.('plan_build', { code: ctx.trip.share_code, fill, count: (r.items || []).length });
+        TRIPMAKER.track?.('plan_build', { code: ctx.trip.share_code, fill, auto, count: (r.items || []).length });
         // the free days' picks start now, behind the same screen. The screen waits for
         // the first of them and no longer: on a month-long trip the picks are minutes
         // of model calls, and holding the traveller in front of a loading screen for
@@ -1303,15 +1304,52 @@ const TripPlan = (() => {
             onProgress: (snap) => { if (snap.ready) overlay.say(`מכינים המלצות לימים הפנויים… ${snap.ready} ימים מוכנים ✨`); },
           }).catch(() => { /* the itinerary asks again on open */ });
         }
-        // the itinerary is the point now: land on it, the chat stays a tab away
-        location.href = `/trip/${ctx.trip.share_code}`;
+        // the itinerary is the point now: land on its days, the chat stays a tab away
+        landOnRoute();
+        return true;
       } catch (err) {
         overlay.remove();
         building = false;
-        if (err && err.quota) { outOfQuota(err.quota); return; }
+        if (err && err.quota) { outOfQuota(err.quota); return false; }
         msgs.push({ role: 'ai', text: '⚠️ ' + ((err && err.message) || 'הבנייה נכשלה — נסו שוב'), payload: {}, transient: true });
         paint();
+        return false;
       }
+    }
+
+    // ---- the wizard's trip: built before anything is asked (routes/plan.js AUTOBUILD_TEXT) ----
+    // The mark in sessionStorage is the build this tab already started: a reload while it
+    // runs waits for that build to land instead of starting (and paying for) a second one
+    // over it. Past five minutes the route has given up (300 s), so the mark is stale.
+    const AUTO_KEY = 'tm_autobuild_' + ctx.trip.share_code;
+    const autoStarted = () => {
+      try { const t = +sessionStorage.getItem(AUTO_KEY); return t && Date.now() - t < 5 * 60 * 1000; } catch { return false; }
+    };
+    const autoMark = (on) => {
+      try { if (on) sessionStorage.setItem(AUTO_KEY, String(Date.now())); else sessionStorage.removeItem(AUTO_KEY); } catch { /* private mode: a reload may build twice */ }
+    };
+    const autobuildDue = () => !!(state && state.autobuild && state.stage !== 'done' && !lastBuiltId());
+    async function autobuild() {
+      if (autoStarted()) {
+        const overlay = showOverlay('את הטיול');
+        const r = await awaitBuilt(null);
+        if (r) { landOnRoute(); return; }
+        overlay.remove();
+        autoMark(false);
+        paint();
+        return;
+      }
+      autoMark(true);
+      const ok = await build(false, { auto: true });
+      if (!ok) autoMark(false);
+    }
+
+    // A full load of the trip page, scrolled to the days (trip.js reads the mark). Not a
+    // #route hash: from /trip/CODE#plan that is a same-page hash change, and the page — still
+    // veiled, still holding the empty draft — would never reload.
+    function landOnRoute() {
+      try { sessionStorage.setItem('tm_land_route', ctx.trip.share_code); } catch { /* lands at the top */ }
+      location.href = `/trip/${ctx.trip.share_code}`;
     }
 
     // the newest "built" message in the thread — the mark a finished build leaves

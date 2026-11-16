@@ -28,7 +28,8 @@ http.createServer((req, res) => {
       const r = mock.handle(req.method, req.url, body);
       // MOCK_SLOW_PLAN=4000 makes the planning chat answer the way production does — the
       // opening and every turn take a model call — so its waiting states can be looked at
-      const slow = /\/plan$/.test(url.pathname) && req.method !== 'PATCH' ? +(process.env.MOCK_SLOW_PLAN || 0) : 0;
+      const slow = /\/plan$/.test(url.pathname) && req.method !== 'PATCH' ? +(process.env.MOCK_SLOW_PLAN || 0)
+        : /\/plan\/build$/.test(url.pathname) ? +(process.env.MOCK_SLOW_BUILD || 0) : 0;
       return setTimeout(() => {
         res.writeHead(r.status, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify(r.body));

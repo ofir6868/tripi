@@ -1,8 +1,7 @@
 // AI-first plan wizard: destinations → dates → style → the trip is CREATED on the
-// spot — an empty draft on the server, opened on its own page (/trip/CODE) and straight
-// into the planning chat (#plan), where the AI builds it with the traveller; the style
-// answers ride along as its opening memory. The trip page's dock waits behind a veil
-// there until the chat settles the basics, and then arrives with a spark.
+// spot — an empty draft on the server, opened on its own page (/trip/CODE#plan), where
+// the whole route is built at once from the style answers and the traveller lands on
+// the finished itinerary; the planning chat stays a tab away for changes.
 // Publishing ("שמירת הטיול") happens over there too.
 (() => {
   const DEFAULT_COVER = 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1200&q=80';
@@ -445,10 +444,11 @@
   // ---- create (as a draft) ----
 
   // the AI path: the trip is created empty, with the style answers kept for the planning
-  // chat, where the AI asks what it needs, then builds — step by step or all at once, as
-  // the traveller picks there. Nothing is generated here anymore. The trip opens INSIDE
-  // that chat: a trip a minute old has nothing on its itinerary yet, and the conversation
-  // that fills it is what the button promised. The trip page is behind it, one tap away.
+  // chat, and marked `autobuild`: it opens on the chat's build screen, which builds the
+  // whole route at once from these answers and lands on the itinerary — the questions
+  // (flights, areas) come after, as changes to a route the traveller can already see.
+  // Before 2026-11-16 the chat asked first, and most people left before it built anything
+  // (routes/plan.js openingMessage has the numbers).
   const aiBtn = document.getElementById('ai-full');
   const aiLabel = aiBtn.textContent;
   aiBtn.onclick = () => {
@@ -457,7 +457,7 @@
       aiBtn.disabled = true;
       aiBtn.textContent = 'פותחים את התכנון…';
       await saveDraftTrip(buildTripPayload([]), {
-        plan_state: { interests: [...selectedInterests], notes: document.getElementById('ai-notes').value.trim(), mode: 'manual' },
+        plan_state: { interests: [...selectedInterests], notes: document.getElementById('ai-notes').value.trim(), mode: 'manual', autobuild: true },
         path: 'ai',
       });
       // still here = the save failed and rendered a retry into #ai-status

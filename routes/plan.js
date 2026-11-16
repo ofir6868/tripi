@@ -210,8 +210,32 @@ const OPENING_CLARIFY_MS = 12000;
 // prompt that learned (the hard way) to ask only about the route's structure. Here
 // they open the conversation one at a time, as chips; the model takes over from the
 // first reply.
+// The wizard's trip opens on a route, not on a question (2026-11-16). Measured over the
+// 45 days before: of 23 people who created a trip, 5 ever saw a built itinerary — the rest
+// left one to six minutes in, mid-way through the clarify → flights → areas → choose
+// round, before the chat had built anything. A trip nobody saw is a trip nobody comes
+// back to. So a trip the wizard marked `autobuild` skips the clarifying round (and its
+// twelve-second wait) and says it is building; the page starts the one-shot build at
+// once (trip-plan.js), and the conversation becomes the way to change a finished route
+// instead of the gate in front of one. Several countries too: the build is per area
+// either way (routes/ai.js buildItinerary), which is what the step-by-step path bought.
+const AUTOBUILD_TEXT = 'בונה לכם עכשיו מסלול מלא, יום אחרי יום — עוד רגע הוא מחכה בדף הטיול. אחר כך אפשר לשנות איתי כל דבר: להוסיף טיסות, להזיז ימים, להחליף מקומות.';
+
 async function openingMessage(client, trip, userId) {
   const state = trip.plan_state;
+  if (state.autobuild) {
+    const where = listNames(trip.dests.map((d) => d.name)) || trip.destination;
+    state.stage = 'choose';
+    state.build = 'once';
+    state.opened = true;
+    // the chip is the way back in when the build could not run (quota, a dropped network):
+    // one tap asks for the same build again
+    // the first sentence is the one the chat paints before this lands (trip-plan.js openingHello)
+    const row = await addMessage(client, trip.id, null, 'ai',
+      `היי! מתכננים יחד את הטיול ל${where} — ${trip.days} ימים. ${AUTOBUILD_TEXT}`, { suggestions: [SUGGEST_ONCE] });
+    await saveState(client, trip.id, state);
+    return row;
+  }
   const broadSingle = trip.dests.length === 1 && (!trip.dests[0].country || trip.dests[0].country === trip.dests[0].name);
   let questions = [];
   if ((trip.dests.length >= 2 || broadSingle) && process.env.OPENAI_API_KEY) {
@@ -1158,6 +1182,7 @@ router.post('/api/trips/code/:code/plan/build', authRequired, async (req, res) =
       );
     }
     state.stage = 'done';
+    delete state.autobuild;
     // a built trip is long past "the basics": it leaves for its own page, dock and all
     state.basics = true;
     state.build = fill ? state.build : 'once';

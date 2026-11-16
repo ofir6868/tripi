@@ -1488,6 +1488,18 @@
     // (plan_state.basics), trip-pages.js paints it, and it only ever happens once.
     if (TripPages.current() === 'plan' && !(trip.plan_state || {}).basics) TripPages.veilDock();
 
+    // a build that just finished lands here marked (trip-plan.js landOnRoute): the route it
+    // built is the thing to see, not the header and the checklist above it — the first
+    // screen of a trip someone just made is its days
+    let landRoute = false;
+    try { landRoute = sessionStorage.getItem('tm_land_route') === trip.share_code; sessionStorage.removeItem('tm_land_route'); } catch { /* no mark */ }
+    if (landRoute && !location.hash) {
+      requestAnimationFrame(() => {
+        const top = document.getElementById('days-container').getBoundingClientRect().top + window.scrollY - 96;
+        window.scrollTo({ top: Math.max(0, top) });
+      });
+    }
+
     // a /trip/CODE#budget link (or a reload mid-budget) lands straight on the budget page
     if ((location.hash === '#budget' || location.hash === '#budget-settings') && canEdit) {
       TripModals.openBudget(modalCtx);
