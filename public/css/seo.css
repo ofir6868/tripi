@@ -232,3 +232,27 @@
   text-decoration-thickness: 1px; text-underline-offset: 3px; font-weight: 500; unicode-bidi: isolate;
 }
 .legal-page p a:hover, .legal-page li a:hover, .legal-page td a:hover { text-decoration-color: var(--amber); }
+
+/* ---------- the phone-only "build this trip" bar (js/seo-sticky.js) ----------
+   Slides up from the bottom edge once the reader has scrolled. A phone thing only: on
+   a wide screen the header's own button never leaves the view. */
+.seo-sticky { display: none; }
+@media (max-width: 720px) {
+  .seo-sticky {
+    position: fixed; z-index: 40; inset-inline: 0; bottom: 0;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(10, 22, 20, .9); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border-top: 1px solid rgba(255, 180, 95, .3);
+    transform: translateY(110%); visibility: hidden;
+    transition: transform .28s ease, visibility 0s linear .28s;
+  }
+  .seo-sticky.show { transform: none; visibility: visible; transition: transform .28s ease; }
+  .seo-sticky .btn { flex: 1; justify-content: center; text-align: center; min-height: 46px; }
+  .seo-sticky span { flex: none; font-size: .76rem; line-height: 1.35; color: var(--paper-dim); max-width: 7.5em; }
+  /* the last lines of the page stay readable above the bar */
+  .seo-page .site-footer { padding-bottom: 84px; }
+}
+@media (max-width: 720px) and (prefers-reduced-motion: reduce) {
+  .seo-sticky, .seo-sticky.show { transition: none; }
+}

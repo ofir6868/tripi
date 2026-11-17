@@ -830,23 +830,39 @@ button.dest-chip.dc-add .ic { width: 15px; height: 15px; }
 /* the month before the first pickable day: still there, so the layout doesn't jump,
    but plainly not a way forward */
 .dp-nav:disabled { opacity: .3; cursor: default; background: transparent; }
-.dp-month {
-  border: 0; background: transparent; color: var(--paper); font-family: var(--font-body);
-  cursor: pointer; padding: 6px 10px; border-radius: 999px; transition: background .15s ease;
+/* the month strip: a row of months that scrolls sideways, the shown one in amber.
+   It fades out at the far edge so it reads as "there is more this way" */
+.dp-strip {
+  position: relative; display: flex; gap: 6px; overflow-x: auto; overscroll-behavior-x: contain;
+  /* width 0 + min-width 100%: fills its column, but eighteen chips never get a say in
+     how wide that column is — without it the strip stretched the whole wizard panel */
+  width: 0; min-width: 100%; box-sizing: border-box;
+  margin: 0 0 12px; padding: 2px 0 4px; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  -webkit-mask-image: linear-gradient(to left, #000 0 82%, transparent 100%);
+  mask-image: linear-gradient(to left, #000 0 82%, transparent 100%);
 }
-.dp-month::after { content: ' ▾'; font-size: .7em; color: var(--amber); }
-.dp-month[aria-expanded="true"]::after { content: ' ▴'; }
-.dp-month:hover { background: var(--glass); }
-.dp-months { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding-bottom: 4px; }
-.dp-months[hidden], .dp-dow[hidden], .dp-grid[hidden] { display: none; }
-.dp-year { grid-column: 1 / -1; font-size: .75rem; font-weight: 800; color: var(--paper-dim); margin-top: 4px; }
+.dp-strip::-webkit-scrollbar { display: none; }
 .dp-mo {
+  flex: none; display: inline-flex; align-items: baseline; gap: 5px;
   border: 1px solid var(--glass-border); background: var(--glass); color: var(--paper);
-  font-family: var(--font-body); font-size: .88rem; font-weight: 600; border-radius: 10px;
-  padding: 9px 0; cursor: pointer; transition: background .15s ease;
+  font-family: var(--font-body); font-size: .88rem; font-weight: 600; border-radius: 999px;
+  padding: 8px 13px; min-height: 38px; cursor: pointer; transition: background .15s ease, border-color .15s ease;
 }
+.dp-mo small { font-size: .72rem; font-weight: 600; color: var(--paper-dim); }
 .dp-mo:hover { background: var(--glass-strong); }
-.dp-mo.is-current { border-color: var(--amber); color: var(--amber); }
+.dp-mo.is-current { background: var(--amber); border-color: var(--amber); color: var(--ink); font-weight: 800; }
+.dp-mo.is-current small { color: inherit; opacity: .75; }
+/* with a mouse there is nothing to swipe, and the wizard's calendar column is only
+   seven days wide — so the strip becomes a small grid of the coming twelve months,
+   each name appearing once (no year needed); the arrows still reach further */
+@media (hover: hover) and (pointer: fine) and (min-width: 721px) {
+  .dp-strip {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; overflow: visible;
+    -webkit-mask-image: none; mask-image: none;
+  }
+  .dp-mo { justify-content: center; padding: 5px 0; min-height: 30px; font-size: .8rem; }
+  .dp-mo small, .dp-mo:nth-child(n+13) { display: none; }
+}
 .dp-dow, .dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 .dp-dow { margin-bottom: 4px; }
 .dp-dow span { text-align: center; font-size: .75rem; font-weight: 700; color: var(--paper-dim); opacity: .65; }

@@ -57,69 +57,79 @@ const DATEPICKER = (() => {
     }
     setFloor();
     const monthStart = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
-    const MONTHS_AHEAD = 18;    // how far the month jump reaches — a year and a half
+    const MONTHS_AHEAD = 18;    // how far the month strip reaches — a year and a half
 
     host.classList.add('dp');
     host.innerHTML = `
       <div class="dp-head">
         <button type="button" class="dp-nav" data-step="-1" aria-label="החודש הקודם" title="החודש הקודם">${CHEV_PREV}</button>
-        <button type="button" class="dp-month" aria-live="polite" aria-expanded="false" title="קפיצה לחודש"></button>
+        <div class="dp-month" aria-live="polite"></div>
         <button type="button" class="dp-nav" data-step="1" aria-label="החודש הבא" title="החודש הבא">${CHEV_NEXT}</button>
       </div>
-      <div class="dp-months" hidden></div>
+      <div class="dp-strip" role="group" aria-label="קפיצה לחודש"></div>
       <div class="dp-dow">${DOW.map((d) => `<span>${d}</span>`).join('')}</div>
       <div class="dp-grid"></div>`;
     const monthEl = host.querySelector('.dp-month');
-    const monthsEl = host.querySelector('.dp-months');
-    const dowEl = host.querySelector('.dp-dow');
+    const stripEl = host.querySelector('.dp-strip');
     const grid = host.querySelector('.dp-grid');
     const prevBtn = host.querySelector('.dp-nav[data-step="-1"]');
 
     host.querySelectorAll('.dp-nav').forEach((b) => {
       b.onclick = () => {
         if (b.disabled) return;
-        closeMonths();
         view = new Date(view.getFullYear(), view.getMonth() + (+b.dataset.step), 1);
         renderMonth();
       };
     });
 
-    // the month jump: a trip in March is one tap away, not five presses of an arrow.
-    // It replaces the day grid while open, so the panel never grows taller.
-    function openMonths() {
+    // The month strip: every month of the next year and a half, always on screen, one
+    // tap each. It used to be a grid hidden behind the month's title — and in the week
+    // after it shipped, of six strangers who reached this calendar none opened it,
+    // while they pressed "next month" 2, 7, 10, 14 and 32 times and two of them left
+    // without a trip. A jump nobody finds is not a jump, so it is now the first thing
+    // under the title and the arrows are the fallback.
+    function buildStrip() {
       const first = monthStart(floor || today);
       const cells = [];
-      let year = null;
       for (let i = 0; i < MONTHS_AHEAD; i++) {
         const m = new Date(first.getFullYear(), first.getMonth() + i, 1);
-        if (m.getFullYear() !== year) {
-          year = m.getFullYear();
-          cells.push(`<span class="dp-year">${year}</span>`);
-        }
-        const cur = m.getTime() === view.getTime();
-        cells.push(`<button type="button" class="dp-mo${cur ? ' is-current' : ''}" data-m="${iso(m)}"
-          aria-label="${m.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}">${m.toLocaleDateString('he-IL', { month: 'short' })}</button>`);
+        // the year rides on the first chip and on every January — enough to know which
+        // March this is without printing a year eighteen times
+        const year = i === 0 || m.getMonth() === 0 ? `<small>${m.getFullYear()}</small>` : '';
+        cells.push(`<button type="button" class="dp-mo" data-m="${iso(m)}" data-i="${i}"
+          aria-label="${m.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}">${m.toLocaleDateString('he-IL', { month: 'short' })}${year}</button>`);
       }
-      monthsEl.innerHTML = cells.join('');
-      monthsEl.hidden = false;
-      dowEl.hidden = true;
-      grid.hidden = true;
-      monthEl.setAttribute('aria-expanded', 'true');
+      stripEl.innerHTML = cells.join('');
     }
-    function closeMonths() {
-      if (monthsEl.hidden) return;
-      monthsEl.hidden = true;
-      dowEl.hidden = false;
-      grid.hidden = false;
-      monthEl.setAttribute('aria-expanded', 'false');
+    function paintStrip(smooth) {
+      let cur = null;
+      stripEl.querySelectorAll('.dp-mo').forEach((b) => {
+        const on = parse(b.dataset.m).getTime() === view.getTime();
+        b.classList.toggle('is-current', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        if (on) cur = b;
+      });
+      // centre the shown month in the strip. scrollTo on the strip itself, never
+      // scrollIntoView: that one is allowed to scroll the whole page to get there
+      if (!cur) return;
+      if (!stripEl.clientWidth) {
+        // rendered inside a sheet that isn't on screen yet (the trip page's dates
+        // panel): there is no width to centre in until it opens, so look again then
+        if (!paintStrip.waiting) {
+          paintStrip.waiting = true;
+          requestAnimationFrame(() => setTimeout(() => { paintStrip.waiting = false; if (stripEl.clientWidth) paintStrip(false); }, 120));
+        }
+        return;
+      }
+      const left = cur.offsetLeft - (stripEl.clientWidth - cur.offsetWidth) / 2;
+      stripEl.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' });
     }
-    monthEl.onclick = () => (monthsEl.hidden ? openMonths() : closeMonths());
-    monthsEl.addEventListener('click', (e) => {
+    stripEl.addEventListener('click', (e) => {
       const b = e.target.closest('.dp-mo');
       if (!b) return;
       view = parse(b.dataset.m);
-      closeMonths();
-      renderMonth();
+      renderMonth(true);
+      window.TRIPMAKER?.track?.('dp_month_jump', { ahead: +b.dataset.i });
     });
 
     // the range as it stands right now — including the one being dragged out, so the
@@ -146,7 +156,7 @@ const DATEPICKER = (() => {
       });
     }
 
-    function renderMonth() {
+    function renderMonth(smooth) {
       if (floor && view < monthStart(floor)) view = monthStart(floor);
       monthEl.textContent = view.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' });
       // no way back past the first pickable month — the only live arrow is the right one
@@ -165,6 +175,7 @@ const DATEPICKER = (() => {
       }
       grid.innerHTML = cells.join('');
       paint();
+      paintStrip(smooth);
     }
 
     grid.addEventListener('click', (e) => {
@@ -199,6 +210,7 @@ const DATEPICKER = (() => {
     }
     function fire() { onChange(value()); }
 
+    buildStrip();
     renderMonth();
 
     return {
@@ -213,7 +225,7 @@ const DATEPICKER = (() => {
         end = fixedDays && start ? addDays(start, fixedDays - 1) : parse(nextEnd);
         hover = null;
         setFloor();
-        closeMonths();
+        buildStrip();
         // re-opening lands on the chosen month, or on this one when there's nothing
         // chosen yet — never on whatever month was last browsed away to
         const anchor = start || today;
