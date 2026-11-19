@@ -1271,8 +1271,20 @@ const TripPlan = (() => {
     async function build(fill, { auto = false } = {}) {
       if (building) return false;
       building = true;
-      const overlay = showOverlay(fill ? 'את שאר הימים' : 'את הטיול');
+      const overlay = showOverlay(fill ? 'את שאר הימים' : 'את הטיול', { days: ctx.trip.days });
       const before = lastBuiltId();
+      // Whoever walks away mid-build is the number this screen exists to shrink, so it is
+      // counted: how many seconds in, and whether the tab was closed or only set aside.
+      // And a traveller who went to another tab finds the news in this one's title.
+      const title0 = document.title;
+      let left = false;
+      const onHide = () => {
+        if (document.visibilityState !== 'hidden' || left) return;
+        left = true;
+        TRIPMAKER.trackNow?.('plan_build_left', { code: ctx.trip.share_code, fill, auto, seconds: overlay.seconds(), days: ctx.trip.days });
+      };
+      document.addEventListener('visibilitychange', onHide);
+      TRIPMAKER.track?.('plan_build_start', { code: ctx.trip.share_code, fill, auto, days: ctx.trip.days });
       try {
         let r;
         try {
@@ -1288,11 +1300,13 @@ const TripPlan = (() => {
           r = await awaitBuilt(before);
           if (!r) throw err;
         }
-        overlay.say('שומרים את הטיול… ✈️');
+        overlay.done();
+        overlay.say('המסלול מוכן — פותחים אותו… ✈️');
+        if (document.visibilityState === 'hidden') document.title = '✓ המסלול מוכן · ' + title0;
         state = r.state;
         ctx.trip.plan_state = state;
         await promoteAreas(r.plan);
-        TRIPMAKER.track?.('plan_build', { code: ctx.trip.share_code, fill, auto, count: (r.items || []).length });
+        TRIPMAKER.track?.('plan_build', { code: ctx.trip.share_code, fill, auto, count: (r.items || []).length, seconds: overlay.seconds(), away: left });
         // the free days' picks start now, behind the same screen. The screen waits for
         // the first of them and no longer: on a month-long trip the picks are minutes
         // of model calls, and holding the traveller in front of a loading screen for
@@ -1310,6 +1324,8 @@ const TripPlan = (() => {
       } catch (err) {
         overlay.remove();
         building = false;
+        document.removeEventListener('visibilitychange', onHide);
+        TRIPMAKER.track?.('plan_build_failed', { code: ctx.trip.share_code, fill, auto, seconds: overlay.seconds(), status: (err && err.status) || 0, quota: !!(err && err.quota) });
         if (err && err.quota) { outOfQuota(err.quota); return false; }
         msgs.push({ role: 'ai', text: '⚠️ ' + ((err && err.message) || 'הבנייה נכשלה — נסו שוב'), payload: {}, transient: true });
         paint();
@@ -1379,7 +1395,25 @@ const TripPlan = (() => {
       return null;
     }
 
-    function showOverlay(label) {
+    // How long a build takes, said out loud. The model writes the days in about twenty
+    // seconds; then every place it named is looked up on the map, one polite request at a
+    // time (lib/places.js), and that is most of the wait: a 4-day Rome landed at 55 s, a
+    // 7-day Tel Aviv at 117 s. The first stranger to meet the automatic build (Nov 18)
+    // watched a compass and a line of quips for 69 seconds — no clock, no bar, nothing
+    // that said how far along it was — and left 48 seconds before their route was ready.
+    // So the screen now says roughly how long, shows how far, and names the step it is on.
+    const buildEstimate = (days) => Math.min(280, Math.max(45, 12 + 15 * (days || 4)));
+    const estimateWords = (sec) => (sec < 75 ? 'כדקה' : sec < 150 ? 'כשתי דקות' : sec < 210 ? 'כשלוש דקות' : 'כמה דקות');
+    const BUILD_STEPS = [
+      [0, 'כותבים את הימים, אחד אחד'],
+      [0.2, 'מאמתים כל מקום על המפה'],
+      [0.85, 'בודקים שעות פתיחה ומרחקים'],
+    ];
+
+    // opts.days — a build's overlay: the estimate, the bar and the steps. Without it
+    // (waiting on a build another load started) only the title and the quips show.
+    function showOverlay(label, opts = {}) {
+      const est = opts.days ? buildEstimate(opts.days) : 0;
       const el = document.createElement('div');
       el.className = 'ai-overlay open';
       el.setAttribute('aria-live', 'polite');
@@ -1388,18 +1422,42 @@ const TripPlan = (() => {
         <div class="ai-overlay-content">
           <div class="ai-orb">🧭</div>
           <h2 class="ai-overlay-title">ה-AI בונה ${esc(label)}</h2>
-          <div class="ai-overlay-sub">${esc(QUIPS[0])}</div>
+          <div class="ai-overlay-sub">${esc(est ? BUILD_STEPS[0][1] : QUIPS[0])}</div>
+          ${est ? `
+          <div class="ai-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="התקדמות הבנייה"><span></span></div>
+          <p class="ai-overlay-eta">זה לוקח ${estimateWords(est)}. אפשר להשאיר את הדף פתוח ולחזור — המסלול יחכה כאן.</p>
+          <p class="ai-overlay-quip">${esc(QUIPS[0])}</p>` : ''}
         </div>`;
       document.body.appendChild(el);
       const sub = el.querySelector('.ai-overlay-sub');
+      const quip = el.querySelector('.ai-overlay-quip') || sub;
+      const bar = el.querySelector('.ai-progress');
+      const started = Date.now();
       let i = 0;
       const timer = setInterval(() => {
-        sub.classList.add('swap');
-        setTimeout(() => { i = (i + 1) % QUIPS.length; sub.textContent = QUIPS[i]; sub.classList.remove('swap'); }, 400);
+        quip.classList.add('swap');
+        setTimeout(() => { i = (i + 1) % QUIPS.length; quip.textContent = QUIPS[i]; quip.classList.remove('swap'); }, 400);
       }, 2400);
-      // say(): a line that stays — the quips stop cycling over it
-      const say = (text) => { clearInterval(timer); sub.classList.remove('swap'); sub.textContent = text; };
-      return { sub, say, remove: () => { clearInterval(timer); el.remove(); } };
+      // the bar runs on the clock, not on word from the server (one request, no stream):
+      // straight to 90% at the estimate, then ever slower — it never claims to be done,
+      // and it never stands still either
+      let said = false;
+      const tick = est ? setInterval(() => {
+        const t = (Date.now() - started) / 1000 / est;
+        const p = t <= 1 ? t * 0.9 : 0.9 + 0.08 * (1 - Math.exp(-(t - 1) * 1.5));
+        bar.firstElementChild.style.width = (p * 100).toFixed(1) + '%';
+        bar.setAttribute('aria-valuenow', String(Math.round(p * 100)));
+        if (!said) sub.textContent = BUILD_STEPS.filter(([at]) => p >= at).pop()[1] + '…';
+      }, 500) : null;
+      // say(): a line that stays — the steps and the quips stop cycling over it
+      const say = (text) => {
+        said = true;
+        if (quip === sub) clearInterval(timer);
+        sub.classList.remove('swap');
+        sub.textContent = text;
+      };
+      const done = () => { if (bar) { clearInterval(tick); bar.firstElementChild.style.width = '100%'; bar.setAttribute('aria-valuenow', '100'); } };
+      return { sub, say, done, seconds: () => Math.round((Date.now() - started) / 1000), remove: () => { clearInterval(timer); clearInterval(tick); el.remove(); } };
     }
 
     // =================================================================
