@@ -34,6 +34,11 @@ const TripPlan = (() => {
     trip: { em: '🧭', label: 'פרטי הטיול' },
   };
   const FILL_CHIP = '✨ להשלים את שאר הימים אוטומטית';
+  // a long trip is built a week at a time (routes/plan.js BUILD_WHOLE_MAX / BUILD_WEEK):
+  // the next week is this chip, and the waiting screen counts a week, not the month
+  const NEXT_WEEK_CHIP = '✨ לבנות את השבוע הבא';
+  const BUILD_WHOLE_MAX = 10;
+  const BUILD_WEEK = 7;
   const QUIPS = [
     'מדפדף במדריכי טיולים…', 'בוחר את המסעדות הכי שוות…', 'מסדר את הימים בסדר הגיוני…',
     'מוסיף נקודות תצפית…', 'מצייר את המסלול על המפה…', 'שוקל בין שוק למוזיאון…', 'עוד רגע קטן — מלטש פרטים…',
@@ -471,7 +476,7 @@ const TripPlan = (() => {
           ${cards.length ? `<div class="rec-strip">${cards.map((c, j) => TripRecs.cardHtml(c, i, j)).join('')}</div>` : ''}
           ${changeCardHtml(m, latestApplied)}
           ${p.unlocked ? unlockedHtml() : ''}
-          ${p.built ? `<div class="plan-card pc-applied"><div class="pc-head">${p.built.fill ? 'הימים הושלמו' : 'הטיול נבנה'} — ${p.built.count} תחנות</div></div>` : ''}
+          ${p.built ? `<div class="plan-card pc-applied"><div class="pc-head">${p.built.to ? `ימים ${p.built.from}–${p.built.to} נבנו` : p.built.fill ? 'הימים הושלמו' : 'הטיול נבנה'} — ${p.built.count} תחנות</div></div>` : ''}
           ${p.imported ? ChatUI.importedHtml(p.imported) : ''}
           ${p.invite ? inviteHtml(ctx.trip) : ''}
           ${m.text && !m.transient ? ChatUI.actionsHtml() : ''}
@@ -779,7 +784,8 @@ const TripPlan = (() => {
       // the one chip that acts: offered once the days are being settled, and never while
       // a proposal is still waiting for a word
       const waiting = msgs.some((m) => m.role === 'ai' && m.payload && m.payload.decision === 'pending');
-      const fill = !busy && loaded && !waiting && (state.stage === 'days' || state.stage === 'done') && !(last?.payload?.built);
+      const moreWeeks = !!(last?.payload?.built && last.payload.built.more);
+      const fill = !busy && loaded && !waiting && (state.stage === 'days' || state.stage === 'done') && (!(last?.payload?.built) || moreWeeks);
       // choose is the one stage that offers a fork rather than a shortcut — שלב אחרי שלב
       // או בבת אחת — so its suggestions are not suggestions: they ARE the question the
       // message just asked, and they get painted as the choice, wide and loud, instead
@@ -790,7 +796,7 @@ const TripPlan = (() => {
       const reopenFlights = !busy && loaded && !flightsOpen && state.flights && state.flights.confirmed && state.stage !== 'flights';
       chips.className = choosing ? 'chat-chips chips-choice' : 'chat-chips';
       chips.innerHTML = sugg.map((q) => `<button type="button" class="chat-chip${choosing ? ' chip-choice' : ''}">${esc(q)}</button>`).join('') +
-        (fill ? `<button type="button" class="chat-chip chip-build" id="plan-fill">${esc(FILL_CHIP)}</button>` : '') +
+        (fill ? `<button type="button" class="chat-chip chip-build" id="plan-fill">${esc(moreWeeks ? NEXT_WEEK_CHIP : FILL_CHIP)}</button>` : '') +
         (reopenFlights ? '<button type="button" class="chat-chip chip-flights" id="plan-flights-edit">✈️ עדכון הטיסות</button>' : '');
       chips.querySelectorAll('.chat-chip:not(.chip-build):not(.chip-flights)').forEach((b) => { b.onclick = () => send(b.textContent); });
       chips.querySelector('#plan-fill')?.addEventListener('click', () => build(true));
@@ -1116,6 +1122,7 @@ const TripPlan = (() => {
       flush();
       drainNext();
       if (loaded && autobuildDue()) autobuild();
+      else if (loaded && fillNextDue()) build(true);
     }
 
     // the turn typed ahead goes out once the chat is free again — never while a card is
@@ -1271,7 +1278,9 @@ const TripPlan = (() => {
     async function build(fill, { auto = false } = {}) {
       if (building) return false;
       building = true;
-      const overlay = showOverlay(fill ? 'את שאר הימים' : 'את הטיול', { days: ctx.trip.days });
+      const long = ctx.trip.days > BUILD_WHOLE_MAX;
+      const overlay = showOverlay(long ? (fill ? 'את השבוע הבא' : 'את השבוע הראשון') : fill ? 'את שאר הימים' : 'את הטיול',
+        { days: long ? BUILD_WEEK : ctx.trip.days, long: long && !fill ? ctx.trip.days : 0 });
       const before = lastBuiltId();
       // Whoever walks away mid-build is the number this screen exists to shrink, so it is
       // counted: how many seconds in, and whether the tab was closed or only set aside.
@@ -1306,7 +1315,7 @@ const TripPlan = (() => {
         state = r.state;
         ctx.trip.plan_state = state;
         await promoteAreas(r.plan);
-        TRIPMAKER.track?.('plan_build', { code: ctx.trip.share_code, fill, auto, count: (r.items || []).length, seconds: overlay.seconds(), away: left });
+        TRIPMAKER.track?.('plan_build', { code: ctx.trip.share_code, fill, auto, count: (r.items || []).length, seconds: overlay.seconds(), away: left, days: ctx.trip.days, part: r.part ? r.part.to : 0 });
         // the free days' picks start now, behind the same screen. The screen waits for
         // the first of them and no longer: on a month-long trip the picks are minutes
         // of model calls, and holding the traveller in front of a loading screen for
@@ -1343,6 +1352,13 @@ const TripPlan = (() => {
     };
     const autoMark = (on) => {
       try { if (on) sessionStorage.setItem(AUTO_KEY, String(Date.now())); else sessionStorage.removeItem(AUTO_KEY); } catch { /* private mode: a reload may build twice */ }
+    };
+    // "the next week", asked for from the route itself (trip.js paintNextWeek): the page
+    // came here to build it, so it starts without a second tap. The mark is read once.
+    const fillNextDue = () => {
+      let due = false;
+      try { due = sessionStorage.getItem('tm_fill_next') === ctx.trip.share_code; sessionStorage.removeItem('tm_fill_next'); } catch { /* no mark */ }
+      return due && !!state && state.stage === 'done' && ctx.trip.days > BUILD_WHOLE_MAX;
     };
     const autobuildDue = () => !!(state && state.autobuild && state.stage !== 'done' && !lastBuiltId());
     async function autobuild() {
@@ -1425,7 +1441,7 @@ const TripPlan = (() => {
           <div class="ai-overlay-sub">${esc(est ? BUILD_STEPS[0][1] : QUIPS[0])}</div>
           ${est ? `
           <div class="ai-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="התקדמות הבנייה"><span></span></div>
-          <p class="ai-overlay-eta">זה לוקח ${estimateWords(est)}. אפשר להשאיר את הדף פתוח ולחזור — המסלול יחכה כאן.</p>
+          <p class="ai-overlay-eta">${opts.long ? `טיול של ${opts.long} ימים נבנה שבוע אחרי שבוע, כדי שלא תחכו לכולו. ` : ''}זה לוקח ${estimateWords(est)}. אפשר להשאיר את הדף פתוח ולחזור — המסלול יחכה כאן.</p>
           <p class="ai-overlay-quip">${esc(QUIPS[0])}</p>` : ''}
         </div>`;
       document.body.appendChild(el);

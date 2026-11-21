@@ -1106,6 +1106,20 @@ router.post('/api/trips/code/:code/plan/decide', authRequired, async (req, res) 
   }
 });
 
+// past this many days a build writes one week at a time (see the route below)
+const BUILD_WHOLE_MAX = 10;
+const BUILD_WEEK = 7;
+const partBuiltText = (part, n, days, fill) => {
+  const span = part.from === part.to ? `יום ${part.from}` : `ימים ${part.from}–${part.to}`;
+  const head = fill
+    ? `בניתי גם את ${span} — נוספו ${n} תחנות.`
+    : `בניתי את השבוע הראשון של הטיול — ${n} תחנות ב${span}, מתוך ${days} ימים.`;
+  const tail = part.more
+    ? ' לכל אחד מהימים שעוד לא נבנו מחכות במסלול שלוש המלצות שמוסיפים בלחיצה — ואפשר גם לבקש ממני כאן לבנות את השבוע הבא.'
+    : ' עכשיו כל הימים בנויים. עברו על המסלול, וכל מה שלא מתאים אפשר לשנות כאן או ידנית.';
+  return head + tail;
+};
+
 // the one-shot build, inside the draft: "בבת אחת" right after the clarifying round, or
 // "להשלים את השאר" (fill) around the anchors the conversation settled. The same
 // pipeline as the wizard's build, with the chat's memory standing in for the wizard's
@@ -1124,6 +1138,24 @@ router.post('/api/trips/code/:code/plan/build', authRequired, async (req, res) =
     const fill = !!(req.body && req.body.fill);
     const state = trip.plan_state;
     const items = await loadItems(client, trip.id);
+    // A long trip is written a week at a time. On 2026-11-20 a 30-day trip asked for all
+    // of its days in one request: the model alone took 67 s, verifying ~100 places is
+    // minutes more, the server gave up at its limit and the traveller — who had waited —
+    // got nothing, twice. So past BUILD_WHOLE_MAX days a build writes one week: the first
+    // one, or (fill) the week that starts at the first day still empty. The areas are
+    // still planned for the whole trip, so the days not written yet are free days that
+    // know where they are, and the free-day picks (routes/day-recs.js) fill them in.
+    let only = null;
+    if (trip.days > BUILD_WHOLE_MAX) {
+      // "still to write": an empty day once a build has run; before that (the chat settled
+      // an anchor or two a day) any day that is not yet a full one
+      const count = new Map();
+      for (const it of items) count.set(it.day_number, (count.get(it.day_number) || 0) + 1);
+      const floor = state.stage === 'done' ? 1 : 3;
+      let first = 1;
+      if (fill) { while (first <= trip.days && (count.get(first) || 0) >= floor) first++; }
+      if (first <= trip.days) only = { from: first, to: Math.min(trip.days, first + BUILD_WEEK - 1) };
+    }
 
     // the settled facts are the build's clarifying answers; the settled split, when it
     // covers the trip, is its preset plan — cleanPresetPlan says whether it does
@@ -1143,6 +1175,7 @@ router.post('/api/trips/code/:code/plan/build', authRequired, async (req, res) =
       // the draft already has its dates, so the build can check its own opening hours
       // and move a stop off an hour the door is shut (lib/hours-fit.js)
       startDate: trip.start_date || null,
+      only,
       ph,
     });
     if (!built.items.length) return res.status(503).json({ error: 'ה-AI החזיר מסלול ריק — נסו שוב' });
@@ -1188,19 +1221,29 @@ router.post('/api/trips/code/:code/plan/build', authRequired, async (req, res) =
     state.build = fill ? state.build : 'once';
     state.areas = built.plan.map((b) => ({ area: b.area, from: b.from, to: b.to, cities: b.cities }));
     const n = built.items.length;
+    // what this build wrote, when it was a week of a long trip — and whether days are
+    // still waiting, which is what keeps "the next week" one tap away in the chat
+    let part = null;
+    if (only) {
+      const has = new Set([...(fill ? items : []), ...built.items].map((it) => it.day_number));
+      let more = false;
+      for (let d = 1; d <= trip.days; d++) if (!has.has(d)) { more = true; break; }
+      part = { from: only.from, to: only.to, more };
+    }
     // a built trip is a settled trip — the invitation to co-planners rides on this
     // message (once), so it is there when they come back to the chat
     const invite = !state.invited;
     state.invited = true;
     const row = await addMessage(client, trip.id, null, 'ai',
-      fill ? `השלמתי את שאר הימים — נוספו ${n} תחנות סביב מה שכבר קבענו. עברו על המסלול, וכל מה שלא מתאים אפשר לשנות כאן או ידנית.`
+      part ? partBuiltText(part, n, trip.days, fill)
+      : fill ? `השלמתי את שאר הימים — נוספו ${n} תחנות סביב מה שכבר קבענו. עברו על המסלול, וכל מה שלא מתאים אפשר לשנות כאן או ידנית.`
         : `בניתי את הטיול — ${n} תחנות על פני ${trip.days} ימים. עברו על המסלול; מכאן אפשר להמשיך לשנות איתי כל דבר, או לערוך ידנית.`,
-      { built: { count: n, fill }, invite });
+      { built: part ? { count: n, fill, ...part } : { count: n, fill }, invite });
     await saveState(client, trip.id, state);
     await client.query('COMMIT');
     const fresh = await loadItems(pool, trip.id);
     const { rows: t } = await pool.query('SELECT description, emoji, cover_image FROM trips WHERE id = $1', [trip.id]);
-    res.json({ items: fresh, plan: built.plan, message: row, state, trip: t[0] });
+    res.json({ items: fresh, plan: built.plan, message: row, state, trip: t[0], part });
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error(err);

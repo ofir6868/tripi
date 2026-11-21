@@ -5144,3 +5144,17 @@ body:has(#budget-page:not([hidden]) .mx-fab:not([hidden])) .tm-toast { bottom: 8
 }
 .tt-xfer-amt { color: var(--amber); font-variant-numeric: tabular-nums; }
 .tt-xfers + .tt-meter, .tt-note + .tt-meter { margin-top: 4px; }
+
+/* ---- a long trip, built a week at a time: where the route stands, and the next week ---- */
+.next-week-bar {
+  display: flex; flex-direction: column; gap: 10px; align-items: stretch;
+  margin: 0 0 14px; padding: 14px 16px; border-radius: 18px;
+  background: rgba(127, 215, 190, .07); border: 1px solid rgba(127, 215, 190, .28);
+}
+.next-week-bar p { margin: 0; font-size: .92rem; line-height: 1.5; color: rgba(245, 239, 227, .82); }
+.next-week-bar p b { color: var(--paper); }
+.next-week-bar .btn { align-self: stretch; justify-content: center; min-height: 44px; }
+@media (min-width: 721px) {
+  .next-week-bar { flex-direction: row; align-items: center; justify-content: space-between; }
+  .next-week-bar .btn { align-self: center; flex: none; }
+}

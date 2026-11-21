@@ -544,6 +544,38 @@
       // neighbouring days, so the server hears about the change from here too
       // (debounced, and a no-op when the itinerary is the same one as last time).
       TripDayRecs.sync();
+      paintNextWeek();
+    }
+
+    // A long trip is built a week at a time (routes/plan.js BUILD_WHOLE_MAX): the route
+    // opens with its first week written and the rest of the month empty. Without a word
+    // here that reads as a build that broke, and the way to the next week is two tabs
+    // away in the chat — so the route itself says where it stands and offers the next
+    // week in one tap. Only while the trip is still being planned, and only to an editor.
+    function paintNextWeek() {
+      let bar = document.getElementById('next-week-bar');
+      const has = new Set(items.map((it) => it.day_number));
+      let first = 1;
+      while (first <= trip.days && has.has(first)) first++;
+      const due = canEdit && trip.is_draft && trip.days > 10 && (trip.plan_state || {}).stage === 'done' && first > 1 && first <= trip.days;
+      if (!due) { bar?.remove(); return; }
+      const to = Math.min(trip.days, first + 6);
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'next-week-bar';
+        bar.className = 'next-week-bar';
+        container.parentNode.insertBefore(bar, container);
+      }
+      const span = first === to ? `יום ${first}` : `ימים ${first}–${to}`;
+      bar.innerHTML = `
+        <p><b>ימים 1–${first - 1} בנויים.</b> בשאר הימים מחכות המלצות שמוסיפים בלחיצה, או שה-AI בונה גם אותם.</p>
+        <button type="button" class="btn btn-amber" id="next-week-btn">✨ לבנות את ${span}</button>`;
+      bar.querySelector('#next-week-btn').onclick = () => {
+        TRIPMAKER.track?.('next_week_tap', { code: trip.share_code, from: first, days: trip.days });
+        try { sessionStorage.setItem('tm_fill_next', trip.share_code); } catch { /* the chat's own chip is still there */ }
+        // the hash is the tab (trip-pages.js): the chat opens, finds the mark, and builds
+        location.hash = '#plan';
+      };
     }
 
     // lists longer than 2 days start folded — day 2 fades out into a reveal

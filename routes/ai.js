@@ -1104,7 +1104,7 @@ function foreignCountryStops(entries, dests, areaName = null) {
 }
 
 // one OpenAI call for ONE area and a fixed day range — the shape that stays coherent
-async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, answers, transferFrom, existing = [], ph }) {
+async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, answers, transferFrom, existing = [], avoid = [], ph }) {
   // every block gets the strong model: the 2026-08 places audit put weak-model blocks
   // at 19-38% unfound places against 4-11% on the strong one — short trips were the
   // worst offenders, not the safe case. The itinerary is the product; the weak model
@@ -1151,6 +1151,11 @@ async function aiGenerateBlock({ dests, area, from, to, interestList, freeText, 
       anchors.map((it) => `יום ${it.day_number}${it.time_label ? ' ' + it.time_label : ''}: ${it.title}${it.category === 'נסיעה' ? ' (נסיעה)' : ''}`).join(' | ') +
       `. השלם סביבן: לכל יום החזר רק את התחנות החסרות כדי שיהיו בו יחד 3-4 תחנות, בשעות שמסתדרות עם מה שכבר קבוע, ובאותו אזור. ` +
       `ביום שכבר יש בו תחנת נסיעה אל תוסיף תחנת נסיעה נוספת.`;
+  }
+  // a long trip is built a week at a time (buildItinerary `only`): this week must not
+  // send the traveller back to a place an earlier week of the same area already visits
+  if (avoid.length) {
+    userMsg += `\nמקומות שכבר נמצאים במסלול בימים אחרים של הטיול (אל תחזור עליהם ואל תציע כפילות שלהם): ${avoid.join(' | ')}.`;
   }
 
   const parsed = await aiJson({
@@ -1325,7 +1330,7 @@ router.post('/api/ai/plan-regions', authRequired, async (req, res) => {
 // exists — "בבת אחת" straight after the clarifying round, or "להשלים את השאר" around
 // the anchors settled in conversation. Returns {questions} when a clarifying round is
 // due and the caller hasn't been through one, else {items, plan, meta}.
-async function buildItinerary({ dests, area = null, from, to, interestList, freeText, answerList, presetRaw = null, existing = [], wantMeta = false, startDate = null, ph }) {
+async function buildItinerary({ dests, area = null, from, to, interestList, freeText, answerList, presetRaw = null, existing = [], wantMeta = false, startDate = null, only = null, ph }) {
   const areaNames = dests.map((d) => d.name);
   if (area && !areaNames.includes(area)) throw Object.assign(new Error('אזור לא מוכר'), { status: 400 });
   const broadSingle = dests.length === 1 && (!dests[0].country || dests[0].country === dests[0].name);
@@ -1399,18 +1404,33 @@ async function buildItinerary({ dests, area = null, from, to, interestList, free
     ? aiTripMeta({ dests, from, to, interestList, freeText, answers: answerList, ph })
     : Promise.resolve(null);
 
+  // `only` {from, to}: a long trip is planned whole — the areas above cover every day —
+  // but written a week at a time (routes/plan.js), because thirty days in one request
+  // is a request that outlives the server. Each block is clipped to the window; the
+  // transfer stop opens a block only when the window holds that block's first day, and
+  // what earlier weeks already put in the same area is named so it is not repeated.
+  const jobs = blocks.map((b, i) => ({
+    area: b.dest.name,
+    from: only ? Math.max(b.from, only.from) : b.from,
+    to: only ? Math.min(b.to, only.to) : b.to,
+    transferFrom: i > 0 && (!only || b.from >= only.from) ? blocks[i - 1].dest.name : null,
+  })).filter((j) => j.to >= j.from);
   const [results, meta] = await Promise.all([
-    Promise.all(blocks.map((b, i) =>
+    Promise.all(jobs.map((j) =>
       aiGenerateBlock({
         dests: buildDests,
-        area: b.dest.name,
-        from: b.from,
-        to: b.to,
+        area: j.area,
+        from: j.from,
+        to: j.to,
         interestList,
         freeText,
         answers: answerList,
-        transferFrom: i > 0 ? blocks[i - 1].dest.name : null,
+        transferFrom: j.transferFrom,
         existing,
+        avoid: only
+          ? existing.filter((it) => it.area === j.area && it.category !== 'נסיעה' && (it.day_number < j.from || it.day_number > j.to))
+            .map((it) => String(it.title)).slice(0, 60)
+          : [],
         ph,
       })
     )),
