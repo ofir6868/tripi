@@ -5158,3 +5158,24 @@ body:has(#budget-page:not([hidden]) .mx-fab:not([hidden])) .tm-toast { bottom: 8
   .next-week-bar { flex-direction: row; align-items: center; justify-content: space-between; }
   .next-week-bar .btn { align-self: center; flex: none; }
 }
+
+/* ---- a guest's route: a way to hold on to it, offered after the first day ---- */
+.keep-card {
+  position: relative; margin: 14px 0; padding: 16px 16px 14px; border-radius: 18px;
+  background: linear-gradient(180deg, rgba(246, 173, 85, .10), rgba(246, 173, 85, .04));
+  border: 1px solid rgba(246, 173, 85, .34);
+}
+.keep-title { margin: 0 0 4px; padding-inline-end: 36px; font-weight: 800; font-size: 1.02rem; color: var(--paper); }
+.keep-sub { margin: 0 0 12px; font-size: .9rem; line-height: 1.5; color: rgba(245, 239, 227, .78); }
+.keep-actions { display: flex; flex-direction: column; gap: 8px; }
+.keep-actions .btn { justify-content: center; min-height: 46px; }
+.keep-x {
+  position: absolute; top: 6px; inset-inline-end: 6px; width: 40px; height: 40px; border: 0; border-radius: 50%;
+  background: transparent; color: rgba(245, 239, 227, .55); font-size: .95rem; cursor: pointer;
+}
+.keep-x:hover { color: var(--paper); }
+@media (min-width: 721px) {
+  .keep-actions { flex-direction: row; }
+  .keep-actions .btn { flex: 0 0 auto; }
+}
+@media print { .keep-card, .next-week-bar { display: none !important; } }

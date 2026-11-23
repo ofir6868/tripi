@@ -545,6 +545,52 @@
       // (debounced, and a no-op when the itinerary is the same one as last time).
       TripDayRecs.sync();
       paintNextWeek();
+      paintKeep();
+    }
+
+    // A guest's trip lives in one browser. In the first week of the route opening before
+    // any question (Nov 17-23), every stranger who got a built route was a guest, read it
+    // for one to three minutes and left — none signed up, none came back, and nothing on
+    // the route had told them it could be lost or offered a way to hold on to it: the
+    // save card sits above the days, and the page lands below it. So the route offers it
+    // where it is being read, after the first day: send yourself the link on WhatsApp
+    // (no account, one tap, and the trip opens from the chat on this phone), or sign up
+    // and have it everywhere. Guests only, and gone for the session once dismissed.
+    const KEEP_KEY = 'tm_keep_off_' + trip.share_code;
+    let keepSeen = false;
+    function paintKeep() {
+      document.getElementById('keep-card')?.remove();
+      let off = false;
+      try { off = sessionStorage.getItem(KEEP_KEY) === '1'; } catch { /* shown again next load */ }
+      if (off || !canEdit || !trip.is_draft || !TRIPMAKER.isGuest() || !items.length) return;
+      const card = document.createElement('div');
+      card.id = 'keep-card';
+      card.className = 'keep-card';
+      card.innerHTML = `
+        <button type="button" class="keep-x" aria-label="סגירה">✕</button>
+        <p class="keep-title">שלא ילך לאיבוד 📌</p>
+        <p class="keep-sub">כרגע המסלול שמור רק בדפדפן הזה. שלחו לעצמכם את הקישור, או הירשמו בחינם והוא יחכה לכם בכל מכשיר.</p>
+        <div class="keep-actions">
+          <button type="button" class="btn btn-amber" id="keep-wa">שליחה לעצמי בוואטסאפ</button>
+          <button type="button" class="btn btn-ghost" id="keep-signup">הרשמה בחינם</button>
+        </div>`;
+      // after the first day in the list; above the calendar when the days are a grid
+      const blocks = container.querySelectorAll('.day-block');
+      if (blocks.length > 1) blocks[1].parentNode.insertBefore(card, blocks[1]);
+      else container.parentNode.insertBefore(card, container.nextSibling);
+      if (!keepSeen) { keepSeen = true; TRIPMAKER.track?.('keep_card_shown', { code: trip.share_code, days: trip.days }); }
+      const close = () => { try { sessionStorage.setItem(KEEP_KEY, '1'); } catch { /* this load only */ } card.remove(); };
+      card.querySelector('.keep-x').onclick = () => { TRIPMAKER.track?.('keep_card_dismiss', { code: trip.share_code }); close(); };
+      card.querySelector('#keep-wa').onclick = () => {
+        TRIPMAKER.trackNow?.('keep_whatsapp', { code: trip.share_code });
+        const text = `הטיול שלי ב-Tripmaker — ${trip.title}:\n${location.origin}/trip/${trip.share_code}`;
+        window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
+        card.querySelector('.keep-sub').textContent = 'בוואטסאפ בוחרים את עצמכם (או מישהו שנוסע איתכם) ושולחים. הקישור פותח את הטיול מהטלפון הזה.';
+      };
+      card.querySelector('#keep-signup').onclick = () => {
+        TRIPMAKER.track?.('keep_signup', { code: trip.share_code });
+        openAuthModal(() => { close(); TripPages.toast('הטיול שמור בחשבון שלכם ✓'); }, 'register', 'keep_trip');
+      };
     }
 
     // A long trip is built a week at a time (routes/plan.js BUILD_WHOLE_MAX): the route
