@@ -1132,7 +1132,11 @@ router.post('/api/trips/code/:code/plan/build', authRequired, async (req, res) =
     const trip = await draftWithAuth(req, res);
     if (!trip) return;
     if (!trip.dests.length) return res.status(400).json({ error: 'לטיול אין יעדים' });
-    if (trip.days > 30) return res.status(400).json({ error: 'אפשר לבנות עד 30 ימים בבקשה אחת' });
+    // No ceiling on the trip's length here any more. "Up to 30 days in one request" was
+    // the one-shot build's limit; a long trip is now written a week at a time (`only`
+    // below), so its length is not the request's. On 2026-11-24 a 60-day Thailand and
+    // Nepal trip — the length the wizard itself allows — was refused in the first second
+    // and its traveller left with an empty route after six turns of chat.
     const spend = await ai.buildQuota(req);
     if (!spend) return exhausted(res, 'build', ai.BUILD_EXHAUSTED);
     const fill = !!(req.body && req.body.fill);
