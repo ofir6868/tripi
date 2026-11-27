@@ -39,6 +39,7 @@ const TripPlan = (() => {
   const NEXT_WEEK_CHIP = '✨ לבנות את השבוע הבא';
   const BUILD_WHOLE_MAX = 10;
   const BUILD_WEEK = 7;
+  const BUILD_FIRST = 5;
   const QUIPS = [
     'מדפדף במדריכי טיולים…', 'בוחר את המסעדות הכי שוות…', 'מסדר את הימים בסדר הגיוני…',
     'מוסיף נקודות תצפית…', 'מצייר את המסלול על המפה…', 'שוקל בין שוק למוזיאון…', 'עוד רגע קטן — מלטש פרטים…',
@@ -1279,8 +1280,8 @@ const TripPlan = (() => {
       if (building) return false;
       building = true;
       const long = ctx.trip.days > BUILD_WHOLE_MAX;
-      const overlay = showOverlay(long ? (fill ? 'את השבוע הבא' : 'את השבוע הראשון') : fill ? 'את שאר הימים' : 'את הטיול',
-        { days: long ? BUILD_WEEK : ctx.trip.days, long: long && !fill ? ctx.trip.days : 0 });
+      const overlay = showOverlay(long ? (fill ? 'את השבוע הבא' : 'את הימים הראשונים') : fill ? 'את שאר הימים' : 'את הטיול',
+        { days: long ? (fill ? BUILD_WEEK : BUILD_FIRST) : ctx.trip.days, long: long && !fill ? ctx.trip.days : 0 });
       const before = lastBuiltId();
       // Whoever walks away mid-build is the number this screen exists to shrink, so it is
       // counted: how many seconds in, and whether the tab was closed or only set aside.
@@ -1441,7 +1442,7 @@ const TripPlan = (() => {
           <div class="ai-overlay-sub">${esc(est ? BUILD_STEPS[0][1] : QUIPS[0])}</div>
           ${est ? `
           <div class="ai-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="התקדמות הבנייה"><span></span></div>
-          <p class="ai-overlay-eta">${opts.long ? `טיול של ${opts.long} ימים נבנה שבוע אחרי שבוע, כדי שלא תחכו לכולו. ` : ''}זה לוקח ${estimateWords(est)}. אפשר להשאיר את הדף פתוח ולחזור — המסלול יחכה כאן.</p>
+          <p class="ai-overlay-eta">${opts.long ? `טיול של ${opts.long} ימים נבנה בחלקים: קודם הימים הראשונים, והשאר בזמן שקוראים אותם. ` : ''}זה לוקח ${estimateWords(est)}. אפשר להשאיר את הדף פתוח ולחזור — המסלול יחכה כאן.</p>
           <p class="ai-overlay-quip">${esc(QUIPS[0])}</p>` : ''}
         </div>`;
       document.body.appendChild(el);

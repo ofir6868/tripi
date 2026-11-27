@@ -5159,23 +5159,34 @@ body:has(#budget-page:not([hidden]) .mx-fab:not([hidden])) .tm-toast { bottom: 8
   .next-week-bar .btn { align-self: center; flex: none; }
 }
 
-/* ---- a guest's route: a way to hold on to it, offered after the first day ---- */
+/* ---- a guest's route: a way to hold on to it, one quiet line after the first day ---- */
 .keep-card {
-  position: relative; margin: 14px 0; padding: 16px 16px 14px; border-radius: 18px;
-  background: linear-gradient(180deg, rgba(246, 173, 85, .10), rgba(246, 173, 85, .04));
-  border: 1px solid rgba(246, 173, 85, .34);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px;
+  margin: 10px 0; padding: 8px 14px; padding-inline-end: 6px; border-radius: 14px;
+  background: rgba(246, 173, 85, .06); border: 1px dashed rgba(246, 173, 85, .3);
+  font-size: .86rem;
 }
-.keep-title { margin: 0 0 4px; padding-inline-end: 36px; font-weight: 800; font-size: 1.02rem; color: var(--paper); }
-.keep-sub { margin: 0 0 12px; font-size: .9rem; line-height: 1.5; color: rgba(245, 239, 227, .78); }
-.keep-actions { display: flex; flex-direction: column; gap: 8px; }
-.keep-actions .btn { justify-content: center; min-height: 46px; }
+.keep-sub { color: rgba(245, 239, 227, .7); flex: 1 1 100%; padding-inline-end: 36px; }
+.keep-link {
+  border: 0; background: none; padding: 0; min-height: 40px; font: inherit; font-weight: 700; cursor: pointer;
+  color: var(--amber); text-decoration: underline; text-underline-offset: 3px;
+}
+.keep-card { position: relative; }
 .keep-x {
-  position: absolute; top: 6px; inset-inline-end: 6px; width: 40px; height: 40px; border: 0; border-radius: 50%;
-  background: transparent; color: rgba(245, 239, 227, .55); font-size: .95rem; cursor: pointer;
+  position: absolute; top: 0; inset-inline-end: 0; width: 40px; height: 40px; border: 0; border-radius: 50%;
+  background: transparent; color: rgba(245, 239, 227, .5); font-size: .85rem; cursor: pointer;
 }
 .keep-x:hover { color: var(--paper); }
-@media (min-width: 721px) {
-  .keep-actions { flex-direction: row; }
-  .keep-actions .btn { flex: 0 0 auto; }
+@media (min-width: 721px) { .keep-sub { flex: 0 1 auto; padding-inline-end: 0; } .keep-card { padding-inline-end: 44px; } }
+
+/* the rest of a long trip being built behind the route */
+.next-week-bar.is-building { display: block; }
+.next-week-bar.is-building p { margin-bottom: 10px; }
+.nw-progress { height: 6px; border-radius: 999px; background: rgba(245, 239, 227, .12); overflow: hidden; }
+.nw-progress span {
+  display: block; width: 35%; height: 100%; border-radius: inherit;
+  background: linear-gradient(90deg, var(--amber), var(--amber-deep)); animation: nw-slide 1.6s ease-in-out infinite;
 }
+@keyframes nw-slide { 0% { transform: translateX(120%); } 100% { transform: translateX(-320%); } }
+@media (prefers-reduced-motion: reduce) { .nw-progress span { animation: none; width: 100%; opacity: .5; } }
 @media print { .keep-card, .next-week-bar { display: none !important; } }

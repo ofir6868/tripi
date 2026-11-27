@@ -1109,13 +1109,19 @@ router.post('/api/trips/code/:code/plan/decide', authRequired, async (req, res) 
 // past this many days a build writes one week at a time (see the route below)
 const BUILD_WHOLE_MAX = 10;
 const BUILD_WEEK = 7;
+// ...and the first build writes less than a week. The first real long builds (Nov 25-26:
+// 22, 14 and 21 days) took 85, 262 and 178 s for their first seven days — Colombia's
+// places are slow to verify — and the route is what the traveller is waiting for. Five
+// days land sooner; the rest is built from the route itself, behind what is being read
+// (public/js/trip.js buildRest).
+const BUILD_FIRST = 5;
 const partBuiltText = (part, n, days, fill) => {
   const span = part.from === part.to ? `יום ${part.from}` : `ימים ${part.from}–${part.to}`;
   const head = fill
     ? `בניתי גם את ${span} — נוספו ${n} תחנות.`
-    : `בניתי את השבוע הראשון של הטיול — ${n} תחנות ב${span}, מתוך ${days} ימים.`;
+    : `בניתי את ${part.to} הימים הראשונים של הטיול — ${n} תחנות, מתוך ${days} ימים.`;
   const tail = part.more
-    ? ' לכל אחד מהימים שעוד לא נבנו מחכות במסלול שלוש המלצות שמוסיפים בלחיצה — ואפשר גם לבקש ממני כאן לבנות את השבוע הבא.'
+    ? ' את שאר הימים בונים בלחיצה אחת מהמסלול עצמו, בזמן שקוראים את מה שכבר מוכן — ועד אז מחכות בכל יום פנוי שלוש המלצות.'
     : ' עכשיו כל הימים בנויים. עברו על המסלול, וכל מה שלא מתאים אפשר לשנות כאן או ידנית.';
   return head + tail;
 };
@@ -1158,7 +1164,7 @@ router.post('/api/trips/code/:code/plan/build', authRequired, async (req, res) =
       const floor = state.stage === 'done' ? 1 : 3;
       let first = 1;
       if (fill) { while (first <= trip.days && (count.get(first) || 0) >= floor) first++; }
-      if (first <= trip.days) only = { from: first, to: Math.min(trip.days, first + BUILD_WEEK - 1) };
+      if (first <= trip.days) only = { from: first, to: Math.min(trip.days, first + (fill ? BUILD_WEEK : BUILD_FIRST) - 1) };
     }
 
     // the settled facts are the build's clarifying answers; the settled split, when it

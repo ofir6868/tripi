@@ -562,18 +562,18 @@
       document.getElementById('keep-card')?.remove();
       let off = false;
       try { off = sessionStorage.getItem(KEEP_KEY) === '1'; } catch { /* shown again next load */ }
-      if (off || !canEdit || !trip.is_draft || !TRIPMAKER.isGuest() || !items.length) return;
+      if (off || !canEdit || !trip.is_draft || !TRIPMAKER.isGuest() || !tripItems.length) return;
       const card = document.createElement('div');
       card.id = 'keep-card';
       card.className = 'keep-card';
+      // One line, not a card. The first version was a 210-pixel card with two wide buttons;
+      // it was shown eight times in four days, closed twice and never used — it stood in
+      // the middle of a route somebody had just started reading. The offer stays, quietly.
       card.innerHTML = `
-        <button type="button" class="keep-x" aria-label="סגירה">✕</button>
-        <p class="keep-title">שלא ילך לאיבוד 📌</p>
-        <p class="keep-sub">כרגע המסלול שמור רק בדפדפן הזה. שלחו לעצמכם את הקישור, או הירשמו בחינם והוא יחכה לכם בכל מכשיר.</p>
-        <div class="keep-actions">
-          <button type="button" class="btn btn-amber" id="keep-wa">שליחה לעצמי בוואטסאפ</button>
-          <button type="button" class="btn btn-ghost" id="keep-signup">הרשמה בחינם</button>
-        </div>`;
+        <span class="keep-sub">📌 המסלול שמור רק בדפדפן הזה.</span>
+        <button type="button" class="keep-link" id="keep-wa">לשלוח לעצמי בוואטסאפ</button>
+        <button type="button" class="keep-link" id="keep-signup">להירשם ולשמור</button>
+        <button type="button" class="keep-x" aria-label="סגירה">✕</button>`;
       // after the first day in the list; above the calendar when the days are a grid
       const blocks = container.querySelectorAll('.day-block');
       if (blocks.length > 1) blocks[1].parentNode.insertBefore(card, blocks[1]);
@@ -585,7 +585,7 @@
         TRIPMAKER.trackNow?.('keep_whatsapp', { code: trip.share_code });
         const text = `הטיול שלי ב-Tripmaker — ${trip.title}:\n${location.origin}/trip/${trip.share_code}`;
         window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
-        card.querySelector('.keep-sub').textContent = 'בוואטסאפ בוחרים את עצמכם (או מישהו שנוסע איתכם) ושולחים. הקישור פותח את הטיול מהטלפון הזה.';
+        card.querySelector('.keep-sub').textContent = '📌 בוואטסאפ בוחרים את עצמכם ושולחים — הקישור פותח את הטיול מהטלפון הזה.';
       };
       card.querySelector('#keep-signup').onclick = () => {
         TRIPMAKER.track?.('keep_signup', { code: trip.share_code });
@@ -598,30 +598,95 @@
     // here that reads as a build that broke, and the way to the next week is two tabs
     // away in the chat — so the route itself says where it stands and offers the next
     // week in one tap. Only while the trip is still being planned, and only to an editor.
+    // The rest of a long trip is built from here, without leaving the route. The first
+    // version of this button opened the chat and its full-screen "building" overlay for
+    // another two or three minutes; the one traveller who pressed it (Nov 26, 21 days in
+    // Colombia, after waiting 178 s for the first week) left nine seconds later. So the
+    // build now runs behind the page: the bar says which days are being written, the
+    // days appear when they land, and it goes on to the next ones by itself until the
+    // trip is whole. Leaving stops it after the days in flight, and the bar picks up
+    // from wherever it stood.
+    let restRun = null;   // { from, to } while a build is in flight
+    let restNote = '';    // why it stopped, when it did not finish
+    const firstEmptyDay = () => {
+      const has = new Set(tripItems.map((it) => it.day_number));
+      let d = 1;
+      while (d <= trip.days && has.has(d)) d++;
+      return d;
+    };
     function paintNextWeek() {
       let bar = document.getElementById('next-week-bar');
-      const has = new Set(items.map((it) => it.day_number));
-      let first = 1;
-      while (first <= trip.days && has.has(first)) first++;
+      const first = firstEmptyDay();
       const due = canEdit && trip.is_draft && trip.days > 10 && (trip.plan_state || {}).stage === 'done' && first > 1 && first <= trip.days;
       if (!due) { bar?.remove(); return; }
-      const to = Math.min(trip.days, first + 6);
       if (!bar) {
         bar = document.createElement('div');
         bar.id = 'next-week-bar';
         bar.className = 'next-week-bar';
         container.parentNode.insertBefore(bar, container);
       }
-      const span = first === to ? `יום ${first}` : `ימים ${first}–${to}`;
+      bar.classList.toggle('is-building', !!restRun);
+      if (restRun) {
+        const span = restRun.from === restRun.to ? `יום ${restRun.from}` : `ימים ${restRun.from}–${restRun.to}`;
+        bar.innerHTML = `
+          <p><b>ה-AI בונה עכשיו את ${span}…</b> זה לוקח דקה או שתיים. אפשר להמשיך לקרוא — הימים יופיעו כאן לבד.</p>
+          <div class="nw-progress" role="progressbar" aria-label="בניית הימים הבאים"><span></span></div>`;
+        return;
+      }
+      const left = trip.days - first + 1;
       bar.innerHTML = `
-        <p><b>ימים 1–${first - 1} בנויים.</b> בשאר הימים מחכות המלצות שמוסיפים בלחיצה, או שה-AI בונה גם אותם.</p>
-        <button type="button" class="btn btn-amber" id="next-week-btn">✨ לבנות את ${span}</button>`;
-      bar.querySelector('#next-week-btn').onclick = () => {
-        TRIPMAKER.track?.('next_week_tap', { code: trip.share_code, from: first, days: trip.days });
-        try { sessionStorage.setItem('tm_fill_next', trip.share_code); } catch { /* the chat's own chip is still there */ }
-        // the hash is the tab (trip-pages.js): the chat opens, finds the mark, and builds
-        location.hash = '#plan';
-      };
+        <p><b>ימים 1–${first - 1} בנויים.</b> ${restNote ? TRIPMAKER.esc(restNote) : `נשארו עוד ${left} ימים: ה-AI בונה אותם ברקע, בזמן שאתם קוראים.`}</p>
+        <button type="button" class="btn btn-amber" id="next-week-btn">✨ ${restNote ? 'לנסות שוב' : 'לבנות גם את שאר הימים'}</button>`;
+      bar.querySelector('#next-week-btn').onclick = buildRest;
+    }
+    // the request can outlive the hops in front of the server (a proxy cuts at 100 s);
+    // the route keeps going and writes the days, so a lost answer waits for them to show up
+    async function waitForDay(day) {
+      const until = Date.now() + 4 * 60 * 1000;
+      while (Date.now() < until) {
+        await new Promise((ok) => setTimeout(ok, 12000));
+        try {
+          const t = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}`);
+          if ((t.items || []).some((it) => it.day_number === day)) return { items: t.items };
+        } catch { /* the network may still be coming back */ }
+      }
+      return null;
+    }
+    async function buildRest() {
+      if (restRun) return;
+      restNote = '';
+      TRIPMAKER.track?.('next_week_tap', { code: trip.share_code, from: firstEmptyDay(), days: trip.days });
+      for (;;) {
+        const from = firstEmptyDay();
+        if (from > trip.days) break;
+        restRun = { from, to: Math.min(trip.days, from + 6) };
+        paintNextWeek();
+        const t0 = Date.now();
+        let r = null;
+        try {
+          r = await TRIPMAKER.api(`/api/trips/code/${trip.share_code}/plan/build`, { method: 'POST', body: JSON.stringify({ fill: true }) });
+        } catch (err) {
+          if (err && (err.quota || (err.status && !err.relayed))) {
+            restNote = err.quota ? 'הגעתם למכסת הבנייה של היום — אפשר להמשיך מחר, או להוסיף את ההמלצות שבכל יום.' : ((err && err.message) || 'הבנייה נעצרה.');
+          } else {
+            r = await waitForDay(from);
+            if (!r) restNote = 'הבנייה נעצרה באמצע.';
+          }
+        }
+        const seconds = Math.round((Date.now() - t0) / 1000);
+        if (!r) {
+          TRIPMAKER.track?.('rest_build_failed', { code: trip.share_code, from, seconds });
+          break;
+        }
+        TRIPMAKER.track?.('rest_build', { code: trip.share_code, from, to: restRun.to, seconds, days: trip.days });
+        if (r.state) trip.plan_state = r.state;
+        restRun = null;
+        pageCtx.replaceItems(r.items || []);
+        // a build that wrote nothing for its first day would ask for the same days forever
+        if (firstEmptyDay() === from) { restNote = 'הבנייה לא הוסיפה ימים חדשים.'; break; }
+      }
+      restRun = null;
+      paintNextWeek();
     }
 
     // lists longer than 2 days start folded — day 2 fades out into a reveal
